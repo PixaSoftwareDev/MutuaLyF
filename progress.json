@@ -1,0 +1,116 @@
+{
+  "version": "1.5",
+  "last_updated": "2026-05-01T00:00:00Z",
+  "current_stage": "etapa_1",
+  "current_step": "ingest_pipeline_fixed",
+  "overall_status": "etapa_1_verified_running",
+
+  "etapa_1": {
+    "status": "completed",
+    "steps": {
+      "docker_compose": { "status": "completed", "files_created": ["docker-compose.yml", ".env.example", "nginx/nginx.conf", "backend/Dockerfile", "backend/requirements.txt"] },
+      "fastapi_base": { "status": "completed", "files_created": ["backend/main.py", "backend/core/config.py", "backend/core/tenant.py", "backend/api/v1/*.py"] },
+      "auth_jwt": { "status": "completed", "files_created": ["backend/core/security.py", "backend/models/*.py"], "notes": "Roles: super_admin/admin/operator/user. Scopes: full/refresh/widget." },
+      "db_connections": { "status": "completed", "files_created": ["backend/core/database.py"], "notes": "search_path por sesión, sanitización anti-injection." },
+      "migrations": { "status": "completed", "files_created": ["backend/db/alembic.ini", "backend/db/base.py", "backend/db/global_models.py", "backend/db/tenant_models.py", "backend/db/migrations/**", "backend/db/schemas/tenant_schema.sql"] },
+      "tenant_onboarding": { "status": "completed", "files_created": ["scripts/provision_tenant.py"], "notes": "7 pasos transaccionales con rollback." },
+      "ingest_pipeline": { "status": "completed", "files_created": ["backend/services/groq_client.py", "backend/services/chunker.py", "backend/services/quality_gate.py", "backend/services/nlu.py", "backend/services/embeddings.py", "backend/services/neo4j_client.py", "backend/workers/ingest_tasks.py"] },
+      "query_endpoint": { "status": "completed", "files_created": ["backend/services/orchestrator.py", "backend/services/retrieval.py", "backend/services/classifier.py", "backend/api/v1/query.py"] },
+      "intent_classifier": { "status": "completed", "files_created": ["backend/services/classifier.py"] },
+      "widget": { "status": "completed", "files_created": ["frontend/public/widget/widget.js"] },
+      "frontend": {
+        "status": "completed",
+        "files_created": [
+          "frontend/package.json",
+          "frontend/tsconfig.json",
+          "frontend/next.config.ts",
+          "frontend/tailwind.config.ts",
+          "frontend/Dockerfile",
+          "frontend/app/layout.tsx",
+          "frontend/app/page.tsx",
+          "frontend/app/globals.css",
+          "frontend/app/(auth)/login/page.tsx",
+          "frontend/app/(dashboard)/layout.tsx",
+          "frontend/app/(dashboard)/dashboard/page.tsx",
+          "frontend/app/(admin)/layout.tsx",
+          "frontend/app/(admin)/admin/documents/page.tsx",
+          "frontend/app/(admin)/admin/intentions/page.tsx",
+          "frontend/components/providers.tsx",
+          "frontend/components/auth-guard.tsx",
+          "frontend/components/layout/sidebar.tsx",
+          "frontend/components/chat/message-bubble.tsx",
+          "frontend/components/chat/chat-input.tsx",
+          "frontend/components/documents/document-uploader.tsx",
+          "frontend/components/intentions/intention-card.tsx",
+          "frontend/components/ui/*.tsx",
+          "frontend/lib/api.ts",
+          "frontend/lib/store.ts",
+          "frontend/lib/utils.ts"
+        ],
+        "notes": "Type-check limpio. Next.js 14 App Router. React Query + Zustand. Login, chat dashboard, docs panel, intentions panel."
+      },
+      "tests": { "status": "completed", "files_created": ["backend/tests/*.py"], "notes": "55/55 tests pasando." }
+    }
+  },
+
+  "etapa_2": {"status": "not_started"},
+  "etapa_3": {"status": "not_started"},
+
+  "ingest_bugfixes_2026_05_01": {
+    "files_modified": ["api/v1/ingest.py", "services/quality_gate.py", "services/chunker.py", "services/neo4j_client.py", "workers/ingest_tasks.py"],
+    "bugs_fixed": [
+      "MIME type check failed for 'text/plain; charset=utf-8' (Chrome behavior) → strip charset before validation",
+      "Non-coherent chunks marked PENDING (infinite retry) instead of SKIPPED",
+      "Filename not sanitized in temp path → path traversal risk",
+      "embed_batch() and extract_entities() blocking event loop (sync CPU in async context) → run_in_executor",
+      "Quality gate (Groq I/O) and embeddings (CPU) ran sequentially → now concurrent with asyncio.gather",
+      "Neo4j entity writes: N session.run() per chunk → 1 UNWIND per label group",
+      "Neo4j entity writes sequential per chunk → now concurrent with asyncio.gather",
+      "GLiNER label interpolated into Cypher without whitelist → _safe_label() whitelist added",
+      "delete_document opened Neo4j session without database= parameter",
+      "Qdrant collection not auto-created if missing during provisioning → _ensure_qdrant_collection()",
+      "total_chunks reflected pre-filter count → corrected to post-filter",
+      "No per-step timing → timings dict logged at end of every pipeline run"
+    ]
+  },
+
+  "decisions": [
+    {
+      "decision": "bcrypt==4.0.1 en requirements.txt",
+      "reason": "passlib 1.7.4 incompatible con bcrypt 4.1+.",
+      "date": "2026-04-30"
+    },
+    {
+      "decision": "Umbral de complejidad: 25 palabras (no 40)",
+      "reason": "El español tiene frases más densas que el inglés.",
+      "date": "2026-04-30"
+    },
+    {
+      "decision": "JWT tiene prioridad sobre X-Tenant-ID header en middleware",
+      "reason": "Evita cross-tenant por header spoofing.",
+      "date": "2026-04-30"
+    },
+    {
+      "decision": "@radix-ui/react-badge no existe como paquete NPM",
+      "reason": "Badge es un componente CVA puro en ShadCN, no usa Radix. Eliminado del package.json.",
+      "date": "2026-04-30"
+    }
+  ],
+
+  "blockers": [],
+  "smoke_tests": {
+    "status": "13/13 passing",
+    "date": "2026-04-30",
+    "url": "http://localhost",
+    "notes": "Stack corriendo en dev. Demo tenant: admin@demo.local / demo1234!"
+  },
+
+  "environment": {
+    "python_version": "3.10 (host) / 3.11 (Docker target)",
+    "node_version": "25 (host) / 20 (Docker target)",
+    "docker_compose_version": "v2",
+    "os": "Ubuntu 22.04"
+  },
+
+  "next_step": "Etapa 2: Observabilidad (Prometheus + Grafana + Loki), panel de intenciones en frontend, HDBSCAN clustering nocturno, SSO OAuth 2.0."
+}

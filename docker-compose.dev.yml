@@ -1,0 +1,47 @@
+version: "3.9"
+
+# Dev overrides — use with:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+
+services:
+
+  # Expose backend directly for local curl / Postman
+  backend:
+    ports:
+      - "127.0.0.1:8000:8000"
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    environment:
+      ENVIRONMENT: development
+      LOG_LEVEL: DEBUG
+
+  # Expose frontend directly
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost
+      NODE_ENV: development
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+
+  celery_worker:
+    command: celery -A workers.celery_app worker --loglevel=debug --concurrency=2 -Q ingest,clustering,training,default
+
+  # Use HTTP-only nginx in dev (no certs needed)
+  nginx:
+    volumes:
+      - ./nginx/nginx.dev.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "80:80"
+    # Remove the 443 port binding from prod config
+    # (override replaces the entire ports list)
+
+  # Skip pgbackrest in dev — too complex to set up without a real PG standby
+  pgbackrest:
+    profiles:
+      - backup

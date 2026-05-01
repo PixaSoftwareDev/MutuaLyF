@@ -1,0 +1,253 @@
+version: "3.9"
+
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  # ─── Databases ────────────────────────────────────────────────────────────────
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: ia_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - pgbackrest_data:/var/lib/pgbackrest
+      - ./backend/db/init:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "127.0.0.1:5433:5432"
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *default-logging
+
+  neo4j:
+    image: neo4j:5.18-community
+    container_name: ia_neo4j
+    restart: unless-stopped
+    environment:
+      NEO4J_AUTH: ${NEO4J_USER}/${NEO4J_PASSWORD}
+      NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_dbms_security_procedures_unrestricted: apoc.*
+      NEO4J_server_memory_heap_initial__size: 512m
+      NEO4J_server_memory_heap_max__size: 1G
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+    ports:
+      - "127.0.0.1:7474:7474"
+      - "127.0.0.1:7687:7687"
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/7474' 2>/dev/null"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+    logging: *default-logging
+
+  qdrant:
+    image: qdrant/qdrant:v1.9.2
+    container_name: ia_qdrant
+    restart: unless-stopped
+    volumes:
+      - qdrant_data:/qdrant/storage
+    ports:
+      - "127.0.0.1:6333:6333"
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/6333' 2>/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *default-logging
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: ia_redis
+    restart: unless-stopped
+    command: redis-server --maxmemory 512mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    ports:
+      - "127.0.0.1:6379:6379"
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *default-logging
+
+  # ─── Backend ──────────────────────────────────────────────────────────────────
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ia_backend
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./backend:/app
+      - models_data:/app/ml_artifacts
+      - uploads_data:/tmp/ia_ingest
+    depends_on:
+      postgres:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 4G
+
+  celery_worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ia_celery_worker
+    restart: unless-stopped
+    command: celery -A workers.celery_app worker --loglevel=info --concurrency=4 -Q ingest,clustering,training,default
+    env_file: .env
+    environment:
+      PYTHONPATH: /app
+    volumes:
+      - ./backend:/app
+      - models_data:/app/ml_artifacts
+      - uploads_data:/tmp/ia_ingest
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - internal
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 6G
+
+  celery_beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ia_celery_beat
+    restart: unless-stopped
+    command: celery -A workers.celery_app beat --loglevel=info
+    env_file: .env
+    environment:
+      PYTHONPATH: /app
+    volumes:
+      - ./backend:/app
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - internal
+    logging: *default-logging
+
+  # ─── Frontend ─────────────────────────────────────────────────────────────────
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: ia_frontend
+    restart: unless-stopped
+    env_file: .env
+    networks:
+      - internal
+    depends_on:
+      - backend
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1G
+
+  # ─── Reverse proxy ────────────────────────────────────────────────────────────
+
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: ia_nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+    depends_on:
+      - backend
+      - frontend
+    networks:
+      - internal
+    logging: *default-logging
+
+  # ─── Backup ───────────────────────────────────────────────────────────────────
+
+  pgbackrest:
+    image: pgbackrest/pgbackrest:2.51
+    container_name: ia_pgbackrest
+    restart: unless-stopped
+    environment:
+      PGBACKREST_STANZA: main
+      PGBACKREST_PG1_PATH: /var/lib/postgresql/data
+      PGBACKREST_REPO1_PATH: /var/lib/pgbackrest
+      PGBACKREST_REPO1_RETENTION_FULL: 7
+      PGBACKREST_LOG_LEVEL_CONSOLE: info
+    volumes:
+      - postgres_data:/var/lib/postgresql/data:ro
+      - pgbackrest_data:/var/lib/pgbackrest
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - internal
+    logging: *default-logging
+
+volumes:
+  postgres_data:
+  pgbackrest_data:
+  neo4j_data:
+  neo4j_logs:
+  qdrant_data:
+  redis_data:
+  models_data:
+  uploads_data:
+
+networks:
+  internal:
+    driver: bridge

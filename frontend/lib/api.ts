@@ -1,0 +1,184 @@
+/**
+ * Typed API client for the IA Inteligent backend.
+ * All requests include the Authorization header from the auth store.
+ */
+
+import axios, { AxiosError, type AxiosInstance } from "axios";
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
+
+export const apiClient: AxiosInstance = axios.create({
+  baseURL: `${API_URL}/api/v1`,
+  headers: { "Content-Type": "application/json" },
+  timeout: 15_000,
+});
+
+// Attach JWT from localStorage on every request
+apiClient.interceptors.request.use((config) => {
+  if (typeof window !== "undefined") {
+    const token = localStorage.getItem("access_token");
+    if (token) config.headers.Authorization = `Bearer ${token}`;
+    const tenantId = localStorage.getItem("tenant_id");
+    if (tenantId) config.headers["X-Tenant-ID"] = tenantId;
+  }
+  return config;
+});
+
+// Redirect to /login on 401
+apiClient.interceptors.response.use(
+  (res) => res,
+  (err: AxiosError) => {
+    if (err.response?.status === 401 && typeof window !== "undefined") {
+      localStorage.removeItem("access_token");
+      window.location.href = "/login";
+    }
+    return Promise.reject(err);
+  }
+);
+
+// ── Types ──────────────────────────────────────────────────────────────────────
+
+export interface LoginResponse {
+  access_token: string;
+  token_type: string;
+  expires_in: number;
+}
+
+export interface SourceChunk {
+  chunk_id: string;
+  document_id: string;
+  document_title: string;
+  content_excerpt: string;
+  score: number;
+}
+
+export interface QueryResponse {
+  answer: string;
+  sources: SourceChunk[];
+  intent_label: string | null;
+  intent_confidence: number | null;
+  from_cache: boolean;
+  latency_ms: number;
+}
+
+export interface DocumentResponse {
+  id: string;
+  title: string;
+  status: "pending" | "processing" | "ready" | "failed";
+  chunk_count: number;
+  quality_gate_status: "pending" | "passed" | "skipped";
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DocumentIngestResponse {
+  document_id: string;
+  status: string;
+  message: string;
+}
+
+export interface ChunkResponse {
+  id: string;
+  chunk_index: number;
+  total_chunks: number;
+  text: string;
+  quality_gate_status: "pending" | "passed" | "skipped";
+}
+
+export interface IntentionResponse {
+  intentions: Array<{
+    id: string;
+    label: string;
+    description: string | null;
+    example_count: number;
+    auto_learned_count: number;
+    is_active: boolean;
+    updated_at: string;
+  }>;
+  pending_review: Array<{
+    id: string;
+    label: string;
+    example_count: number;
+  }>;
+  total: number;
+}
+
+export interface WidgetTokenResponse {
+  widget_token: string;
+  expires_in_days: number;
+  tenant_id: string;
+}
+
+// ── API functions ──────────────────────────────────────────────────────────────
+
+export const api = {
+  auth: {
+    login: async (username: string, password: string, tenantId: string): Promise<LoginResponse> => {
+      const form = new URLSearchParams();
+      form.append("username", username);
+      form.append("password", password);
+      const { data } = await apiClient.post<LoginResponse>("/auth/login", form, {
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "X-Tenant-ID": tenantId,
+        },
+      });
+      return data;
+    },
+    logout: async () => {
+      await apiClient.post("/auth/logout");
+      localStorage.removeItem("access_token");
+      localStorage.removeItem("tenant_id");
+    },
+  },
+
+  query: {
+    ask: async (question: string, language = "es"): Promise<QueryResponse> => {
+      const { data } = await apiClient.post<QueryResponse>("/query", { question, language });
+      return data;
+    },
+  },
+
+  documents: {
+    list: async (): Promise<DocumentResponse[]> => {
+      const { data } = await apiClient.get<DocumentResponse[]>("/documents");
+      return data;
+    },
+    upload: async (file: File): Promise<DocumentIngestResponse> => {
+      const form = new FormData();
+      form.append("file", file);
+      const { data } = await apiClient.post<DocumentIngestResponse>("/ingest", form, {
+        headers: { "Content-Type": "multipart/form-data" },
+        timeout: 60_000,
+      });
+      return data;
+    },
+    chunks: async (documentId: string): Promise<ChunkResponse[]> => {
+      const { data } = await apiClient.get<ChunkResponse[]>(`/documents/${documentId}/chunks`);
+      return data;
+    },
+    delete: async (documentId: string): Promise<void> => {
+      await apiClient.delete(`/documents/${documentId}`);
+    },
+  },
+
+  intentions: {
+    list: async (): Promise<IntentionResponse> => {
+      const { data } = await apiClient.get<IntentionResponse>("/intentions");
+      return data;
+    },
+    approve: async (intentionId: string) => {
+      await apiClient.post(`/intentions/${intentionId}/approve`);
+    },
+    reject: async (intentionId: string) => {
+      await apiClient.post(`/intentions/${intentionId}/reject`);
+    },
+  },
+
+  tenants: {
+    generateWidgetToken: async (tenantId: string): Promise<WidgetTokenResponse> => {
+      const { data } = await apiClient.post<WidgetTokenResponse>(`/tenants/${tenantId}/widget-token`);
+      return data;
+    },
+  },
+};
