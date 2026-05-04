@@ -15,17 +15,23 @@ logger = logging.getLogger(__name__)
 TENANT_ID_HEADER = "X-Tenant-ID"
 REQUEST_TENANT_KEY = "tenant_id"
 
-# Paths that don't require tenant resolution (auth, health, observability)
+# Paths that don't require tenant resolution (auth, health, observability, SSO)
 _TENANT_EXEMPT_PATHS = {
     "/health",
     "/metrics",
     "/api/v1/auth/login",
     "/api/v1/auth/refresh",
     "/api/v1/auth/logout",
+    "/api/v1/auth/sso/providers",
     "/docs",
     "/openapi.json",
     "/redoc",
 }
+
+# Path prefixes exempt from tenant resolution (SSO callbacks carry tenant in state)
+_TENANT_EXEMPT_PREFIXES = (
+    "/api/v1/auth/sso/",
+)
 
 
 class TenantMiddleware(BaseHTTPMiddleware):
@@ -39,7 +45,12 @@ class TenantMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         # Let CORS middleware handle preflight requests unobstructed
-        if request.method == "OPTIONS" or request.url.path in _TENANT_EXEMPT_PATHS:
+        path = request.url.path
+        if (
+            request.method == "OPTIONS"
+            or path in _TENANT_EXEMPT_PATHS
+            or path.startswith(_TENANT_EXEMPT_PREFIXES)
+        ):
             return await call_next(request)
 
         tenant_id = (

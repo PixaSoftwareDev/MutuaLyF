@@ -117,6 +117,31 @@ class Settings(BaseSettings):
     # ── Rate limiting ─────────────────────────────────────────────────────────
     rate_limit_requests_per_minute: int = 60
 
+    # ── SSO / OAuth 2.0 ───────────────────────────────────────────────────────
+    # Google Workspace
+    google_client_id: str = ""
+    google_client_secret: str = ""
+
+    # Microsoft Azure AD
+    azure_client_id: str = ""
+    azure_client_secret: str = ""
+    azure_tenant_id: str = "common"  # 'common' = any Azure AD tenant
+
+    # Public base URL — used to build OAuth redirect_uri
+    # In dev: http://localhost:8000 | In prod: https://api.tudominio.com
+    public_api_url: str = "http://localhost:8000"
+
+    # Frontend URL — where the backend redirects after successful SSO
+    public_frontend_url: str = "http://localhost:3000"
+
+    @property
+    def google_enabled(self) -> bool:
+        return bool(self.google_client_id and self.google_client_secret)
+
+    @property
+    def azure_enabled(self) -> bool:
+        return bool(self.azure_client_id and self.azure_client_secret)
+
     @field_validator("groq_model_fast", "groq_model_reasoning")
     @classmethod
     def validate_groq_model_id(cls, value: str) -> str:
