@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/lib/store";
+import { Sidebar } from "@/components/layout/sidebar";
 
 export default function SuperAdminLayout({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, userRole } = useAuthStore();
@@ -14,5 +15,11 @@ export default function SuperAdminLayout({ children }: { children: React.ReactNo
   }, [isAuthenticated, userRole, router]);
 
   if (!isAuthenticated || userRole !== "super_admin") return null;
-  return <>{children}</>;
+
+  return (
+    <div className="flex h-screen overflow-hidden bg-background">
+      <Sidebar />
+      <main className="flex-1 overflow-auto">{children}</main>
+    </div>
+  );
 }
