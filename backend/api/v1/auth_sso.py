@@ -78,6 +78,17 @@ def _redirect_uri(provider: Provider) -> str:
     return f"{settings.public_api_url}/api/v1/auth/sso/{provider}/callback"
 
 
+# ── Providers availability endpoint — MUST be before /{provider} route ────────
+
+@router.get("/auth/sso/providers")
+async def list_providers():
+    """Return which SSO providers are configured for this deployment."""
+    return {
+        "google": settings.google_enabled,
+        "azure": settings.azure_enabled,
+    }
+
+
 # ── Step 1: Initiate OAuth flow ───────────────────────────────────────────────
 
 @router.get("/auth/sso/{provider}")
@@ -188,17 +199,6 @@ async def sso_callback(provider: Provider, code: str, state: str, request: Reque
     )
     logger.info("sso_success provider=%s tenant=%s email=%s role=%s", provider, tenant_id, email, role)
     return RedirectResponse(redirect_url)
-
-
-# ── Providers availability endpoint ──────────────────────────────────────────
-
-@router.get("/auth/sso/providers")
-async def list_providers():
-    """Return which SSO providers are configured for this deployment."""
-    return {
-        "google": settings.google_enabled,
-        "azure": settings.azure_enabled,
-    }
 
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
