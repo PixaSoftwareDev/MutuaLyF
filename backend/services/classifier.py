@@ -35,7 +35,10 @@ async def classify_intent(query: str, tenant_id: str) -> IntentResult:
     Returns an IntentResult with the closest matching label and confidence.
     If no intents exist yet or Qdrant fails, returns band='unknown'.
     """
-    vector = embed_query(query)
+    import asyncio
+    loop = asyncio.get_running_loop()
+    # CPU-bound — must not block the event loop
+    vector = await loop.run_in_executor(None, embed_query, query)
     if vector is None:
         return IntentResult(label=None, confidence=0.0, band=_BAND_UNKNOWN)
 
@@ -43,7 +46,6 @@ async def classify_intent(query: str, tenant_id: str) -> IntentResult:
     qdrant = get_qdrant_client()
 
     try:
-        import asyncio
         async with asyncio.timeout(settings.classifier_timeout_ms / 1000):
             results = await qdrant.search(
                 collection_name=collection,

@@ -81,8 +81,6 @@ services:
     command: redis-server --maxmemory 512mb --maxmemory-policy allkeys-lru
     volumes:
       - redis_data:/data
-    ports:
-      - "127.0.0.1:6379:6379"
     networks:
       - internal
     healthcheck:
@@ -103,7 +101,7 @@ services:
     env_file: .env
     volumes:
       - ./backend:/app
-      - models_data:/app/ml_artifacts
+      - models_data:/root/.cache/huggingface
       - uploads_data:/tmp/ia_ingest
     depends_on:
       postgres:
@@ -140,7 +138,7 @@ services:
       PYTHONPATH: /app
     volumes:
       - ./backend:/app
-      - models_data:/app/ml_artifacts
+      - models_data:/root/.cache/huggingface
       - uploads_data:/tmp/ia_ingest
     depends_on:
       redis:

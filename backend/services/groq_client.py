@@ -109,9 +109,13 @@ async def complete_quality_gate(chunk_text: str, tenant_id: str) -> dict[str, An
     """
     # Input is placed in a variable — never interpolated directly into the system prompt
     system_prompt = (
-        "You are a document quality evaluator. "
-        "Your task is to determine if the provided text chunk is factually coherent, "
-        "self-contained enough to be useful, and not just metadata or boilerplate. "
+        "You are a document quality evaluator for institutional knowledge bases. "
+        "Determine if the provided text chunk contains useful information that could answer "
+        "questions from employees or members of an organization. "
+        "Mark as coherent (true) if the chunk contains ANY of: policies, procedures, contact info, "
+        "names and roles, schedules, benefits, or operational guidelines — even if it's part of a larger document. "
+        "Mark as incoherent (false) ONLY if the chunk is pure noise: page numbers, repeated headers, "
+        "garbled text, or completely empty content. "
         "Respond ONLY with valid JSON: {\"is_coherent\": true/false, \"reason\": \"one sentence\"}."
     )
     user_content = chunk_text[:2000]  # Truncate to avoid token overflow
@@ -137,5 +141,6 @@ async def complete_quality_gate(chunk_text: str, tenant_id: str) -> dict[str, An
         logger.warning("quality_gate_groq_failure tenant_id=%s error=%s", tenant_id, exc)
         return {"is_coherent": None, "reason": None, "error": str(exc)}
     except Exception as exc:
+        # JSON parse failed — treat as Groq-unavailable so quality_gate marks it PENDING and retries
         logger.warning("quality_gate_parse_failure tenant_id=%s error=%s", tenant_id, exc)
-        return {"is_coherent": True, "reason": "parse_error_defaulting_to_pass", "error": str(exc)}
+        return {"is_coherent": None, "reason": None, "error": str(exc)}

@@ -57,7 +57,10 @@ async def retrieve(
     Returns:
         List of RetrievedChunk ordered by relevance (best first).
     """
-    query_vector = embed_query(query)
+    loop = asyncio.get_running_loop()
+
+    # CPU-bound — must not block the event loop
+    query_vector = await loop.run_in_executor(None, embed_query, query)
     if query_vector is None:
         logger.error("retrieve_embed_failed query_len=%d", len(query))
         return []
@@ -95,7 +98,8 @@ async def retrieve(
         for point in results
     ]
 
-    reranked = _rerank(query, chunks, top_k=rerank_top_k)
+    # CPU-bound — run in executor to avoid blocking the event loop
+    reranked = await loop.run_in_executor(None, _rerank, query, chunks, rerank_top_k)
     logger.debug("retrieve_done tenant_id=%s candidates=%d reranked=%d", tenant_id, len(chunks), len(reranked))
     return reranked
 

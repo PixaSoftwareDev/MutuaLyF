@@ -30,7 +30,12 @@ class TestComplexityClassifier:
         assert model == settings.groq_model_reasoning
 
     def test_model_ids_never_forbidden(self):
-        forbidden = {"llama-3.1-405b", "llama-3.1-70b-versatile", "bge-large-en-v1.5"}
+        forbidden = {
+            "llama-3.1-405b",
+            "llama-3.1-70b-versatile",
+            "bge-large-en-v1.5",
+            "meta-llama/llama-4-maverick-17b-128e-instruct",
+        }
         assert settings.groq_model_fast not in forbidden
         assert settings.groq_model_reasoning not in forbidden
 
@@ -63,6 +68,39 @@ class TestOrchestratorInputSanitization:
         h1 = _hash_question("¿Qué es ESTO?")
         h2 = _hash_question("¿qué es esto?")
         assert h1 == h2
+
+
+class TestRetrieval:
+    """Verify retrieval service behavior."""
+
+    @pytest.mark.asyncio
+    async def test_retrieve_returns_empty_on_embed_failure(self):
+        with patch("services.retrieval.embed_query", return_value=None):
+            from services.retrieval import retrieve
+            result = await retrieve("¿Quién maneja RRHH?", "tenant_a")
+            assert result == []
+
+    @pytest.mark.asyncio
+    async def test_retrieve_returns_empty_on_qdrant_timeout(self):
+        import asyncio
+        with patch("services.retrieval.embed_query", return_value=[0.1] * 1024):
+            with patch("services.retrieval.get_qdrant_client") as mock_qdrant:
+                mock_qdrant.return_value.search = AsyncMock(side_effect=asyncio.TimeoutError)
+                from services.retrieval import retrieve
+                result = await retrieve("test", "tenant_a")
+                assert result == []
+
+    def test_rerank_falls_back_to_qdrant_scores_when_reranker_unavailable(self):
+        from services.retrieval import _rerank, RetrievedChunk
+        chunks = [
+            RetrievedChunk("c1", "d1", "text1", 0.9, "passed", {}),
+            RetrievedChunk("c2", "d2", "text2", 0.8, "passed", {}),
+            RetrievedChunk("c3", "d3", "text3", 0.7, "passed", {}),
+        ]
+        with patch("services.retrieval._load_reranker", return_value=None):
+            result = _rerank("query", chunks, top_k=2)
+            assert len(result) == 2
+            assert result[0].chunk_id == "c1"
 
 
 class TestCacheKeyIsolation:

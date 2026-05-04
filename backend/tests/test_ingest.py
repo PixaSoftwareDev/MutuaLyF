@@ -98,14 +98,26 @@ class TestQualityGate:
             assert result.is_coherent is True  # Optimistic default
 
     @pytest.mark.asyncio
-    async def test_validate_chunk_pending_on_incoherent(self, sample_chunk):
+    async def test_validate_chunk_skipped_on_incoherent(self, sample_chunk):
         with patch(
             "services.quality_gate.complete_quality_gate",
             new=AsyncMock(return_value={"is_coherent": False, "reason": "boilerplate", "error": None}),
         ):
             result = await validate_chunk(sample_chunk)
-            assert result.status == QualityStatus.PENDING
+            # Groq responded successfully and said the chunk is incoherent → SKIPPED (no retry)
+            assert result.status == QualityStatus.SKIPPED
             assert result.is_coherent is False
+
+    @pytest.mark.asyncio
+    async def test_validate_chunk_pending_on_parse_error(self, sample_chunk):
+        """Groq JSON parse failure must produce PENDING, not silently pass the chunk."""
+        with patch(
+            "services.quality_gate.complete_quality_gate",
+            new=AsyncMock(return_value={"is_coherent": None, "reason": None, "error": "JSONDecodeError"}),
+        ):
+            result = await validate_chunk(sample_chunk)
+            assert result.status == QualityStatus.PENDING
+            assert result.error is not None
 
     @pytest.mark.asyncio
     async def test_batch_validation(self, sample_chunk):

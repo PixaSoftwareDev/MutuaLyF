@@ -9,7 +9,9 @@ services:
   backend:
     ports:
       - "127.0.0.1:8000:8000"
-    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    # Inline entrypoint so CRLF en Windows no rompe el script
+    entrypoint: ["sh", "-c", "python -m alembic -c db/alembic.ini upgrade head && exec uvicorn main:app --host 0.0.0.0 --port 8000 --reload"]
+    command: []
     environment:
       ENVIRONMENT: development
       LOG_LEVEL: DEBUG
@@ -30,7 +32,12 @@ services:
       - /app/.next
 
   celery_worker:
-    command: celery -A workers.celery_app worker --loglevel=debug --concurrency=2 -Q ingest,clustering,training,default
+    entrypoint: ["sh", "-c", "exec celery -A workers.celery_app worker --loglevel=debug --concurrency=1 -Q ingest,clustering,training,default"]
+    command: []
+
+  celery_beat:
+    entrypoint: ["sh", "-c", "exec celery -A workers.celery_app beat --loglevel=info"]
+    command: []
 
   # Use HTTP-only nginx in dev (no certs needed)
   nginx:

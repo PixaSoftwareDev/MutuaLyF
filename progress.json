@@ -1,9 +1,9 @@
 {
-  "version": "1.5",
-  "last_updated": "2026-05-01T00:00:00Z",
-  "current_stage": "etapa_1",
-  "current_step": "ingest_pipeline_fixed",
-  "overall_status": "etapa_1_verified_running",
+  "version": "1.6",
+  "last_updated": "2026-05-04T00:00:00Z",
+  "current_stage": "etapa_2",
+  "current_step": "pending",
+  "overall_status": "etapa_1_validated_etapa_2_ready",
 
   "etapa_1": {
     "status": "completed",
@@ -53,7 +53,7 @@
     }
   },
 
-  "etapa_2": {"status": "not_started"},
+  "etapa_2": {"status": "ready_to_start"},
   "etapa_3": {"status": "not_started"},
 
   "ingest_bugfixes_2026_05_01": {
@@ -110,6 +110,34 @@
     "node_version": "25 (host) / 20 (Docker target)",
     "docker_compose_version": "v2",
     "os": "Ubuntu 22.04"
+  },
+
+  "session_2026_05_04": {
+    "bugs_fixed": [
+      "test_validate_chunk_pending_on_incoherent: assertion PENDING→SKIPPED corregida",
+      "groq_client parse failure: is_coherent=True→None para activar retry correcto",
+      "retrieval.py embed_query + _rerank bloqueaban event loop → run_in_executor",
+      "classifier.py embed_query bloqueaba event loop → run_in_executor",
+      "orchestrator.py get_event_loop deprecated → get_running_loop",
+      "Next.js 14.2.5 CVE → 14.2.35",
+      "llama-4-maverick no existe en API key → llama-4-scout-17b-16e-instruct",
+      "quality gate prompt demasiado estricto → acepta docs institucionales",
+      "NEO4J_TIMEOUT_MS 500→2000ms",
+      "models_data volume apunta a /root/.cache/huggingface (persistencia real)",
+      "main.py lifespan: warmup de e5-large + reranker en startup",
+      "docker-compose: Redis port binding eliminado (conflicto con otros proyectos)",
+      "entrypoint.sh CRLF en Windows → inline entrypoint en dev compose",
+      "celery_worker concurrency 4→1 en dev (OOM con modelos ML grandes)"
+    ],
+    "validation": {
+      "tests": "59/59 passing",
+      "ingest": "202 Accepted en <100ms, pipeline 14-32s segun warm state",
+      "quality_gate": "passed en docs institucionales",
+      "groq_fast": "llama-3.3-70b-versatile: respuestas correctas",
+      "groq_reasoning": "llama-4-scout-17b: respuestas correctas en queries complejas",
+      "cache": "30ms en hit, 63ms tipico",
+      "multitenancy": "JWT isolation verificado, cross-tenant tests passing"
+    }
   },
 
   "next_step": "Etapa 2: Observabilidad (Prometheus + Grafana + Loki), panel de intenciones en frontend, HDBSCAN clustering nocturno, SSO OAuth 2.0."

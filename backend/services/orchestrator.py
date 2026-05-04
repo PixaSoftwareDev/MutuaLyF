@@ -64,7 +64,7 @@ async def handle_query(
 
     intent_task = asyncio.create_task(classify_intent(question, tenant_id))
     # NLU runs in a thread to avoid blocking the event loop (CPU-bound)
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     entity_task = loop.run_in_executor(None, extract_entities, question)
 
     intent_result, entities = await asyncio.gather(intent_task, entity_task, return_exceptions=True)

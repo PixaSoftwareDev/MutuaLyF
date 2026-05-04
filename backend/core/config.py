@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     # ── Groq ──────────────────────────────────────────────────────────────────
     groq_api_key: str
     groq_model_fast: str = "llama-3.3-70b-versatile"
-    groq_model_reasoning: str = "meta-llama/llama-4-maverick-17b-128e-instruct"
+    groq_model_reasoning: str = "meta-llama/llama-4-scout-17b-16e-instruct"
 
     # ── PostgreSQL ─────────────────────────────────────────────────────────────
     postgres_host: str = "postgres"
@@ -121,10 +121,17 @@ class Settings(BaseSettings):
     @classmethod
     def validate_groq_model_id(cls, value: str) -> str:
         """Guard against forbidden model IDs that don't exist in Groq's API."""
-        forbidden = {"llama-3.1-405b", "llama-3.1-70b-versatile", "bge-large-en-v1.5"}
+        # llama-3.1-405b never existed on Groq. llama-3.1-70b-versatile retired Jan 2025.
+        # llama-4-maverick not available on free/dev tier — use llama-4-scout instead.
+        forbidden = {
+            "llama-3.1-405b",
+            "llama-3.1-70b-versatile",
+            "bge-large-en-v1.5",
+            "meta-llama/llama-4-maverick-17b-128e-instruct",
+        }
         if value in forbidden:
             raise ValueError(
-                f"Model ID '{value}' is forbidden. "
+                f"Model ID '{value}' is forbidden or unavailable. "
                 "Use GROQ_MODEL_FAST / GROQ_MODEL_REASONING env vars."
             )
         return value

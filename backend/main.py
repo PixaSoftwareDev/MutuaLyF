@@ -25,6 +25,23 @@ logger = structlog.get_logger(__name__)
 async def lifespan(app: FastAPI):
     logger.info("startup_begin", environment=settings.environment)
     await connect_all()
+
+    # Pre-warm ML models in a thread so the first query doesn't pay cold-load cost.
+    # multilingual-e5-large: ~5s from volume | bge-reranker-large: ~15s from volume
+    import asyncio
+    loop = asyncio.get_running_loop()
+    try:
+        from services.embeddings import _load_model as _warm_embed
+        from services.retrieval import _load_reranker
+        logger.info("model_warmup_start")
+        await asyncio.gather(
+            loop.run_in_executor(None, _warm_embed),
+            loop.run_in_executor(None, _load_reranker),
+        )
+        logger.info("model_warmup_complete")
+    except Exception as exc:
+        logger.warning("model_warmup_failed", error=str(exc))
+
     logger.info("startup_complete")
     yield
     logger.info("shutdown_begin")
