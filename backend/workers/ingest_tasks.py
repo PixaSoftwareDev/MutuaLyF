@@ -131,12 +131,23 @@ async def _run_ingest_pipeline(
         await _update_document_status(document_id, tenant_id, "failed")
         return {"chunk_count": 0, "status": "failed", "timings": timings}
 
-    # ── 2. Chunk (CPU-bound) ──────────────────────────────────────────────────
+    # ── 2. Classify document type + Chunk (CPU-bound) ────────────────────────
     t = time.monotonic()
-    chunks = await loop.run_in_executor(
-        None, chunk_document, text, document_id, tenant_id,
-        {"filename": filename, "mime_type": mime_type, "document_id": document_id},
-    )
+    from services.doc_classifier import classify_document
+
+    def _classify_and_chunk():
+        classification = classify_document(text)
+        logger.info(
+            "doc_classified document_id=%s type=%s strategy=%s confidence=%.2f",
+            document_id, classification.doc_type, classification.chunking_strategy, classification.confidence,
+        )
+        return chunk_document(
+            text, document_id, tenant_id,
+            {"filename": filename, "mime_type": mime_type, "document_id": document_id},
+            classification=classification,
+        )
+
+    chunks = await loop.run_in_executor(None, _classify_and_chunk)
     timings["chunk_ms"] = _ms(t)
 
     if not chunks:
