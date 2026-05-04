@@ -53,15 +53,17 @@ CREATE INDEX IF NOT EXISTS ix_consultas_log_created ON consultas_log (created_at
 
 -- Validated intentions discovered from user queries
 CREATE TABLE IF NOT EXISTS intenciones (
-    id                UUID    PRIMARY KEY DEFAULT gen_random_uuid(),
-    label             VARCHAR(200) NOT NULL UNIQUE,
-    description       TEXT,
-    example_count     INTEGER      NOT NULL DEFAULT 0,
-    auto_learned_count INTEGER     NOT NULL DEFAULT 0,
-    is_active         BOOLEAN      NOT NULL DEFAULT TRUE,
-    model_version     VARCHAR(50),
-    created_at        TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-    updated_at        TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+    id                  UUID    PRIMARY KEY DEFAULT gen_random_uuid(),
+    label               VARCHAR(200) NOT NULL UNIQUE,
+    description         TEXT,
+    example_count       INTEGER      NOT NULL DEFAULT 0,
+    auto_learned_count  INTEGER      NOT NULL DEFAULT 0,
+    is_active           BOOLEAN      NOT NULL DEFAULT TRUE,
+    model_version       VARCHAR(50),            -- current active Qdrant version_id
+    prev_model_version  VARCHAR(50),            -- previous version for rollback
+    last_accuracy       FLOAT,                  -- accuracy on last evaluation
+    created_at          TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
 
 -- Intention examples (labeled queries used for classification training)
@@ -69,6 +71,8 @@ CREATE TABLE IF NOT EXISTS intencion_ejemplos (
     id              UUID    PRIMARY KEY DEFAULT gen_random_uuid(),
     intencion_id    UUID    NOT NULL REFERENCES intenciones(id) ON DELETE CASCADE,
     question_hash   VARCHAR(64) NOT NULL,
+    question_text   VARCHAR(500),           -- stored for retraining without consultas_log join
+    version_id      VARCHAR(50),            -- training run that introduced this example
     is_auto_learned BOOLEAN     NOT NULL DEFAULT FALSE,
     is_approved     BOOLEAN     NOT NULL DEFAULT FALSE,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()

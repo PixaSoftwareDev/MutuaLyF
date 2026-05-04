@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Zap, Loader2, RefreshCw, Plus, Search, Play } from "lucide-react";
+import { Zap, Loader2, RefreshCw, Plus, Search, Play, BrainCircuit } from "lucide-react";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -57,6 +57,10 @@ export default function IntentionsPage() {
     onSuccess: () => {
       setTimeout(() => queryClient.invalidateQueries({ queryKey: ["intentions"] }), 3000);
     },
+  });
+
+  const retrainMutation = useMutation({
+    mutationFn: api.intentions.triggerRetrain,
   });
 
   const createMutation = useMutation({
@@ -115,6 +119,18 @@ export default function IntentionsPage() {
               ? <Loader2 className="h-4 w-4 mr-1 animate-spin" />
               : <Play className="h-4 w-4 mr-1" />}
             Detectar
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => retrainMutation.mutate()}
+            disabled={retrainMutation.isPending}
+            title="Reentrenar clasificador con los ejemplos aprobados (con rollback automático si baja la precisión)"
+          >
+            {retrainMutation.isPending
+              ? <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+              : <BrainCircuit className="h-4 w-4 mr-1" />}
+            Reentrenar
           </Button>
           <Button size="sm" onClick={() => setShowCreate(true)}>
             <Plus className="h-4 w-4 mr-1" />

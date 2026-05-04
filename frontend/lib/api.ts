@@ -198,6 +198,14 @@ export const api = {
       const { data } = await apiClient.post("/intentions/cluster");
       return data;
     },
+    triggerRetrain: async () => {
+      const { data } = await apiClient.post("/intentions/retrain");
+      return data;
+    },
+    trainingStatus: async () => {
+      const { data } = await apiClient.get("/intentions/training/status");
+      return data as { intentions: Array<{ label: string; model_version: string | null; last_accuracy: number | null; example_count: number }> };
+    },
   },
 
   tenants: {

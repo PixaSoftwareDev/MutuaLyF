@@ -241,6 +241,14 @@ async def approve_intention(
         label = row[0]
 
     logger.info("intention_approved tenant=%s id=%s label=%s", tenant_id, intention_id, label)
+
+    # Trigger async retraining — non-blocking
+    try:
+        from workers.training_tasks import retrain_intent_classifier
+        retrain_intent_classifier.apply_async(args=[tenant_id], queue="training", countdown=5)
+    except Exception as exc:
+        logger.warning("retrain_trigger_failed tenant=%s error=%s", tenant_id, exc)
+
     return {"id": intention_id, "label": label, "status": "approved"}
 
 
@@ -300,6 +308,50 @@ async def update_intention(
             raise HTTPException(status_code=404, detail="Intention not found")
 
     return {"id": intention_id, "status": "updated"}
+
+
+@router.post("/intentions/retrain", status_code=status.HTTP_202_ACCEPTED)
+async def trigger_retrain(
+    tenant_id: str = Depends(get_tenant_id),
+    current_user: CurrentUser = Depends(require_admin),
+):
+    """Trigger manual retraining for this tenant (async, with rollback if accuracy drops)."""
+    from workers.training_tasks import retrain_intent_classifier
+    task = retrain_intent_classifier.apply_async(args=[tenant_id], queue="training")
+    logger.info("retrain_triggered tenant_id=%s task_id=%s", tenant_id, task.id)
+    return {
+        "task_id": task.id,
+        "status": "queued",
+        "message": "Reentrenamiento iniciado. El clasificador se actualizará si la precisión mejora.",
+    }
+
+
+@router.get("/intentions/training/status")
+async def get_training_status(
+    tenant_id: str = Depends(get_tenant_id),
+    current_user: CurrentUser = Depends(require_admin),
+):
+    """Return current model version and accuracy for all active intentions."""
+    async with get_pg_session(tenant_id) as session:
+        result = await session.execute(text("""
+            SELECT label, model_version, prev_model_version, last_accuracy, example_count
+            FROM intenciones
+            WHERE is_active = TRUE
+            ORDER BY label
+        """))
+        rows = result.mappings().all()
+    return {
+        "intentions": [
+            {
+                "label": r["label"],
+                "model_version": r["model_version"],
+                "prev_model_version": r["prev_model_version"],
+                "last_accuracy": round(float(r["last_accuracy"]), 3) if r["last_accuracy"] else None,
+                "example_count": r["example_count"],
+            }
+            for r in rows
+        ]
+    }
 
 
 @router.post("/intentions/cluster", status_code=status.HTTP_202_ACCEPTED)
