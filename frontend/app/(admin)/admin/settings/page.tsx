@@ -12,7 +12,7 @@ import { Separator } from "@/components/ui/separator";
 import { toast } from "@/components/ui/toast";
 
 export default function SettingsPage() {
-  const { tenantId, email, role } = useAuthStore();
+  const { tenantId, userEmail: email, userRole: role } = useAuthStore();
   const [widgetToken, setWidgetToken] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { MessageSquare, FileText, Zap, Settings, LogOut, ChevronLeft, ChevronRight } from "lucide-react";
+import { MessageSquare, FileText, Zap, Settings, LogOut, ChevronLeft, ChevronRight, Shield } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore, useUIStore } from "@/lib/store";
 import { api } from "@/lib/api";
@@ -10,16 +10,17 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 
 const navItems = [
-  { href: "/dashboard", label: "Consultas", icon: MessageSquare },
-  { href: "/admin/documents", label: "Documentos", icon: FileText, adminOnly: true },
-  { href: "/admin/intentions", label: "Intenciones", icon: Zap, adminOnly: true },
-  { href: "/admin/settings", label: "Configuración", icon: Settings, adminOnly: true },
+  { href: "/dashboard",        label: "Consultas",      icon: MessageSquare },
+  { href: "/admin/documents",  label: "Documentos",     icon: FileText,  adminOnly: true },
+  { href: "/admin/intentions", label: "Intenciones",    icon: Zap,       adminOnly: true },
+  { href: "/admin/settings",   label: "Configuración",  icon: Settings,  adminOnly: true },
+  { href: "/superadmin",       label: "Super Admin",    icon: Shield,    superAdminOnly: true },
 ];
 
 export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
-  const { userEmail, userRole, clearAuth } = useAuthStore();
+  const { userEmail, userRole, tenantId, clearAuth } = useAuthStore();
   const { sidebarOpen, toggleSidebar } = useUIStore();
 
   const isAdmin = ["admin", "super_admin"].includes(userRole ?? "");
@@ -53,6 +54,7 @@ export function Sidebar() {
       <nav className="flex-1 p-2 space-y-1">
         {navItems.map((item) => {
           if (item.adminOnly && !isAdmin) return null;
+          if ((item as any).superAdminOnly && userRole !== "super_admin") return null;
           const Icon = item.icon;
           const active = pathname === item.href || pathname.startsWith(item.href + "/");
           return (
