@@ -33,10 +33,12 @@ async def lifespan(app: FastAPI):
     try:
         from services.embeddings import _load_model as _warm_embed
         from services.retrieval import _load_reranker
+        from services.nlu import _load_model as _warm_nlu
         logger.info("model_warmup_start")
         await asyncio.gather(
             loop.run_in_executor(None, _warm_embed),
             loop.run_in_executor(None, _load_reranker),
+            loop.run_in_executor(None, _warm_nlu),
         )
         logger.info("model_warmup_complete")
     except Exception as exc:

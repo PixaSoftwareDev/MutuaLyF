@@ -10,7 +10,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
 export const apiClient: AxiosInstance = axios.create({
   baseURL: `${API_URL}/api/v1`,
   headers: { "Content-Type": "application/json" },
-  timeout: 15_000,
+  timeout: 60_000,
 });
 
 // Attach JWT from localStorage on every request

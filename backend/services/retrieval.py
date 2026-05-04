@@ -98,8 +98,13 @@ async def retrieve(
         for point in results
     ]
 
-    # CPU-bound — run in executor to avoid blocking the event loop
-    reranked = await loop.run_in_executor(None, _rerank, query, chunks, rerank_top_k)
+    # CPU-bound — run in executor with timeout to avoid blocking on slow CPU inference
+    try:
+        async with asyncio.timeout(settings.reranker_timeout_ms / 1000):
+            reranked = await loop.run_in_executor(None, _rerank, query, chunks, rerank_top_k)
+    except asyncio.TimeoutError:
+        logger.warning("reranker_timeout_exceeded tenant_id=%s falling_back_to_qdrant_scores", tenant_id)
+        reranked = chunks[:rerank_top_k]
     logger.debug("retrieve_done tenant_id=%s candidates=%d reranked=%d", tenant_id, len(chunks), len(reranked))
     return reranked
 

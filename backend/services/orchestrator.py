@@ -65,7 +65,19 @@ async def handle_query(
     intent_task = asyncio.create_task(classify_intent(question, tenant_id))
     # NLU runs in a thread to avoid blocking the event loop (CPU-bound)
     loop = asyncio.get_running_loop()
-    entity_task = loop.run_in_executor(None, extract_entities, question)
+    nlu_timeout = settings.nlu_timeout_ms / 1000
+
+    async def _extract_with_timeout() -> list:
+        try:
+            return await asyncio.wait_for(
+                loop.run_in_executor(None, extract_entities, question),
+                timeout=nlu_timeout,
+            )
+        except asyncio.TimeoutError:
+            logger.warning("nlu_timeout_exceeded tenant_id=%s", tenant_id)
+            return []
+
+    entity_task = asyncio.create_task(_extract_with_timeout())
 
     intent_result, entities = await asyncio.gather(intent_task, entity_task, return_exceptions=True)
 
