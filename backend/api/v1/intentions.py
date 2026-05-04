@@ -302,6 +302,18 @@ async def update_intention(
     return {"id": intention_id, "status": "updated"}
 
 
+@router.post("/intentions/cluster", status_code=status.HTTP_202_ACCEPTED)
+async def trigger_clustering(
+    tenant_id: str = Depends(get_tenant_id),
+    current_user: CurrentUser = Depends(require_admin),
+):
+    """Trigger an on-demand HDBSCAN clustering run for this tenant (async)."""
+    from workers.clustering_tasks import cluster_single_tenant
+    task = cluster_single_tenant.apply_async(args=[tenant_id], queue="clustering")
+    logger.info("clustering_triggered tenant_id=%s task_id=%s", tenant_id, task.id)
+    return {"task_id": task.id, "status": "queued", "message": "Clustering iniciado. El panel se actualizará en unos minutos."}
+
+
 @router.delete("/intentions/{intention_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_intention(
     intention_id: str,

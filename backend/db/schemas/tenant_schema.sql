@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS consultas_log (
     id                   UUID    PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id              UUID,
     question_hash        VARCHAR(64)  NOT NULL,  -- SHA-256 of original question
+    question_text        VARCHAR(500),            -- Truncated text for HDBSCAN clustering
     intent_label         VARCHAR(200),
     intent_confidence    FLOAT,
     cluster_candidate_id VARCHAR(100),

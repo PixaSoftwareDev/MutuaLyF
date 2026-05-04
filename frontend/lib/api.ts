@@ -194,6 +194,10 @@ export const api = {
     create: async (label: string, description?: string, examples?: string[]) => {
       await apiClient.post("/intentions", { label, description, examples: examples ?? [] });
     },
+    triggerClustering: async () => {
+      const { data } = await apiClient.post("/intentions/cluster");
+      return data;
+    },
   },
 
   tenants: {

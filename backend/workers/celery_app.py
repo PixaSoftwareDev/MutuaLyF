@@ -1,6 +1,7 @@
 """Celery application configuration."""
 
 from celery import Celery
+from celery.schedules import crontab
 from celery.signals import worker_process_init
 from core.config import settings
 
@@ -64,7 +65,7 @@ app.conf.update(
     beat_schedule={
         "nightly-clustering": {
             "task": "workers.clustering_tasks.run_hdbscan_clustering",
-            "schedule": 86400,  # Daily at configured time — fine-tuned in Etapa 2 with crontab
+            "schedule": crontab(hour=2, minute=0),  # 02:00 UTC every night
         }
     },
 )

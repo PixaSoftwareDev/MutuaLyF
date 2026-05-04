@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Zap, Loader2, RefreshCw, Plus, Search } from "lucide-react";
+import { Zap, Loader2, RefreshCw, Plus, Search, Play } from "lucide-react";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -52,6 +52,13 @@ export default function IntentionsPage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["intentions"] }),
   });
 
+  const clusterMutation = useMutation({
+    mutationFn: api.intentions.triggerClustering,
+    onSuccess: () => {
+      setTimeout(() => queryClient.invalidateQueries({ queryKey: ["intentions"] }), 3000);
+    },
+  });
+
   const createMutation = useMutation({
     mutationFn: () =>
       api.intentions.create(
@@ -96,6 +103,18 @@ export default function IntentionsPage() {
           <Button variant="outline" size="sm" onClick={() => queryClient.invalidateQueries({ queryKey: ["intentions"] })}>
             <RefreshCw className="h-4 w-4 mr-1" />
             Actualizar
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => clusterMutation.mutate()}
+            disabled={clusterMutation.isPending}
+            title="Ejecutar clustering ahora (normalmente corre automáticamente a las 2AM)"
+          >
+            {clusterMutation.isPending
+              ? <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+              : <Play className="h-4 w-4 mr-1" />}
+            Detectar
           </Button>
           <Button size="sm" onClick={() => setShowCreate(true)}>
             <Plus className="h-4 w-4 mr-1" />

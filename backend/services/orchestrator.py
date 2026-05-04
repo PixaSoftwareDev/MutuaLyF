@@ -185,6 +185,7 @@ async def handle_query(
     asyncio.create_task(
         _log_query(
             question_hash=question_hash,
+            question_text=question[:500],
             tenant_id=tenant_id,
             user_id=user_id,
             intent_label=response["intent_label"],
@@ -239,6 +240,7 @@ async def _set_cache(question_hash: str, tenant_id: str, response: dict) -> None
 
 async def _log_query(
     question_hash: str,
+    question_text: str,
     tenant_id: str,
     user_id: str | None,
     intent_label: str | None,
@@ -254,12 +256,13 @@ async def _log_query(
             await session.execute(
                 text(
                     "INSERT INTO consultas_log "
-                    "(user_id, question_hash, intent_label, intent_confidence, latency_ms, from_cache) "
-                    "VALUES (:user_id, :question_hash, :intent_label, :intent_confidence, :latency_ms, FALSE)"
+                    "(user_id, question_hash, question_text, intent_label, intent_confidence, latency_ms, from_cache) "
+                    "VALUES (:user_id, :question_hash, :question_text, :intent_label, :intent_confidence, :latency_ms, FALSE)"
                 ),
                 {
                     "user_id": user_id,
                     "question_hash": question_hash,
+                    "question_text": question_text,
                     "intent_label": intent_label,
                     "intent_confidence": intent_confidence,
                     "latency_ms": latency_ms,
