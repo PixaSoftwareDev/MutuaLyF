@@ -237,6 +237,22 @@ services:
       - internal
     logging: *default-logging
 
+  # ─── Tracing ──────────────────────────────────────────────────────────────────
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.57
+    container_name: ia_jaeger
+    restart: unless-stopped
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+      SPAN_STORAGE_TYPE: memory
+    ports:
+      - "127.0.0.1:16686:16686"   # Jaeger UI
+      - "127.0.0.1:4317:4317"     # OTLP gRPC receiver
+    networks:
+      - internal
+    logging: *default-logging
+
   # ─── Observabilidad ───────────────────────────────────────────────────────────
 
   prometheus:

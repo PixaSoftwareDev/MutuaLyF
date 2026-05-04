@@ -13,6 +13,7 @@ from core.logging_config import configure_logging
 from core.database import connect_all, disconnect_all
 from core.tenant import TenantMiddleware
 from core.metrics import setup_metrics
+from core.tracing import setup_tracing
 from api.v1 import auth, auth_sso, query, ingest, intentions, tenants
 
 # ── Logging — must be first, before any other import that logs ─────────────────
@@ -25,6 +26,7 @@ logger = structlog.get_logger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("startup_begin", environment=settings.environment)
+    setup_tracing(app)
     await connect_all()
 
     # Pre-warm ML models in a thread so the first query doesn't pay cold-load cost.

@@ -46,8 +46,15 @@ async def handle_query(
     Returns:
         Dict with keys: answer, sources, intent_label, intent_confidence, from_cache, latency_ms.
     """
+    from core.tracing import get_tracer
+    tracer = get_tracer()
+
     start_ms = int(time.monotonic() * 1000)
     question_hash = _hash_question(question)
+
+    with tracer.start_as_current_span("query.handle") as span:
+        span.set_attribute("tenant_id", tenant_id)
+        span.set_attribute("question_hash", question_hash)
 
     # ── Step 1: Redis cache ────────────────────────────────────────────────────
     cached = await _check_cache(question_hash, tenant_id)
