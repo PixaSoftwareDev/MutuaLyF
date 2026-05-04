@@ -13,6 +13,7 @@ const navItems = [
   { href: "/dashboard", label: "Consultas", icon: MessageSquare },
   { href: "/admin/documents", label: "Documentos", icon: FileText, adminOnly: true },
   { href: "/admin/intentions", label: "Intenciones", icon: Zap, adminOnly: true },
+  { href: "/admin/settings", label: "Configuración", icon: Settings, adminOnly: true },
 ];
 
 export function Sidebar() {

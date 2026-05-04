@@ -2,34 +2,32 @@
 
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { FileText, RefreshCw, Clock, Trash2, Loader2, ChevronDown, ChevronRight } from "lucide-react";
+import { FileText, RefreshCw, Clock, Trash2, Loader2, ChevronDown, ChevronRight, Search } from "lucide-react";
 import { api, type DocumentResponse, type ChunkResponse } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { DocumentUploader } from "@/components/documents/document-uploader";
+import { toast } from "@/components/ui/toast";
 
-const STATUS_CONFIG: Record<DocumentResponse["status"], { label: string; variant: "default" | "secondary" | "success" | "warning" | "destructive" | "outline" }> = {
+const STATUS_CONFIG: Record<DocumentResponse["status"], { label: string; variant: any }> = {
   pending:    { label: "Pendiente",   variant: "secondary" },
   processing: { label: "Procesando",  variant: "default" },
   ready:      { label: "Listo",       variant: "success" },
   failed:     { label: "Error",       variant: "destructive" },
 };
 
-const QG_CONFIG: Record<DocumentResponse["quality_gate_status"], { label: string; variant: "success" | "warning" | "secondary" }> = {
+const QG_CONFIG: Record<DocumentResponse["quality_gate_status"], { label: string; variant: any }> = {
   passed:  { label: "Verificado", variant: "success" },
   pending: { label: "Pendiente",  variant: "warning" },
   skipped: { label: "Omitido",    variant: "secondary" },
 };
 
-const CHUNK_QG_CONFIG: Record<ChunkResponse["quality_gate_status"], { label: string; variant: "success" | "warning" | "secondary" }> = {
-  passed:  { label: "OK",       variant: "success" },
-  pending: { label: "Pendiente", variant: "warning" },
-  skipped: { label: "Omitido",  variant: "secondary" },
-};
-
 export default function DocumentsPage() {
   const queryClient = useQueryClient();
+  const [search, setSearch] = useState("");
 
   const { data: documents = [], isLoading, error } = useQuery({
     queryKey: ["documents"],
@@ -38,6 +36,13 @@ export default function DocumentsPage() {
   });
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["documents"] });
+
+  const filtered = documents.filter((d) =>
+    !search || d.title.toLowerCase().includes(search.toLowerCase()),
+  );
+
+  const readyCount = documents.filter((d) => d.status === "ready").length;
+  const processingCount = documents.filter((d) => ["pending", "processing"].includes(d.status)).length;
 
   return (
     <div className="p-6 space-y-6">
@@ -57,34 +62,78 @@ export default function DocumentsPage() {
         </Button>
       </div>
 
+      {/* Stats rápidas */}
+      {documents.length > 0 && (
+        <div className="flex gap-6 text-sm">
+          <span><strong className="text-foreground">{documents.length}</strong> <span className="text-muted-foreground">total</span></span>
+          <span><strong className="text-green-600">{readyCount}</strong> <span className="text-muted-foreground">listos</span></span>
+          {processingCount > 0 && (
+            <span><strong className="text-primary">{processingCount}</strong> <span className="text-muted-foreground">procesando</span></span>
+          )}
+        </div>
+      )}
+
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Subir documentos</CardTitle>
-          <CardDescription>Los documentos se procesan en segundo plano. El estado se actualiza automáticamente.</CardDescription>
+          <CardDescription>
+            PDF, Word, TXT o HTML. Máximo 200 MB. Se procesan en segundo plano.
+          </CardDescription>
         </CardHeader>
         <CardContent>
-          <DocumentUploader onUploaded={refresh} />
+          <DocumentUploader
+            onUploaded={() => {
+              refresh();
+              toast({ title: "Documento enviado", description: "El procesamiento comenzó en segundo plano.", variant: "success" });
+            }}
+          />
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">Documentos ({documents.length})</CardTitle>
+          <div className="flex items-center justify-between gap-4">
+            <CardTitle className="text-base">Documentos ({filtered.length})</CardTitle>
+            {documents.length > 4 && (
+              <div className="relative max-w-xs">
+                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Buscar..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="pl-8 h-8 text-sm"
+                />
+              </div>
+            )}
+          </div>
         </CardHeader>
         <CardContent>
           {isLoading ? (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            <div className="space-y-2">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="flex items-center gap-3 p-3 rounded-lg border">
+                  <Skeleton className="h-4 w-4 rounded" />
+                  <div className="flex-1 space-y-1.5">
+                    <Skeleton className="h-4 w-48" />
+                    <Skeleton className="h-3 w-24" />
+                  </div>
+                  <Skeleton className="h-5 w-16 rounded-full" />
+                  <Skeleton className="h-5 w-12 rounded-full" />
+                </div>
+              ))}
             </div>
           ) : error ? (
             <div className="text-center py-8 text-destructive text-sm">Error al cargar documentos</div>
-          ) : documents.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground text-sm">
-              No hay documentos todavía. Subí el primero.
+          ) : filtered.length === 0 ? (
+            <div className="text-center py-10 space-y-2">
+              <FileText className="h-10 w-10 mx-auto text-muted-foreground opacity-30" />
+              <p className="text-muted-foreground text-sm">
+                {search ? "No se encontraron documentos con ese nombre." : "No hay documentos todavía. Subí el primero arriba."}
+              </p>
             </div>
           ) : (
             <div className="space-y-2">
-              {documents.map((doc) => (
+              {filtered.map((doc) => (
                 <DocumentRow key={doc.id} doc={doc} onDeleted={refresh} />
               ))}
             </div>
@@ -114,7 +163,14 @@ function DocumentRow({ doc, onDeleted }: { doc: DocumentResponse; onDeleted: () 
 
   const { mutate: deleteDoc, isPending: deleting } = useMutation({
     mutationFn: () => api.documents.delete(doc.id),
-    onSuccess: () => { setConfirming(false); onDeleted(); },
+    onSuccess: () => {
+      setConfirming(false);
+      onDeleted();
+      toast({ title: "Documento eliminado", variant: "success" });
+    },
+    onError: () => {
+      toast({ title: "Error al eliminar", description: "Intentá de nuevo.", variant: "destructive" });
+    },
   });
 
   return (
@@ -128,7 +184,9 @@ function DocumentRow({ doc, onDeleted }: { doc: DocumentResponse; onDeleted: () 
             ? <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
             : <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
         ) : (
-          <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
+          doc.status === "processing"
+            ? <Loader2 className="h-4 w-4 text-primary animate-spin shrink-0" />
+            : <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
         )}
 
         <div className="flex-1 min-w-0">
@@ -139,40 +197,27 @@ function DocumentRow({ doc, onDeleted }: { doc: DocumentResponse; onDeleted: () 
               {date}
             </span>
             {doc.chunk_count > 0 && (
-              <span className="text-xs text-muted-foreground">{doc.chunk_count} chunks</span>
+              <span className="text-xs text-muted-foreground">{doc.chunk_count} chunk{doc.chunk_count !== 1 ? "s" : ""}</span>
             )}
           </div>
         </div>
 
         <div className="flex items-center gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
-          <Badge variant={qg.variant as any}>{qg.label}</Badge>
-          <Badge variant={status.variant as any}>{status.label}</Badge>
+          <Badge variant={qg.variant}>{qg.label}</Badge>
+          <Badge variant={status.variant}>{status.label}</Badge>
 
           {confirming ? (
             <div className="flex items-center gap-1">
-              <Button
-                size="sm"
-                variant="destructive"
-                className="h-7 px-2 text-xs"
-                disabled={deleting}
-                onClick={() => deleteDoc()}
-              >
+              <Button size="sm" variant="destructive" className="h-7 px-2 text-xs" disabled={deleting} onClick={() => deleteDoc()}>
                 {deleting ? <Loader2 className="h-3 w-3 animate-spin" /> : "Confirmar"}
               </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-7 px-2 text-xs"
-                disabled={deleting}
-                onClick={() => setConfirming(false)}
-              >
+              <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" disabled={deleting} onClick={() => setConfirming(false)}>
                 Cancelar
               </Button>
             </div>
           ) : (
             <Button
-              size="sm"
-              variant="ghost"
+              size="sm" variant="ghost"
               className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
               onClick={() => setConfirming(true)}
             >
@@ -185,10 +230,10 @@ function DocumentRow({ doc, onDeleted }: { doc: DocumentResponse; onDeleted: () 
       {expanded && canExpand && (
         <div className="border-t bg-muted/30 px-4 py-3 space-y-2">
           {chunksLoading ? (
-            <div className="flex items-center justify-center py-4">
-              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+            <div className="space-y-2">
+              {[1, 2].map((i) => <Skeleton key={i} className="h-16 w-full rounded" />)}
             </div>
-          ) : !chunks || chunks.length === 0 ? (
+          ) : !chunks?.length ? (
             <p className="text-xs text-muted-foreground text-center py-2">Sin chunks disponibles</p>
           ) : (
             chunks.map((chunk) => <ChunkCard key={chunk.id} chunk={chunk} />)
@@ -200,14 +245,19 @@ function DocumentRow({ doc, onDeleted }: { doc: DocumentResponse; onDeleted: () 
 }
 
 function ChunkCard({ chunk }: { chunk: ChunkResponse }) {
-  const qg = CHUNK_QG_CONFIG[chunk.quality_gate_status];
+  const qgConfig = {
+    passed:  { label: "OK",        variant: "success" as const },
+    pending: { label: "Pendiente", variant: "warning" as const },
+    skipped: { label: "Omitido",   variant: "secondary" as const },
+  };
+  const qg = qgConfig[chunk.quality_gate_status];
   return (
     <div className="rounded border bg-background p-3 space-y-1.5">
       <div className="flex items-center justify-between">
         <span className="text-xs font-medium text-muted-foreground">
           Chunk {chunk.chunk_index + 1} / {chunk.total_chunks}
         </span>
-        <Badge variant={qg.variant as any} className="text-[10px] h-4 px-1.5">{qg.label}</Badge>
+        <Badge variant={qg.variant} className="text-[10px] h-4 px-1.5">{qg.label}</Badge>
       </div>
       <p className="text-xs leading-relaxed whitespace-pre-wrap break-words">{chunk.text}</p>
     </div>

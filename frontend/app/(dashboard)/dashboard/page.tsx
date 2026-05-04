@@ -1,22 +1,26 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { MessageSquare, Trash2 } from "lucide-react";
+import { MessageSquare, Trash2, Zap, Clock } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { MessageBubble } from "@/components/chat/message-bubble";
 import { ChatInput } from "@/components/chat/chat-input";
-import { useChatStore } from "@/lib/store";
+import { useChatStore, useAuthStore } from "@/lib/store";
 import { api } from "@/lib/api";
+import { toast } from "@/components/ui/toast";
 
 const SUGGESTED_QUESTIONS = [
-  "¿Cuáles son los procedimientos de onboarding?",
-  "¿Quién es responsable de aprobar presupuestos?",
-  "¿Cuáles son los horarios de atención al cliente?",
+  "¿Cuáles son los procedimientos de onboarding para nuevos empleados?",
+  "¿Quién es el responsable de aprobar solicitudes de vacaciones?",
+  "¿Cuáles son los beneficios de salud que ofrece la organización?",
+  "¿Cómo funciona la política de trabajo remoto?",
 ];
 
 export default function DashboardPage() {
   const { messages, isTyping, addMessage, updateMessage, clearMessages, setTyping } = useChatStore();
+  const { tenantId } = useAuthStore();
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -24,10 +28,7 @@ export default function DashboardPage() {
   }, [messages, isTyping]);
 
   const handleSend = async (question: string) => {
-    // Add user message
     addMessage({ role: "user", content: question });
-
-    // Add loading assistant message
     const loadingId = addMessage({ role: "assistant", content: "", isLoading: true });
     setTyping(true);
 
@@ -44,25 +45,53 @@ export default function DashboardPage() {
     } catch (err: any) {
       const msg = err?.response?.data?.detail || "Hubo un error al procesar tu consulta. Intentá de nuevo.";
       updateMessage(loadingId, { content: msg, isLoading: false });
+      toast({ title: "Error en la consulta", description: msg, variant: "destructive" });
     } finally {
       setTyping(false);
     }
   };
 
+  const totalLatency = messages
+    .filter((m) => m.role === "assistant" && m.latency_ms && !m.isLoading)
+    .reduce((sum, m) => sum + (m.latency_ms ?? 0), 0);
+  const answeredCount = messages.filter((m) => m.role === "assistant" && !m.isLoading && m.content).length;
+  const cachedCount = messages.filter((m) => m.from_cache).length;
+
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b">
+      <div className="flex items-center justify-between px-6 py-3 border-b">
         <div className="flex items-center gap-2">
           <MessageSquare className="h-5 w-5 text-primary" />
-          <h1 className="font-semibold text-lg">Consultas</h1>
+          <h1 className="font-semibold">Consultas</h1>
+          {tenantId && (
+            <Badge variant="outline" className="text-xs font-mono">{tenantId}</Badge>
+          )}
         </div>
-        {messages.length > 0 && (
-          <Button variant="ghost" size="sm" onClick={clearMessages} className="text-muted-foreground">
-            <Trash2 className="h-4 w-4 mr-1" />
-            Limpiar
-          </Button>
-        )}
+        <div className="flex items-center gap-3">
+          {answeredCount > 0 && (
+            <div className="hidden sm:flex items-center gap-3 text-xs text-muted-foreground">
+              {cachedCount > 0 && (
+                <span className="flex items-center gap-1">
+                  <Zap className="h-3 w-3 text-amber-500" />
+                  {cachedCount} desde caché
+                </span>
+              )}
+              {answeredCount > 0 && (
+                <span className="flex items-center gap-1">
+                  <Clock className="h-3 w-3" />
+                  {Math.round(totalLatency / answeredCount / 100) / 10}s promedio
+                </span>
+              )}
+            </div>
+          )}
+          {messages.length > 0 && (
+            <Button variant="ghost" size="sm" onClick={clearMessages} className="text-muted-foreground">
+              <Trash2 className="h-4 w-4 mr-1" />
+              Limpiar
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Messages */}
@@ -74,6 +103,22 @@ export default function DashboardPage() {
             {messages.map((msg) => (
               <MessageBubble key={msg.id} message={msg} />
             ))}
+            {isTyping && (
+              <div className="flex gap-3 items-start">
+                <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                  <div className="flex gap-0.5">
+                    {[0, 1, 2].map((i) => (
+                      <span
+                        key={i}
+                        className="w-1 h-1 rounded-full bg-primary animate-bounce"
+                        style={{ animationDelay: `${i * 150}ms` }}
+                      />
+                    ))}
+                  </div>
+                </div>
+                <div className="text-xs text-muted-foreground mt-2">Procesando consulta…</div>
+              </div>
+            )}
             <div ref={bottomRef} />
           </div>
         )}
@@ -92,17 +137,18 @@ export default function DashboardPage() {
 
 function EmptyState({ onSuggestion }: { onSuggestion: (q: string) => void }) {
   return (
-    <div className="flex flex-col items-center justify-center h-full py-16 px-4 space-y-6">
-      <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center">
-        <MessageSquare className="h-7 w-7 text-primary" />
+    <div className="flex flex-col items-center justify-center h-full py-16 px-4 space-y-6 text-center">
+      <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center">
+        <MessageSquare className="h-8 w-8 text-primary" />
       </div>
-      <div className="text-center">
-        <h2 className="text-xl font-semibold mb-1">¿En qué puedo ayudarte?</h2>
-        <p className="text-muted-foreground text-sm">
-          Hacé una pregunta sobre el conocimiento de tu organización
+      <div>
+        <h2 className="text-xl font-semibold mb-2">¿En qué puedo ayudarte?</h2>
+        <p className="text-muted-foreground text-sm max-w-sm">
+          Hacé una pregunta sobre el conocimiento de tu organización.
+          Respondo basándome únicamente en los documentos cargados.
         </p>
       </div>
-      <div className="flex flex-col gap-2 w-full max-w-md">
+      <div className="grid gap-2 w-full max-w-md">
         {SUGGESTED_QUESTIONS.map((q) => (
           <button
             key={q}

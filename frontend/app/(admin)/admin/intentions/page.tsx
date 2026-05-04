@@ -16,6 +16,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { IntentionCard } from "@/components/intentions/intention-card";
+import { toast } from "@/components/ui/toast";
 
 export default function IntentionsPage() {
   const queryClient = useQueryClient();
@@ -31,36 +32,44 @@ export default function IntentionsPage() {
     refetchInterval: 30_000,
   });
 
+  const inv = () => queryClient.invalidateQueries({ queryKey: ["intentions"] });
+
   const approveMutation = useMutation({
     mutationFn: api.intentions.approve,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["intentions"] }),
+    onSuccess: () => { inv(); toast({ title: "Intención aprobada", description: "El clasificador se reentrenará en segundo plano.", variant: "success" }); },
+    onError: () => toast({ title: "Error al aprobar", variant: "destructive" }),
   });
 
   const rejectMutation = useMutation({
     mutationFn: api.intentions.reject,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["intentions"] }),
+    onSuccess: () => { inv(); toast({ title: "Intención descartada", variant: "default" }); },
   });
 
   const toggleMutation = useMutation({
     mutationFn: ({ id, isActive }: { id: string; isActive: boolean }) =>
       api.intentions.toggleActive(id, isActive),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["intentions"] }),
+    onSuccess: () => { inv(); toast({ title: "Estado actualizado", variant: "success" }); },
   });
 
   const deleteMutation = useMutation({
     mutationFn: api.intentions.delete,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["intentions"] }),
+    onSuccess: () => { inv(); toast({ title: "Intención eliminada", variant: "default" }); },
+    onError: () => toast({ title: "Error al eliminar", variant: "destructive" }),
   });
 
   const clusterMutation = useMutation({
     mutationFn: api.intentions.triggerClustering,
     onSuccess: () => {
-      setTimeout(() => queryClient.invalidateQueries({ queryKey: ["intentions"] }), 3000);
+      toast({ title: "Clustering iniciado", description: "El panel se actualizará en unos minutos.", variant: "success" });
+      setTimeout(inv, 5000);
     },
+    onError: () => toast({ title: "Error al iniciar clustering", variant: "destructive" }),
   });
 
   const retrainMutation = useMutation({
     mutationFn: api.intentions.triggerRetrain,
+    onSuccess: () => toast({ title: "Reentrenamiento iniciado", description: "Se actualizará si la precisión mejora. Rollback automático si baja.", variant: "success" }),
+    onError: () => toast({ title: "Error al reentrenar", variant: "destructive" }),
   });
 
   const createMutation = useMutation({
@@ -74,12 +83,14 @@ export default function IntentionsPage() {
           .filter(Boolean),
       ),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["intentions"] });
+      inv();
       setShowCreate(false);
       setNewLabel("");
       setNewDescription("");
       setNewExamples("");
+      toast({ title: "Intención creada", variant: "success" });
     },
+    onError: () => toast({ title: "Error al crear intención", variant: "destructive" }),
   });
 
   const intentions = (data?.intentions ?? []).filter((i) =>
