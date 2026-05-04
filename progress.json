@@ -1,9 +1,9 @@
 {
-  "version": "1.6",
-  "last_updated": "2026-05-04T00:00:00Z",
-  "current_stage": "etapa_2",
-  "current_step": "pending",
-  "overall_status": "etapa_1_validated_etapa_2_ready",
+  "version": "1.7",
+  "last_updated": "2026-05-04T20:00:00Z",
+  "current_stage": "etapa_3",
+  "current_step": "completed",
+  "overall_status": "etapa_3_complete",
 
   "etapa_1": {
     "status": "completed",
@@ -53,8 +53,21 @@
     }
   },
 
-  "etapa_2": {"status": "ready_to_start"},
-  "etapa_3": {"status": "not_started"},
+  "etapa_2": {"status": "completed"},
+  "etapa_3": {
+    "status": "completed",
+    "items": {
+      "opentelemetry_jaeger": "completed",
+      "doc_classifier_chunker_adaptativo": "completed",
+      "hierarchical_chunking_base": "completed",
+      "quality_gate_2": "completed",
+      "semantic_chunking": "completed",
+      "query_federation_independent_timeouts": "completed",
+      "embedding_cache_redis": "completed",
+      "llm_guided_chunking": "deferred_to_production",
+      "infra_propia_modelos": "deferred_to_production"
+    }
+  },
 
   "ingest_bugfixes_2026_05_01": {
     "files_modified": ["api/v1/ingest.py", "services/quality_gate.py", "services/chunker.py", "services/neo4j_client.py", "workers/ingest_tasks.py"],
