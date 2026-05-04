@@ -85,22 +85,34 @@ export interface ChunkResponse {
   quality_gate_status: "pending" | "passed" | "skipped";
 }
 
+export interface Intention {
+  id: string;
+  label: string;
+  description: string | null;
+  example_count: number;
+  auto_learned_count: number;
+  is_active: boolean;
+  model_version: string | null;
+  queries_7d: number;
+  avg_confidence_7d: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PendingIntention {
+  id: string;
+  label: string;
+  query_count: number;
+  avg_confidence: number;
+  last_seen: string | null;
+  auto_learning_blocked_count: number;
+}
+
 export interface IntentionResponse {
-  intentions: Array<{
-    id: string;
-    label: string;
-    description: string | null;
-    example_count: number;
-    auto_learned_count: number;
-    is_active: boolean;
-    updated_at: string;
-  }>;
-  pending_review: Array<{
-    id: string;
-    label: string;
-    example_count: number;
-  }>;
+  intentions: Intention[];
+  pending_review: PendingIntention[];
   total: number;
+  pending_total: number;
 }
 
 export interface WidgetTokenResponse {
@@ -172,6 +184,15 @@ export const api = {
     },
     reject: async (intentionId: string) => {
       await apiClient.post(`/intentions/${intentionId}/reject`);
+    },
+    toggleActive: async (intentionId: string, isActive: boolean) => {
+      await apiClient.patch(`/intentions/${intentionId}`, { is_active: !isActive });
+    },
+    delete: async (intentionId: string) => {
+      await apiClient.delete(`/intentions/${intentionId}`);
+    },
+    create: async (label: string, description?: string, examples?: string[]) => {
+      await apiClient.post("/intentions", { label, description, examples: examples ?? [] });
     },
   },
 

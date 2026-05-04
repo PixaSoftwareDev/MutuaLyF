@@ -15,9 +15,10 @@ logger = logging.getLogger(__name__)
 TENANT_ID_HEADER = "X-Tenant-ID"
 REQUEST_TENANT_KEY = "tenant_id"
 
-# Paths that don't require tenant resolution (auth, health, super-admin)
+# Paths that don't require tenant resolution (auth, health, observability)
 _TENANT_EXEMPT_PATHS = {
     "/health",
+    "/metrics",
     "/api/v1/auth/login",
     "/api/v1/auth/refresh",
     "/api/v1/auth/logout",
