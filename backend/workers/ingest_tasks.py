@@ -154,9 +154,22 @@ async def _run_ingest_pipeline(
         await _update_document_status(document_id, tenant_id, "failed")
         return {"chunk_count": 0, "status": "failed", "timings": timings}
 
-    # ── 3+4. Quality gate (Groq I/O) + Embeddings (CPU) run concurrently ─────
-    # These are independent: quality gate waits on network, embeddings use CPU.
+    # ── 3. Quality gate stage 2: filter non-autonomous chunks ─────────────────
     t = time.monotonic()
+    from services.quality_gate import validate_chunk_semantic_autonomy
+    autonomous_checks = await asyncio.gather(*[
+        validate_chunk_semantic_autonomy(c) for c in chunks
+    ])
+    chunks_stage2 = [c for c, ok in zip(chunks, autonomous_checks) if ok]
+    filtered_count = len(chunks) - len(chunks_stage2)
+    if filtered_count > 0:
+        logger.info(
+            "quality_stage2_filtered document_id=%s removed=%d kept=%d",
+            document_id, filtered_count, len(chunks_stage2),
+        )
+    chunks = chunks_stage2 if chunks_stage2 else chunks  # keep original if all filtered
+
+    # ── 4+5. Quality gate stage 1 (Groq I/O) + Embeddings (CPU) run concurrently ─
     quality_task = validate_chunks_batch(chunks, max_concurrent=5)
     embed_task = loop.run_in_executor(None, embed_batch, [c.text for c in chunks], False)
     quality_results, embeddings = await asyncio.gather(quality_task, embed_task)

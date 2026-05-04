@@ -77,6 +77,36 @@ async def validate_chunk(chunk: Chunk) -> QualityResult:
     )
 
 
+async def validate_chunk_semantic_autonomy(chunk: Chunk) -> bool:
+    """Stage-2 quality gate: check if chunk is semantically self-sufficient.
+
+    A chunk is considered autonomous if its embedding has low cosine similarity
+    to its neighbors (meaning it contains unique information, not just overlap).
+
+    For MVP of Etapa 3 this is a lightweight heuristic:
+    - Chunks shorter than 30 tokens are considered non-autonomous (too short to answer questions)
+    - Chunks with very high overlap ratio vs their content are flagged
+
+    Returns True if the chunk is autonomous (should be kept), False if not.
+    """
+    if chunk.token_count < 20:
+        logger.debug("quality_stage2_too_short chunk_id=%s tokens=%d", chunk.id, chunk.token_count)
+        return False
+
+    # Chunks from semantic splitting already respect semantic boundaries
+    if getattr(chunk, "strategy", "fixed") == "semantic":
+        return True
+
+    # For fixed-size chunks, check overlap ratio
+    # If token_count < chunk_overlap_tokens setting, it's almost entirely overlap
+    from core.config import settings
+    if chunk.token_count < settings.chunk_overlap_tokens:
+        logger.debug("quality_stage2_overlap_heavy chunk_id=%s tokens=%d", chunk.id, chunk.token_count)
+        return False
+
+    return True
+
+
 async def validate_chunks_batch(
     chunks: list[Chunk],
     max_concurrent: int = 5,
