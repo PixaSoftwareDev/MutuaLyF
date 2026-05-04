@@ -98,6 +98,8 @@ async def complete(
 
     content = response.choices[0].message.content or ""
     logger.debug("groq_response model=%s tokens=%d", model, response.usage.total_tokens if response.usage else 0)
+    from core.metrics import GROQ_REQUESTS_TOTAL
+    GROQ_REQUESTS_TOTAL.labels(model=model, status="success").inc()
     return content
 
 
@@ -139,6 +141,9 @@ async def complete_quality_gate(chunk_text: str, tenant_id: str) -> dict[str, An
         }
     except (APIError, APITimeoutError, RateLimitError) as exc:
         logger.warning("quality_gate_groq_failure tenant_id=%s error=%s", tenant_id, exc)
+        from core.metrics import GROQ_REQUESTS_TOTAL
+        status = "rate_limit" if isinstance(exc, RateLimitError) else "timeout" if isinstance(exc, APITimeoutError) else "error"
+        GROQ_REQUESTS_TOTAL.labels(model=settings.groq_model_fast, status=status).inc()
         return {"is_coherent": None, "reason": None, "error": str(exc)}
     except Exception as exc:
         # JSON parse failed — treat as Groq-unavailable so quality_gate marks it PENDING and retries

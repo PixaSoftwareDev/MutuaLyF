@@ -54,6 +54,10 @@ async def handle_query(
     if cached:
         latency_ms = int(time.monotonic() * 1000) - start_ms
         logger.info("cache_hit tenant_id=%s latency_ms=%d", tenant_id, latency_ms)
+        from core.metrics import CACHE_HITS_TOTAL, QUERIES_TOTAL, QUERY_DURATION
+        CACHE_HITS_TOTAL.labels(tenant_id=tenant_id).inc()
+        QUERIES_TOTAL.labels(tenant_id=tenant_id, complexity="cached", from_cache="true").inc()
+        QUERY_DURATION.labels(tenant_id=tenant_id, complexity="cached").observe(latency_ms)
         cached["from_cache"] = True
         cached["latency_ms"] = latency_ms
         return cached
@@ -188,6 +192,10 @@ async def handle_query(
             latency_ms=latency_ms,
         )
     )
+
+    from core.metrics import QUERIES_TOTAL, QUERY_DURATION
+    QUERIES_TOTAL.labels(tenant_id=tenant_id, complexity=complexity, from_cache="false").inc()
+    QUERY_DURATION.labels(tenant_id=tenant_id, complexity=complexity).observe(latency_ms)
 
     logger.info(
         "query_complete tenant_id=%s latency_ms=%d complexity=%s intent=%s",

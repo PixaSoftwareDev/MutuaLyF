@@ -48,7 +48,12 @@ services:
     # Remove the 443 port binding from prod config
     # (override replaces the entire ports list)
 
-  # Skip pgbackrest in dev — too complex to set up without a real PG standby
+  # Grafana accesible directamente en dev
+  grafana:
+    ports:
+      - "127.0.0.1:3001:3000"
+
+  # Skip pgbackrest en dev
   pgbackrest:
     profiles:
       - backup

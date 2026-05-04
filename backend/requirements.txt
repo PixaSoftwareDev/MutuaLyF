@@ -55,6 +55,10 @@ beautifulsoup4==4.12.3
 # Logging
 structlog==24.2.0
 
+# Observability
+prometheus-fastapi-instrumentator==6.1.0
+prometheus-client==0.20.0
+
 # Resilience
 tenacity==8.4.1
 

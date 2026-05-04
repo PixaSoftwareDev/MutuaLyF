@@ -242,6 +242,13 @@ async def _run_ingest_pipeline(
         "ingest_pipeline_done document_id=%s chunks=%d timings=%s",
         document_id, len(points), timings,
     )
+
+    from core.metrics import INGEST_TOTAL, PIPELINE_DURATION, QUALITY_GATE_TOTAL
+    INGEST_TOTAL.labels(tenant_id=tenant_id, status="ready").inc()
+    PIPELINE_DURATION.labels(tenant_id=tenant_id).observe(timings["total_ms"])
+    for r in quality_results:
+        QUALITY_GATE_TOTAL.labels(status=r.status.value).inc()
+
     return {"chunk_count": len(points), "status": "ready", "timings": timings}
 
 

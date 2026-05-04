@@ -12,6 +12,7 @@ from core.config import settings
 from core.logging_config import configure_logging
 from core.database import connect_all, disconnect_all
 from core.tenant import TenantMiddleware
+from core.metrics import setup_metrics
 from api.v1 import auth, query, ingest, intentions, tenants
 
 # ── Logging — must be first, before any other import that logs ─────────────────
@@ -86,6 +87,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.add_middleware(TenantMiddleware)
+
+# ── Prometheus metrics ────────────────────────────────────────────────────────
+setup_metrics(app)
 
 # ── Routers ───────────────────────────────────────────────────────────────────
 
