@@ -400,6 +400,22 @@ async def assign_sectors(
     return {"operator_id": operator_id, "sectors_assigned": len(sector_ids)}
 
 
+@router.get("/admin/operators")
+async def list_operators(
+    tenant_id: str = Depends(get_tenant_id),
+    current_user: CurrentUser = Depends(require_admin),
+):
+    """List all users with operator or admin role."""
+    async with get_pg_session(tenant_id) as session:
+        result = await session.execute(text("""
+            SELECT id, email, name, role, is_active
+            FROM usuarios
+            WHERE role IN ('operator', 'admin', 'super_admin')
+            ORDER BY role, name
+        """))
+        return [dict(r) for r in result.mappings().all()]
+
+
 @router.get("/admin/operators/{operator_id}/sectors")
 async def get_operator_sectors(
     operator_id: str,

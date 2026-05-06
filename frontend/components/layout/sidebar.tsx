@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { MessageSquare, FileText, Zap, Settings, LogOut, ChevronLeft, ChevronRight, Shield, Headphones, Building2, GitMerge } from "lucide-react";
+import { MessageSquare, FileText, Zap, Settings, LogOut, ChevronLeft, ChevronRight, Shield, Headphones, Building2, GitMerge, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore, useUIStore } from "@/lib/store";
 import { api } from "@/lib/api";
@@ -15,6 +15,7 @@ const navItems = [
   { href: "/admin/documents",       label: "Documentos",      icon: FileText,   adminOnly: true },
   { href: "/admin/intentions",      label: "Intenciones",     icon: Zap,        adminOnly: true },
   { href: "/admin/sectors",         label: "Sectores",        icon: Building2,  adminOnly: true },
+  { href: "/admin/operators",       label: "Operadores",      icon: Users,      adminOnly: true },
   { href: "/admin/handoff-config",  label: "Config. Handoff", icon: GitMerge,   adminOnly: true },
   { href: "/admin/settings",        label: "Configuración",   icon: Settings,   adminOnly: true },
   { href: "/superadmin",            label: "Super Admin",     icon: Shield,     superAdminOnly: true },
