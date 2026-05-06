@@ -82,8 +82,11 @@ async def list_conversations(
         params: dict = {}
 
         if sector_ids:
-            where_clauses.append("c.sector_id = ANY(:sector_ids::uuid[])")
-            params["sector_ids"] = sector_ids
+            # asyncpg doesn't support ANY(:param::uuid[]) — use IN with individual placeholders
+            placeholders = ", ".join(f":sid_{i}" for i in range(len(sector_ids)))
+            where_clauses.append(f"c.sector_id::text IN ({placeholders})")
+            for i, sid in enumerate(sector_ids):
+                params[f"sid_{i}"] = sid
         elif not is_admin:
             return {"sectors": [], "total": 0}
 
@@ -380,10 +383,14 @@ async def delete_sector(
 
 # ── Operator-sector assignment ────────────────────────────────────────────────
 
+class SectorAssignment(BaseModel):
+    sector_ids: list[str]
+
+
 @router.post("/admin/operators/{operator_id}/sectors")
 async def assign_sectors(
     operator_id: str,
-    sector_ids: list[str],
+    body: SectorAssignment,
     tenant_id: str = Depends(get_tenant_id),
     current_user: CurrentUser = Depends(require_admin),
 ):
@@ -392,12 +399,12 @@ async def assign_sectors(
             text("DELETE FROM operador_sectores WHERE operador_id = :uid"),
             {"uid": operator_id},
         )
-        for sid in sector_ids:
+        for sid in body.sector_ids:
             await session.execute(text("""
                 INSERT INTO operador_sectores (operador_id, sector_id)
                 VALUES (:uid, :sid) ON CONFLICT DO NOTHING
             """), {"uid": operator_id, "sid": sid})
-    return {"operator_id": operator_id, "sectors_assigned": len(sector_ids)}
+    return {"operator_id": operator_id, "sectors_assigned": len(body.sector_ids)}
 
 
 @router.get("/admin/operators")

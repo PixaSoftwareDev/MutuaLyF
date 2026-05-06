@@ -283,7 +283,7 @@ export const api = {
       return data as Array<{ id: string; nombre: string }>;
     },
     assignOperatorSectors: async (operatorId: string, sectorIds: string[]) => {
-      await apiClient.post(`/admin/operators/${operatorId}/sectors`, sectorIds);
+      await apiClient.post(`/admin/operators/${operatorId}/sectors`, { sector_ids: sectorIds });
     },
   },
 

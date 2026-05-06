@@ -31,7 +31,7 @@ _TENANT_EXEMPT_PATHS = {
 # Path prefixes exempt from tenant resolution (SSO callbacks carry tenant in state)
 _TENANT_EXEMPT_PREFIXES = (
     "/api/v1/auth/sso/",
-    "/api/v1/widget/",   # widget uses widget_token which encodes tenant_id
+    # NOTE: /api/v1/widget/ is NOT exempt — middleware extracts tenant_id from widget JWT payload
 )
 
 
