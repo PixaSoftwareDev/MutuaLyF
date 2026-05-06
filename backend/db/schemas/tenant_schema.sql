@@ -79,3 +79,60 @@ CREATE TABLE IF NOT EXISTS intencion_ejemplos (
 );
 
 CREATE INDEX IF NOT EXISTS ix_intencion_ejemplos_intencion ON intencion_ejemplos (intencion_id);
+
+-- ── Operator panel ─────────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS sectores (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    nombre      VARCHAR(100) NOT NULL UNIQUE,
+    descripcion TEXT,
+    is_active   BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+INSERT INTO sectores (nombre, descripcion) VALUES
+    ('Consultas Generales', 'Sector por defecto para consultas sin asignación específica')
+ON CONFLICT (nombre) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS operador_sectores (
+    operador_id UUID NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+    sector_id   UUID NOT NULL REFERENCES sectores(id) ON DELETE CASCADE,
+    PRIMARY KEY (operador_id, sector_id)
+);
+
+CREATE TABLE IF NOT EXISTS conversaciones (
+    id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    widget_session_id       VARCHAR(100) NOT NULL,
+    sector_id               UUID REFERENCES sectores(id),
+    status                  VARCHAR(30) NOT NULL DEFAULT 'bot_active',
+    assigned_operator_id    UUID REFERENCES usuarios(id),
+    insufficient_count      INTEGER NOT NULL DEFAULT 0,
+    human_request_count     INTEGER NOT NULL DEFAULT 0,
+    afiliado_nombre         VARCHAR(200),
+    afiliado_email          VARCHAR(320),
+    created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    closed_at               TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS ix_conversaciones_session ON conversaciones (widget_session_id);
+CREATE INDEX IF NOT EXISTS ix_conversaciones_status  ON conversaciones (status, created_at DESC);
+CREATE INDEX IF NOT EXISTS ix_conversaciones_sector  ON conversaciones (sector_id, status);
+
+CREATE TABLE IF NOT EXISTS mensajes (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    conversation_id UUID NOT NULL REFERENCES conversaciones(id) ON DELETE CASCADE,
+    sender_type     VARCHAR(20) NOT NULL,
+    content         TEXT NOT NULL,
+    read_at         TIMESTAMPTZ,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS ix_mensajes_conversation ON mensajes (conversation_id, created_at);
+
+CREATE TABLE IF NOT EXISTS handoff_config (
+    id                              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    inactivity_timeout_minutes      INTEGER NOT NULL DEFAULT 15,
+    consecutive_insufficient_count  INTEGER NOT NULL DEFAULT 2,
+    frustration_phrases             JSONB NOT NULL DEFAULT '["no me ayuda","no sirve","mal servicio","quiero quejarme","esto no funciona","necesito hablar con alguien"]',
+    transition_messages             JSONB NOT NULL DEFAULT '{"handoff_offer":"Parece que no pude responder tu consulta correctamente. ¿Querés que te conecte con un operador?","handoff_auto":"Te estoy conectando con un operador. En breve alguien te atenderá.","human_assigned":"Un operador se ha unido a la conversación.","sector_transferred":"Tu consulta fue derivada al área correspondiente.","operator_inactive_alert":"Todavía estás en cola. Un operador te atenderá a la brevedad.","conversation_closed":"La conversación fue cerrada. Gracias por contactarnos."}',
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+INSERT INTO handoff_config DEFAULT VALUES ON CONFLICT DO NOTHING;

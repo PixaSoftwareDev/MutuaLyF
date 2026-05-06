@@ -65,11 +65,15 @@ app.conf.update(
     beat_schedule={
         "nightly-clustering": {
             "task": "workers.clustering_tasks.run_hdbscan_clustering",
-            "schedule": crontab(hour=2, minute=0),   # 02:00 UTC
+            "schedule": crontab(hour=2, minute=0),
         },
         "nightly-retraining": {
             "task": "workers.training_tasks.retrain_all_tenants",
-            "schedule": crontab(hour=3, minute=0),   # 03:00 UTC — after clustering finishes
+            "schedule": crontab(hour=3, minute=0),
+        },
+        "operator-inactivity-check": {
+            "task": "workers.handoff_tasks.check_operator_inactivity",
+            "schedule": 60,  # every 60s — checks conversations waiting too long
         },
     },
 )
