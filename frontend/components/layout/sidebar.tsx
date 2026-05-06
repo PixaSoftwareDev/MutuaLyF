@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { MessageSquare, FileText, Zap, Settings, LogOut, ChevronLeft, ChevronRight, Shield } from "lucide-react";
+import { MessageSquare, FileText, Zap, Settings, LogOut, ChevronLeft, ChevronRight, Shield, Headphones, Building2, GitMerge } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore, useUIStore } from "@/lib/store";
 import { api } from "@/lib/api";
@@ -10,11 +10,14 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 
 const navItems = [
-  { href: "/dashboard",        label: "Consultas",      icon: MessageSquare },
-  { href: "/admin/documents",  label: "Documentos",     icon: FileText,  adminOnly: true },
-  { href: "/admin/intentions", label: "Intenciones",    icon: Zap,       adminOnly: true },
-  { href: "/admin/settings",   label: "Configuración",  icon: Settings,  adminOnly: true },
-  { href: "/superadmin",       label: "Super Admin",    icon: Shield,    superAdminOnly: true },
+  { href: "/dashboard",             label: "Consultas",       icon: MessageSquare },
+  { href: "/operator",              label: "Panel Operador",  icon: Headphones, operatorOnly: true },
+  { href: "/admin/documents",       label: "Documentos",      icon: FileText,   adminOnly: true },
+  { href: "/admin/intentions",      label: "Intenciones",     icon: Zap,        adminOnly: true },
+  { href: "/admin/sectors",         label: "Sectores",        icon: Building2,  adminOnly: true },
+  { href: "/admin/handoff-config",  label: "Config. Handoff", icon: GitMerge,   adminOnly: true },
+  { href: "/admin/settings",        label: "Configuración",   icon: Settings,   adminOnly: true },
+  { href: "/superadmin",            label: "Super Admin",     icon: Shield,     superAdminOnly: true },
 ];
 
 export function Sidebar() {
@@ -55,6 +58,7 @@ export function Sidebar() {
         {navItems.map((item) => {
           if (item.adminOnly && !isAdmin) return null;
           if ((item as any).superAdminOnly && userRole !== "super_admin") return null;
+          if ((item as any).operatorOnly && !["operator","admin","super_admin"].includes(userRole ?? "")) return null;
           const Icon = item.icon;
           const active = pathname === item.href || pathname.startsWith(item.href + "/");
           return (

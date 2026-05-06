@@ -115,6 +115,40 @@ export interface IntentionResponse {
   pending_total: number;
 }
 
+export interface ConversationRow {
+  id: string;
+  status: "bot_active" | "handoff_requested" | "human_attending" | "closed";
+  afiliado_nombre: string | null;
+  afiliado_email: string | null;
+  sector_nombre: string | null;
+  operator_name: string | null;
+  unread_count: number;
+  last_message_at: string | null;
+  created_at: string;
+}
+
+export interface ConversationDetail extends ConversationRow {
+  messages: Array<{ id: string; sender_type: string; content: string; created_at: string }>;
+}
+
+export interface SectorRow {
+  id: string;
+  nombre: string;
+  descripcion: string | null;
+  is_active: boolean;
+  operator_count: number;
+  open_conversations: number;
+}
+
+export interface HandoffConfig {
+  id: string;
+  inactivity_timeout_minutes: number;
+  consecutive_insufficient_count: number;
+  frustration_phrases: string[];
+  transition_messages: Record<string, string>;
+  updated_at: string;
+}
+
 export interface WidgetTokenResponse {
   widget_token: string;
   expires_in_days: number;
@@ -213,5 +247,48 @@ export const api = {
       const { data } = await apiClient.post<WidgetTokenResponse>(`/tenants/${tenantId}/widget-token`);
       return data;
     },
+  },
+
+  operator: {
+    listConversations: async (statusFilter?: string, sectorId?: string) => {
+      const params = new URLSearchParams();
+      if (statusFilter) params.set("status_filter", statusFilter);
+      if (sectorId) params.set("sector_id", sectorId);
+      const { data } = await apiClient.get(`/operator/conversations?${params}`);
+      return data as { sectors: Array<{ sector: { id: string; nombre: string }; conversations: ConversationRow[] }>; total: number };
+    },
+    getConversation: async (id: string) => {
+      const { data } = await apiClient.get(`/operator/conversations/${id}`);
+      return data as ConversationDetail;
+    },
+    accept:   async (id: string)                => { await apiClient.post(`/operator/conversations/${id}/accept`); },
+    reply:    async (id: string, content: string) => { await apiClient.post(`/operator/conversations/${id}/reply`, { content }); },
+    transfer: async (id: string, sectorId: string, message?: string) => {
+      await apiClient.post(`/operator/conversations/${id}/transfer`, { sector_id: sectorId, message });
+    },
+    close: async (id: string) => { await apiClient.post(`/operator/conversations/${id}/close`); },
+  },
+
+  sectors: {
+    list: async () => { const { data } = await apiClient.get("/admin/sectors"); return data as SectorRow[]; },
+    create: async (nombre: string, descripcion?: string) => {
+      await apiClient.post("/admin/sectors", { nombre, descripcion });
+    },
+    update: async (id: string, nombre: string, descripcion?: string) => {
+      await apiClient.patch(`/admin/sectors/${id}`, { nombre, descripcion });
+    },
+    delete: async (id: string) => { await apiClient.delete(`/admin/sectors/${id}`); },
+    getOperatorSectors: async (operatorId: string) => {
+      const { data } = await apiClient.get(`/admin/operators/${operatorId}/sectors`);
+      return data as Array<{ id: string; nombre: string }>;
+    },
+    assignOperatorSectors: async (operatorId: string, sectorIds: string[]) => {
+      await apiClient.post(`/admin/operators/${operatorId}/sectors`, sectorIds);
+    },
+  },
+
+  handoffConfig: {
+    get: async () => { const { data } = await apiClient.get("/admin/handoff-config"); return data as HandoffConfig; },
+    update: async (payload: Partial<HandoffConfig>) => { await apiClient.patch("/admin/handoff-config", payload); },
   },
 };
