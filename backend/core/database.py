@@ -36,6 +36,9 @@ def get_pg_engine() -> AsyncEngine:
             pool_pre_ping=True,
             pool_timeout=settings.db_timeout_ms / 1000,
             echo=False,
+            # Disable asyncpg prepared-statement cache so that search_path changes
+            # between tenant sessions don't cause table-not-found errors on cached statements.
+            connect_args={"prepared_statement_cache_size": 0},
         )
     return _pg_engine
 
@@ -54,7 +57,11 @@ def get_session_factory() -> async_sessionmaker[AsyncSession]:
 
 @asynccontextmanager
 async def get_pg_session(tenant_id: str | None = None) -> AsyncGenerator[AsyncSession, None]:
-    """Yield an AsyncSession. If tenant_id provided, sets search_path for tenant isolation."""
+    """Yield an AsyncSession. If tenant_id provided, sets search_path for tenant isolation.
+
+    Resets search_path to public in finally so the pooled connection doesn't leak
+    tenant-specific schema state to the next session that reuses it.
+    """
     factory = get_session_factory()
     async with factory() as session:
         if tenant_id:
@@ -67,6 +74,13 @@ async def get_pg_session(tenant_id: str | None = None) -> AsyncGenerator[AsyncSe
         except Exception:
             await session.rollback()
             raise
+        finally:
+            if tenant_id:
+                try:
+                    await session.execute(text("SET search_path TO public"))
+                    await session.commit()
+                except Exception:
+                    pass
 
 
 @asynccontextmanager
