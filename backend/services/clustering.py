@@ -125,12 +125,12 @@ async def cluster_tenant(tenant_id: str) -> dict:
             for cluster_uuid, cluster_row_ids in candidates_by_cluster.items():
                 if not cluster_row_ids:
                     continue
-                # Use unnest for bulk update
+                # Use CAST instead of ::uuid[] to avoid SQLAlchemy colon-parsing conflict
                 await session.execute(text("""
                     UPDATE consultas_log
                     SET cluster_candidate_id = :cluster_id,
                         cluster_status = 'candidate'
-                    WHERE id = ANY(:ids::uuid[])
+                    WHERE id = ANY(CAST(:ids AS uuid[]))
                 """), {
                     "cluster_id": cluster_uuid,
                     "ids": cluster_row_ids,
@@ -200,19 +200,46 @@ def _embed_for_clustering(texts: list[str]) -> "np.ndarray | None":
 
 
 def _run_hdbscan(embeddings: "np.ndarray") -> "np.ndarray":
-    """Run HDBSCAN on the embedding matrix. Returns integer label array (-1 = noise)."""
+    """Reduce with UMAP then cluster with HDBSCAN.
+
+    High-dimensional embeddings (1024 dims) cause HDBSCAN to classify everything
+    as noise due to the curse of dimensionality. UMAP to ~15 dims first makes
+    cluster structure visible before HDBSCAN runs.
+    """
     try:
         import hdbscan
+        import umap
 
+        n_samples = len(embeddings)
         min_cluster = max(settings.intent_cluster_min_size, 5)
+
+        # UMAP: reduce to 15 dims (or fewer if we have very few samples).
+        # n_neighbors must be < n_samples.
+        n_neighbors = min(15, n_samples - 1)
+        n_components = min(15, n_samples - 2)
+
+        logger.info(
+            "umap_start n_samples=%d n_neighbors=%d n_components=%d",
+            n_samples, n_neighbors, n_components,
+        )
+        reducer = umap.UMAP(
+            n_neighbors=n_neighbors,
+            n_components=n_components,
+            metric="cosine",
+            min_dist=0.0,
+            random_state=42,
+        )
+        reduced = reducer.fit_transform(embeddings)
+        logger.info("umap_done shape=%s", reduced.shape)
+
         clusterer = hdbscan.HDBSCAN(
             min_cluster_size=min_cluster,
-            min_samples=3,
+            min_samples=2,
             metric="euclidean",
             cluster_selection_method="eom",
             prediction_data=False,
         )
-        labels = clusterer.fit_predict(embeddings)
+        labels = clusterer.fit_predict(reduced)
         logger.info(
             "hdbscan_done n_samples=%d n_clusters=%d noise_pct=%.1f",
             len(labels),

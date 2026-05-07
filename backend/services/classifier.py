@@ -7,6 +7,7 @@ Flow:
   4. Apply confidence thresholds from settings
 """
 
+import asyncio
 import logging
 
 from core.config import settings

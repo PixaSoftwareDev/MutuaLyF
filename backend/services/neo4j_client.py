@@ -40,27 +40,46 @@ def _safe_label(raw: str) -> str:
 logger = logging.getLogger(__name__)
 
 
+import time
+
 class Neo4jCircuitOpen(Exception):
     """Raised when the Neo4j circuit breaker is open (too many recent failures)."""
 
 
 _circuit_failure_count = 0
 _CIRCUIT_THRESHOLD = 3
+_CIRCUIT_OPEN_AT: float | None = None   # monotonic timestamp when circuit opened
+_CIRCUIT_HALF_OPEN_TTL = 30.0           # seconds before trying again (half-open)
 
 
 def _record_neo4j_failure() -> None:
-    global _circuit_failure_count
+    global _circuit_failure_count, _CIRCUIT_OPEN_AT
     _circuit_failure_count += 1
     logger.warning("neo4j_failure_count count=%d threshold=%d", _circuit_failure_count, _CIRCUIT_THRESHOLD)
+    if _circuit_failure_count >= _CIRCUIT_THRESHOLD and _CIRCUIT_OPEN_AT is None:
+        _CIRCUIT_OPEN_AT = time.monotonic()
+        logger.error("neo4j_circuit_opened will_retry_after=%.0fs", _CIRCUIT_HALF_OPEN_TTL)
 
 
 def _reset_circuit() -> None:
-    global _circuit_failure_count
+    global _circuit_failure_count, _CIRCUIT_OPEN_AT
+    if _circuit_failure_count > 0:
+        logger.info("neo4j_circuit_closed")
     _circuit_failure_count = 0
+    _CIRCUIT_OPEN_AT = None
 
 
 def _circuit_is_open() -> bool:
-    return _circuit_failure_count >= _CIRCUIT_THRESHOLD
+    global _circuit_failure_count, _CIRCUIT_OPEN_AT
+    if _circuit_failure_count < _CIRCUIT_THRESHOLD:
+        return False
+    # Half-open: after TTL, let one probe through to check if Neo4j recovered
+    if _CIRCUIT_OPEN_AT is not None and (time.monotonic() - _CIRCUIT_OPEN_AT) >= _CIRCUIT_HALF_OPEN_TTL:
+        logger.info("neo4j_circuit_half_open probing")
+        _circuit_failure_count = _CIRCUIT_THRESHOLD - 1  # Allow one attempt
+        _CIRCUIT_OPEN_AT = None
+        return False
+    return True
 
 
 @asynccontextmanager
@@ -137,7 +156,8 @@ async def write_entities_for_chunk(
                         ON CREATE SET e.nombre = entity.nombre, e.created_at = datetime()
                         MERGE (c:Chunk {{id: $chunk_id, tenant_id: $tenant_id}})
                         ON CREATE SET c.created_at = datetime()
-                        MERGE (e)-[:MENCIONADA_EN]->(c)
+                        MERGE (e)-[r:MENCIONADA_EN]->(c)
+                        ON CREATE SET r.doc_id = $doc_id, r.created_at = datetime()
                         MERGE (doc:Documento {{id: $doc_id, tenant_id: $tenant_id}})
                         MERGE (c)-[:PERTENECE_A]->(doc)
                         """,
@@ -184,9 +204,13 @@ async def query_entities(
                 result = await session.run(
                     """
                     MATCH (e)-[:MENCIONADA_EN]->(c:Chunk {tenant_id: $tenant_id})
-                    WHERE e.nombre_normalizado IN $names AND e.tenant_id = $tenant_id
+                    WHERE any(name IN $names
+                              WHERE e.nombre_normalizado CONTAINS name
+                                 OR name CONTAINS e.nombre_normalizado)
+                      AND e.tenant_id = $tenant_id
                     MATCH (c)-[:PERTENECE_A]->(doc:Documento)
-                    RETURN c.id AS chunk_id, doc.id AS doc_id, collect(DISTINCT e.nombre) AS entities
+                    RETURN DISTINCT c.id AS chunk_id, doc.id AS doc_id,
+                           collect(DISTINCT e.nombre) AS entities
                     LIMIT $limit
                     """,
                     tenant_id=tenant_id,

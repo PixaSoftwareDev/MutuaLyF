@@ -119,8 +119,19 @@ async def _run_ingest_pipeline(
     await _update_document_status(document_id, tenant_id, "processing")
 
     # ── 1. Extract text (CPU-bound: PDF parsing, docx parsing) ───────────────
+    # Read file bytes FIRST before any operation that might fail — so Celery
+    # retries can still access the file (it's deleted only on success at step 10).
     t = time.monotonic()
-    file_bytes = Path(file_path).read_bytes()
+    try:
+        file_bytes = Path(file_path).read_bytes()
+    except FileNotFoundError:
+        logger.error(
+            "ingest_file_not_found document_id=%s path=%s "
+            "(file was cleaned up — no retry possible)",
+            document_id, file_path,
+        )
+        await _update_document_status(document_id, tenant_id, "failed")
+        return {"chunk_count": 0, "status": "failed", "timings": {"extract_ms": 0}}
     text = await loop.run_in_executor(
         None, extract_text_from_bytes, file_bytes, mime_type, filename
     )

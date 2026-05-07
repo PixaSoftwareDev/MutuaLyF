@@ -185,9 +185,8 @@ async def handle_query(
     await _set_cache(question_hash, tenant_id, response)
 
     # ── Step 8: Log async (non-blocking) ──────────────────────────────────────
-    from workers.ingest_tasks import _log_usage_event
     asyncio.create_task(
-        _log_usage_event(tenant_id, "query", 1)
+        _log_usage_event_app(tenant_id, "query", 1)
     )
     asyncio.create_task(
         _log_query(
@@ -277,6 +276,23 @@ async def _log_query(
             )
     except Exception as exc:
         logger.warning("query_log_failed tenant_id=%s error=%s", tenant_id, exc)
+
+
+async def _log_usage_event_app(tenant_id: str, event_type: str, value: int) -> None:
+    """Log a usage event using the app's shared PG connection pool (not NullPool)."""
+    try:
+        from core.database import get_pg_session
+        from sqlalchemy import text
+        async with get_pg_session() as session:  # global schema — no tenant_id
+            await session.execute(
+                text(
+                    "INSERT INTO usage_events (tenant_id, event_type, value) "
+                    "VALUES (:tenant_id, :event_type, :value)"
+                ),
+                {"tenant_id": tenant_id, "event_type": event_type, "value": value},
+            )
+    except Exception as exc:
+        logger.warning("usage_event_log_failed tenant_id=%s error=%s", tenant_id, exc)
 
 
 async def _empty_list() -> list:

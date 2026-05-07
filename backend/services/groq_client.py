@@ -1,5 +1,6 @@
 """Groq API client with model routing and retry logic."""
 
+import asyncio
 import logging
 from typing import Any
 
@@ -17,6 +18,20 @@ from core.config import settings
 logger = logging.getLogger(__name__)
 
 _groq_client: AsyncGroq | None = None
+
+# Global semaphore: max concurrent Groq requests across queries + quality gate.
+# Prevents quality gate batch from starving user-facing queries.
+# 4 total: 3 for user queries (orchestrator) + 1 reserved for quality gate.
+_GROQ_SEMAPHORE: asyncio.Semaphore | None = None
+_GROQ_MAX_CONCURRENT = 4
+_QUALITY_GATE_MAX_CONCURRENT = 1  # Quality gate takes max 1 slot to avoid starving queries
+
+
+def _get_groq_semaphore() -> asyncio.Semaphore:
+    global _GROQ_SEMAPHORE
+    if _GROQ_SEMAPHORE is None:
+        _GROQ_SEMAPHORE = asyncio.Semaphore(_GROQ_MAX_CONCURRENT)
+    return _GROQ_SEMAPHORE
 
 
 def get_groq_client() -> AsyncGroq:
@@ -39,7 +54,11 @@ def classify_complexity(question: str, entity_count: int = 0) -> str:
     The orchestrator can override this with a more sophisticated classifier.
     """
     word_count = len(question.split())
-    if word_count > 25 or entity_count >= 3 or "?" in question[:-1]:
+    # Mid-sentence "?" = complex (e.g., "What is X? And also Y?")
+    # Spanish "¿" at start counts as complex only if the question is long enough
+    has_mid_question = "?" in question[:-1]
+    has_spanish_complex = question.startswith("¿") and word_count > 12
+    if word_count > 25 or entity_count >= 3 or has_mid_question or has_spanish_complex:
         return QueryComplexity.COMPLEX
     return QueryComplexity.SIMPLE
 
@@ -88,19 +107,56 @@ async def complete(
     logger.debug("groq_request model=%s message_count=%d", model, len(messages))
 
     client = get_groq_client()
-    response = await client.chat.completions.create(
-        model=model,
-        messages=messages,  # type: ignore[arg-type]
-        temperature=temperature,
-        max_tokens=max_tokens,
-        timeout=timeout,
-    )
+    async with _get_groq_semaphore():
+        response = await client.chat.completions.create(
+            model=model,
+            messages=messages,  # type: ignore[arg-type]
+            temperature=temperature,
+            max_tokens=max_tokens,
+            timeout=timeout,
+        )
 
     content = response.choices[0].message.content or ""
     logger.debug("groq_response model=%s tokens=%d", model, response.usage.total_tokens if response.usage else 0)
     from core.metrics import GROQ_REQUESTS_TOTAL
     GROQ_REQUESTS_TOTAL.labels(model=model, status="success").inc()
     return content
+
+
+async def suggest_cluster_label(sample_queries: list[str]) -> str:
+    """Ask Groq to propose a short intent name for a cluster of similar queries.
+
+    Returns a 2-5 word label in snake_case, or empty string on failure.
+    """
+    queries_text = "\n".join(f"- {q}" for q in sample_queries[:8])
+    try:
+        raw = await complete(
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Eres un asistente que nombra intenciones de usuario para un chatbot corporativo. "
+                        "Dado un grupo de consultas similares, devuelve UN nombre corto (2-5 palabras) en español "
+                        "que describa la intención común, en formato snake_case. "
+                        'Responde SOLO con el nombre, sin comillas ni explicaciones. Ejemplo: "consulta_vacaciones"'
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": f"Consultas del grupo:\n{queries_text}\n\nNombre de la intención:",
+                },
+            ],
+            complexity=QueryComplexity.SIMPLE,
+            temperature=0.2,
+            max_tokens=20,
+        )
+        label = raw.strip().strip('"').strip("'").lower().replace(" ", "_")
+        # Sanitize to alphanumeric + underscore only
+        label = "".join(c for c in label if c.isalnum() or c == "_")
+        return label[:60] if label else ""
+    except Exception as exc:
+        logger.warning("suggest_cluster_label_failed error=%s", exc)
+        return ""
 
 
 async def complete_quality_gate(chunk_text: str, tenant_id: str) -> dict[str, Any]:

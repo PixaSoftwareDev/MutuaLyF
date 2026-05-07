@@ -22,6 +22,7 @@ build/
 
 # Env
 .env
+.env.example
 .env.local
 .env.development
 .env.test
@@ -51,6 +52,11 @@ venv/
 logs/
 *.sqlite
 *.db
+
+# =========================
+# CERTIFICATES / KEYS
+# =========================
+nginx/certs/
 
 # =========================
 # DOCKER

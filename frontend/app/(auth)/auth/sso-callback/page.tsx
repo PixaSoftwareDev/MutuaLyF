@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2, CheckCircle, XCircle } from "lucide-react";
 import { useAuthStore } from "@/lib/store";
@@ -17,6 +17,18 @@ const SSO_ERROR_MESSAGES: Record<string, string> = {
 };
 
 export default function SsoCallbackPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="h-12 w-12 text-primary animate-spin" />
+      </div>
+    }>
+      <SsoCallbackInner />
+    </Suspense>
+  );
+}
+
+function SsoCallbackInner() {
   const router = useRouter();
   const params = useSearchParams();
   const { setAuth } = useAuthStore();

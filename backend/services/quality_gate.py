@@ -80,26 +80,28 @@ async def validate_chunk(chunk: Chunk) -> QualityResult:
 async def validate_chunk_semantic_autonomy(chunk: Chunk) -> bool:
     """Stage-2 quality gate: check if chunk is semantically self-sufficient.
 
-    A chunk is considered autonomous if its embedding has low cosine similarity
-    to its neighbors (meaning it contains unique information, not just overlap).
-
-    For MVP of Etapa 3 this is a lightweight heuristic:
-    - Chunks shorter than 30 tokens are considered non-autonomous (too short to answer questions)
-    - Chunks with very high overlap ratio vs their content are flagged
-
     Returns True if the chunk is autonomous (should be kept), False if not.
     """
     if chunk.token_count < 20:
         logger.debug("quality_stage2_too_short chunk_id=%s tokens=%d", chunk.id, chunk.token_count)
         return False
 
-    # Chunks from semantic splitting already respect semantic boundaries
+    # Semantic chunks respect meaning boundaries but can still be too short
+    # to provide a useful answer (e.g., orphaned sentence fragments from
+    # section transitions)
+    from core.config import settings
+    min_tokens = getattr(settings, "semantic_min_tokens", 50)
+
     if getattr(chunk, "strategy", "fixed") == "semantic":
+        if chunk.token_count < min_tokens:
+            logger.debug(
+                "quality_stage2_semantic_too_short chunk_id=%s tokens=%d min=%d",
+                chunk.id, chunk.token_count, min_tokens,
+            )
+            return False
         return True
 
-    # For fixed-size chunks, check overlap ratio
-    # If token_count < chunk_overlap_tokens setting, it's almost entirely overlap
-    from core.config import settings
+    # Fixed-size chunks: reject if mostly overlap
     if chunk.token_count < settings.chunk_overlap_tokens:
         logger.debug("quality_stage2_overlap_heavy chunk_id=%s tokens=%d", chunk.id, chunk.token_count)
         return False
@@ -109,11 +111,13 @@ async def validate_chunk_semantic_autonomy(chunk: Chunk) -> bool:
 
 async def validate_chunks_batch(
     chunks: list[Chunk],
-    max_concurrent: int = 5,
+    max_concurrent: int = 1,
 ) -> list[QualityResult]:
     """Validate a batch of chunks with bounded concurrency.
 
-    Uses asyncio.gather with semaphore to avoid hammering the Groq API.
+    Serialized (max_concurrent=1) by default to avoid competing with user-facing
+    Groq requests that run in the FastAPI process. Quality gate runs in the Celery
+    worker and shares the same Groq API key — staggering calls protects query SLA.
     """
     import asyncio
 
@@ -121,7 +125,12 @@ async def validate_chunks_batch(
 
     async def _gated(chunk: Chunk) -> QualityResult:
         async with semaphore:
-            return await validate_chunk(chunk)
+            result = await validate_chunk(chunk)
+            # Small delay to avoid hitting Groq token-per-minute limits
+            # when processing large batches. Does not block user queries
+            # (those run in the FastAPI process, not here in the worker).
+            await asyncio.sleep(0.5)
+            return result
 
     results = await asyncio.gather(*[_gated(c) for c in chunks], return_exceptions=True)
 

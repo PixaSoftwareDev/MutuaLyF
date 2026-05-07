@@ -15,6 +15,7 @@ Fixed-size is the guaranteed fallback if semantic chunking fails.
 
 import hashlib
 import logging
+import os
 import uuid
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -28,8 +29,27 @@ from services.doc_classifier import ClassificationResult, DocType
 logger = logging.getLogger(__name__)
 
 SEMANTIC_COSINE_THRESHOLD = float(
-    __import__("os").getenv("SEMANTIC_CHUNK_COSINE_THRESHOLD", "0.75")
+    os.getenv("SEMANTIC_CHUNK_COSINE_THRESHOLD", "0.75")
 )
+
+# Separate lightweight model for semantic boundary detection.
+# Uses 384-dim vectors (vs 1024 for e5-large) — only needs relative similarity,
+# not absolute semantic quality. ~5x faster than multilingual-e5-large.
+_SPLIT_MODEL_NAME = os.getenv("SEMANTIC_SPLIT_MODEL", "paraphrase-multilingual-MiniLM-L12-v2")
+
+
+@lru_cache(maxsize=1)
+def _build_split_model():
+    """Load the lightweight model used only for semantic boundary detection."""
+    try:
+        from sentence_transformers import SentenceTransformer
+        logger.info("split_model_loading model=%s", _SPLIT_MODEL_NAME)
+        m = SentenceTransformer(_SPLIT_MODEL_NAME)
+        logger.info("split_model_loaded model=%s", _SPLIT_MODEL_NAME)
+        return m
+    except Exception as exc:
+        logger.warning("split_model_load_failed error=%s fallback=e5_large", exc)
+        return None
 
 
 @dataclass
@@ -168,9 +188,11 @@ def _semantic_split(text: str) -> list[str]:
     """
     try:
         import numpy as np
-        from services.embeddings import _load_model
 
-        model = _load_model()
+        model = _build_split_model()
+        if model is None:
+            from services.embeddings import _load_model
+            model = _load_model()
         if model is None:
             return []
 
@@ -274,8 +296,47 @@ def _extract_docx(content: bytes, filename: str) -> str:
         import io
         import docx
         doc = docx.Document(io.BytesIO(content))
-        paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
-        return "\n\n".join(paragraphs)
+
+        # Namespace prefix varies by docx version — strip it dynamically
+        _W = doc.element.nsmap.get("w", "http://schemas.openxmlformats.org/wordprocessingml/2006/main")
+        TAG_P   = f"{{{_W}}}p"
+        TAG_TBL = f"{{{_W}}}tbl"
+        TAG_TR  = f"{{{_W}}}tr"
+        TAG_TC  = f"{{{_W}}}tc"
+
+        # Map paragraph XML elements to their Paragraph objects for style access
+        para_map = {p._element: p for p in doc.paragraphs}
+
+        parts: list[str] = []
+        for child in doc.element.body:
+            tag = child.tag
+
+            if tag == TAG_P:
+                para = para_map.get(child)
+                if para is None:
+                    continue
+                text = para.text.strip()
+                if not text:
+                    continue
+                # Mark heading paragraphs so classifier sees header_density > 0
+                if para.style and para.style.name.startswith("Heading"):
+                    parts.append(f"## {text}")
+                else:
+                    parts.append(text)
+
+            elif tag == TAG_TBL:
+                for row in child.iter(TAG_TR):
+                    cells = [
+                        tc.text_content().strip() if hasattr(tc, "text_content") else
+                        "".join(n.text or "" for n in tc.iter() if n.text)
+                        for tc in row.iter(TAG_TC)
+                    ]
+                    cells = [c for c in cells if c]
+                    if cells:
+                        parts.append(" | ".join(cells))
+
+        return "\n\n".join(parts)
+
     except ImportError:
         logger.warning("python_docx_not_installed falling_back_to_raw filename=%s", filename)
         return content.decode("utf-8", errors="replace")

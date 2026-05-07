@@ -108,11 +108,28 @@ export interface PendingIntention {
   auto_learning_blocked_count: number;
 }
 
+export interface ClusterQuery {
+  id: string;
+  text: string;
+}
+
+export interface DiscoveredCluster {
+  id: string;
+  cluster_id: string;
+  query_count: number;
+  first_seen: string | null;
+  last_seen: string | null;
+  queries: ClusterQuery[];
+  suggested_label: string;
+}
+
 export interface IntentionResponse {
   intentions: Intention[];
   pending_review: PendingIntention[];
+  discovered_clusters: DiscoveredCluster[];
   total: number;
   pending_total: number;
+  clusters_total: number;
 }
 
 export interface ConversationRow {
@@ -227,6 +244,16 @@ export const api = {
     },
     create: async (label: string, description?: string, examples?: string[]) => {
       await apiClient.post("/intentions", { label, description, examples: examples ?? [] });
+    },
+    approveCluster: async (clusterId: string, label: string) => {
+      const { data } = await apiClient.post(`/intentions/cluster/${clusterId}/approve`, { label });
+      return data;
+    },
+    dismissCluster: async (clusterId: string) => {
+      await apiClient.post(`/intentions/cluster/${clusterId}/dismiss`);
+    },
+    removeQueryFromCluster: async (clusterId: string, queryId: string) => {
+      await apiClient.delete(`/intentions/cluster/${clusterId}/query/${queryId}`);
     },
     triggerClustering: async () => {
       const { data } = await apiClient.post("/intentions/cluster");

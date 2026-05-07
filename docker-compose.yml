@@ -98,7 +98,10 @@ services:
       dockerfile: Dockerfile
     container_name: ia_backend
     restart: unless-stopped
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload --no-access-log
     env_file: .env
+    ports:
+      - "127.0.0.1:8000:8000"
     volumes:
       - ./backend:/app
       - models_data:/root/.cache/huggingface
@@ -133,7 +136,7 @@ services:
       dockerfile: Dockerfile
     container_name: ia_celery_worker
     restart: unless-stopped
-    command: celery -A workers.celery_app worker --loglevel=info --concurrency=4 -Q ingest,clustering,training,default
+    command: celery -A workers.celery_app worker --loglevel=info --concurrency=1 -Q ingest,clustering,training,default
     env_file: .env
     environment:
       PYTHONPATH: /app
@@ -179,12 +182,17 @@ services:
   # ─── Frontend ─────────────────────────────────────────────────────────────────
 
   frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
+    image: node:20-alpine
     container_name: ia_frontend
     restart: unless-stopped
+    working_dir: /app
+    command: sh -c "npm install --prefer-offline && npm run dev"
+    volumes:
+      - ./frontend:/app
+      - frontend_nm:/app/node_modules
     env_file: .env
+    environment:
+      - NODE_ENV=development
     networks:
       - internal
     depends_on:
@@ -218,9 +226,12 @@ services:
   # ─── Backup ───────────────────────────────────────────────────────────────────
 
   pgbackrest:
-    image: pgbackrest/pgbackrest:2.51
+    image: woblerr/pgbackrest:2.51
     container_name: ia_pgbackrest
     restart: unless-stopped
+    # In dev: stay alive as a sidecar so the volume mount persists.
+    # In prod: replace with a cron schedule (e.g., daily full backup + WAL archiving).
+    entrypoint: ["/bin/sh", "-c", "echo 'pgBackRest sidecar ready' && sleep infinity"]
     environment:
       PGBACKREST_STANZA: main
       PGBACKREST_PG1_PATH: /var/lib/postgresql/data
@@ -362,6 +373,7 @@ volumes:
   prometheus_data:
   grafana_data:
   loki_data:
+  frontend_nm:
 
 networks:
   internal:

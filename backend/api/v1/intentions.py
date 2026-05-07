@@ -102,6 +102,28 @@ async def list_intentions(
         """))
         blocked = {r["intent_label"]: r["blocked_count"] for r in result_blocked.mappings().all()}
 
+        # HDBSCAN-discovered clusters awaiting admin naming/validation
+        result_clusters = await session.execute(text("""
+            SELECT
+                cluster_candidate_id,
+                COUNT(*) AS query_count,
+                MIN(created_at) AS first_seen,
+                MAX(created_at) AS last_seen,
+                json_agg(
+                    json_build_object('id', id::text, 'text', question_text)
+                    ORDER BY question_text
+                ) FILTER (WHERE question_text IS NOT NULL) AS queries
+            FROM consultas_log
+            WHERE cluster_status = 'candidate'
+              AND cluster_candidate_id IS NOT NULL
+            GROUP BY cluster_candidate_id
+            ORDER BY query_count DESC
+        """))
+        cluster_rows = result_clusters.mappings().all()
+
+    # Generate suggested labels for clusters (cached in Redis to avoid calling Groq on every refresh)
+    suggested_labels = await _get_cluster_suggestions(cluster_rows)
+
     pending = [
         {
             "id": f"pending_{r['intent_label'].replace(' ', '_')}",
@@ -114,11 +136,26 @@ async def list_intentions(
         for r in pending_rows
     ]
 
+    discovered_clusters = [
+        {
+            "id": f"cluster_{r['cluster_candidate_id']}",
+            "cluster_id": str(r["cluster_candidate_id"]),
+            "query_count": r["query_count"],
+            "first_seen": r["first_seen"].isoformat() if r["first_seen"] else None,
+            "last_seen": r["last_seen"].isoformat() if r["last_seen"] else None,
+            "queries": _dedup_queries(r["queries"] or []),
+            "suggested_label": suggested_labels.get(str(r["cluster_candidate_id"]), ""),
+        }
+        for r in cluster_rows
+    ]
+
     return {
         "intentions": intentions,
         "pending_review": pending,
+        "discovered_clusters": discovered_clusters,
         "total": len(intentions),
         "pending_total": len(pending),
+        "clusters_total": len(discovered_clusters),
     }
 
 
@@ -216,6 +253,102 @@ async def create_intention(
 
     logger.info("intention_created tenant=%s label=%s id=%s", tenant_id, body.label, intention_id)
     return {"id": intention_id, "label": body.label, "status": "created"}
+
+
+class ClusterApproveBody(BaseModel):
+    label: str
+
+
+@router.post("/intentions/cluster/{cluster_id}/approve", status_code=status.HTTP_201_CREATED)
+async def approve_cluster(
+    cluster_id: str,
+    body: ClusterApproveBody,
+    tenant_id: str = Depends(get_tenant_id),
+    current_user: CurrentUser = Depends(require_admin),
+):
+    """Convert an HDBSCAN-discovered cluster into a named intention."""
+    async with get_pg_session(tenant_id) as session:
+        # Check cluster exists
+        result = await session.execute(text("""
+            SELECT COUNT(*) FROM consultas_log
+            WHERE cluster_candidate_id = :cluster_id AND cluster_status = 'candidate'
+        """), {"cluster_id": cluster_id})
+        count = result.scalar()
+        if not count:
+            raise HTTPException(status_code=404, detail="Cluster no encontrado")
+
+        # Fetch sample queries to seed the intention
+        samples = await session.execute(text("""
+            SELECT DISTINCT question_text FROM consultas_log
+            WHERE cluster_candidate_id = :cluster_id
+              AND cluster_status = 'candidate'
+              AND question_text IS NOT NULL
+            LIMIT 20
+        """), {"cluster_id": cluster_id})
+        sample_texts = [r[0] for r in samples.fetchall()]
+
+        # Create the intention
+        intention_id = str(uuid.uuid4())
+        await session.execute(text("""
+            INSERT INTO intenciones (id, label, example_count, is_active)
+            VALUES (:id, :label, :example_count, TRUE)
+            ON CONFLICT (label) DO UPDATE SET is_active = TRUE, updated_at = NOW()
+        """), {"id": intention_id, "label": body.label, "example_count": len(sample_texts)})
+
+        # Mark cluster queries as classified
+        await session.execute(text("""
+            UPDATE consultas_log
+            SET cluster_status = 'classified', intent_label = :label
+            WHERE cluster_candidate_id = :cluster_id AND cluster_status = 'candidate'
+        """), {"label": body.label, "cluster_id": cluster_id})
+
+    if sample_texts:
+        await _index_examples_in_qdrant(tenant_id, intention_id, body.label, sample_texts)
+
+    logger.info("cluster_approved tenant=%s cluster_id=%s label=%s", tenant_id, cluster_id, body.label)
+    return {"id": intention_id, "label": body.label, "status": "created", "examples_indexed": len(sample_texts)}
+
+
+@router.post("/intentions/cluster/{cluster_id}/dismiss")
+async def dismiss_cluster(
+    cluster_id: str,
+    tenant_id: str = Depends(get_tenant_id),
+    current_user: CurrentUser = Depends(require_admin),
+):
+    """Dismiss an HDBSCAN cluster (mark its queries as dismissed)."""
+    async with get_pg_session(tenant_id) as session:
+        result = await session.execute(text("""
+            UPDATE consultas_log
+            SET cluster_status = 'dismissed'
+            WHERE cluster_candidate_id = :cluster_id AND cluster_status = 'candidate'
+        """), {"cluster_id": cluster_id})
+    logger.info("cluster_dismissed tenant=%s cluster_id=%s rows=%d", tenant_id, cluster_id, result.rowcount)
+    return {"cluster_id": cluster_id, "status": "dismissed"}
+
+
+@router.delete("/intentions/cluster/{cluster_id}/query/{query_id}")
+async def remove_query_from_cluster(
+    cluster_id: str,
+    query_id: str,
+    tenant_id: str = Depends(get_tenant_id),
+    current_user: CurrentUser = Depends(require_admin),
+):
+    """Remove a single query from a cluster (marks it unassigned so it can be re-clustered)."""
+    async with get_pg_session(tenant_id) as session:
+        result = await session.execute(text("""
+            UPDATE consultas_log
+            SET cluster_status = 'unassigned', cluster_candidate_id = NULL
+            WHERE id = :query_id
+              AND cluster_candidate_id = :cluster_id
+              AND cluster_status = 'candidate'
+            RETURNING id
+        """), {"query_id": query_id, "cluster_id": cluster_id})
+        row = result.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Query no encontrada en este cluster")
+
+    logger.info("query_removed_from_cluster tenant=%s cluster_id=%s query_id=%s", tenant_id, cluster_id, query_id)
+    return {"query_id": query_id, "status": "removed"}
 
 
 @router.post("/intentions/{intention_id}/approve")
@@ -483,3 +616,59 @@ async def _index_examples_in_qdrant(
             logger.info("intention_examples_indexed label=%s count=%d", label, len(points))
     except Exception as exc:
         logger.error("index_examples_failed intention_id=%s error=%s", intention_id, exc)
+
+
+def _dedup_queries(queries: list[dict]) -> list[dict]:
+    """Remove duplicate texts, keeping one entry per unique question_text."""
+    seen: set[str] = set()
+    result = []
+    for q in queries:
+        t = q.get("text") or ""
+        if t and t not in seen:
+            seen.add(t)
+            result.append(q)
+    return sorted(result, key=lambda q: q.get("text", ""))
+
+
+async def _get_cluster_suggestions(cluster_rows: list) -> dict[str, str]:
+    """Return suggested labels keyed by cluster_id, using Redis cache (TTL 24h)."""
+    import asyncio
+    from services.groq_client import suggest_cluster_label
+
+    try:
+        from core.database import get_redis_cache
+        redis = get_redis_cache()
+    except Exception:
+        redis = None
+
+    suggestions: dict[str, str] = {}
+
+    async def _suggest_one(cluster_id: str, samples: list[str]) -> None:
+        cache_key = f"cluster_label_suggestion:{cluster_id}"
+        if redis:
+            try:
+                cached = await redis.get(cache_key)
+                if cached:
+                    suggestions[cluster_id] = cached.decode() if isinstance(cached, bytes) else cached
+                    return
+            except Exception:
+                pass
+
+        label = await suggest_cluster_label(samples)
+        suggestions[cluster_id] = label
+
+        if redis and label:
+            try:
+                await redis.set(cache_key, label, ex=86400)  # 24h TTL
+            except Exception:
+                pass
+
+    await asyncio.gather(*[
+        _suggest_one(
+            str(r["cluster_candidate_id"]),
+            [q["text"] for q in (r["queries"] or []) if q.get("text")][:8],
+        )
+        for r in cluster_rows
+    ])
+
+    return suggestions

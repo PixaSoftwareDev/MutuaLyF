@@ -1,6 +1,6 @@
 {
-  "version": "1.7",
-  "last_updated": "2026-05-04T20:00:00Z",
+  "version": "1.8",
+  "last_updated": "2026-05-07T15:10:00Z",
   "current_stage": "etapa_3",
   "current_step": "completed",
   "overall_status": "etapa_3_complete",
@@ -153,5 +153,48 @@
     }
   },
 
+  "session_2026_05_07_deep_audit": {
+    "type": "auditoría profunda de ingeniería",
+    "bugs_críticos_encontrados_y_corregidos": [
+      "pgbackrest imagen pgbackrest/pgbackrest:2.51 inexistente → woblerr/pgbackrest:2.51 + entrypoint sleep infinity",
+      "asyncio no importado en classifier.py → asyncio.timeout lanzaba NameError en runtime",
+      "Circuit breaker Neo4j sin half-open state → stuck abierto permanentemente tras 3 fallos → agregado TTL de 30s y estado half-open",
+      "Rate limiting configurado pero nunca aplicado → nuevo core/rate_limit.py con Redis sliding window → aplicado en /query",
+      "Clasificador de complejidad '?' en question[:-1] nunca dispara en español → corregido: '¿' + word_count>12 → routing al reasoning model",
+      "_log_usage_event usaba get_worker_pg_session() (NullPool) en contexto FastAPI → nuevo _log_usage_event_app() con shared pool",
+      "Delete documento dejaba nodos entidad huérfanos en Neo4j → two-step Cypher: borrar edges → borrar entidades sin edges → borrar chunk+doc",
+      ".docx desde Chrome/Safari enviado como application/octet-stream → rechazado → resuelto por extensión de archivo",
+      "Quality gate (60 chunks × Groq) saturaba rate limit de API compartido con queries → serializado max_concurrent=1 + 0.5s delay + Semaphore global (4 slots) en FastAPI",
+      "Celery retry + file cleanup: si pipeline falla post-unlink → FileNotFoundError en retry → agregado guard explícito con log claro"
+    ],
+    "resultados_de_pruebas": {
+      "documentos_ingestados": 3,
+      "chunks_totales": 137,
+      "calidad_chunks": "60/60 passed (NovaTech), 17/17 passed (salud_norte)",
+      "entidades_neo4j": "581 nodos: Persona=121 Horario=51 Departamento=42 Org=28 Doc=20 Lugar=14 Rol=12 Fecha=7",
+      "rate_limiting": "429 disparado exactamente en request 61 (límite=60/min) ✅",
+      "cache_hits_latencia": "2ms - 164ms ✅ (target: <200ms)",
+      "cache_miss_latencia_post_fix": "1200ms - 5200ms (depende de Groq, sin contención)",
+      "cache_miss_latencia_pre_fix": "3000ms - 119000ms (contención Groq quality gate)",
+      "queries_ejecutadas_en_sesion": 116,
+      "cache_hit_rate_load_test": "56.7% (34/60 en segunda ronda de mismas preguntas)",
+      "cross_tenant_isolation": "verificado ✅ (JWT > X-Tenant-ID header)",
+      "sql_injection": "bloqueado por sanitización ✅",
+      "aprendizaje_intenciones": "datos acumulados en consultas_log, HDBSCAN corre nocturno - 0 intents labeleados aún (expected)"
+    },
+    "problemas_pendientes_sin_fix": [
+      "Groq semaphore es por-proceso: no previene contención entre FastAPI y Celery en el mismo API key → solución ideal: API key separada para quality gate o Redis-based distributed semaphore",
+      "Latencia media histórica 16.6s en consultas_log (de pre-fix era) no refleja performance actual",
+      "complexity='complex' para "¿..." + >12 palabras puede ser muy agresivo para algunas preguntas cortas",
+      "docker-compose sin --reload en uvicorn: cambios de código requieren restart manual"
+    ],
+    "mejoras_de_arquitectura_recomendadas": [
+      "API key de Groq separada para quality gate (env: GROQ_API_KEY_BATCH) - elimina contención definitivamente",
+      "Uvicorn --reload en dev: agregar flag en docker-compose para dev override",
+      "Celery worker --uid para no correr como root (warning de seguridad en logs)",
+      "Semáforo distribuido Redis para Groq entre procesos (si multi-worker)",
+      "Alertas Prometheus: p95 latencia > 5s, error_rate > 1%, queue_depth > 10"
+    ]
+  },
   "next_step": "Etapa 2: Observabilidad (Prometheus + Grafana + Loki), panel de intenciones en frontend, HDBSCAN clustering nocturno, SSO OAuth 2.0."
 }

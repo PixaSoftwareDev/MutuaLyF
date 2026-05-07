@@ -1,10 +1,10 @@
 """Main query endpoint: embed → classify → retrieve → rerank → LLM → respond."""
 
 import logging
-import time
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends
 
+from core.rate_limit import check_rate_limit
 from core.security import CurrentUser, get_current_user, get_widget_user
 from core.tenant import get_tenant_id
 from models.query import QueryRequest, QueryResponse, SourceChunk
@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-@router.post("/query", response_model=QueryResponse)
+@router.post("/query", response_model=QueryResponse, dependencies=[Depends(check_rate_limit)])
 async def query(
     request: QueryRequest,
     tenant_id: str = Depends(get_tenant_id),
@@ -38,7 +38,7 @@ async def query(
     )
 
 
-@router.post("/query/widget", response_model=QueryResponse)
+@router.post("/query/widget", response_model=QueryResponse, dependencies=[Depends(check_rate_limit)])
 async def query_widget(
     request: QueryRequest,
     tenant_id: str = Depends(get_tenant_id),

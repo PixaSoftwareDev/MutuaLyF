@@ -96,15 +96,32 @@ async def delete_document(
     except Exception as e:
         logger.warning("delete_qdrant_chunks_failed document_id=%s error=%s", document_id, e)
 
-    # 3. Delete Neo4j nodes for this document
+    # 3. Delete Neo4j nodes for this document (chunks, document, and orphaned entities)
     try:
         from core.database import get_neo4j_driver
         neo4j = get_neo4j_driver()
         database = tenant_id if settings.neo4j_multidatabase else "neo4j"
         async with neo4j.session(database=database) as neo4j_session:
+            # Step 1: delete entity→chunk edges for this document's chunks, then
+            # delete any entity nodes that now have no remaining MENCIONADA_EN edges.
             await neo4j_session.run(
                 """
-                MATCH (c:Chunk {tenant_id: $tenant_id})-[:PERTENECE_A]->(d:Documento {id: $doc_id, tenant_id: $tenant_id})
+                MATCH (c:Chunk {tenant_id: $tenant_id})-[:PERTENECE_A]->
+                      (d:Documento {id: $doc_id, tenant_id: $tenant_id})
+                WITH c, d
+                OPTIONAL MATCH (e)-[r:MENCIONADA_EN]->(c)
+                DELETE r
+                WITH c, d, e
+                WHERE e IS NOT NULL AND NOT (e)-[:MENCIONADA_EN]->()
+                DELETE e
+                """,
+                tenant_id=tenant_id, doc_id=document_id,
+            )
+            # Step 2: delete chunk and document nodes
+            await neo4j_session.run(
+                """
+                MATCH (c:Chunk {tenant_id: $tenant_id})-[:PERTENECE_A]->
+                      (d:Documento {id: $doc_id, tenant_id: $tenant_id})
                 DETACH DELETE c, d
                 """,
                 tenant_id=tenant_id, doc_id=document_id,
@@ -126,6 +143,15 @@ ALLOWED_MIME_TYPES = {
     "text/plain",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "text/html",
+    "application/octet-stream",  # Some browsers send this for .docx — detected by extension below
+}
+
+_EXTENSION_MIME_MAP = {
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".pdf":  "application/pdf",
+    ".txt":  "text/plain",
+    ".html": "text/html",
+    ".htm":  "text/html",
 }
 
 # Max file size per plan is enforced in nginx. Here we enforce a hard cap.
@@ -150,10 +176,17 @@ async def ingest_document(
     """
     # Strip charset/boundary params: "text/plain; charset=utf-8" → "text/plain"
     mime_type = (file.content_type or "").split(";")[0].strip()
-    if mime_type not in ALLOWED_MIME_TYPES:
+
+    # Resolve generic octet-stream by file extension (e.g. .docx from some browsers)
+    if mime_type == "application/octet-stream" and file.filename:
+        import pathlib
+        ext = pathlib.Path(file.filename).suffix.lower()
+        mime_type = _EXTENSION_MIME_MAP.get(ext, mime_type)
+
+    if mime_type not in ALLOWED_MIME_TYPES or mime_type == "application/octet-stream":
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            detail=f"Unsupported file type: {file.content_type}",
+            detail=f"Tipo de archivo no soportado: {file.content_type}. Use PDF, DOCX, TXT o HTML.",
         )
 
     # Read and check size before writing to disk
