@@ -1,9 +1,11 @@
 """Document ingestion endpoint."""
 
+import hashlib
 import logging
 import os
 import re
 import uuid
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from qdrant_client.models import Filter, FieldCondition, MatchValue
@@ -164,6 +166,72 @@ def _ensure_upload_dir() -> None:
     os.makedirs(_UPLOAD_DIR, exist_ok=True)
 
 
+def _compute_file_hashes(file_bytes: bytes, mime_type: str) -> tuple[str, str]:
+    """Compute (hash_bytes, hash_text) for duplicate detection.
+
+    hash_bytes: SHA-256 of raw file bytes (exact binary match).
+    hash_text: SHA-256 of extracted+normalized text (same content, different format).
+    """
+    hash_bytes = hashlib.sha256(file_bytes).hexdigest()
+
+    try:
+        if mime_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+            import io
+            from docx import Document as DocxDocument
+            doc = DocxDocument(io.BytesIO(file_bytes))
+            raw_text = "\n".join(p.text for p in doc.paragraphs)
+        elif mime_type == "application/pdf":
+            try:
+                import fitz  # PyMuPDF
+                pdf = fitz.open(stream=file_bytes, filetype="pdf")
+                raw_text = "\n".join(page.get_text() for page in pdf)
+                pdf.close()
+            except ImportError:
+                from pdfminer.high_level import extract_text as pdfminer_extract
+                import io
+                raw_text = pdfminer_extract(io.BytesIO(file_bytes))
+        else:
+            # text/plain, text/html, fallback
+            raw_text = file_bytes.decode("utf-8", errors="replace")
+
+        # Normalize: lowercase, strip, collapse whitespace
+        normalized = " ".join(raw_text.lower().split())
+        hash_text = hashlib.sha256(normalized.encode()).hexdigest()
+    except Exception as exc:
+        logger.warning("hash_text_extraction_failed mime_type=%s error=%s", mime_type, exc)
+        # Fall back to hash_bytes so we still detect exact copies
+        hash_text = hash_bytes
+
+    return hash_bytes, hash_text
+
+
+async def _check_duplicate_document(session, hash_bytes: str, hash_text: str) -> dict | None:
+    """Query documentos for an existing doc matching either hash.
+
+    Returns {id, title, filename, created_at} if found, else None.
+    """
+    result = await session.execute(
+        text(
+            "SELECT id, title, filename, created_at, "
+            "content_hash_bytes, content_hash_text "
+            "FROM documentos "
+            "WHERE content_hash_bytes = :hash_bytes OR content_hash_text = :hash_text "
+            "LIMIT 1"
+        ),
+        {"hash_bytes": hash_bytes, "hash_text": hash_text},
+    )
+    row = result.mappings().fetchone()
+    if row is None:
+        return None
+    return {
+        "id": str(row["id"]),
+        "title": row["title"],
+        "filename": row["filename"],
+        "created_at": row["created_at"].isoformat() if isinstance(row["created_at"], datetime) else str(row["created_at"]),
+        "_matched_bytes": row["content_hash_bytes"] == hash_bytes,
+    }
+
+
 @router.post("/ingest", response_model=DocumentIngestResponse, status_code=status.HTTP_202_ACCEPTED)
 async def ingest_document(
     file: UploadFile = File(...),
@@ -191,11 +259,19 @@ async def ingest_document(
 
     # Read and check size before writing to disk
     content = await file.read()
+    if not content:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El archivo está vacío.",
+        )
     if len(content) > _MAX_FILE_BYTES:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             detail=f"File exceeds maximum allowed size of {_MAX_FILE_BYTES // (1024*1024)} MB",
         )
+
+    # ── Compute file hashes for duplicate detection ───────────────────────────
+    hash_bytes, hash_text = _compute_file_hashes(content, mime_type)
 
     document_id = str(uuid.uuid4())
     logger.info(
@@ -203,12 +279,17 @@ async def ingest_document(
         tenant_id, document_id, file.filename, len(content),
     )
 
-    # ── Persist document record to PG ─────────────────────────────────────────
+    # ── Atomic insert with duplicate detection (avoids TOCTOU race) ──────────
+    # INSERT ... ON CONFLICT DO NOTHING. If 0 rows inserted → duplicate exists.
     async with get_pg_session(tenant_id) as session:
-        await session.execute(
+        insert_result = await session.execute(
             text(
-                "INSERT INTO documentos (id, title, filename, mime_type, size_bytes, uploaded_by) "
-                "VALUES (:id, :title, :filename, :mime_type, :size_bytes, :uploaded_by)"
+                "INSERT INTO documentos (id, title, filename, mime_type, size_bytes, uploaded_by, "
+                "content_hash_bytes, content_hash_text) "
+                "VALUES (:id, :title, :filename, :mime_type, :size_bytes, :uploaded_by, "
+                ":content_hash_bytes, :content_hash_text) "
+                "ON CONFLICT ON CONSTRAINT uq_doc_hash_bytes DO NOTHING "
+                "RETURNING id"
             ),
             {
                 "id": document_id,
@@ -217,8 +298,29 @@ async def ingest_document(
                 "mime_type": mime_type,
                 "size_bytes": len(content),
                 "uploaded_by": current_user.user_id or "system",
+                "content_hash_bytes": hash_bytes,
+                "content_hash_text": hash_text,
             },
         )
+        inserted = insert_result.fetchone()
+
+        if inserted is None:
+            # Duplicate detected — fetch existing record to return in the 409
+            existing = await _check_duplicate_document(session, hash_bytes, hash_text)
+            matched_bytes = existing.pop("_matched_bytes", False) if existing else False
+            match_type = "exact_bytes" if matched_bytes else "same_content"
+            logger.info(
+                "ingest_duplicate_detected tenant_id=%s existing_id=%s match_type=%s",
+                tenant_id, existing["id"] if existing else "unknown", match_type,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "detail": "Documento duplicado",
+                    "duplicate_of": existing or {},
+                    "match_type": match_type,
+                },
+            )
 
     # ── Write to temp dir and enqueue Celery task ─────────────────────────────
     _ensure_upload_dir()

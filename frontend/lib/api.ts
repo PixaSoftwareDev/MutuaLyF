@@ -172,6 +172,28 @@ export interface WidgetTokenResponse {
   tenant_id: string;
 }
 
+export interface ChunkDuplicatePair {
+  id: string;
+  chunk_id_a: string;
+  chunk_id_b: string;
+  doc_id_a: string;
+  doc_id_b: string;
+  doc_title_a: string | null;
+  doc_title_b: string | null;
+  text_a: string;
+  text_b: string;
+  jaccard_score: number | null;
+  cosine_score: number | null;
+  status: "pending" | "keep_a" | "keep_b" | "keep_both";
+  created_at: string;
+}
+
+export interface DuplicatesResponse {
+  pairs: ChunkDuplicatePair[];
+  total: number;
+  pending: number;
+}
+
 // ── API functions ──────────────────────────────────────────────────────────────
 
 export const api = {
@@ -317,5 +339,13 @@ export const api = {
   handoffConfig: {
     get: async () => { const { data } = await apiClient.get("/admin/handoff-config"); return data as HandoffConfig; },
     update: async (payload: Partial<HandoffConfig>) => { await apiClient.patch("/admin/handoff-config", payload); },
+  },
+
+  duplicates: {
+    list: async () => { const { data } = await apiClient.get<DuplicatesResponse>("/duplicates"); return data; },
+    resolve: async (pairId: string, action: "keep_a" | "keep_b" | "keep_both") => {
+      await apiClient.post(`/duplicates/${pairId}/resolve`, { action });
+    },
+    stats: async () => { const { data } = await apiClient.get("/duplicates/stats"); return data; },
   },
 };

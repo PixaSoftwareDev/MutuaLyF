@@ -106,6 +106,10 @@ async def handle_query(
     entity_names = [e.text for e in (entities or [])]
     use_neo4j = bool(entity_names)
 
+    # Detect ambiguity from classifier result
+    is_ambiguous = intent_result is not None and getattr(intent_result, "is_ambiguous", False)
+    second_label = getattr(intent_result, "second_label", None) if intent_result else None
+
     retrieval_task = retrieve(question, tenant_id)
     neo4j_task = query_entities(tenant_id, entity_names) if use_neo4j else _empty_list()
 
@@ -141,10 +145,18 @@ async def handle_query(
     complexity = classify_complexity(question, entity_count)
 
     # ── Step 6: Generate answer with isolated user input ──────────────────────
+    ambiguity_note = ""
+    if is_ambiguous and second_label and intent_result:
+        ambiguity_note = (
+            f"La consulta del usuario podría referirse a '{intent_result.label}' "
+            f"o a '{second_label}'. Considerá ambos contextos al responder. "
+        )
+
     system_prompt = (
         "Eres un asistente de conocimiento institucional. "
         "Responde SOLO basándote en el contexto proporcionado. "
         "Si la información no está en el contexto, di que no la encontraste. "
+        f"{ambiguity_note}"
         f"Responde en {language}."
     )
     # User input is in a separate message — never interpolated into the system prompt

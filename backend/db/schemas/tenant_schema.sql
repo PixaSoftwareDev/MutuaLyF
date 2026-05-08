@@ -27,9 +27,16 @@ CREATE TABLE IF NOT EXISTS documentos (
     chunk_count         INTEGER      NOT NULL DEFAULT 0,
     quality_gate_status VARCHAR(20)  NOT NULL DEFAULT 'pending',
     uploaded_by         UUID         NOT NULL,
+    content_hash_bytes  VARCHAR(64),
+    content_hash_text   VARCHAR(64),
     created_at          TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     updated_at          TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
+
+-- Unique constraint on hash_bytes enables ON CONFLICT ON CONSTRAINT uq_doc_hash_bytes in ingest.py
+-- NULLs are allowed (documents without hash are legacy/failed extractions)
+ALTER TABLE documentos ADD CONSTRAINT uq_doc_hash_bytes UNIQUE (content_hash_bytes);
+CREATE UNIQUE INDEX IF NOT EXISTS ix_documentos_hash_text ON documentos (content_hash_text) WHERE content_hash_text IS NOT NULL;
 
 -- Query audit log: used for intent classification, HDBSCAN clustering, billing
 CREATE TABLE IF NOT EXISTS consultas_log (
@@ -136,3 +143,23 @@ CREATE TABLE IF NOT EXISTS handoff_config (
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 INSERT INTO handoff_config DEFAULT VALUES ON CONFLICT DO NOTHING;
+
+-- ── Duplicate detection ────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS chunk_duplicate_pairs (
+    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    chunk_id_a   VARCHAR(100) NOT NULL,
+    chunk_id_b   VARCHAR(100) NOT NULL,
+    doc_id_a     UUID NOT NULL,
+    doc_id_b     UUID NOT NULL,
+    text_a       TEXT NOT NULL,
+    text_b       TEXT NOT NULL,
+    jaccard_score FLOAT,
+    cosine_score  FLOAT,
+    status       VARCHAR(20) NOT NULL DEFAULT 'pending',  -- pending, keep_a, keep_b, keep_both
+    resolved_by  UUID,
+    resolved_at  TIMESTAMPTZ,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ix_chunk_dup_pair ON chunk_duplicate_pairs (LEAST(chunk_id_a, chunk_id_b), GREATEST(chunk_id_a, chunk_id_b));
+CREATE INDEX IF NOT EXISTS ix_chunk_dup_status ON chunk_duplicate_pairs (status, created_at);

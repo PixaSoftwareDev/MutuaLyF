@@ -87,9 +87,14 @@ async def _ingest_with_lifecycle(
             return result
         except Exception as exc:
             logger.error("ingest_failed document_id=%s error=%s", document_id, exc)
-            # Status update runs in the same event loop — no second asyncio.run()
             await _update_document_status(document_id, tenant_id, "failed")
             raise
+        finally:
+            # Always clean up temp file regardless of success or failure
+            try:
+                os.unlink(file_path)
+            except OSError:
+                pass
 
 
 async def _run_ingest_pipeline(
@@ -247,6 +252,92 @@ async def _run_ingest_pipeline(
         await asyncio.gather(*neo4j_tasks, return_exceptions=True)
     timings["neo4j_ms"] = _ms(t)
 
+    # ── 7b. Duplicate detection (non-blocking) ────────────────────────────────
+    try:
+        from services.duplicate_detector import (
+            find_chunk_duplicates_in_batch,
+            find_duplicates_against_existing,
+        )
+        from core.database import get_worker_pg_session
+        from sqlalchemy import text as sa_text
+
+        valid_chunks = [c for c, _ in valid]
+        valid_vectors = [emb for _, emb in valid]
+
+        batch_pairs = await find_chunk_duplicates_in_batch(valid_chunks, tenant_id)
+        existing_pairs = await find_duplicates_against_existing(
+            valid_chunks, tenant_id, valid_vectors, qdrant_client=qdrant
+        )
+
+        if batch_pairs or existing_pairs:
+            logger.warning(
+                "duplicates_detected document_id=%s batch_pairs=%d existing_pairs=%d",
+                document_id, len(batch_pairs), len(existing_pairs),
+            )
+
+        # Insert batch duplicate pairs into PG
+        if batch_pairs:
+            async with get_worker_pg_session(tenant_id) as pg_session:
+                for idx_a, idx_b, jaccard in batch_pairs:
+                    ca = valid_chunks[idx_a]
+                    cb = valid_chunks[idx_b]
+                    try:
+                        await pg_session.execute(
+                            sa_text(
+                                "INSERT INTO chunk_duplicate_pairs "
+                                "(chunk_id_a, chunk_id_b, doc_id_a, doc_id_b, "
+                                " text_a, text_b, jaccard_score, cosine_score) "
+                                "VALUES (:a, :b, :da, :db, :ta, :tb, :j, NULL) "
+                                "ON CONFLICT DO NOTHING"
+                            ),
+                            {
+                                "a": ca.id, "b": cb.id,
+                                "da": ca.document_id, "db": cb.document_id,
+                                "ta": ca.text[:10000], "tb": cb.text[:10000],
+                                "j": jaccard,
+                            },
+                        )
+                    except Exception as exc:
+                        logger.warning(
+                            "dup_pair_insert_failed chunk_ids=%s,%s error=%s",
+                            ca.id, cb.id, exc,
+                        )
+
+        # Insert existing-vs-new duplicate pairs into PG
+        if existing_pairs:
+            async with get_worker_pg_session(tenant_id) as pg_session:
+                for pair in existing_pairs:
+                    try:
+                        await pg_session.execute(
+                            sa_text(
+                                "INSERT INTO chunk_duplicate_pairs "
+                                "(chunk_id_a, chunk_id_b, doc_id_a, doc_id_b, "
+                                " text_a, text_b, jaccard_score, cosine_score) "
+                                "VALUES (:a, :b, :da, :db, :ta, :tb, :j, :c) "
+                                "ON CONFLICT DO NOTHING"
+                            ),
+                            {
+                                "a": pair["chunk_id_new"],
+                                "b": pair["chunk_id_existing"],
+                                "da": pair["doc_id_new"],
+                                "db": pair["doc_id_existing"],
+                                "ta": pair["text_new"][:10000],
+                                "tb": pair["text_existing"][:10000],
+                                "j": pair["jaccard"],
+                                "c": pair["cosine"],
+                            },
+                        )
+                    except Exception as exc:
+                        logger.warning(
+                            "dup_pair_insert_failed chunk_ids=%s,%s error=%s",
+                            pair["chunk_id_new"], pair["chunk_id_existing"], exc,
+                        )
+    except Exception as exc:
+        logger.warning(
+            "duplicate_detection_failed document_id=%s error=%s (continuing ingest)",
+            document_id, exc,
+        )
+
     # ── 8. Upsert to Qdrant in batches of 100 ────────────────────────────────
     t = time.monotonic()
     for i in range(0, len(points), 100):
@@ -264,13 +355,21 @@ async def _run_ingest_pipeline(
         revalidate_chunk_quality.apply_async(args=[chunk.id, tenant_id], countdown=_RETRY_DELAYS[0])
 
     # ── 10. Finalize ──────────────────────────────────────────────────────────
-    await _update_document_status(document_id, tenant_id, "ready", chunk_count=len(points))
-    await _log_usage_event(tenant_id, "ingest", len(points))
+    # Compute aggregate quality_gate_status for the document
+    all_statuses = {r.status.value for r in quality_results}
+    if all_statuses == {"passed"}:
+        agg_quality = "passed"
+    elif "pending" in all_statuses:
+        agg_quality = "pending"
+    else:
+        agg_quality = "skipped"
 
-    try:
-        os.unlink(file_path)
-    except OSError:
-        pass
+    await _update_document_status(
+        document_id, tenant_id, "ready",
+        chunk_count=len(points),
+        quality_gate_status=agg_quality,
+    )
+    await _log_usage_event(tenant_id, "ingest", len(points))
 
     timings["total_ms"] = _ms(t0)
     logger.info(
@@ -384,12 +483,21 @@ async def _update_document_status(
     tenant_id: str,
     status: str,
     chunk_count: int | None = None,
+    quality_gate_status: str | None = None,
 ) -> None:
     from core.database import get_worker_pg_session
     from sqlalchemy import text
 
     async with get_worker_pg_session(tenant_id) as session:
-        if chunk_count is not None:
+        if chunk_count is not None and quality_gate_status is not None:
+            await session.execute(
+                text(
+                    "UPDATE documentos SET status = :status, chunk_count = :count, "
+                    "quality_gate_status = :qgs, updated_at = NOW() WHERE id = :id"
+                ),
+                {"status": status, "count": chunk_count, "qgs": quality_gate_status, "id": document_id},
+            )
+        elif chunk_count is not None:
             await session.execute(
                 text("UPDATE documentos SET status = :status, chunk_count = :count, updated_at = NOW() WHERE id = :id"),
                 {"status": status, "count": chunk_count, "id": document_id},

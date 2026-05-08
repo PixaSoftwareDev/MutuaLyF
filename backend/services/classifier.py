@@ -18,10 +18,22 @@ logger = logging.getLogger(__name__)
 
 
 class IntentResult:
-    def __init__(self, label: str | None, confidence: float, band: str) -> None:
+    def __init__(
+        self,
+        label: str | None,
+        confidence: float,
+        band: str,
+        *,
+        is_ambiguous: bool = False,
+        second_label: str | None = None,
+        second_confidence: float = 0.0,
+    ) -> None:
         self.label = label
         self.confidence = confidence
         self.band = band  # 'high' | 'mid' | 'low' | 'unknown'
+        self.is_ambiguous = is_ambiguous
+        self.second_label = second_label
+        self.second_confidence = second_confidence
 
 
 _BAND_UNKNOWN = "unknown"
@@ -50,7 +62,7 @@ async def classify_intent(query: str, tenant_id: str) -> IntentResult:
             results = await qdrant.search(
                 collection_name=collection,
                 query_vector=vector,
-                limit=1,
+                limit=2,
                 with_payload=True,
             )
     except Exception as exc:
@@ -64,6 +76,14 @@ async def classify_intent(query: str, tenant_id: str) -> IntentResult:
     confidence = float(best.score)
     label: str | None = best.payload.get("label") if best.payload else None
 
+    # Second match (may be absent if collection has < 2 points)
+    second_label: str | None = None
+    second_confidence: float = 0.0
+    if len(results) >= 2:
+        second = results[1]
+        second_confidence = float(second.score)
+        second_label = second.payload.get("label") if second.payload else None
+
     if confidence >= settings.intent_confidence_high:
         band = _BAND_HIGH
     elif confidence >= settings.intent_confidence_mid:
@@ -71,8 +91,25 @@ async def classify_intent(query: str, tenant_id: str) -> IntentResult:
     else:
         band = _BAND_LOW
 
-    logger.debug(
-        "classifier_result tenant_id=%s label=%s confidence=%.3f band=%s",
-        tenant_id, label, confidence, band,
+    # Ambiguity: top-1 is reasonable but top-2 is very close
+    _AMBIGUITY_GAP = 0.08
+    is_ambiguous = (
+        confidence >= settings.intent_confidence_mid
+        and second_label is not None
+        and (confidence - second_confidence) < _AMBIGUITY_GAP
     )
-    return IntentResult(label=label, confidence=confidence, band=band)
+
+    logger.debug(
+        "classifier_result tenant_id=%s label=%s confidence=%.3f band=%s "
+        "is_ambiguous=%s second_label=%s second_confidence=%.3f",
+        tenant_id, label, confidence, band,
+        is_ambiguous, second_label, second_confidence,
+    )
+    return IntentResult(
+        label=label,
+        confidence=confidence,
+        band=band,
+        is_ambiguous=is_ambiguous,
+        second_label=second_label,
+        second_confidence=second_confidence,
+    )

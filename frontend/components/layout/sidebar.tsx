@@ -2,21 +2,23 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { MessageSquare, FileText, Zap, Settings, LogOut, ChevronLeft, ChevronRight, Shield, Headphones, Building2, GitMerge, Users } from "lucide-react";
+import { MessageSquare, FileText, Zap, Settings, LogOut, ChevronLeft, ChevronRight, Shield, Headphones, Building2, GitMerge, Users, Copy } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore, useUIStore } from "@/lib/store";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { useQuery } from "@tanstack/react-query";
 
 const navItems = [
   { href: "/dashboard",             label: "Consultas",       icon: MessageSquare },
   { href: "/operator",              label: "Panel Operador",  icon: Headphones, operatorOnly: true },
   { href: "/admin/documents",       label: "Documentos",      icon: FileText,   adminOnly: true },
   { href: "/admin/intentions",      label: "Intenciones",     icon: Zap,        adminOnly: true },
+  { href: "/admin/duplicates",      label: "Duplicados",      icon: GitMerge,   adminOnly: true, badgeKey: "duplicates-pending" },
   { href: "/admin/sectors",         label: "Sectores",        icon: Building2,  adminOnly: true },
   { href: "/admin/operators",       label: "Operadores",      icon: Users,      adminOnly: true },
-  { href: "/admin/handoff-config",  label: "Config. Handoff", icon: GitMerge,   adminOnly: true },
+  { href: "/admin/handoff-config",  label: "Config. Handoff", icon: Copy,       adminOnly: true },
   { href: "/admin/settings",        label: "Configuración",   icon: Settings,   adminOnly: true },
   { href: "/superadmin",            label: "Super Admin",     icon: Shield,     superAdminOnly: true },
 ];
@@ -28,6 +30,16 @@ export function Sidebar() {
   const { sidebarOpen, toggleSidebar } = useUIStore();
 
   const isAdmin = ["admin", "super_admin"].includes(userRole ?? "");
+
+  const { data: duplicatesStats } = useQuery({
+    queryKey: ["duplicates-stats"],
+    queryFn: api.duplicates.stats,
+    enabled: isAdmin,
+    refetchInterval: 60_000,
+    staleTime: 30_000,
+  });
+
+  const duplicatesPending: number = (duplicatesStats as any)?.pending ?? 0;
 
   const handleLogout = async () => {
     try {
@@ -62,12 +74,13 @@ export function Sidebar() {
           if ((item as any).operatorOnly && !["operator","admin","super_admin"].includes(userRole ?? "")) return null;
           const Icon = item.icon;
           const active = pathname === item.href || pathname.startsWith(item.href + "/");
+          const pendingCount = (item as any).badgeKey === "duplicates-pending" ? duplicatesPending : 0;
           return (
             <Link
               key={item.href}
               href={item.href}
               className={cn(
-                "flex items-center gap-3 rounded-md px-2 py-2 text-sm font-medium transition-colors",
+                "relative flex items-center gap-3 rounded-md px-2 py-2 text-sm font-medium transition-colors",
                 active
                   ? "bg-primary/10 text-primary"
                   : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
@@ -76,7 +89,19 @@ export function Sidebar() {
               title={!sidebarOpen ? item.label : undefined}
             >
               <Icon className="h-4 w-4 shrink-0" />
-              {sidebarOpen && <span>{item.label}</span>}
+              {sidebarOpen && (
+                <>
+                  <span className="flex-1">{item.label}</span>
+                  {pendingCount > 0 && (
+                    <span className="ml-auto inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-bold text-destructive-foreground">
+                      {pendingCount > 99 ? "99+" : pendingCount}
+                    </span>
+                  )}
+                </>
+              )}
+              {!sidebarOpen && pendingCount > 0 && (
+                <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-destructive" />
+              )}
             </Link>
           );
         })}
