@@ -12,7 +12,7 @@ import { useQuery } from "@tanstack/react-query";
 
 const navItems = [
   { href: "/dashboard",             label: "Consultas",       icon: MessageSquare },
-  { href: "/operator",              label: "Panel Operador",  icon: Headphones, operatorOnly: true },
+  { href: "/operator",              label: "Panel Operador",  icon: Headphones, adminOnly: true },
   { href: "/admin/documents",       label: "Documentos",      icon: FileText,   adminOnly: true },
   { href: "/admin/intentions",      label: "Intenciones",     icon: Zap,        adminOnly: true },
   { href: "/admin/duplicates",      label: "Duplicados",      icon: GitMerge,   adminOnly: true, badgeKey: "duplicates-pending" },

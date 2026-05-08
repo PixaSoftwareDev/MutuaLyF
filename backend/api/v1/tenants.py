@@ -282,6 +282,92 @@ async def get_tenant_usage(
     }
 
 
+# ── Bot config (admin endpoint — read/update from settings page) ─────────────
+
+class BotConfigResponse(BaseModel):
+    bot_description: str | None
+    bot_scope: str | None
+    min_retrieval_score: float
+
+
+class BotConfigUpdate(BaseModel):
+    bot_description: str | None = None
+    bot_scope: str | None = None
+    min_retrieval_score: float | None = None
+
+
+@router.get("/{tenant_id}/bot-config", response_model=BotConfigResponse)
+async def get_bot_config(
+    tenant_id: str,
+    current_user: CurrentUser = Depends(require_admin),
+):
+    """Return bot configuration for this tenant."""
+    if current_user.role.value != "super_admin" and current_user.tenant_id != tenant_id:
+        raise HTTPException(status_code=403, detail="Cannot read config for another tenant")
+
+    async with get_pg_session() as session:
+        result = await session.execute(
+            text("SELECT bot_description, bot_scope, min_retrieval_score FROM tenants WHERE id = :tid"),
+            {"tid": tenant_id},
+        )
+        row = result.mappings().fetchone()
+
+    if row is None:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+
+    return BotConfigResponse(
+        bot_description=row["bot_description"],
+        bot_scope=row["bot_scope"],
+        min_retrieval_score=float(row["min_retrieval_score"]) if row["min_retrieval_score"] is not None else 0.45,
+    )
+
+
+@router.patch("/{tenant_id}/bot-config", response_model=BotConfigResponse)
+async def update_bot_config(
+    tenant_id: str,
+    body: BotConfigUpdate,
+    current_user: CurrentUser = Depends(require_admin),
+):
+    """Update bot description, scope and minimum relevance threshold."""
+    if current_user.role.value != "super_admin" and current_user.tenant_id != tenant_id:
+        raise HTTPException(status_code=403, detail="Cannot update config for another tenant")
+
+    if body.min_retrieval_score is not None and not (0.0 <= body.min_retrieval_score <= 1.0):
+        raise HTTPException(status_code=422, detail="min_retrieval_score must be between 0.0 and 1.0")
+
+    updates: list[str] = []
+    params: dict = {"tid": tenant_id}
+
+    if body.bot_description is not None:
+        updates.append("bot_description = :bot_description")
+        params["bot_description"] = body.bot_description or None
+    if body.bot_scope is not None:
+        updates.append("bot_scope = :bot_scope")
+        params["bot_scope"] = body.bot_scope or None
+    if body.min_retrieval_score is not None:
+        updates.append("min_retrieval_score = :min_retrieval_score")
+        params["min_retrieval_score"] = body.min_retrieval_score
+
+    if updates:
+        updates.append("updated_at = NOW()")
+        async with get_pg_session() as session:
+            await session.execute(
+                text(f"UPDATE tenants SET {', '.join(updates)} WHERE id = :tid"),
+                params,
+            )
+
+    # Invalidate Redis cache so next query picks up new config immediately
+    try:
+        from core.database import get_redis_cache
+        redis = get_redis_cache()
+        await redis.delete(f"{tenant_id}:bot_config")
+    except Exception:
+        pass
+
+    logger.info("bot_config_updated tenant_id=%s by=%s", tenant_id, current_user.user_id)
+    return await get_bot_config(tenant_id, current_user)
+
+
 # ── Widget token (admin endpoint — also used from settings page) ──────────────
 
 @router.post("/{tenant_id}/widget-token", response_model=WidgetTokenResponse)

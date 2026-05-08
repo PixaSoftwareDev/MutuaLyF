@@ -172,6 +172,12 @@ export interface WidgetTokenResponse {
   tenant_id: string;
 }
 
+export interface BotConfig {
+  bot_description: string | null;
+  bot_scope: string | null;
+  min_retrieval_score: number;
+}
+
 export interface ChunkDuplicatePair {
   id: string;
   chunk_id_a: string;
@@ -294,6 +300,14 @@ export const api = {
   tenants: {
     generateWidgetToken: async (tenantId: string): Promise<WidgetTokenResponse> => {
       const { data } = await apiClient.post<WidgetTokenResponse>(`/tenants/${tenantId}/widget-token`);
+      return data;
+    },
+    getBotConfig: async (tenantId: string): Promise<BotConfig> => {
+      const { data } = await apiClient.get<BotConfig>(`/tenants/${tenantId}/bot-config`);
+      return data;
+    },
+    updateBotConfig: async (tenantId: string, payload: Partial<BotConfig>): Promise<BotConfig> => {
+      const { data } = await apiClient.patch<BotConfig>(`/tenants/${tenantId}/bot-config`, payload);
       return data;
     },
   },

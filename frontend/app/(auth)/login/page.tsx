@@ -65,8 +65,10 @@ function LoginInner() {
     try {
       const data = await api.auth.login(email, password, tenantId);
       const payload = JSON.parse(atob(data.access_token.split(".")[1]));
-      setAuth(data.access_token, tenantId, email, payload.role ?? "user");
-      router.push("/dashboard");
+      const role = payload.role ?? "user";
+      setAuth(data.access_token, tenantId, email, role);
+      // Operators go directly to the operator panel; everyone else to dashboard
+      router.push(role === "operator" ? "/operator" : "/dashboard");
     } catch (err: any) {
       const detail = err?.response?.data?.detail;
       setError(typeof detail === "string" ? detail : "Credenciales incorrectas. Verificá email, contraseña y organización.");

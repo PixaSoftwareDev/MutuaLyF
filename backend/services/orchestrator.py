@@ -122,11 +122,22 @@ async def handle_query(
         logger.warning("neo4j_retrieval_failed error=%s", neo4j_records)
         neo4j_records = []
 
-    # ── Step 4: Build context from retrieved chunks ────────────────────────────
+    # ── Step 4: Load tenant bot config (cached) ───────────────────────────────
+    tenant_config = await _get_tenant_config(tenant_id)
+    min_score: float = tenant_config.get("min_retrieval_score", 0.77)
+    bot_scope: str   = tenant_config.get("bot_scope") or ""
+
+    # ── Step 5: Build context — drop chunks below relevance threshold ──────────
     context_parts: list[str] = []
     sources: list[dict] = []
 
     for chunk in (qdrant_chunks or []):
+        if chunk.score < min_score:
+            logger.debug(
+                "chunk_below_threshold chunk_id=%s score=%.3f min=%.3f",
+                chunk.chunk_id, chunk.score, min_score,
+            )
+            continue
         context_parts.append(chunk.text)
         sources.append({
             "chunk_id": chunk.chunk_id,
@@ -136,15 +147,36 @@ async def handle_query(
             "score": round(chunk.score, 4),
         })
 
+    # No relevant context → answer without calling the LLM (saves cost + prevents hallucination)
+    if not context_parts:
+        logger.info(
+            "no_relevant_context tenant_id=%s best_score=%.3f min_score=%.3f",
+            tenant_id,
+            max((c.score for c in (qdrant_chunks or [])), default=0.0),
+            min_score,
+        )
+        latency_ms = int(time.monotonic() * 1000) - start_ms
+        return {
+            "answer": (
+                "No encontré información sobre ese tema en los documentos disponibles. "
+                "Por favor consultá con tu equipo o reformulá la pregunta."
+            ),
+            "sources": [],
+            "intent_label": intent_result.label if intent_result else None,
+            "intent_confidence": intent_result.confidence if intent_result else None,
+            "from_cache": False,
+            "latency_ms": latency_ms,
+        }
+
     context = "\n\n---\n\n".join(context_parts[:5])  # Top 5 chunks in context
 
-    # ── Step 5: Choose model based on complexity ───────────────────────────────
+    # ── Step 6: Choose model based on complexity ───────────────────────────────
     from services.groq_client import QueryComplexity, classify_complexity, complete
 
     entity_count = len(entity_names)
     complexity = classify_complexity(question, entity_count)
 
-    # ── Step 6: Generate answer with isolated user input ──────────────────────
+    # ── Step 7: Generate answer with isolated user input ──────────────────────
     ambiguity_note = ""
     if is_ambiguous and second_label and intent_result:
         ambiguity_note = (
@@ -152,10 +184,14 @@ async def handle_query(
             f"o a '{second_label}'. Considerá ambos contextos al responder. "
         )
 
+    scope_rule = f"Alcance: {bot_scope} " if bot_scope else ""
+
     system_prompt = (
         "Eres un asistente de conocimiento institucional. "
+        f"{scope_rule}"
         "Responde SOLO basándote en el contexto proporcionado. "
         "Si la información no está en el contexto, di que no la encontraste. "
+        "Nunca inventes datos ni respondas con conocimiento externo. "
         f"{ambiguity_note}"
         f"Responde en {language}."
     )
@@ -309,3 +345,46 @@ async def _log_usage_event_app(tenant_id: str, event_type: str, value: int) -> N
 
 async def _empty_list() -> list:
     return []
+
+
+async def _get_tenant_config(tenant_id: str) -> dict:
+    """Load bot config for the tenant. Redis-cached for 5 minutes."""
+    redis = get_redis_cache()
+    cache_key = f"{tenant_id}:bot_config"
+
+    try:
+        raw = await redis.get(cache_key)
+        if raw:
+            return json.loads(raw)
+    except Exception:
+        pass
+
+    try:
+        from core.database import get_pg_session
+        from sqlalchemy import text
+        # tenants table is in the global (public) schema
+        async with get_pg_session() as session:
+            result = await session.execute(
+                text(
+                    "SELECT bot_description, bot_scope, min_retrieval_score "
+                    "FROM tenants WHERE id = :tid"
+                ),
+                {"tid": tenant_id},
+            )
+            row = result.mappings().fetchone()
+    except Exception as exc:
+        logger.warning("tenant_config_load_failed tenant_id=%s error=%s", tenant_id, exc)
+        row = None
+
+    config = {
+        "bot_description": row["bot_description"] if row else None,
+        "bot_scope":       row["bot_scope"]       if row else None,
+        "min_retrieval_score": float(row["min_retrieval_score"]) if row and row["min_retrieval_score"] is not None else 0.77,
+    }
+
+    try:
+        await redis.setex(cache_key, 300, json.dumps(config))  # 5-min TTL
+    except Exception:
+        pass
+
+    return config

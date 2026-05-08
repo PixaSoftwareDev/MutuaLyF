@@ -1,20 +1,90 @@
 "use client";
 
-import { useState } from "react";
-import { useMutation } from "@tanstack/react-query";
-import { Settings, Key, Copy, Check, RefreshCw, Loader2, ExternalLink } from "lucide-react";
-import { api } from "@/lib/api";
+import { useState, useEffect } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Settings, Key, Copy, Check, RefreshCw, Loader2, ExternalLink, Bot, Save, Zap, Scale, Target, Shield } from "lucide-react";
+import { api, type BotConfig } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 import { toast } from "@/components/ui/toast";
 
+const SCORE_PRESETS = [
+  {
+    key: "amplio",
+    label: "Amplio",
+    value: 0.50,
+    icon: Zap,
+    description: "Responde con contexto general. Útil si los documentos son variados.",
+  },
+  {
+    key: "equilibrado",
+    label: "Equilibrado",
+    value: 0.70,
+    icon: Scale,
+    description: "Buen balance entre cobertura y precisión. Recomendado para la mayoría.",
+  },
+  {
+    key: "preciso",
+    label: "Preciso",
+    value: 0.77,
+    icon: Target,
+    description: "Solo responde cuando el contexto es claramente relevante.",
+  },
+  {
+    key: "estricto",
+    label: "Estricto",
+    value: 0.85,
+    icon: Shield,
+    description: "Solo responde con información muy específica. Reduce respuestas ambiguas.",
+  },
+] as const;
+
 export default function SettingsPage() {
+  const qc = useQueryClient();
   const { tenantId, userEmail: email, userRole: role } = useAuthStore();
   const [widgetToken, setWidgetToken] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+
+  // Bot config state
+  const { data: botConfig } = useQuery({
+    queryKey: ["bot-config", tenantId],
+    queryFn: () => api.tenants.getBotConfig(tenantId!),
+    enabled: !!tenantId,
+  });
+  const [botDescription, setBotDescription] = useState("");
+  const [botScope, setBotScope] = useState("");
+  const [minScore, setMinScore] = useState(0.77);
+
+  useEffect(() => {
+    if (botConfig) {
+      setBotDescription(botConfig.bot_description ?? "");
+      setBotScope(botConfig.bot_scope ?? "");
+      // Snap to nearest preset
+      const stored = botConfig.min_retrieval_score;
+      const nearest = SCORE_PRESETS.reduce((a, b) =>
+        Math.abs(b.value - stored) < Math.abs(a.value - stored) ? b : a
+      );
+      setMinScore(nearest.value);
+    }
+  }, [botConfig]);
+
+  const botConfigMutation = useMutation({
+    mutationFn: () => api.tenants.updateBotConfig(tenantId!, {
+      bot_description: botDescription || null,
+      bot_scope: botScope || null,
+      min_retrieval_score: minScore,
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["bot-config", tenantId] });
+      toast({ title: "Configuración guardada", variant: "success" });
+    },
+    onError: () => toast({ title: "Error al guardar", variant: "destructive" }),
+  });
 
   const tokenMutation = useMutation({
     mutationFn: () => api.tenants.generateWidgetToken(tenantId!),
@@ -127,6 +197,96 @@ export default function SettingsPage() {
             </div>
           </CardContent>
         )}
+      </Card>
+
+      {/* Bot config */}
+      <Card>
+        <CardHeader className="pb-3">
+          <h2 className="font-semibold text-sm flex items-center gap-2">
+            <Bot className="h-4 w-4" />
+            Comportamiento del bot
+          </h2>
+          <p className="text-xs text-muted-foreground">
+            Definí qué temas puede responder y qué tan estricto es al buscar contexto relevante.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium">Descripción del asistente</label>
+            <Textarea
+              value={botDescription}
+              onChange={e => setBotDescription(e.target.value)}
+              placeholder="Ej: Asistente de conocimiento interno de Acme Corp."
+              rows={2}
+              className="text-sm resize-none"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium">Alcance del bot (scope)</label>
+            <Textarea
+              value={botScope}
+              onChange={e => setBotScope(e.target.value)}
+              placeholder="Ej: Responde únicamente sobre políticas internas, procedimientos de RRHH y manuales operativos. No responde preguntas de conocimiento general."
+              rows={3}
+              className="text-sm resize-none"
+            />
+            <p className="text-xs text-muted-foreground">
+              Este texto se incluye en el system prompt del LLM en cada consulta.
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-xs font-medium">Umbral mínimo de relevancia</label>
+            <p className="text-xs text-muted-foreground">
+              Si ningún fragmento supera este umbral, el bot responde que no tiene información — sin llamar al LLM.
+            </p>
+            <div className="grid grid-cols-2 gap-2 pt-1">
+              {SCORE_PRESETS.map((preset) => {
+                const Icon = preset.icon;
+                const active = minScore === preset.value;
+                return (
+                  <button
+                    key={preset.key}
+                    type="button"
+                    onClick={() => setMinScore(preset.value)}
+                    className={cn(
+                      "flex flex-col gap-1 rounded-lg border p-3 text-left transition-colors",
+                      active
+                        ? "border-primary bg-primary/5 ring-1 ring-primary"
+                        : "border-border hover:border-primary/40 hover:bg-muted/50"
+                    )}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className={cn("flex items-center gap-1.5", active ? "text-primary" : "text-muted-foreground")}>
+                        <Icon className="h-3.5 w-3.5" />
+                        <span className="text-xs font-semibold">{preset.label}</span>
+                      </div>
+                      <span className={cn(
+                        "text-[10px] font-mono px-1.5 py-0.5 rounded",
+                        active ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"
+                      )}>
+                        {Math.round(preset.value * 100)}%
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground leading-snug">{preset.description}</p>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <Button
+            size="sm"
+            onClick={() => botConfigMutation.mutate()}
+            disabled={botConfigMutation.isPending}
+          >
+            {botConfigMutation.isPending
+              ? <Loader2 className="h-4 w-4 animate-spin mr-1" />
+              : <Save className="h-4 w-4 mr-1" />}
+            Guardar configuración
+          </Button>
+        </CardContent>
       </Card>
 
       {/* API Docs */}
