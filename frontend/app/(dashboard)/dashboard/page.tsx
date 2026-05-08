@@ -238,7 +238,11 @@ export default function DashboardPage() {
                 <div className="w-7 h-7 rounded-full bg-primary/20 flex items-center justify-center shrink-0 mt-0.5">
                   <span className="text-primary text-xs font-bold">IA</span>
                 </div>
-                <div className="text-xs text-muted-foreground mt-2">Procesando consulta…</div>
+                <div className="bg-muted rounded-2xl rounded-tl-sm px-4 py-3 flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-muted-foreground/50 animate-bounce [animation-delay:0ms]" />
+                  <span className="w-2 h-2 rounded-full bg-muted-foreground/50 animate-bounce [animation-delay:150ms]" />
+                  <span className="w-2 h-2 rounded-full bg-muted-foreground/50 animate-bounce [animation-delay:300ms]" />
+                </div>
               </div>
             )}
             <div ref={bottomRef} />
