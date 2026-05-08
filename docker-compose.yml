@@ -182,17 +182,19 @@ services:
   # ─── Frontend ─────────────────────────────────────────────────────────────────
 
   frontend:
-    image: node:20-alpine
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - NEXT_PUBLIC_API_URL=
     container_name: ia_frontend
     restart: unless-stopped
-    working_dir: /app
-    command: sh -c "npm install --prefer-offline && npm run dev"
-    volumes:
-      - ./frontend:/app
-      - frontend_nm:/app/node_modules
     env_file: .env
     environment:
-      - NODE_ENV=development
+      - NODE_ENV=production
+      - NEXT_PUBLIC_API_URL=
+      - PORT=3000
+      - HOSTNAME=0.0.0.0
     networks:
       - internal
     depends_on:

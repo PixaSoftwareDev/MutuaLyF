@@ -147,7 +147,8 @@ async def handle_query(
             "score": round(chunk.score, 4),
         })
 
-    # No relevant context → answer without calling the LLM (saves cost + prevents hallucination)
+    # No relevant context found — let the LLM decide how to respond.
+    # It may be a greeting, thanks, or genuine no-info case; the prompt handles each.
     if not context_parts:
         logger.info(
             "no_relevant_context tenant_id=%s best_score=%.3f min_score=%.3f",
@@ -155,18 +156,7 @@ async def handle_query(
             max((c.score for c in (qdrant_chunks or [])), default=0.0),
             min_score,
         )
-        latency_ms = int(time.monotonic() * 1000) - start_ms
-        return {
-            "answer": (
-                "No encontré información sobre ese tema en los documentos disponibles. "
-                "Por favor consultá con tu equipo o reformulá la pregunta."
-            ),
-            "sources": [],
-            "intent_label": intent_result.label if intent_result else None,
-            "intent_confidence": intent_result.confidence if intent_result else None,
-            "from_cache": False,
-            "latency_ms": latency_ms,
-        }
+        context_parts = []  # LLM will use empty context and decide via MODO CONVERSACIONAL
 
     context = "\n\n---\n\n".join(context_parts[:5])  # Top 5 chunks in context
 
@@ -189,9 +179,16 @@ async def handle_query(
     system_prompt = (
         "Eres un asistente de conocimiento institucional. "
         f"{scope_rule}"
-        "Responde SOLO basándote en el contexto proporcionado. "
-        "Si la información no está en el contexto, di que no la encontraste. "
-        "Nunca inventes datos ni respondas con conocimiento externo. "
+        "Tenés dos modos de respuesta según el tipo de mensaje:\n"
+        "MODO CONVERSACIONAL: Si el usuario saluda, agradece, hace un comentario informal o no formula "
+        "una consulta concreta (ej: 'hola', 'gracias', '¿cómo estás?'), respondé de forma natural y amigable, "
+        "e invitalo a hacer su consulta sobre los temas de la organización. En este modo ignorá el contexto.\n"
+        "MODO CONSULTA: Si el usuario hace una pregunta concreta, aplicá estas reglas:\n"
+        "1. Respondé DIRECTO y CONCISO, sin rodeos.\n"
+        "2. Usá SOLO la información del contexto proporcionado. Nunca inventes datos.\n"
+        "3. Para datos puntuales (número, fecha, nombre), respondé en una sola oración.\n"
+        "4. No repitas la pregunta ni agregues aclaraciones obvias.\n"
+        "5. Si la información no está en el contexto, decí: 'No encontré esa información en los documentos.'\n"
         f"{ambiguity_note}"
         f"Responde en {language}."
     )

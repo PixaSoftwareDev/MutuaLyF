@@ -45,6 +45,7 @@ export default function OperatorPage() {
   const { data, isLoading, error } = useQuery({
     queryKey: ["operator-conversations", activeTab],
     queryFn: () => api.operator.listConversations(activeTab === "all" ? undefined : activeTab),
+    staleTime: 4_000,
     refetchInterval: 5000,
   });
 
@@ -52,6 +53,7 @@ export default function OperatorPage() {
     queryKey: ["conversation-detail", selectedId],
     queryFn: () => api.operator.getConversation(selectedId!),
     enabled: !!selectedId,
+    staleTime: 4_000,
     refetchInterval: 5000,
   });
 

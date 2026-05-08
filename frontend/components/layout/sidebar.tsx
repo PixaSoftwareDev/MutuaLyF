@@ -5,14 +5,14 @@ import { usePathname, useRouter } from "next/navigation";
 import { MessageSquare, FileText, Zap, Settings, LogOut, ChevronLeft, ChevronRight, Shield, Headphones, Building2, GitMerge, Users, Copy } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore, useUIStore } from "@/lib/store";
-import { api } from "@/lib/api";
+import { api, apiClient } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 const navItems = [
   { href: "/dashboard",             label: "Consultas",       icon: MessageSquare },
-  { href: "/operator",              label: "Panel Operador",  icon: Headphones, adminOnly: true },
+  { href: "/operator",              label: "Panel Operador",  icon: Headphones, operatorExclusive: true },
   { href: "/admin/documents",       label: "Documentos",      icon: FileText,   adminOnly: true },
   { href: "/admin/intentions",      label: "Intenciones",     icon: Zap,        adminOnly: true },
   { href: "/admin/duplicates",      label: "Duplicados",      icon: GitMerge,   adminOnly: true, badgeKey: "duplicates-pending" },
@@ -26,10 +26,20 @@ const navItems = [
 export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { userEmail, userRole, tenantId, clearAuth } = useAuthStore();
   const { sidebarOpen, toggleSidebar } = useUIStore();
 
   const isAdmin = ["admin", "super_admin"].includes(userRole ?? "");
+
+  const prefetchMap: Record<string, () => void> = {
+    "/admin/documents": () => queryClient.prefetchQuery({ queryKey: ["documents"],  queryFn: api.documents.list,   staleTime: 10_000 }),
+    "/admin/intentions": () => queryClient.prefetchQuery({ queryKey: ["intentions"], queryFn: api.intentions.list,  staleTime: 30_000 }),
+    "/admin/duplicates": () => queryClient.prefetchQuery({ queryKey: ["duplicates"], queryFn: api.duplicates.list,  staleTime: 30_000 }),
+    "/admin/sectors":    () => queryClient.prefetchQuery({ queryKey: ["sectors"],    queryFn: api.sectors.list,     staleTime: 30_000 }),
+    "/admin/operators":  () => queryClient.prefetchQuery({ queryKey: ["operators"],  queryFn: () => apiClient.get("/admin/operators").then(r => r.data), staleTime: 30_000 }),
+    "/admin/settings":   () => tenantId && queryClient.prefetchQuery({ queryKey: ["bot-config", tenantId], queryFn: () => api.tenants.getBotConfig(tenantId), staleTime: 60_000 }),
+  };
 
   const { data: duplicatesStats } = useQuery({
     queryKey: ["duplicates-stats"],
@@ -72,6 +82,7 @@ export function Sidebar() {
           if (item.adminOnly && !isAdmin) return null;
           if ((item as any).superAdminOnly && userRole !== "super_admin") return null;
           if ((item as any).operatorOnly && !["operator","admin","super_admin"].includes(userRole ?? "")) return null;
+          if ((item as any).operatorExclusive && userRole !== "operator") return null;
           const Icon = item.icon;
           const active = pathname === item.href || pathname.startsWith(item.href + "/");
           const pendingCount = (item as any).badgeKey === "duplicates-pending" ? duplicatesPending : 0;
@@ -79,6 +90,8 @@ export function Sidebar() {
             <Link
               key={item.href}
               href={item.href}
+              onMouseEnter={() => prefetchMap[item.href]?.()}
+              onFocus={() => prefetchMap[item.href]?.()}
               className={cn(
                 "relative flex items-center gap-3 rounded-md px-2 py-2 text-sm font-medium transition-colors",
                 active

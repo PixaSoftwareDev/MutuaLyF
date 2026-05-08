@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/lib/store";
 import { OperatorTopbar } from "@/components/layout/operator-topbar";
 
-const ALLOWED_ROLES = ["operator", "admin", "super_admin"];
+const ALLOWED_ROLES = ["operator"];
 
 export default function OperatorLayout({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, userRole } = useAuthStore();

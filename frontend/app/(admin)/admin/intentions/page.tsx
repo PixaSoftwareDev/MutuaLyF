@@ -16,6 +16,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { IntentionCard } from "@/components/intentions/intention-card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/toast";
 
 export default function IntentionsPage() {
@@ -29,6 +30,7 @@ export default function IntentionsPage() {
   const { data, isLoading, error } = useQuery({
     queryKey: ["intentions"],
     queryFn: api.intentions.list,
+    staleTime: 30_000,
     refetchInterval: 30_000,
   });
 
@@ -210,8 +212,11 @@ export default function IntentionsPage() {
       )}
 
       {isLoading ? (
-        <div className="flex items-center justify-center py-20">
-          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        <div className="space-y-3">
+          <Skeleton className="h-9 w-72" />
+          <Skeleton className="h-24 w-full" />
+          <Skeleton className="h-24 w-full" />
+          <Skeleton className="h-24 w-full" />
         </div>
       ) : error ? (
         <div className="text-center py-20 text-destructive text-sm">

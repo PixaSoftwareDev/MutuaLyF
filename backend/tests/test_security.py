@@ -66,7 +66,7 @@ class TestJWTCreation:
 
 class TestJWTValidation:
     def test_decode_valid_token(self):
-        token = create_access_token("u1", "acme", Role.USER)
+        token = create_access_token("u1", "acme", Role.OPERATOR)
         payload = decode_token(token)
         assert payload["sub"] == "u1"
 
@@ -78,7 +78,7 @@ class TestJWTValidation:
 
     def test_decode_tampered_token_raises(self):
         from fastapi import HTTPException
-        token = create_access_token("u1", "acme", Role.USER)
+        token = create_access_token("u1", "acme", Role.OPERATOR)
         tampered = token[:-5] + "XXXXX"
         with pytest.raises(HTTPException):
             decode_token(tampered)

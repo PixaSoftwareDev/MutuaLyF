@@ -15,7 +15,7 @@ from core.database import _validate_tenant_id
 client = TestClient(app, raise_server_exceptions=False)
 
 
-def _auth_header(tenant_id: str, role: Role = Role.USER) -> dict:
+def _auth_header(tenant_id: str, role: Role = Role.OPERATOR) -> dict:
     token = create_access_token(f"user-{tenant_id}", tenant_id, role)
     return {"Authorization": f"Bearer {token}", "X-Tenant-ID": tenant_id}
 
@@ -136,7 +136,7 @@ class TestTenantWidgetTokenIsolation:
 
     def test_full_token_cannot_use_widget_endpoint(self):
         """Full access tokens must not be accepted on the widget-only endpoint."""
-        full_token = create_access_token("user-a", "tenant_a", Role.USER)
+        full_token = create_access_token("user-a", "tenant_a", Role.OPERATOR)
         response = client.post(
             "/api/v1/query/widget",
             json={"question": "test"},

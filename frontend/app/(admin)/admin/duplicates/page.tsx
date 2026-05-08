@@ -262,6 +262,7 @@ export default function DuplicatesPage() {
   const { data, isLoading, error } = useQuery({
     queryKey: ["duplicates"],
     queryFn: api.duplicates.list,
+    staleTime: 30_000,
     refetchInterval: 60_000,
   });
 
@@ -289,25 +290,6 @@ export default function DuplicatesPage() {
     queryClient.invalidateQueries({ queryKey: ["duplicates-stats"] });
   };
 
-  if (isLoading) {
-    return (
-      <div className="p-6 space-y-4">
-        <Skeleton className="h-8 w-48" />
-        <Skeleton className="h-6 w-72" />
-        <Skeleton className="h-48 w-full" />
-        <Skeleton className="h-48 w-full" />
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="p-6 text-destructive text-sm">
-        Error al cargar duplicados. Intentá refrescar la página.
-      </div>
-    );
-  }
-
   const allPairs = data?.pairs ?? [];
   const visiblePairs = allPairs.filter((p) => !hiddenIds.has(p.id));
   const pendingPairs = visiblePairs.filter((p) => p.status === "pending");
@@ -315,7 +297,7 @@ export default function DuplicatesPage() {
 
   return (
     <div className="p-6 space-y-6">
-      {/* Page header */}
+      {/* Page header — always visible */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="p-2 rounded-lg bg-primary/10">
@@ -334,6 +316,12 @@ export default function DuplicatesPage() {
         </Button>
       </div>
 
+      {error && (
+        <div className="text-destructive text-sm">
+          Error al cargar duplicados. Intentá refrescar la página.
+        </div>
+      )}
+
       {/* Stats bar */}
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
         <span className="font-medium text-foreground">{data?.pending ?? 0} pendientes</span>
@@ -344,7 +332,12 @@ export default function DuplicatesPage() {
       </div>
 
       {/* Pairs list */}
-      {pendingPairs.length === 0 ? (
+      {isLoading ? (
+        <div className="space-y-4">
+          <Skeleton className="h-48 w-full" />
+          <Skeleton className="h-48 w-full" />
+        </div>
+      ) : pendingPairs.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-center gap-4">
           <div className="p-4 rounded-full bg-green-100">
             <CheckCircle2 className="h-10 w-10 text-green-600" />
@@ -368,6 +361,7 @@ export default function DuplicatesPage() {
           ))}
         </div>
       )}
+
     </div>
   );
 }

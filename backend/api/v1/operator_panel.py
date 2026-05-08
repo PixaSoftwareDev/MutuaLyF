@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from sqlalchemy import text
 
 from core.database import get_pg_session
-from core.security import CurrentUser, Role, get_current_user, require_admin, require_operator
+from core.security import CurrentUser, Role, get_current_user, require_admin, require_operator, get_widget_user, create_widget_token
 from core.tenant import get_tenant_id
 from services.handoff import ConvStatus, invalidate_config_cache
 
@@ -319,7 +319,39 @@ async def close_conversation(
     return {"status": ConvStatus.CLOSED}
 
 
+# ── Public chat endpoints (no auth required) ──────────────────────────────────
+
+@router.get("/public/chat-token")
+async def public_chat_token(tenant_id: str = Depends(get_tenant_id)):
+    """Issue a widget token for the public /chat page.
+    Only requires X-Tenant-ID header — no user login needed."""
+    async with get_pg_session() as session:
+        row = await session.execute(
+            text("SELECT id FROM tenants WHERE id = :tid AND status != 'suspended'"),
+            {"tid": tenant_id},
+        )
+        if not row.fetchone():
+            raise HTTPException(status_code=404, detail="Tenant not found")
+    return {"widget_token": create_widget_token(tenant_id), "tenant_id": tenant_id}
+
+
 # ── Sector management (admin only) ────────────────────────────────────────────
+
+@router.get("/widget/sectors")
+async def widget_list_sectors(
+    tenant_id: str = Depends(get_tenant_id),
+    widget_user: CurrentUser = Depends(get_widget_user),
+):
+    """Public sector list for the widget — returns active sectors with default flag."""
+    async with get_pg_session(tenant_id) as session:
+        result = await session.execute(text("""
+            SELECT id, nombre, descripcion, is_default
+            FROM sectores
+            WHERE is_active = TRUE
+            ORDER BY is_default DESC, nombre ASC
+        """))
+        return [dict(r) for r in result.mappings().all()]
+
 
 @router.get("/admin/sectors")
 async def list_sectors(
@@ -328,7 +360,7 @@ async def list_sectors(
 ):
     async with get_pg_session(tenant_id) as session:
         result = await session.execute(text("""
-            SELECT s.id, s.nombre, s.descripcion, s.is_active, s.created_at,
+            SELECT s.id, s.nombre, s.descripcion, s.is_active, s.is_default, s.created_at,
                    COUNT(DISTINCT os.operador_id) AS operator_count,
                    COUNT(DISTINCT c.id) FILTER (WHERE c.status != 'closed') AS open_conversations
             FROM sectores s
@@ -337,6 +369,25 @@ async def list_sectors(
             GROUP BY s.id ORDER BY s.nombre
         """))
         return [dict(r) for r in result.mappings().all()]
+
+
+@router.patch("/admin/sectors/{sector_id}/set-default", status_code=200)
+async def set_default_sector(
+    sector_id: str,
+    tenant_id: str = Depends(get_tenant_id),
+    current_user: CurrentUser = Depends(require_admin),
+):
+    """Mark one sector as default (unsets all others atomically)."""
+    async with get_pg_session(tenant_id) as session:
+        await session.execute(text("UPDATE sectores SET is_default = FALSE"))
+        result = await session.execute(
+            text("UPDATE sectores SET is_default = TRUE WHERE id = :id AND is_active = TRUE RETURNING id"),
+            {"id": sector_id},
+        )
+        if not result.fetchone():
+            raise HTTPException(status_code=404, detail="Sector no encontrado o inactivo")
+        await session.commit()
+    return {"id": sector_id, "is_default": True}
 
 
 @router.post("/admin/sectors", status_code=status.HTTP_201_CREATED)
@@ -436,6 +487,63 @@ async def get_operator_sectors(
             WHERE os.operador_id = :uid
         """), {"uid": operator_id})
         return [dict(r) for r in result.mappings().all()]
+
+
+class CreateOperatorRequest(BaseModel):
+    name: str
+    email: str
+    password: str
+
+
+@router.post("/admin/operators", status_code=201)
+async def create_operator(
+    body: CreateOperatorRequest,
+    tenant_id: str = Depends(get_tenant_id),
+    current_user: CurrentUser = Depends(require_admin),
+):
+    """Create a new operator user in the tenant."""
+    from core.security import hash_password
+    import uuid
+
+    async with get_pg_session(tenant_id) as session:
+        existing = await session.execute(
+            text("SELECT id FROM usuarios WHERE email = :email"),
+            {"email": body.email.lower().strip()},
+        )
+        if existing.scalar_one_or_none():
+            raise HTTPException(status_code=409, detail="Ya existe un usuario con ese email")
+
+        new_id = str(uuid.uuid4())
+        await session.execute(text("""
+            INSERT INTO usuarios (id, email, name, hashed_password, role, is_active)
+            VALUES (:id, :email, :name, :pwd, 'operator', true)
+        """), {
+            "id": new_id,
+            "email": body.email.lower().strip(),
+            "name": body.name.strip(),
+            "pwd": hash_password(body.password),
+        })
+        await session.commit()
+
+    logger.info("operator_created id=%s email=%s tenant=%s", new_id, body.email, tenant_id)
+    return {"id": new_id, "email": body.email.lower().strip(), "name": body.name.strip(), "role": "operator", "is_active": True}
+
+
+@router.delete("/admin/operators/{operator_id}", status_code=204)
+async def deactivate_operator(
+    operator_id: str,
+    tenant_id: str = Depends(get_tenant_id),
+    current_user: CurrentUser = Depends(require_admin),
+):
+    """Deactivate (soft-delete) an operator."""
+    async with get_pg_session(tenant_id) as session:
+        result = await session.execute(
+            text("UPDATE usuarios SET is_active = false WHERE id = :id AND role = 'operator' RETURNING id"),
+            {"id": operator_id},
+        )
+        if not result.scalar_one_or_none():
+            raise HTTPException(status_code=404, detail="Operador no encontrado")
+        await session.commit()
 
 
 # ── Handoff config (admin) ────────────────────────────────────────────────────

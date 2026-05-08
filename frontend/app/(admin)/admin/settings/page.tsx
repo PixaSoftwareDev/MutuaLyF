@@ -55,6 +55,7 @@ export default function SettingsPage() {
     queryKey: ["bot-config", tenantId],
     queryFn: () => api.tenants.getBotConfig(tenantId!),
     enabled: !!tenantId,
+    staleTime: 60_000,
   });
   const [botDescription, setBotDescription] = useState("");
   const [botScope, setBotScope] = useState("");

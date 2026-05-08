@@ -36,7 +36,7 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(320), nullable=False, unique=True)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     hashed_password: Mapped[str] = mapped_column(String(256), nullable=False)
-    role: Mapped[str] = mapped_column(String(20), nullable=False, default="user")
+    role: Mapped[str] = mapped_column(String(20), nullable=False, default="operator")
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_now, onupdate=_now)

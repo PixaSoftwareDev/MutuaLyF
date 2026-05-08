@@ -14,7 +14,7 @@ from core.database import connect_all, disconnect_all
 from core.tenant import TenantMiddleware
 from core.metrics import setup_metrics
 from core.tracing import setup_tracing
-from api.v1 import auth, auth_sso, query, ingest, intentions, tenants, widget_conversation, operator_panel, duplicates
+from api.v1 import auth, query, ingest, intentions, tenants, widget_conversation, operator_panel, duplicates
 
 # ── Logging — must be first, before any other import that logs ─────────────────
 configure_logging(settings.log_level, settings.is_production)
@@ -96,7 +96,6 @@ setup_metrics(app)
 # ── Routers ───────────────────────────────────────────────────────────────────
 
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
-app.include_router(auth_sso.router, prefix="/api/v1", tags=["auth-sso"])
 app.include_router(query.router, prefix="/api/v1", tags=["query"])
 app.include_router(ingest.router, prefix="/api/v1", tags=["ingest"])
 app.include_router(intentions.router, prefix="/api/v1", tags=["intentions"])

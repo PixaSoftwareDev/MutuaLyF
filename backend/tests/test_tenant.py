@@ -75,7 +75,7 @@ class TestTenantMiddleware:
         # No headers at all — JWT carries tenant_a so middleware resolves it,
         # but the pipeline will fail without infrastructure (Redis/embeddings).
         # We verify the middleware at least resolves and passes to the handler (non-400).
-        token = create_access_token("u1", "tenant_a", Role.USER)
+        token = create_access_token("u1", "tenant_a", Role.OPERATOR)
         response = client.post(
             "/api/v1/query",
             json={"question": "test"},

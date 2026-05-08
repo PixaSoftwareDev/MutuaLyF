@@ -32,7 +32,8 @@ export default function DocumentsPage() {
   const { data: documents = [], isLoading, error } = useQuery({
     queryKey: ["documents"],
     queryFn: api.documents.list,
-    refetchInterval: 5000,
+    staleTime: 10_000,
+    refetchInterval: 30_000,
   });
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["documents"] });

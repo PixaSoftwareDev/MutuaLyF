@@ -153,8 +153,16 @@ export interface SectorRow {
   nombre: string;
   descripcion: string | null;
   is_active: boolean;
+  is_default: boolean;
   operator_count: number;
   open_conversations: number;
+}
+
+export interface PublicSector {
+  id: string;
+  nombre: string;
+  descripcion: string | null;
+  is_default: boolean;
 }
 
 export interface HandoffConfig {
@@ -341,6 +349,7 @@ export const api = {
       await apiClient.patch(`/admin/sectors/${id}`, { nombre, descripcion });
     },
     delete: async (id: string) => { await apiClient.delete(`/admin/sectors/${id}`); },
+    setDefault: async (id: string) => { await apiClient.patch(`/admin/sectors/${id}/set-default`); },
     getOperatorSectors: async (operatorId: string) => {
       const { data } = await apiClient.get(`/admin/operators/${operatorId}/sectors`);
       return data as Array<{ id: string; nombre: string }>;

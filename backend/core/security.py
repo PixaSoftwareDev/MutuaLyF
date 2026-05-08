@@ -22,7 +22,6 @@ class Role(str, Enum):
     SUPER_ADMIN = "super_admin"
     ADMIN = "admin"
     OPERATOR = "operator"
-    USER = "user"
 
 
 class TokenScope(str, Enum):
@@ -119,7 +118,7 @@ def _get_current_user_from_token(token: str) -> CurrentUser:
     scope = TokenScope(payload.get("scope", TokenScope.FULL.value))
     user_id: str = payload.get("sub", "")
     tenant_id: str = payload.get("tenant_id", "")
-    role_str: str = payload.get("role", Role.USER.value)
+    role_str: str = payload.get("role", Role.OPERATOR.value)
 
     if not tenant_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing tenant_id in token")

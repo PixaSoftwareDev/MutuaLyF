@@ -183,14 +183,17 @@ async def request_handoff(conversation_id: str, tenant_id: str, message: str) ->
 
 
 async def get_default_sector_id(tenant_id: str) -> str | None:
-    """Return the 'Consultas Generales' sector id."""
+    """Return the sector marked as default, falling back to 'Consultas Generales'."""
     from core.database import get_pg_session
     from sqlalchemy import text
 
     async with get_pg_session(tenant_id) as session:
-        result = await session.execute(
-            text("SELECT id FROM sectores WHERE nombre = 'Consultas Generales' LIMIT 1")
-        )
+        result = await session.execute(text("""
+            SELECT id FROM sectores
+            WHERE is_active = TRUE
+            ORDER BY is_default DESC, (nombre = 'Consultas Generales') DESC, created_at ASC
+            LIMIT 1
+        """))
         row = result.fetchone()
         return str(row[0]) if row else None
 

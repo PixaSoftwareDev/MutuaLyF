@@ -13,7 +13,6 @@
 
   if (!WIDGET_TOKEN) { console.error("[IA Widget] data-token is required"); return; }
 
-  // ── Session ID (persists across page reloads) ─────────────────────────────
   var SESSION_KEY = "ia_widget_session_" + WIDGET_TOKEN.slice(-8);
   var widgetSessionId = localStorage.getItem(SESSION_KEY);
   if (!widgetSessionId) {
@@ -21,10 +20,18 @@
     localStorage.setItem(SESSION_KEY, widgetSessionId);
   }
 
+  // Remembered sector from previous session
+  var SECTOR_KEY       = "ia_widget_sector_" + WIDGET_TOKEN.slice(-8);
+  var rememberedSector = null;
+  try { rememberedSector = JSON.parse(localStorage.getItem(SECTOR_KEY) || "null"); } catch(e) {}
+
   var conversationId  = null;
   var lastMessageId   = null;
   var pollingInterval = null;
-  var convStatus      = "bot_active"; // bot_active | handoff_requested | human_attending
+  var convStatus      = "bot_active";
+  var sectors         = [];
+  var selectedSector  = null;
+  var sectorPhase     = true; // true = showing sector picker, false = in chat
 
   // ── Styles ─────────────────────────────────────────────────────────────────
   var style = document.createElement("style");
@@ -32,12 +39,31 @@
     "#ia-widget-btn{position:fixed;bottom:24px;right:24px;width:56px;height:56px;border-radius:50%;background:#2563eb;color:#fff;border:none;cursor:pointer;font-size:24px;box-shadow:0 4px 12px rgba(0,0,0,.2);z-index:9998;display:flex;align-items:center;justify-content:center;transition:transform .2s;}",
     "#ia-widget-btn:hover{transform:scale(1.05);}",
     "#ia-widget-badge{position:absolute;top:-4px;right:-4px;background:#ef4444;color:#fff;border-radius:50%;width:18px;height:18px;font-size:11px;display:none;align-items:center;justify-content:center;font-weight:700;}",
-    "#ia-widget-panel{position:fixed;bottom:92px;right:24px;width:360px;max-height:540px;border-radius:12px;background:#fff;box-shadow:0 8px 32px rgba(0,0,0,.15);z-index:9999;display:none;flex-direction:column;font-family:system-ui,sans-serif;}",
+    "#ia-widget-panel{position:fixed;bottom:92px;right:24px;width:360px;max-height:560px;border-radius:12px;background:#fff;box-shadow:0 8px 32px rgba(0,0,0,.15);z-index:9999;display:none;flex-direction:column;font-family:system-ui,sans-serif;overflow:hidden;}",
     "#ia-widget-panel.open{display:flex;}",
+    // Header
     "#ia-widget-header{padding:12px 16px;background:#2563eb;color:#fff;border-radius:12px 12px 0 0;display:flex;align-items:center;justify-content:space-between;gap:8px;}",
     "#ia-widget-title{font-weight:600;font-size:15px;flex:1;}",
     "#ia-widget-status{font-size:11px;opacity:.85;background:rgba(255,255,255,.2);padding:2px 8px;border-radius:10px;white-space:nowrap;}",
     "#ia-widget-close{background:none;border:none;color:#fff;cursor:pointer;font-size:20px;line-height:1;padding:0;}",
+    // Sector picker
+    "#ia-sector-picker{flex:1;display:flex;flex-direction:column;overflow:hidden;}",
+    "#ia-sector-intro{padding:16px;background:#f8fafc;border-bottom:1px solid #e2e8f0;}",
+    "#ia-sector-intro p{margin:0;font-size:13px;color:#475569;}",
+    "#ia-sector-intro strong{color:#1e293b;}",
+    "#ia-sector-list{flex:1;overflow-y:auto;padding:8px;}",
+    ".ia-sector-btn{width:100%;text-align:left;padding:10px 14px;border-radius:8px;border:1px solid #e2e8f0;background:#fff;cursor:pointer;margin-bottom:6px;transition:all .15s;display:flex;align-items:center;justify-content:space-between;}",
+    ".ia-sector-btn:hover{border-color:#2563eb;background:#eff6ff;}",
+    ".ia-sector-btn .ia-sector-name{font-size:14px;font-weight:500;color:#1e293b;}",
+    ".ia-sector-btn .ia-sector-desc{font-size:12px;color:#64748b;margin-top:2px;}",
+    ".ia-sector-btn .ia-sector-default{font-size:11px;color:#94a3b8;margin-left:6px;}",
+    ".ia-sector-btn .ia-sector-arrow{color:#cbd5e1;font-size:16px;}",
+    ".ia-sector-btn:hover .ia-sector-arrow{color:#2563eb;}",
+    "#ia-sector-input-wrap{padding:10px 8px 8px;border-top:1px solid #e2e8f0;}",
+    "#ia-sector-direct{width:100%;padding:9px 12px;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;outline:none;font-family:inherit;box-sizing:border-box;}",
+    "#ia-sector-direct:focus{border-color:#2563eb;}",
+    "#ia-sector-hint{text-align:center;font-size:11px;color:#94a3b8;padding:4px 8px 8px;}",
+    // Chat
     "#ia-widget-messages{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:8px;min-height:200px;}",
     ".ia-msg{max-width:85%;padding:8px 12px;border-radius:8px;font-size:14px;line-height:1.5;word-break:break-word;}",
     ".ia-msg.user{align-self:flex-end;background:#2563eb;color:#fff;border-bottom-right-radius:2px;}",
@@ -50,6 +76,8 @@
     "#ia-widget-handoff-bar button{background:#f97316;color:#fff;border:none;border-radius:6px;padding:5px 12px;cursor:pointer;font-size:13px;white-space:nowrap;}",
     "#ia-widget-human-btn{padding:6px 12px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;cursor:pointer;font-size:13px;color:#475569;white-space:nowrap;}",
     "#ia-widget-human-btn:hover{background:#f8fafc;}",
+    "#ia-sector-change{padding:4px 8px;border:1px solid rgba(255,255,255,.4);border-radius:6px;background:none;color:rgba(255,255,255,.8);cursor:pointer;font-size:11px;white-space:nowrap;}",
+    "#ia-sector-change:hover{background:rgba(255,255,255,.15);}",
     "#ia-widget-form{padding:8px 12px;border-top:1px solid #e2e8f0;display:flex;gap:8px;align-items:flex-end;}",
     "#ia-widget-input{flex:1;border:1px solid #cbd5e1;border-radius:6px;padding:8px 10px;font-size:14px;outline:none;resize:none;min-height:36px;max-height:80px;font-family:inherit;}",
     "#ia-widget-input:focus{border-color:#2563eb;}",
@@ -58,7 +86,7 @@
   ].join("");
   document.head.appendChild(style);
 
-  // ── DOM ────────────────────────────────────────────────────────────────────
+  // ── DOM ─────────────────────────────────────────────────────────────────────
   var btn = document.createElement("button");
   btn.id = "ia-widget-btn";
   btn.setAttribute("aria-label", "Abrir asistente");
@@ -71,16 +99,27 @@
   panel.innerHTML = [
     '<div id="ia-widget-header">',
     '  <span id="ia-widget-title">' + _escape(TITLE) + '</span>',
-    '  <span id="ia-widget-status">Bot IA</span>',
+    '  <span id="ia-widget-status" style="display:none">Bot IA</span>',
+    '  <button id="ia-sector-change" style="display:none">Cambiar área</button>',
     '  <button id="ia-widget-close" aria-label="Cerrar">&times;</button>',
     '</div>',
-    '<div id="ia-widget-messages" aria-live="polite"></div>',
+    // Sector picker
+    '<div id="ia-sector-picker">',
+    '  <div id="ia-sector-intro"><p><strong>¿En qué área necesitás ayuda?</strong><br>Elegí un sector o escribí tu consulta directamente.</p></div>',
+    '  <div id="ia-sector-list"><div style="padding:20px;text-align:center;color:#94a3b8;font-size:13px;">Cargando…</div></div>',
+    '  <div id="ia-sector-input-wrap">',
+    '    <input id="ia-sector-direct" type="text" placeholder="O escribí tu consulta y te asignamos automáticamente…" />',
+    '    <div id="ia-sector-hint"></div>',
+    '  </div>',
+    '</div>',
+    // Chat
+    '<div id="ia-widget-messages" style="display:none" aria-live="polite"></div>',
     '<div id="ia-widget-handoff-bar">',
     '  <span style="flex:1">¿Querés hablar con un operador?</span>',
     '  <button id="ia-handoff-yes">Sí, conectar</button>',
     '  <button id="ia-handoff-no" style="background:none;border:none;cursor:pointer;color:#92400e">Ahora no</button>',
     '</div>',
-    '<form id="ia-widget-form">',
+    '<form id="ia-widget-form" style="display:none">',
     '  <textarea id="ia-widget-input" rows="1" placeholder="' + _escape(PLACEHOLDER) + '" autocomplete="off"></textarea>',
     '  <button id="ia-widget-human-btn" type="button" title="Hablar con un operador">👤</button>',
     '  <button id="ia-widget-send" type="submit">Enviar</button>',
@@ -90,25 +129,54 @@
   document.body.appendChild(btn);
   document.body.appendChild(panel);
 
-  var messagesEl   = document.getElementById("ia-widget-messages");
-  var inputEl      = document.getElementById("ia-widget-input");
-  var sendBtn      = document.getElementById("ia-widget-send");
-  var statusEl     = document.getElementById("ia-widget-status");
-  var handoffBar   = document.getElementById("ia-widget-handoff-bar");
-  var badge        = document.getElementById("ia-widget-badge");
+  var sectorPicker   = document.getElementById("ia-sector-picker");
+  var sectorList     = document.getElementById("ia-sector-list");
+  var sectorDirect   = document.getElementById("ia-sector-direct");
+  var sectorHint     = document.getElementById("ia-sector-hint");
+  var messagesEl     = document.getElementById("ia-widget-messages");
+  var inputEl        = document.getElementById("ia-widget-input");
+  var sendBtn        = document.getElementById("ia-widget-send");
+  var widgetForm     = document.getElementById("ia-widget-form");
+  var statusEl       = document.getElementById("ia-widget-status");
+  var handoffBar     = document.getElementById("ia-widget-handoff-bar");
+  var badge          = document.getElementById("ia-widget-badge");
+  var sectorChange   = document.getElementById("ia-sector-change");
 
-  // ── Events ─────────────────────────────────────────────────────────────────
+  // ── Events ──────────────────────────────────────────────────────────────────
   btn.addEventListener("click", function () {
     panel.classList.toggle("open");
     if (panel.classList.contains("open")) {
       badge.style.display = "none";
-      inputEl.focus();
-      if (!conversationId) _startConversation();
+      if (!sectors.length) _loadSectors();
+      if (conversationId) {
+        // Already in chat
+      } else if (rememberedSector) {
+        // Skip picker — use remembered sector
+        _enterChat(rememberedSector);
+      } else {
+        sectorDirect.focus();
+      }
     }
   });
 
   document.getElementById("ia-widget-close").addEventListener("click", function () {
     panel.classList.remove("open");
+  });
+
+  sectorChange.addEventListener("click", function () {
+    // Allow changing sector only if conversation hasn't started yet
+    sectorPhase = true;
+    conversationId = null;
+    selectedSector = null;
+    localStorage.removeItem(SECTOR_KEY);
+    _showSectorPicker();
+  });
+
+  sectorDirect.addEventListener("keydown", function (e) {
+    if (e.key === "Enter" && sectorDirect.value.trim()) {
+      var def = sectors.find(function(s) { return s.is_default; }) || sectors[0];
+      if (def) _enterChat(def, sectorDirect.value.trim());
+    }
   });
 
   document.getElementById("ia-widget-form").addEventListener("submit", function (e) {
@@ -128,7 +196,7 @@
   inputEl.addEventListener("keydown", function (e) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      document.getElementById("ia-widget-form").dispatchEvent(new Event("submit"));
+      widgetForm.dispatchEvent(new Event("submit"));
     }
   });
 
@@ -146,16 +214,78 @@
     handoffBar.style.display = "none";
   });
 
-  // ── API helpers ────────────────────────────────────────────────────────────
+  // ── Sector logic ────────────────────────────────────────────────────────────
+  function _loadSectors() {
+    fetch(API_BASE + "/api/v1/widget/sectors", { headers: _headers() })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        sectors = data;
+        _renderSectorList();
+        var def = sectors.find(function(s) { return s.is_default; }) || sectors[0];
+        if (def) sectorHint.textContent = "Si no elegís, te asignamos a «" + def.nombre + "»";
+      })
+      .catch(function() {
+        sectorList.innerHTML = '<div style="padding:20px;text-align:center;color:#94a3b8;font-size:13px;">Error al cargar sectores.</div>';
+      });
+  }
+
+  function _renderSectorList() {
+    sectorList.innerHTML = "";
+    sectors.forEach(function(s) {
+      var btn = document.createElement("button");
+      btn.className = "ia-sector-btn";
+      btn.innerHTML =
+        '<div><div class="ia-sector-name">' + _escape(s.nombre) +
+        (s.is_default ? '<span class="ia-sector-default">(predeterminado)</span>' : '') +
+        '</div>' +
+        (s.descripcion ? '<div class="ia-sector-desc">' + _escape(s.descripcion) + '</div>' : '') +
+        '</div><span class="ia-sector-arrow">→</span>';
+      btn.addEventListener("click", function() { _enterChat(s); });
+      sectorList.appendChild(btn);
+    });
+  }
+
+  function _enterChat(sector, pendingMessage) {
+    selectedSector  = sector;
+    sectorPhase     = false;
+    localStorage.setItem(SECTOR_KEY, JSON.stringify(sector));
+    _showChatView(sector);
+    _startConversation(sector.id, pendingMessage);
+  }
+
+  function _showSectorPicker() {
+    sectorPicker.style.display = "flex";
+    sectorPicker.style.flexDirection = "column";
+    messagesEl.style.display = "none";
+    handoffBar.style.display = "none";
+    widgetForm.style.display = "none";
+    statusEl.style.display = "none";
+    sectorChange.style.display = "none";
+    document.getElementById("ia-widget-title").textContent = TITLE;
+    if (sectors.length) _renderSectorList();
+    else _loadSectors();
+  }
+
+  function _showChatView(sector) {
+    sectorPicker.style.display = "none";
+    messagesEl.style.display = "flex";
+    widgetForm.style.display = "flex";
+    statusEl.style.display = "block";
+    sectorChange.style.display = "block";
+    document.getElementById("ia-widget-title").textContent = sector.nombre;
+    inputEl.focus();
+  }
+
+  // ── API helpers ──────────────────────────────────────────────────────────────
   function _headers() {
     return { "Content-Type": "application/json", "Authorization": "Bearer " + WIDGET_TOKEN };
   }
 
-  function _startConversation() {
+  function _startConversation(sectorId, pendingMessage) {
     fetch(API_BASE + "/api/v1/widget/conversation/start", {
       method: "POST",
       headers: _headers(),
-      body: JSON.stringify({ widget_session_id: widgetSessionId }),
+      body: JSON.stringify({ widget_session_id: widgetSessionId, sector_id: sectorId }),
     })
       .then(function (r) { return r.json(); })
       .then(function (data) {
@@ -165,7 +295,8 @@
         if (data.resumed) {
           _loadHistory();
         } else {
-          _appendMessage("system", "¡Hola! Soy el asistente de " + TITLE + ". ¿En qué te puedo ayudar?");
+          _appendMessage("system", "¡Hola! Soy el asistente de " + _escape(selectedSector ? selectedSector.nombre : TITLE) + ". ¿En qué te puedo ayudar?");
+          if (pendingMessage) _sendMessage(pendingMessage);
         }
         _startPolling();
       })
@@ -212,13 +343,8 @@
         if (data.bot_response) _appendMessage("bot", data.bot_response);
         convStatus = data.status;
         _updateStatus();
-
-        if (data.handoff_offered && data.handoff_message) {
-          _showHandoffBar(data.handoff_message);
-        }
-        if (data.handoff_activated && data.handoff_message) {
-          _appendMessage("system", data.handoff_message);
-        }
+        if (data.handoff_offered && data.handoff_message) _showHandoffBar(data.handoff_message);
+        if (data.handoff_activated && data.handoff_message) _appendMessage("system", data.handoff_message);
       })
       .catch(function (err) {
         typing.remove();
@@ -234,8 +360,7 @@
 
   function _requestHuman() {
     fetch(API_BASE + "/api/v1/widget/conversation/" + conversationId + "/human", {
-      method: "POST",
-      headers: _headers(),
+      method: "POST", headers: _headers(),
     })
       .then(function (r) { return r.json(); })
       .then(function (data) {
@@ -248,8 +373,7 @@
 
   function _confirmHandoff() {
     fetch(API_BASE + "/api/v1/widget/conversation/" + conversationId + "/confirm-handoff", {
-      method: "POST",
-      headers: _headers(),
+      method: "POST", headers: _headers(),
     })
       .then(function (r) { return r.json(); })
       .then(function (data) {
@@ -259,7 +383,7 @@
       .catch(function (err) { console.error("[IA Widget] confirm handoff error:", err); });
   }
 
-  // ── Polling ────────────────────────────────────────────────────────────────
+  // ── Polling ──────────────────────────────────────────────────────────────────
   function _startPolling() {
     if (pollingInterval) clearInterval(pollingInterval);
     pollingInterval = setInterval(_poll, 5000);
@@ -278,17 +402,16 @@
         (data.messages || []).forEach(function (m) {
           _appendMessage(m.sender_type, m.content);
           lastMessageId = m.id;
-          // Show badge if panel is closed
           if (!panel.classList.contains("open") && (m.sender_type === "operator" || m.sender_type === "system")) {
             badge.style.display = "flex";
             badge.textContent = "!";
           }
         });
       })
-      .catch(function () { /* silent polling errors */ });
+      .catch(function () {});
   }
 
-  // ── UI helpers ─────────────────────────────────────────────────────────────
+  // ── UI helpers ───────────────────────────────────────────────────────────────
   function _appendMessage(senderType, text) {
     var el = document.createElement("div");
     el.className = "ia-msg " + senderType;
@@ -317,7 +440,6 @@
       "closed":            "#64748b",
     };
     document.getElementById("ia-widget-header").style.background = colors[convStatus] || "#2563eb";
-    // Disable input if closed
     var closed = convStatus === "closed";
     inputEl.disabled = closed;
     sendBtn.disabled = closed;
@@ -326,6 +448,7 @@
   }
 
   function _escape(str) {
+    if (!str) return "";
     return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   }
 })();

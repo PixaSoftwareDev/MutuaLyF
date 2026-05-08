@@ -64,7 +64,7 @@ async def login(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    role = Role(user.role) if user.role in Role._value2member_map_ else Role.USER
+    role = Role(user.role) if user.role in Role._value2member_map_ else Role.OPERATOR
     access_token = create_access_token(str(user.id), tenant_id, role)
     refresh_tok = create_refresh_token(str(user.id), tenant_id)
 
@@ -109,7 +109,7 @@ async def refresh_token(request: Request, response: Response):
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
-    role = Role(user.role) if user.role in Role._value2member_map_ else Role.USER
+    role = Role(user.role) if user.role in Role._value2member_map_ else Role.OPERATOR
     access_token = create_access_token(user_id, tenant_id, role)
     return TokenResponse(access_token=access_token, expires_in=settings.jwt_expire_minutes * 60)
 
