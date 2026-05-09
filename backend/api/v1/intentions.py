@@ -122,7 +122,7 @@ async def list_intentions(
         cluster_rows = result_clusters.mappings().all()
 
     # Generate suggested labels for clusters (cached in Redis to avoid calling Groq on every refresh)
-    suggested_labels = await _get_cluster_suggestions(cluster_rows)
+    suggested_labels = await _get_cluster_suggestions(cluster_rows, tenant_id=tenant_id)
 
     pending = [
         {
@@ -630,7 +630,7 @@ def _dedup_queries(queries: list[dict]) -> list[dict]:
     return sorted(result, key=lambda q: q.get("text", ""))
 
 
-async def _get_cluster_suggestions(cluster_rows: list) -> dict[str, str]:
+async def _get_cluster_suggestions(cluster_rows: list, tenant_id: str | None = None) -> dict[str, str]:
     """Return suggested labels keyed by cluster_id, using Redis cache (TTL 24h)."""
     import asyncio
     from services.groq_client import suggest_cluster_label
@@ -640,6 +640,15 @@ async def _get_cluster_suggestions(cluster_rows: list) -> dict[str, str]:
         redis = get_redis_cache()
     except Exception:
         redis = None
+
+    custom_cluster_prompt: str | None = None
+    if tenant_id:
+        try:
+            from services.orchestrator import _get_tenant_config
+            _cfg = await _get_tenant_config(tenant_id)
+            custom_cluster_prompt = _cfg.get("prompt_cluster_label") or None
+        except Exception:
+            pass
 
     suggestions: dict[str, str] = {}
 
@@ -654,7 +663,7 @@ async def _get_cluster_suggestions(cluster_rows: list) -> dict[str, str]:
             except Exception:
                 pass
 
-        label = await suggest_cluster_label(samples)
+        label = await suggest_cluster_label(samples, custom_prompt=custom_cluster_prompt)
         suggestions[cluster_id] = label
 
         if redis and label:

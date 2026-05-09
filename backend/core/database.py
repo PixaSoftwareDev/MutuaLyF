@@ -62,8 +62,14 @@ async def get_pg_session(tenant_id: str | None = None) -> AsyncGenerator[AsyncSe
     Resets search_path to public in finally so the pooled connection doesn't leak
     tenant-specific schema state to the next session that reuses it.
     """
+    # __platform__ is the super-admin sentinel — treat as global (no search_path override)
+    if tenant_id == "__platform__":
+        tenant_id = None
+
     factory = get_session_factory()
     async with factory() as session:
+        # Always start with a clean public schema to avoid stale search_path from the pool
+        await session.execute(text("SET search_path TO public"))
         if tenant_id:
             # Sanitize tenant_id before using in SQL — only alphanumeric and underscores allowed
             safe_id = _validate_tenant_id(tenant_id)

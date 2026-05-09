@@ -14,8 +14,10 @@ interface AuthState {
   userEmail: string | null;
   userRole: string | null;
   isAuthenticated: boolean;
+  _hasHydrated: boolean;
   setAuth: (token: string, tenantId: string, email: string, role: string) => void;
   clearAuth: () => void;
+  setHasHydrated: (v: boolean) => void;
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -26,6 +28,7 @@ export const useAuthStore = create<AuthState>()(
       userEmail: null,
       userRole: null,
       isAuthenticated: false,
+      _hasHydrated: false,
 
       setAuth: (token, tenantId, email, role) => {
         if (typeof window !== "undefined") {
@@ -39,9 +42,14 @@ export const useAuthStore = create<AuthState>()(
         if (typeof window !== "undefined") {
           localStorage.removeItem("access_token");
           localStorage.removeItem("tenant_id");
+          // Clear edge-middleware cookies
+          document.cookie = "ia_role=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+          document.cookie = "ia_tenant=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
         }
         set({ accessToken: null, tenantId: null, userEmail: null, userRole: null, isAuthenticated: false });
       },
+
+      setHasHydrated: (v) => set({ _hasHydrated: v }),
     }),
     {
       name: "ia-auth",
@@ -53,6 +61,9 @@ export const useAuthStore = create<AuthState>()(
         userRole: state.userRole,
         isAuthenticated: state.isAuthenticated,
       }),
+      onRehydrateStorage: () => (state) => {
+        state?.setHasHydrated(true);
+      },
     }
   )
 );

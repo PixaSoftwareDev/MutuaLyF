@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
-import { Loader2, Send, User } from "lucide-react";
+import { Loader2, Send, User, Sparkles, ChevronLeft, Headphones } from "lucide-react";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
@@ -12,11 +12,94 @@ interface Message { id: string; role: "user" | "bot" | "operator" | "system"; co
 
 export default function ChatPage() {
   return (
-    <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-blue-600" /></div>}>
+    <Suspense fallback={
+      <div className="h-screen flex items-center justify-center bg-gradient-to-br from-slate-950 via-blue-950 to-slate-950">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center shadow-lg shadow-blue-900/50">
+            <Sparkles className="h-7 w-7 text-white" />
+          </div>
+          <Loader2 className="h-5 w-5 animate-spin text-blue-400" />
+        </div>
+      </div>
+    }>
       <ChatInner />
     </Suspense>
   );
 }
+
+// ── Bubble components ──────────────────────────────────────────────────────────
+
+function BotBubble({ content }: { content: string }) {
+  return (
+    <div className="flex gap-3 items-end group">
+      <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center shrink-0 shadow-md shadow-blue-500/30">
+        <Sparkles className="h-4 w-4 text-white" />
+      </div>
+      <div className="max-w-[78%] sm:max-w-[65%]">
+        <div className="bg-white text-slate-800 rounded-2xl rounded-bl-sm px-4 py-3 text-sm leading-relaxed shadow-sm border border-slate-100">
+          {content}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function UserBubble({ content }: { content: string }) {
+  return (
+    <div className="flex justify-end">
+      <div className="max-w-[78%] sm:max-w-[65%]">
+        <div className="bg-gradient-to-br from-blue-600 to-blue-700 text-white rounded-2xl rounded-br-sm px-4 py-3 text-sm leading-relaxed shadow-md shadow-blue-500/25">
+          {content}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function OperatorBubble({ content }: { content: string }) {
+  return (
+    <div className="flex gap-3 items-end">
+      <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-emerald-400 to-teal-600 flex items-center justify-center shrink-0 shadow-md shadow-emerald-500/30">
+        <Headphones className="h-4 w-4 text-white" />
+      </div>
+      <div className="max-w-[78%] sm:max-w-[65%]">
+        <div className="bg-white text-slate-800 rounded-2xl rounded-bl-sm px-4 py-3 text-sm leading-relaxed shadow-sm border border-emerald-100">
+          {content}
+        </div>
+        <p className="text-xs text-emerald-600 mt-1 ml-1 font-medium">Operador</p>
+      </div>
+    </div>
+  );
+}
+
+function SystemBubble({ content }: { content: string }) {
+  return (
+    <div className="flex justify-center py-1">
+      <span className="text-xs text-slate-400 bg-slate-100 rounded-full px-4 py-1.5">
+        {content}
+      </span>
+    </div>
+  );
+}
+
+function TypingIndicator() {
+  return (
+    <div className="flex gap-3 items-end">
+      <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center shrink-0 shadow-md shadow-blue-500/30">
+        <Sparkles className="h-4 w-4 text-white" />
+      </div>
+      <div className="bg-white rounded-2xl rounded-bl-sm px-5 py-4 shadow-sm border border-slate-100">
+        <div className="flex gap-1.5 items-center">
+          <span className="w-2 h-2 rounded-full bg-blue-400 animate-bounce [animation-delay:0ms]" />
+          <span className="w-2 h-2 rounded-full bg-blue-400 animate-bounce [animation-delay:150ms]" />
+          <span className="w-2 h-2 rounded-full bg-blue-400 animate-bounce [animation-delay:300ms]" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Main component ─────────────────────────────────────────────────────────────
 
 function ChatInner() {
   const params   = useSearchParams();
@@ -24,6 +107,7 @@ function ChatInner() {
   const tenantId = params.get("tenant") || "";
 
   const [sectors, setSectors]               = useState<Sector[]>([]);
+  const [greeting, setGreeting]             = useState<string>("¡Hola! 👋 Soy tu asistente virtual. ¿En qué área puedo ayudarte?");
   const [sectorsLoading, setSectorsLoading] = useState(true);
   const [selectedSector, setSelectedSector] = useState<Sector | null>(null);
   const [phase, setPhase]                   = useState<"selecting" | "chat">("selecting");
@@ -35,76 +119,70 @@ function ChatInner() {
   const [error, setError]                   = useState<string | null>(null);
   const [resolvedToken, setResolvedToken]   = useState(token);
   const bottomRef                           = useRef<HTMLDivElement>(null);
+  const inputRef                            = useRef<HTMLInputElement>(null);
   const sessionId                           = useRef<string>("");
   const pollIntervalRef                     = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Initialize sessionId client-side only (localStorage is not available on server)
   useEffect(() => {
     const key = "ia_chat_session_" + (token || tenantId).slice(-8);
     const stored = localStorage.getItem(key);
-    if (stored) {
-      sessionId.current = stored;
-    } else {
+    if (stored) { sessionId.current = stored; }
+    else {
       const id = "cs_" + Date.now() + "_" + Math.random().toString(36).slice(2, 9);
       localStorage.setItem(key, id);
       sessionId.current = id;
     }
   }, [token, tenantId]);
 
-  // If no token in URL, auto-fetch one from the public endpoint (chat is public)
   useEffect(() => {
     if (token) { setResolvedToken(token); return; }
-    if (!tenantId) { setError("URL inválida. El chat requiere el parámetro ?tenant=TU_ORGANIZACION"); setSectorsLoading(false); return; }
-    fetch(`${API_BASE}/api/v1/public/chat-token`, {
-      headers: { "X-Tenant-ID": tenantId },
-    })
+    if (!tenantId) {
+      setError("URL inválida. El chat requiere el parámetro ?tenant=TU_ORGANIZACION");
+      setSectorsLoading(false);
+      return;
+    }
+    fetch(`${API_BASE}/api/v1/public/chat-token`, { headers: { "X-Tenant-ID": tenantId } })
       .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
       .then(data => setResolvedToken(data.widget_token))
-      .catch(e => { setError(`No se pudo conectar al chat: ${e.message}`); setSectorsLoading(false); });
+      .catch(e => { setError(`No se pudo conectar: ${e.message}`); setSectorsLoading(false); });
   }, [token, tenantId]);
 
-  // Load sectors once we have a token
   useEffect(() => {
     if (!resolvedToken) return;
-    setSectorsLoading(true);
     fetch(`${API_BASE}/api/v1/widget/sectors`, {
       headers: { Authorization: `Bearer ${resolvedToken}`, "X-Tenant-ID": tenantId },
     })
-      .then(r => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
-      })
-      .then((data: Sector[]) => {
-        setSectors(data);
+      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+      .then((data: { sectors: Sector[]; greeting_message: string | null }) => {
+        setSectors(data.sectors);
+        if (data.greeting_message) setGreeting(data.greeting_message);
         setSectorsLoading(false);
       })
-      .catch((e) => {
-        setError(`Error al cargar los sectores: ${e.message}`);
-        setSectorsLoading(false);
-      });
+      .catch(e => { setError(`Error al cargar sectores: ${e.message}`); setSectorsLoading(false); });
   }, [resolvedToken, tenantId]);
 
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, sectorsLoading]);
 
-  // Cleanup polling on unmount
   useEffect(() => () => { if (pollIntervalRef.current) clearInterval(pollIntervalRef.current); }, []);
 
-  function headers() {
+  function getHeaders() {
     return { "Content-Type": "application/json", Authorization: `Bearer ${resolvedToken}`, "X-Tenant-ID": tenantId };
   }
 
   const pollMessages = useCallback(async (convId: string) => {
     try {
-      const r = await fetch(`${API_BASE}/api/v1/widget/conversation/${convId}/poll`, { headers: headers() });
+      const r = await fetch(`${API_BASE}/api/v1/widget/conversation/${convId}/poll`, { headers: getHeaders() });
       if (!r.ok) return;
       const data = await r.json();
       setMessages((data.messages || []).map((m: { id: string; sender_type: string; content: string }) => ({
         id: m.id, role: m.sender_type as Message["role"], content: m.content,
       })));
       setStatus(data.status);
-    } catch { /* ignore poll errors */ }
+    } catch { /* ignore */ }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, tenantId]);
+  }, [resolvedToken, tenantId]);
 
   const startPolling = useCallback((convId: string) => {
     if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
@@ -115,10 +193,10 @@ function ChatInner() {
     setSelectedSector(sector);
     setPhase("chat");
     setMessages([]);
+    setTimeout(() => inputRef.current?.focus(), 100);
     try {
       const r = await fetch(`${API_BASE}/api/v1/widget/conversation/start`, {
-        method: "POST",
-        headers: headers(),
+        method: "POST", headers: getHeaders(),
         body: JSON.stringify({ widget_session_id: sessionId.current, sector_id: sector.id }),
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -128,14 +206,10 @@ function ChatInner() {
       if (data.resumed) {
         await pollMessages(data.conversation_id);
       } else {
-        setMessages([{ id: "welcome", role: "bot", content: `¡Hola! Soy el asistente de ${sector.nombre}. ¿En qué te puedo ayudar?` }]);
+        setMessages([{ id: "welcome", role: "bot", content: `¡Hola! Soy el asistente de ${sector.nombre}. ¿En qué te puedo ayudar hoy?` }]);
       }
       startPolling(data.conversation_id);
-
-      // If user typed before selecting sector, send that message now
-      if (pendingMessage) {
-        await sendMessageTo(data.conversation_id, pendingMessage);
-      }
+      if (pendingMessage) await sendMessageTo(data.conversation_id, pendingMessage);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Error desconocido";
       setMessages([{ id: "err", role: "system", content: `Error al iniciar el chat: ${msg}` }]);
@@ -147,15 +221,17 @@ function ChatInner() {
     setMessages(prev => [...prev, { id: Date.now().toString(), role: "user", content: text }]);
     try {
       const r = await fetch(`${API_BASE}/api/v1/widget/conversation/${convId}/message`, {
-        method: "POST",
-        headers: headers(),
+        method: "POST", headers: getHeaders(),
         body: JSON.stringify({ content: text, widget_session_id: sessionId.current }),
       });
       const data = await r.json();
       setStatus(data.status);
-      if (data.bot_response) setMessages(prev => [...prev, { id: Date.now().toString() + "b", role: "bot", content: data.bot_response }]);
-      if (data.handoff_offered && data.handoff_message) setMessages(prev => [...prev, { id: Date.now().toString() + "h", role: "system", content: data.handoff_message }]);
-      if (data.handoff_activated && data.handoff_message) setMessages(prev => [...prev, { id: Date.now().toString() + "ha", role: "system", content: data.handoff_message }]);
+      if (data.bot_response)
+        setMessages(prev => [...prev, { id: Date.now().toString() + "b", role: "bot", content: data.bot_response }]);
+      if (data.handoff_offered && data.handoff_message)
+        setMessages(prev => [...prev, { id: Date.now().toString() + "h", role: "system", content: data.handoff_message }]);
+      if (data.handoff_activated && data.handoff_message)
+        setMessages(prev => [...prev, { id: Date.now().toString() + "ha", role: "system", content: data.handoff_message }]);
     } catch {
       setMessages(prev => [...prev, { id: Date.now().toString() + "e", role: "system", content: "Error al enviar. Intentá de nuevo." }]);
     } finally {
@@ -173,174 +249,206 @@ function ChatInner() {
   async function requestHuman() {
     if (!conversationId) return;
     try {
-      const r = await fetch(`${API_BASE}/api/v1/widget/conversation/${conversationId}/human`, { method: "POST", headers: headers() });
+      const r = await fetch(`${API_BASE}/api/v1/widget/conversation/${conversationId}/human`, { method: "POST", headers: getHeaders() });
       const data = await r.json();
       setStatus(data.status);
       if (data.message) setMessages(prev => [...prev, { id: Date.now().toString(), role: "system", content: data.message }]);
     } catch { /* ignore */ }
   }
 
-  // ── Error screen ──────────────────────────────────────────────────────────────
+  const statusLabel =
+    status === "human_attending"    ? "Operador conectado" :
+    status === "handoff_requested"  ? "Esperando operador…" :
+    "En línea";
+
+  const statusDot =
+    status === "human_attending"    ? "bg-emerald-400" :
+    status === "handoff_requested"  ? "bg-amber-400 animate-pulse" :
+    "bg-emerald-400 animate-pulse";
+
+  // ── Error ────────────────────────────────────────────────────────────────────
   if (error) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-slate-100 flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-lg p-8 max-w-md text-center space-y-3">
-          <div className="text-4xl">⚠️</div>
-          <h2 className="font-semibold text-slate-800">No se pudo iniciar el chat</h2>
-          <p className="text-sm text-slate-500">{error}</p>
+      <div className="h-screen bg-gradient-to-br from-slate-950 via-blue-950 to-slate-950 flex items-center justify-center p-4">
+        <div className="bg-white/10 backdrop-blur-md border border-white/20 rounded-3xl p-10 max-w-sm w-full text-center space-y-4">
+          <div className="text-5xl">⚠️</div>
+          <h2 className="text-white font-semibold text-lg">No se pudo conectar</h2>
+          <p className="text-slate-300 text-sm leading-relaxed">{error}</p>
         </div>
       </div>
     );
   }
 
-  // ── Sector selection screen ───────────────────────────────────────────────────
-  if (phase === "selecting") {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-slate-100 flex items-center justify-center p-4">
-        <div className="w-full max-w-md bg-white rounded-2xl shadow-lg overflow-hidden">
-          <div className="bg-blue-600 px-6 py-5 text-white">
-            <h1 className="text-xl font-bold">¿En qué área necesitás ayuda?</h1>
-            <p className="text-blue-100 text-sm mt-1">Elegí un sector o comenzá a escribir directamente.</p>
+  // ── Layout ───────────────────────────────────────────────────────────────────
+  return (
+    <div className="h-screen flex flex-col bg-slate-50 overflow-hidden">
+
+      {/* ── Top bar ──────────────────────────────────────────────────────────── */}
+      <header className="shrink-0 bg-gradient-to-r from-blue-700 via-blue-600 to-violet-600 shadow-lg shadow-blue-900/30 z-10">
+        <div className="max-w-3xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
+          {/* Left: brand + status */}
+          <div className="flex items-center gap-3">
+            {phase === "chat" ? (
+              <button
+                onClick={() => {
+                  if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+                  setPhase("selecting"); setConversationId(null); setMessages([]); setSelectedSector(null);
+                }}
+                className="mr-1 text-blue-200 hover:text-white transition-colors p-1 -ml-1 rounded-lg hover:bg-white/10"
+                aria-label="Cambiar área"
+              >
+                <ChevronLeft className="h-5 w-5" />
+              </button>
+            ) : null}
+            <div className="w-9 h-9 rounded-xl bg-white/20 backdrop-blur-sm border border-white/30 flex items-center justify-center shadow-inner">
+              <Sparkles className="h-5 w-5 text-white" />
+            </div>
+            <div>
+              <p className="text-white font-semibold text-sm leading-none">
+                {selectedSector ? selectedSector.nombre : "Asistente Virtual"}
+              </p>
+              <div className="flex items-center gap-1.5 mt-1">
+                <span className={`w-1.5 h-1.5 rounded-full ${statusDot}`} />
+                <span className="text-blue-100 text-xs">{phase === "selecting" ? "Elige un área para comenzar" : statusLabel}</span>
+              </div>
+            </div>
           </div>
-          <div className="p-4 space-y-2">
-            {sectorsLoading ? (
-              <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-blue-500" /></div>
-            ) : sectors.length === 0 ? (
-              <p className="text-sm text-slate-500 text-center py-6">No hay sectores disponibles.</p>
-            ) : (
-              sectors.map(s => (
-                <button
-                  key={s.id}
-                  onClick={() => startChat(s)}
-                  className="w-full text-left px-4 py-3 rounded-xl border border-slate-200 hover:border-blue-400 hover:bg-blue-50 transition-colors group"
-                >
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <span className="font-medium text-slate-800 group-hover:text-blue-700">{s.nombre}</span>
-                      {s.is_default && <span className="ml-2 text-xs text-slate-400">(predeterminado)</span>}
-                      {s.descripcion && <p className="text-xs text-slate-500 mt-0.5">{s.descripcion}</p>}
-                    </div>
-                    <span className="text-slate-300 group-hover:text-blue-400 text-lg">→</span>
-                  </div>
-                </button>
-              ))
-            )}
-          </div>
-          {!sectorsLoading && sectors.length > 0 && (
-            <div className="px-4 pb-4">
-              <div className="relative">
-                <input
-                  className="w-full border border-slate-200 rounded-xl px-4 py-3 pr-12 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-                  placeholder="O escribí tu consulta y te asignamos automáticamente..."
-                  onKeyDown={e => {
+
+          {/* Right: actions */}
+          {phase === "chat" && (
+            <button
+              onClick={requestHuman}
+              className="flex items-center gap-1.5 text-blue-100 hover:text-white text-xs font-medium border border-white/30 hover:border-white/60 bg-white/10 hover:bg-white/20 rounded-xl px-3 py-2 transition-all"
+            >
+              <User className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Hablar con operador</span>
+              <span className="sm:hidden">Operador</span>
+            </button>
+          )}
+        </div>
+      </header>
+
+      {/* ── Messages / Selection area ─────────────────────────────────────────── */}
+      <div className="flex-1 overflow-y-auto">
+        <div className="max-w-3xl mx-auto px-4 sm:px-6 py-6 space-y-4 min-h-full flex flex-col">
+
+          {phase === "selecting" ? (
+            /* ── Sector selection ─────────────────────────────────────────── */
+            <div className="flex-1 flex flex-col justify-center items-center gap-8 py-8">
+              {/* Hero */}
+              <div className="text-center space-y-3">
+                <div className="w-20 h-20 rounded-3xl bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center mx-auto shadow-xl shadow-blue-500/30">
+                  <Sparkles className="h-10 w-10 text-white" />
+                </div>
+                <div>
+                  <h1 className="text-2xl sm:text-3xl font-bold text-slate-800">¡Hola! 👋</h1>
+                  <p className="text-slate-500 mt-1 text-sm sm:text-base whitespace-pre-line">
+                    {greeting}
+                  </p>
+                </div>
+              </div>
+
+              {/* Sector pills */}
+              {sectorsLoading ? (
+                <div className="flex flex-wrap gap-3 justify-center">
+                  {[1, 2, 3, 4].map(i => (
+                    <div key={i} className="h-10 w-28 rounded-full bg-slate-200 animate-pulse" />
+                  ))}
+                </div>
+              ) : sectors.length === 0 ? (
+                <p className="text-slate-400 text-sm">No hay sectores disponibles.</p>
+              ) : (
+                <div className="flex flex-wrap gap-3 justify-center max-w-lg">
+                  {sectors.map(s => (
+                    <button
+                      key={s.id}
+                      onClick={() => startChat(s)}
+                      className="group relative bg-white hover:bg-gradient-to-br hover:from-blue-600 hover:to-violet-600 border-2 border-blue-200 hover:border-transparent text-blue-700 hover:text-white font-medium text-sm rounded-full px-5 py-2.5 transition-all duration-200 shadow-sm hover:shadow-lg hover:shadow-blue-500/30 active:scale-95"
+                    >
+                      {s.nombre}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Divider */}
+              {!sectorsLoading && sectors.length > 0 && (
+                <div className="w-full max-w-sm flex items-center gap-3">
+                  <div className="flex-1 h-px bg-slate-200" />
+                  <span className="text-xs text-slate-400 shrink-0">o escribí directamente</span>
+                  <div className="flex-1 h-px bg-slate-200" />
+                </div>
+              )}
+            </div>
+          ) : (
+            /* ── Chat messages ───────────────────────────────────────────── */
+            <>
+              <div className="flex-1" />
+              {messages.map(m => {
+                if (m.role === "user")     return <UserBubble     key={m.id} content={m.content} />;
+                if (m.role === "operator") return <OperatorBubble key={m.id} content={m.content} />;
+                if (m.role === "system")   return <SystemBubble   key={m.id} content={m.content} />;
+                return                            <BotBubble      key={m.id} content={m.content} />;
+              })}
+              {sending && <TypingIndicator />}
+            </>
+          )}
+
+          <div ref={bottomRef} />
+        </div>
+      </div>
+
+      {/* ── Input bar ────────────────────────────────────────────────────────── */}
+      <div className="shrink-0 border-t border-slate-200 bg-white/80 backdrop-blur-md">
+        <div className="max-w-3xl mx-auto px-4 sm:px-6 py-3 sm:py-4">
+          <div className="flex gap-3 items-center">
+            <div className="flex-1 relative">
+              <input
+                ref={inputRef}
+                className="w-full bg-slate-100 hover:bg-slate-50 focus:bg-white border border-transparent focus:border-blue-300 rounded-2xl px-5 py-3 text-sm text-slate-800 placeholder-slate-400 outline-none focus:ring-2 focus:ring-blue-100 transition-all"
+                placeholder={
+                  phase === "selecting"
+                    ? sectorsLoading || sectors.length === 0
+                      ? "Cargando sectores…"
+                      : "Escribí tu consulta y presioná Enter…"
+                    : "Escribí tu mensaje…"
+                }
+                disabled={phase === "selecting" && (sectorsLoading || sectors.length === 0)}
+                value={phase === "chat" ? input : undefined}
+                defaultValue={phase === "selecting" ? "" : undefined}
+                onChange={phase === "chat" ? e => setInput(e.target.value) : undefined}
+                onKeyDown={e => {
+                  if (e.key !== "Enter" || e.shiftKey) return;
+                  e.preventDefault();
+                  if (phase === "selecting") {
                     const val = (e.target as HTMLInputElement).value.trim();
-                    if (e.key === "Enter" && val) {
+                    if (val && sectors.length > 0) {
                       const def = sectors.find(s => s.is_default) || sectors[0];
                       startChat(def, val);
                     }
-                  }}
-                />
-                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-300 text-xs">↵</span>
-              </div>
-              <p className="text-xs text-slate-400 mt-2 text-center">
-                Si no elegís un sector, te asignamos a <strong>{sectors.find(s => s.is_default)?.nombre || sectors[0]?.nombre}</strong>
-              </p>
+                  } else {
+                    sendMessage();
+                  }
+                }}
+              />
             </div>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  // ── Chat view ─────────────────────────────────────────────────────────────────
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-slate-100 flex items-center justify-center p-4">
-      <div className="w-full max-w-lg bg-white rounded-2xl shadow-lg flex flex-col" style={{ height: "600px" }}>
-        {/* Header */}
-        <div className="bg-blue-600 px-4 py-3 rounded-t-2xl flex items-center justify-between">
-          <div>
-            <h2 className="text-white font-semibold text-sm">{selectedSector?.nombre}</h2>
-            <span className="text-blue-200 text-xs">
-              {status === "human_attending" ? "Operador conectado" : status === "handoff_requested" ? "Esperando operador..." : "Asistente virtual"}
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
             <button
-              onClick={requestHuman}
-              className="text-blue-200 hover:text-white text-xs flex items-center gap-1 border border-blue-400 rounded-lg px-2 py-1 hover:border-white transition-colors"
-              title="Hablar con un operador"
+              onClick={phase === "chat" ? sendMessage : undefined}
+              disabled={phase === "chat" ? (!input.trim() || sending) : true}
+              className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-600 to-violet-600 text-white flex items-center justify-center shadow-md shadow-blue-500/30 hover:shadow-lg hover:shadow-blue-500/40 hover:scale-105 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100 disabled:shadow-md transition-all duration-150"
             >
-              <User className="h-3 w-3" /> Operador
-            </button>
-            <button
-              onClick={() => {
-                if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
-                setPhase("selecting");
-                setConversationId(null);
-                setMessages([]);
-              }}
-              className="text-blue-200 hover:text-white text-xs border border-blue-400 rounded-lg px-2 py-1 hover:border-white transition-colors"
-            >
-              Cambiar área
-            </button>
-          </div>
-        </div>
-
-        {/* Messages */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-3">
-          {messages.map(m => (
-            <div
-              key={m.id}
-              className={
-                m.role === "user" ? "flex justify-end"
-                : m.role === "system" ? "flex justify-center"
-                : "flex justify-start"
+              {sending
+                ? <Loader2 className="h-4 w-4 animate-spin" />
+                : <Send className="h-4 w-4" />
               }
-            >
-              <div className={
-                m.role === "user"
-                  ? "bg-blue-600 text-white rounded-2xl rounded-br-sm px-4 py-2 max-w-xs text-sm"
-                  : m.role === "operator"
-                  ? "bg-emerald-50 border border-emerald-200 text-slate-800 rounded-2xl rounded-bl-sm px-4 py-2 max-w-xs text-sm"
-                  : m.role === "system"
-                  ? "bg-amber-50 border border-amber-200 text-amber-800 rounded-full px-4 py-1.5 text-xs text-center max-w-xs"
-                  : "bg-slate-100 text-slate-800 rounded-2xl rounded-bl-sm px-4 py-2 max-w-xs text-sm"
-              }>
-                {m.content}
-              </div>
-            </div>
-          ))}
-          {sending && (
-            <div className="flex justify-start">
-              <div className="bg-slate-100 rounded-2xl rounded-bl-sm px-4 py-3 flex items-center gap-1">
-                <span className="w-2 h-2 rounded-full bg-slate-400 animate-bounce [animation-delay:0ms]" />
-                <span className="w-2 h-2 rounded-full bg-slate-400 animate-bounce [animation-delay:150ms]" />
-                <span className="w-2 h-2 rounded-full bg-slate-400 animate-bounce [animation-delay:300ms]" />
-              </div>
-            </div>
-          )}
-          <div ref={bottomRef} />
-        </div>
-
-        {/* Input */}
-        <div className="border-t p-3 flex gap-2">
-          <input
-            className="flex-1 border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-            placeholder="Escribí tu consulta..."
-            value={input}
-            onChange={e => setInput(e.target.value)}
-            onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
-            disabled={sending}
-          />
-          <button
-            onClick={sendMessage}
-            disabled={!input.trim() || sending}
-            className="bg-blue-600 text-white rounded-xl px-3 py-2 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            <Send className="h-4 w-4" />
-          </button>
+            </button>
+          </div>
+          <p className="text-center text-xs text-slate-400 mt-2">
+            Asistente con inteligencia artificial · Las respuestas pueden no ser perfectas
+          </p>
         </div>
       </div>
+
     </div>
   );
 }

@@ -3,10 +3,11 @@
 All endpoints require role=super_admin except /widget-token (admin).
 """
 
+import hashlib
 import logging
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy import text
 
@@ -288,12 +289,20 @@ class BotConfigResponse(BaseModel):
     bot_description: str | None
     bot_scope: str | None
     min_retrieval_score: float
+    greeting_message: str | None
+    prompt_query: str | None
+    prompt_quality_gate: str | None
+    prompt_cluster_label: str | None
 
 
 class BotConfigUpdate(BaseModel):
     bot_description: str | None = None
     bot_scope: str | None = None
     min_retrieval_score: float | None = None
+    greeting_message: str | None = None
+    prompt_query: str | None = None
+    prompt_quality_gate: str | None = None
+    prompt_cluster_label: str | None = None
 
 
 @router.get("/{tenant_id}/bot-config", response_model=BotConfigResponse)
@@ -307,7 +316,7 @@ async def get_bot_config(
 
     async with get_pg_session() as session:
         result = await session.execute(
-            text("SELECT bot_description, bot_scope, min_retrieval_score FROM tenants WHERE id = :tid"),
+            text("SELECT bot_description, bot_scope, min_retrieval_score, greeting_message, prompt_query, prompt_quality_gate, prompt_cluster_label FROM tenants WHERE id = :tid"),
             {"tid": tenant_id},
         )
         row = result.mappings().fetchone()
@@ -319,6 +328,10 @@ async def get_bot_config(
         bot_description=row["bot_description"],
         bot_scope=row["bot_scope"],
         min_retrieval_score=float(row["min_retrieval_score"]) if row["min_retrieval_score"] is not None else 0.45,
+        greeting_message=row["greeting_message"],
+        prompt_query=row["prompt_query"],
+        prompt_quality_gate=row["prompt_quality_gate"],
+        prompt_cluster_label=row["prompt_cluster_label"],
     )
 
 
@@ -326,9 +339,10 @@ async def get_bot_config(
 async def update_bot_config(
     tenant_id: str,
     body: BotConfigUpdate,
+    request: Request,
     current_user: CurrentUser = Depends(require_admin),
 ):
-    """Update bot description, scope and minimum relevance threshold."""
+    """Update bot description, scope, minimum relevance threshold and greeting message."""
     if current_user.role.value != "super_admin" and current_user.tenant_id != tenant_id:
         raise HTTPException(status_code=403, detail="Cannot update config for another tenant")
 
@@ -347,6 +361,18 @@ async def update_bot_config(
     if body.min_retrieval_score is not None:
         updates.append("min_retrieval_score = :min_retrieval_score")
         params["min_retrieval_score"] = body.min_retrieval_score
+    if body.greeting_message is not None:
+        updates.append("greeting_message = :greeting_message")
+        params["greeting_message"] = body.greeting_message or None
+    if body.prompt_query is not None:
+        updates.append("prompt_query = :prompt_query")
+        params["prompt_query"] = body.prompt_query or None
+    if body.prompt_quality_gate is not None:
+        updates.append("prompt_quality_gate = :prompt_quality_gate")
+        params["prompt_quality_gate"] = body.prompt_quality_gate or None
+    if body.prompt_cluster_label is not None:
+        updates.append("prompt_cluster_label = :prompt_cluster_label")
+        params["prompt_cluster_label"] = body.prompt_cluster_label or None
 
     if updates:
         updates.append("updated_at = NOW()")
@@ -356,7 +382,6 @@ async def update_bot_config(
                 params,
             )
 
-    # Invalidate Redis cache so next query picks up new config immediately
     try:
         from core.database import get_redis_cache
         redis = get_redis_cache()
@@ -365,6 +390,20 @@ async def update_bot_config(
         pass
 
     logger.info("bot_config_updated tenant_id=%s by=%s", tenant_id, current_user.user_id)
+
+    import asyncio
+    from core.audit import record as audit
+    changed = {k: v for k, v in body.model_dump().items() if v is not None}
+    asyncio.ensure_future(audit(
+        tenant_id=tenant_id,
+        actor_id=current_user.user_id,
+        actor_email=None,
+        actor_role=current_user.role.value,
+        action="config.bot_config_update",
+        detail={"fields": list(changed.keys())},
+        request=request,
+    ))
+
     return await get_bot_config(tenant_id, current_user)
 
 
@@ -380,9 +419,129 @@ async def generate_widget_token(
         raise HTTPException(status_code=403, detail="Cannot generate token for another tenant")
 
     token = create_widget_token(tenant_id)
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+
+    async with get_pg_session(None) as session:
+        await session.execute(
+            text("UPDATE tenants SET widget_token_hash = :hash, updated_at = NOW() WHERE id = :tid"),
+            {"hash": token_hash, "tid": tenant_id},
+        )
+
+    # Bust the cached hash so the new token is valid immediately
+    try:
+        from core.database import get_redis_cache
+        redis = get_redis_cache()
+        await redis.delete(f"{tenant_id}:widget_token_hash")
+    except Exception:
+        pass
+
     logger.info("widget_token_generated tenant_id=%s by=%s", tenant_id, current_user.user_id)
     return WidgetTokenResponse(
         widget_token=token,
         expires_in_days=settings.jwt_widget_expire_days,
         tenant_id=tenant_id,
     )
+
+
+# ── Create / replace admin for an existing tenant (super_admin only) ──────────
+
+class AdminCreate(BaseModel):
+    email: str
+    name: str
+    password: str
+
+
+@router.post("/{tenant_id}/admin", status_code=201)
+async def create_tenant_admin(
+    tenant_id: str,
+    body: AdminCreate,
+    current_user: CurrentUser = Depends(require_super_admin),
+):
+    """Create (or replace) the admin user for a tenant. Super-admin only."""
+    import uuid
+    from core.security import hash_password
+
+    async with get_pg_session(tenant_id) as session:
+        existing = await session.execute(
+            text("SELECT id FROM usuarios WHERE email = :email"),
+            {"email": body.email.lower().strip()},
+        )
+        if existing.scalar_one_or_none():
+            raise HTTPException(status_code=409, detail="Ya existe un usuario con ese email en este tenant")
+
+        new_id = str(uuid.uuid4())
+        await session.execute(text("""
+            INSERT INTO usuarios (id, email, name, hashed_password, role, is_active)
+            VALUES (:id, :email, :name, :pwd, 'admin', true)
+        """), {
+            "id": new_id,
+            "email": body.email.lower().strip(),
+            "name": body.name.strip(),
+            "pwd": hash_password(body.password),
+        })
+
+    logger.info("tenant_admin_created tenant=%s email=%s by=%s", tenant_id, body.email, current_user.user_id)
+    return {"id": new_id, "email": body.email.lower().strip(), "name": body.name.strip(), "role": "admin", "tenant_id": tenant_id}
+
+
+# ── Platform-wide traffic (super_admin only) ──────────────────────────────────
+
+@router.get("/platform/traffic")
+async def get_platform_traffic(
+    current_user: CurrentUser = Depends(require_super_admin),
+):
+    """Return daily traffic across all tenants for the last 30 days. No message content."""
+    async with get_pg_session(None) as session:
+        # Daily totals
+        daily = await session.execute(text("""
+            SELECT
+                DATE(created_at)  AS day,
+                event_type,
+                SUM(value)        AS total
+            FROM usage_events
+            WHERE created_at >= NOW() - INTERVAL '30 days'
+            GROUP BY DATE(created_at), event_type
+            ORDER BY day DESC
+        """))
+        daily_rows = daily.mappings().all()
+
+        # Per-tenant totals (last 30d) — no message content, only counts
+        per_tenant = await session.execute(text("""
+            SELECT
+                t.id,
+                t.name,
+                t.plan,
+                t.status,
+                COALESCE(SUM(ue.value) FILTER (WHERE ue.event_type = 'query'), 0)  AS queries_30d,
+                COALESCE(SUM(ue.value) FILTER (WHERE ue.event_type = 'ingest'), 0) AS ingests_30d,
+                COALESCE(SUM(ue.value) FILTER (WHERE ue.event_type = 'llm_tokens'), 0) AS tokens_30d
+            FROM tenants t
+            LEFT JOIN usage_events ue ON ue.tenant_id = t.id
+                AND ue.created_at >= NOW() - INTERVAL '30 days'
+            GROUP BY t.id, t.name, t.plan, t.status
+            ORDER BY queries_30d DESC
+        """))
+        per_tenant_rows = per_tenant.mappings().all()
+
+    return {
+        "daily": [
+            {
+                "day":        r["day"].isoformat(),
+                "event_type": r["event_type"],
+                "total":      int(r["total"] or 0),
+            }
+            for r in daily_rows
+        ],
+        "per_tenant": [
+            {
+                "id":          r["id"],
+                "name":        r["name"],
+                "plan":        r["plan"],
+                "status":      r["status"],
+                "queries_30d": int(r["queries_30d"]),
+                "ingests_30d": int(r["ingests_30d"]),
+                "tokens_30d":  int(r["tokens_30d"]),
+            }
+            for r in per_tenant_rows
+        ],
+    }

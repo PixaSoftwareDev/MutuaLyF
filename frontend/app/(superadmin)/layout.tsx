@@ -6,14 +6,16 @@ import { useAuthStore } from "@/lib/store";
 import { Sidebar } from "@/components/layout/sidebar";
 
 export default function SuperAdminLayout({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, userRole } = useAuthStore();
+  const { isAuthenticated, userRole, _hasHydrated } = useAuthStore();
   const router = useRouter();
 
   useEffect(() => {
+    if (!_hasHydrated) return;
     if (!isAuthenticated) { router.replace("/login"); return; }
     if (userRole !== "super_admin") { router.replace("/admin/documents"); }
-  }, [isAuthenticated, userRole, router]);
+  }, [isAuthenticated, userRole, _hasHydrated, router]);
 
+  if (!_hasHydrated) return null;
   if (!isAuthenticated || userRole !== "super_admin") return null;
 
   return (

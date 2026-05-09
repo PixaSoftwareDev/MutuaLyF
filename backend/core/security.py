@@ -1,5 +1,6 @@
 """JWT creation/validation, RBAC roles, and password hashing."""
 
+import hashlib
 import logging
 from datetime import datetime, timedelta, timezone
 from enum import Enum
@@ -140,11 +141,52 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> CurrentUser:
 
 
 async def get_widget_user(token: str = Depends(oauth2_scheme)) -> CurrentUser:
-    """Dependency: validates widget-scoped token (read-only queries only)."""
+    """Dependency: validates widget-scoped token and checks it hasn't been revoked."""
     user = _get_current_user_from_token(token)
     if user.scope != TokenScope.WIDGET:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Widget token required")
+
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    stored_hash = await _get_widget_token_hash(user.tenant_id)
+    if stored_hash is None or stored_hash != token_hash:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Widget token revocado o inválido")
+
     return user
+
+
+async def _get_widget_token_hash(tenant_id: str) -> str | None:
+    """Return the stored widget token hash, cached in Redis for 5 min."""
+    cache_key = f"{tenant_id}:widget_token_hash"
+    try:
+        from core.database import get_redis_cache
+        redis = get_redis_cache()
+        cached = await redis.get(cache_key)
+        if cached is not None:
+            return cached.decode() if isinstance(cached, bytes) else str(cached)
+    except Exception:
+        pass
+
+    try:
+        from core.database import get_pg_session
+        from sqlalchemy import text
+        async with get_pg_session(None) as session:
+            result = await session.execute(
+                text("SELECT widget_token_hash FROM tenants WHERE id = :tid"),
+                {"tid": tenant_id},
+            )
+            row = result.fetchone()
+            if row and row[0]:
+                try:
+                    from core.database import get_redis_cache
+                    redis = get_redis_cache()
+                    await redis.setex(cache_key, 300, row[0])
+                except Exception:
+                    pass
+                return row[0]
+    except Exception:
+        logger.warning("widget_token_hash_lookup_failed tenant=%s", tenant_id)
+
+    return None
 
 
 def require_role(*roles: Role):
@@ -161,6 +203,8 @@ def require_role(*roles: Role):
     return _check
 
 
-require_admin = require_role(Role.ADMIN, Role.SUPER_ADMIN)
-require_operator = require_role(Role.ADMIN, Role.SUPER_ADMIN, Role.OPERATOR)
+# Tenant-scoped guards — super_admin is intentionally excluded.
+# Super_admin has no tenant schema; their platform actions go through require_super_admin endpoints.
+require_admin    = require_role(Role.ADMIN)
+require_operator = require_role(Role.ADMIN, Role.OPERATOR)
 require_super_admin = require_role(Role.SUPER_ADMIN)

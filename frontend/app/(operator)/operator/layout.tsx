@@ -8,14 +8,16 @@ import { OperatorTopbar } from "@/components/layout/operator-topbar";
 const ALLOWED_ROLES = ["operator"];
 
 export default function OperatorLayout({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, userRole } = useAuthStore();
+  const { isAuthenticated, userRole, _hasHydrated } = useAuthStore();
   const router = useRouter();
 
   useEffect(() => {
+    if (!_hasHydrated) return;
     if (!isAuthenticated) { router.replace("/login"); return; }
     if (!ALLOWED_ROLES.includes(userRole ?? "")) { router.replace("/admin/documents"); }
-  }, [isAuthenticated, userRole, router]);
+  }, [isAuthenticated, userRole, _hasHydrated, router]);
 
+  if (!_hasHydrated) return null;
   if (!isAuthenticated || !ALLOWED_ROLES.includes(userRole ?? "")) return null;
 
   return (

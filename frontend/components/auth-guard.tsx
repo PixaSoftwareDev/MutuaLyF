@@ -5,34 +5,33 @@ import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/lib/store";
 
 export function AuthGuard({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated } = useAuthStore();
+  const { isAuthenticated, _hasHydrated } = useAuthStore();
   const router = useRouter();
 
   useEffect(() => {
+    if (!_hasHydrated) return;
     if (!isAuthenticated) {
       router.replace("/login");
     }
-  }, [isAuthenticated, router]);
+  }, [isAuthenticated, _hasHydrated, router]);
 
+  if (!_hasHydrated) return null;
   if (!isAuthenticated) return null;
   return <>{children}</>;
 }
 
 export function AdminGuard({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, userRole } = useAuthStore();
+  const { isAuthenticated, userRole, _hasHydrated } = useAuthStore();
   const router = useRouter();
 
   useEffect(() => {
-    if (!isAuthenticated) {
-      router.replace("/login");
-      return;
-    }
-    if (!["admin", "super_admin"].includes(userRole ?? "")) {
-      // Operator only — send them to their panel.
-      router.replace("/operator");
-    }
-  }, [isAuthenticated, userRole, router]);
+    if (!_hasHydrated) return;
+    if (!isAuthenticated) { router.replace("/login"); return; }
+    if (userRole === "super_admin") { router.replace("/superadmin"); return; }
+    if (userRole !== "admin") { router.replace("/operator"); }
+  }, [isAuthenticated, userRole, _hasHydrated, router]);
 
-  if (!isAuthenticated || !["admin", "super_admin"].includes(userRole ?? "")) return null;
+  if (!_hasHydrated) return null;
+  if (!isAuthenticated || userRole !== "admin") return null;
   return <>{children}</>;
 }

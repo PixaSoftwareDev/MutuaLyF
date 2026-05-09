@@ -7,7 +7,7 @@ import re
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from qdrant_client.models import Filter, FieldCondition, MatchValue
 from sqlalchemy import text
 
@@ -74,6 +74,7 @@ async def list_chunks(
 @router.delete("/documents/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_document(
     document_id: str,
+    request: Request,
     tenant_id: str = Depends(get_tenant_id),
     current_user: CurrentUser = Depends(require_operator),
 ):
@@ -138,6 +139,18 @@ async def delete_document(
         )
 
     logger.info("document_deleted document_id=%s tenant_id=%s user=%s", document_id, tenant_id, current_user.user_id)
+
+    import asyncio
+    from core.audit import record as audit
+    asyncio.ensure_future(audit(
+        tenant_id=tenant_id,
+        actor_id=current_user.user_id,
+        actor_email=None,
+        actor_role=current_user.role.value,
+        action="document.delete",
+        resource=document_id,
+        request=request,
+    ))
 
 
 ALLOWED_MIME_TYPES = {
@@ -234,6 +247,7 @@ async def _check_duplicate_document(session, hash_bytes: str, hash_text: str) ->
 
 @router.post("/ingest", response_model=DocumentIngestResponse, status_code=status.HTTP_202_ACCEPTED)
 async def ingest_document(
+    request: Request,
     file: UploadFile = File(...),
     tenant_id: str = Depends(get_tenant_id),
     current_user: CurrentUser = Depends(require_operator),
@@ -335,6 +349,19 @@ async def ingest_document(
         args=[document_id, tenant_id, file_path, mime_type, file.filename or safe_name],
         queue="ingest",
     )
+
+    import asyncio
+    from core.audit import record as audit
+    asyncio.ensure_future(audit(
+        tenant_id=tenant_id,
+        actor_id=current_user.user_id,
+        actor_email=None,
+        actor_role=current_user.role.value,
+        action="document.upload",
+        resource=document_id,
+        detail={"filename": file.filename, "size_bytes": len(content), "mime_type": mime_type},
+        request=request,
+    ))
 
     return DocumentIngestResponse(
         document_id=document_id,

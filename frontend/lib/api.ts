@@ -185,6 +185,10 @@ export interface BotConfig {
   bot_description: string | null;
   bot_scope: string | null;
   min_retrieval_score: number;
+  greeting_message: string | null;
+  prompt_query: string | null;
+  prompt_quality_gate: string | null;
+  prompt_cluster_label: string | null;
 }
 
 export interface ChunkDuplicatePair {
@@ -217,12 +221,15 @@ export const api = {
       const form = new URLSearchParams();
       form.append("username", username);
       form.append("password", password);
-      const { data } = await apiClient.post<LoginResponse>("/auth/login", form, {
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          "X-Tenant-ID": tenantId,
-        },
-      });
+      const headers: Record<string, string> = { "Content-Type": "application/x-www-form-urlencoded" };
+      // Clear stale localStorage so the interceptor doesn't inject an old tenant header
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("access_token");
+        localStorage.removeItem("tenant_id");
+      }
+      // No tenant → super-admin login against platform_users table
+      if (tenantId) headers["X-Tenant-ID"] = tenantId;
+      const { data } = await apiClient.post<LoginResponse>("/auth/login", form, { headers });
       return data;
     },
     logout: async () => {
@@ -307,6 +314,17 @@ export const api = {
   },
 
   tenants: {
+    platformTraffic: async () => {
+      const { data } = await apiClient.get("/tenants/platform/traffic");
+      return data as {
+        daily: Array<{ day: string; event_type: string; total: number }>;
+        per_tenant: Array<{ id: string; name: string; plan: string; status: string; queries_30d: number; ingests_30d: number; tokens_30d: number }>;
+      };
+    },
+    createAdmin: async (tenantId: string, payload: { email: string; name: string; password: string }) => {
+      const { data } = await apiClient.post(`/tenants/${tenantId}/admin`, payload);
+      return data;
+    },
     generateWidgetToken: async (tenantId: string): Promise<WidgetTokenResponse> => {
       const { data } = await apiClient.post<WidgetTokenResponse>(`/tenants/${tenantId}/widget-token`);
       return data;
@@ -371,5 +389,31 @@ export const api = {
       await apiClient.post(`/duplicates/${pairId}/resolve`, { action });
     },
     stats: async () => { const { data } = await apiClient.get("/duplicates/stats"); return data; },
+  },
+
+  audit: {
+    list: async (params?: { limit?: number; offset?: number; action?: string }) => {
+      const q = new URLSearchParams();
+      if (params?.limit)  q.set("limit",  String(params.limit));
+      if (params?.offset) q.set("offset", String(params.offset));
+      if (params?.action) q.set("action", params.action);
+      const { data } = await apiClient.get(`/audit?${q}`);
+      return data as {
+        total: number;
+        offset: number;
+        limit: number;
+        events: Array<{
+          id: string;
+          actor_id: string;
+          actor_email: string | null;
+          actor_role: string;
+          action: string;
+          resource: string | null;
+          detail: Record<string, unknown> | null;
+          ip_address: string | null;
+          created_at: string;
+        }>;
+      };
+    },
   },
 };

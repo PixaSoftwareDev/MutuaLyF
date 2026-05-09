@@ -20,6 +20,17 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _assert_tenant_access(current_user: CurrentUser, tenant_id: str) -> None:
+    """Admins can only operate on their own tenant. Super-admins can operate on any."""
+    if current_user.role == Role.SUPER_ADMIN:
+        return
+    if current_user.tenant_id != tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tenés permiso para operar en otro tenant",
+        )
+
+
 # ── Schemas ───────────────────────────────────────────────────────────────────
 
 class ReplyRequest(BaseModel):
@@ -349,15 +360,25 @@ async def widget_list_sectors(
     tenant_id: str = Depends(get_tenant_id),
     widget_user: CurrentUser = Depends(get_widget_user),
 ):
-    """Public sector list for the widget — returns active sectors with default flag."""
+    """Public sector list for the widget — returns active sectors, default flag, and bot greeting."""
     async with get_pg_session(tenant_id) as session:
-        result = await session.execute(text("""
+        sectors_result = await session.execute(text("""
             SELECT id, nombre, descripcion, is_default
             FROM sectores
             WHERE is_active = TRUE
             ORDER BY is_default DESC, nombre ASC
         """))
-        return [dict(r) for r in result.mappings().all()]
+        sectors = [dict(r) for r in sectors_result.mappings().all()]
+
+    async with get_pg_session() as global_session:
+        config_result = await global_session.execute(
+            text("SELECT greeting_message FROM tenants WHERE id = :tid"),
+            {"tid": tenant_id},
+        )
+        row = config_result.mappings().fetchone()
+        greeting = row["greeting_message"] if row else None
+
+    return {"sectors": sectors, "greeting_message": greeting}
 
 
 @router.get("/admin/sectors")
@@ -452,6 +473,7 @@ async def assign_sectors(
     tenant_id: str = Depends(get_tenant_id),
     current_user: CurrentUser = Depends(require_admin),
 ):
+    _assert_tenant_access(current_user, tenant_id)
     async with get_pg_session(tenant_id) as session:
         await session.execute(
             text("DELETE FROM operador_sectores WHERE operador_id = :uid"),
@@ -470,12 +492,13 @@ async def list_operators(
     tenant_id: str = Depends(get_tenant_id),
     current_user: CurrentUser = Depends(require_admin),
 ):
-    """List all users with operator or admin role."""
+    """List operators and admins in this tenant. Super-admins (global) are excluded."""
+    _assert_tenant_access(current_user, tenant_id)
     async with get_pg_session(tenant_id) as session:
         result = await session.execute(text("""
-            SELECT id, email, name, role, is_active
+            SELECT id, email, name, role, is_active, created_at
             FROM usuarios
-            WHERE role IN ('operator', 'admin', 'super_admin')
+            WHERE role IN ('operator', 'admin')
             ORDER BY role, name
         """))
         return [dict(r) for r in result.mappings().all()]
@@ -487,6 +510,7 @@ async def get_operator_sectors(
     tenant_id: str = Depends(get_tenant_id),
     current_user: CurrentUser = Depends(require_admin),
 ):
+    _assert_tenant_access(current_user, tenant_id)
     async with get_pg_session(tenant_id) as session:
         result = await session.execute(text("""
             SELECT s.id, s.nombre FROM sectores s
@@ -508,7 +532,8 @@ async def create_operator(
     tenant_id: str = Depends(get_tenant_id),
     current_user: CurrentUser = Depends(require_admin),
 ):
-    """Create a new operator user in the tenant."""
+    """Create a new operator in the tenant. Admins can only create in their own tenant."""
+    _assert_tenant_access(current_user, tenant_id)
     from core.security import hash_password
     import uuid
 
@@ -530,9 +555,8 @@ async def create_operator(
             "name": body.name.strip(),
             "pwd": hash_password(body.password),
         })
-        await session.commit()
 
-    logger.info("operator_created id=%s email=%s tenant=%s", new_id, body.email, tenant_id)
+    logger.info("operator_created id=%s email=%s tenant=%s by=%s", new_id, body.email, tenant_id, current_user.user_id)
     return {"id": new_id, "email": body.email.lower().strip(), "name": body.name.strip(), "role": "operator", "is_active": True}
 
 
@@ -542,15 +566,20 @@ async def deactivate_operator(
     tenant_id: str = Depends(get_tenant_id),
     current_user: CurrentUser = Depends(require_admin),
 ):
-    """Deactivate (soft-delete) an operator."""
+    """Deactivate (soft-delete) an operator. Admins can only deactivate operators (not other admins)."""
+    _assert_tenant_access(current_user, tenant_id)
+
     async with get_pg_session(tenant_id) as session:
+        # Admins can only deactivate operators; super_admin can deactivate admins too
+        role_filter = "role IN ('operator', 'admin')" if current_user.role == Role.SUPER_ADMIN else "role = 'operator'"
         result = await session.execute(
-            text("UPDATE usuarios SET is_active = false WHERE id = :id AND role = 'operator' RETURNING id"),
+            text(f"UPDATE usuarios SET is_active = false WHERE id = :id AND {role_filter} RETURNING id"),
             {"id": operator_id},
         )
         if not result.scalar_one_or_none():
-            raise HTTPException(status_code=404, detail="Operador no encontrado")
-        await session.commit()
+            raise HTTPException(status_code=404, detail="Usuario no encontrado o sin permiso")
+
+    logger.info("operator_deactivated id=%s tenant=%s by=%s", operator_id, tenant_id, current_user.user_id)
 
 
 # ── Handoff config (admin) ────────────────────────────────────────────────────

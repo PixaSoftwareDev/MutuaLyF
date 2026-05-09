@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Key, Copy, Check, RefreshCw, Loader2, ExternalLink, Bot, Save, Zap, Scale, Target, Shield } from "lucide-react";
+import { Key, Copy, Check, RefreshCw, Loader2, ExternalLink, Bot, Save, Zap, Scale, Target, Shield, Code2, RotateCcw } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { Button } from "@/components/ui/button";
@@ -58,12 +58,20 @@ export function GeneralSettings() {
   });
   const [botDescription, setBotDescription] = useState("");
   const [botScope, setBotScope] = useState("");
+  const [greetingMessage, setGreetingMessage] = useState("");
+  const [promptQuery, setPromptQuery] = useState("");
+  const [promptQualityGate, setPromptQualityGate] = useState("");
+  const [promptClusterLabel, setPromptClusterLabel] = useState("");
   const [minScore, setMinScore] = useState(0.77);
 
   useEffect(() => {
     if (botConfig) {
       setBotDescription(botConfig.bot_description ?? "");
       setBotScope(botConfig.bot_scope ?? "");
+      setGreetingMessage(botConfig.greeting_message ?? "");
+      setPromptQuery(botConfig.prompt_query ?? "");
+      setPromptQualityGate(botConfig.prompt_quality_gate ?? "");
+      setPromptClusterLabel(botConfig.prompt_cluster_label ?? "");
       const stored = botConfig.min_retrieval_score;
       const nearest = SCORE_PRESETS.reduce((a, b) =>
         Math.abs(b.value - stored) < Math.abs(a.value - stored) ? b : a
@@ -77,6 +85,10 @@ export function GeneralSettings() {
       bot_description: botDescription || null,
       bot_scope: botScope || null,
       min_retrieval_score: minScore,
+      greeting_message: greetingMessage || null,
+      prompt_query: promptQuery || null,
+      prompt_quality_gate: promptQualityGate || null,
+      prompt_cluster_label: promptClusterLabel || null,
     }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["bot-config", tenantId] });
@@ -198,6 +210,20 @@ export function GeneralSettings() {
         </CardHeader>
         <CardContent className="space-y-5">
           <div className="space-y-1.5">
+            <label className="text-xs font-medium">Mensaje de saludo del chat</label>
+            <Textarea
+              value={greetingMessage}
+              onChange={e => setGreetingMessage(e.target.value)}
+              placeholder={"¡Hola! 👋 Soy tu asistente virtual. ¿En qué área puedo ayudarte?"}
+              rows={2}
+              className="text-sm resize-none"
+            />
+            <p className="text-xs text-muted-foreground">
+              Texto que aparece al abrir el chat widget, antes de elegir un sector.
+            </p>
+          </div>
+
+          <div className="space-y-1.5">
             <label className="text-xs font-medium">Descripción del asistente</label>
             <Textarea
               value={botDescription}
@@ -276,6 +302,54 @@ export function GeneralSettings() {
       </Card>
 
       <Card>
+        <CardHeader className="pb-3">
+          <h2 className="font-semibold text-sm flex items-center gap-2">
+            <Code2 className="h-4 w-4" />
+            Prompts del sistema
+          </h2>
+          <p className="text-xs text-muted-foreground">
+            Instrucciones que recibe la IA en cada operación. Dejá el campo vacío para usar el comportamiento por defecto del sistema.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <PromptField
+            label="Prompt principal del asistente"
+            description="Controla cómo responde el bot a cada consulta. Se aplica en tiempo real — no requiere reingesta."
+            value={promptQuery}
+            onChange={setPromptQuery}
+            defaultText={DEFAULT_PROMPT_QUERY}
+            rows={10}
+          />
+          <PromptField
+            label="Prompt de validación de documentos (Quality Gate)"
+            description="Se usa al ingestar documentos para decidir si un chunk es útil o ruido. Solo afecta ingestas futuras."
+            value={promptQualityGate}
+            onChange={setPromptQualityGate}
+            defaultText={DEFAULT_PROMPT_QUALITY_GATE}
+            rows={6}
+          />
+          <PromptField
+            label="Prompt de etiquetado de intenciones"
+            description="Se usa para sugerir nombres a los clusters de consultas detectados automáticamente."
+            value={promptClusterLabel}
+            onChange={setPromptClusterLabel}
+            defaultText={DEFAULT_PROMPT_CLUSTER_LABEL}
+            rows={4}
+          />
+          <Button
+            size="sm"
+            onClick={() => botConfigMutation.mutate()}
+            disabled={botConfigMutation.isPending}
+          >
+            {botConfigMutation.isPending
+              ? <Loader2 className="h-4 w-4 animate-spin mr-1" />
+              : <Save className="h-4 w-4 mr-1" />}
+            Guardar prompts
+          </Button>
+        </CardContent>
+      </Card>
+
+      <Card>
         <CardContent className="pt-4">
           <div className="flex items-center justify-between">
             <div>
@@ -291,6 +365,70 @@ export function GeneralSettings() {
           </div>
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+// ── Prompt defaults (mirror of backend DEFAULT_PROMPT_* constants) ─────────────
+
+const DEFAULT_PROMPT_QUERY = `Eres un asistente de conocimiento institucional.
+Tenés dos modos de respuesta según el tipo de mensaje:
+MODO CONVERSACIONAL: Si el usuario saluda, agradece, hace un comentario informal o no formula una consulta concreta (ej: 'hola', 'gracias', '¿cómo estás?'), respondé de forma natural y amigable, e invitalo a hacer su consulta sobre los temas de la organización. En este modo ignorá el contexto.
+MODO CONSULTA: Si el usuario hace una pregunta concreta, aplicá estas reglas:
+1. Respondé DIRECTO y CONCISO, sin rodeos.
+2. Usá SOLO la información del contexto proporcionado. Nunca inventes datos.
+3. Para datos puntuales (número, fecha, nombre), respondé en una sola oración.
+4. No repitas la pregunta ni agregues aclaraciones obvias.
+5. Si la información no está en el contexto, decí: 'No encontré esa información en los documentos.'`;
+
+const DEFAULT_PROMPT_QUALITY_GATE = `You are a document quality evaluator for institutional knowledge bases. Determine if the provided text chunk contains useful information that could answer questions from employees or members of an organization. Mark as coherent (true) if the chunk contains ANY of: policies, procedures, contact info, names and roles, schedules, benefits, or operational guidelines — even if it's part of a larger document. Mark as incoherent (false) ONLY if the chunk is pure noise: page numbers, repeated headers, garbled text, or completely empty content. Respond ONLY with valid JSON: {"is_coherent": true/false, "reason": "one sentence"}.`;
+
+const DEFAULT_PROMPT_CLUSTER_LABEL = `Eres un asistente que nombra intenciones de usuario para un chatbot corporativo. Dado un grupo de consultas similares, devuelve UN nombre corto (2-5 palabras) en español que describa la intención común, en formato snake_case. Responde SOLO con el nombre, sin comillas ni explicaciones. Ejemplo: "consulta_vacaciones"`;
+
+// ── PromptField component ──────────────────────────────────────────────────────
+
+function PromptField({
+  label, description, value, onChange, defaultText, rows,
+}: {
+  label: string;
+  description: string;
+  value: string;
+  onChange: (v: string) => void;
+  defaultText: string;
+  rows: number;
+}) {
+  const isCustom = value.trim().length > 0;
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <label className="text-xs font-medium">{label}</label>
+          {isCustom && (
+            <span className="ml-2 text-[10px] font-medium text-blue-600 bg-blue-50 border border-blue-200 rounded-full px-2 py-0.5">
+              personalizado
+            </span>
+          )}
+        </div>
+        {isCustom && (
+          <button
+            type="button"
+            onClick={() => onChange("")}
+            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors shrink-0"
+            title="Restaurar prompt por defecto"
+          >
+            <RotateCcw className="h-3 w-3" />
+            Restaurar default
+          </button>
+        )}
+      </div>
+      <Textarea
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        placeholder={defaultText}
+        rows={rows}
+        className="text-sm font-mono resize-y"
+      />
+      <p className="text-xs text-muted-foreground">{description}</p>
     </div>
   );
 }

@@ -126,6 +126,7 @@ async def handle_query(
     tenant_config = await _get_tenant_config(tenant_id)
     min_score: float = tenant_config.get("min_retrieval_score", 0.77)
     bot_scope: str   = tenant_config.get("bot_scope") or ""
+    prompt_query: str | None = tenant_config.get("prompt_query") or None
 
     # ── Step 5: Build context — drop chunks below relevance threshold ──────────
     context_parts: list[str] = []
@@ -170,28 +171,20 @@ async def handle_query(
     ambiguity_note = ""
     if is_ambiguous and second_label and intent_result:
         ambiguity_note = (
-            f"La consulta del usuario podría referirse a '{intent_result.label}' "
-            f"o a '{second_label}'. Considerá ambos contextos al responder. "
+            f"\nLa consulta del usuario podría referirse a '{intent_result.label}' "
+            f"o a '{second_label}'. Considerá ambos contextos al responder."
         )
 
-    scope_rule = f"Alcance: {bot_scope} " if bot_scope else ""
+    from services.groq_client import DEFAULT_PROMPT_QUERY
+    if prompt_query:
+        # Admin-defined prompt: used as-is. Dynamic runtime parts appended after.
+        base_prompt = prompt_query.strip()
+    else:
+        # Default: inject scope if configured
+        scope_rule = f"\nAlcance: {bot_scope}" if bot_scope else ""
+        base_prompt = DEFAULT_PROMPT_QUERY + scope_rule
 
-    system_prompt = (
-        "Eres un asistente de conocimiento institucional. "
-        f"{scope_rule}"
-        "Tenés dos modos de respuesta según el tipo de mensaje:\n"
-        "MODO CONVERSACIONAL: Si el usuario saluda, agradece, hace un comentario informal o no formula "
-        "una consulta concreta (ej: 'hola', 'gracias', '¿cómo estás?'), respondé de forma natural y amigable, "
-        "e invitalo a hacer su consulta sobre los temas de la organización. En este modo ignorá el contexto.\n"
-        "MODO CONSULTA: Si el usuario hace una pregunta concreta, aplicá estas reglas:\n"
-        "1. Respondé DIRECTO y CONCISO, sin rodeos.\n"
-        "2. Usá SOLO la información del contexto proporcionado. Nunca inventes datos.\n"
-        "3. Para datos puntuales (número, fecha, nombre), respondé en una sola oración.\n"
-        "4. No repitas la pregunta ni agregues aclaraciones obvias.\n"
-        "5. Si la información no está en el contexto, decí: 'No encontré esa información en los documentos.'\n"
-        f"{ambiguity_note}"
-        f"Responde en {language}."
-    )
+    system_prompt = f"{base_prompt}{ambiguity_note}\nResponde en {language}."
     # User input is in a separate message — never interpolated into the system prompt
     user_message = f"Contexto:\n{context}\n\nPregunta: {_sanitize_input(question)}"
 
@@ -363,7 +356,8 @@ async def _get_tenant_config(tenant_id: str) -> dict:
         async with get_pg_session() as session:
             result = await session.execute(
                 text(
-                    "SELECT bot_description, bot_scope, min_retrieval_score "
+                    "SELECT bot_description, bot_scope, min_retrieval_score, "
+                    "prompt_query, prompt_quality_gate, prompt_cluster_label "
                     "FROM tenants WHERE id = :tid"
                 ),
                 {"tid": tenant_id},
@@ -374,9 +368,12 @@ async def _get_tenant_config(tenant_id: str) -> dict:
         row = None
 
     config = {
-        "bot_description": row["bot_description"] if row else None,
-        "bot_scope":       row["bot_scope"]       if row else None,
-        "min_retrieval_score": float(row["min_retrieval_score"]) if row and row["min_retrieval_score"] is not None else 0.77,
+        "bot_description":      row["bot_description"]      if row else None,
+        "bot_scope":            row["bot_scope"]             if row else None,
+        "min_retrieval_score":  float(row["min_retrieval_score"]) if row and row["min_retrieval_score"] is not None else 0.77,
+        "prompt_query":         row["prompt_query"]          if row else None,
+        "prompt_quality_gate":  row["prompt_quality_gate"]   if row else None,
+        "prompt_cluster_label": row["prompt_cluster_label"]  if row else None,
     }
 
     try:

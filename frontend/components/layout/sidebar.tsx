@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   Inbox, FileText, Sparkles, Settings, LogOut, ChevronLeft, ChevronRight,
-  Shield, Building2, GitMerge, Users, ExternalLink, FlaskConical,
+  Shield, Building2, GitMerge, Users, ExternalLink, FlaskConical, ClipboardList,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore, useUIStore } from "@/lib/store";
@@ -58,6 +58,8 @@ const navSections: NavSection[] = [
     items: [
       { href: "/admin/settings", label: "Configuración del bot", icon: Settings, adminOnly: true,
         tooltip: "Comportamiento del asistente y reglas de derivación a operadores humanos." },
+      { href: "/admin/audit", label: "Auditoría", icon: ClipboardList, adminOnly: true,
+        tooltip: "Registro de acciones críticas: logins, subidas, cambios de configuración." },
     ],
   },
   {
@@ -76,7 +78,8 @@ export function Sidebar() {
   const { userEmail, userRole, tenantId, clearAuth } = useAuthStore();
   const { sidebarOpen, toggleSidebar } = useUIStore();
 
-  const isAdmin = ["admin", "super_admin"].includes(userRole ?? "");
+  const isAdmin = userRole === "admin";
+  const isSuperAdmin = userRole === "super_admin";
 
   const prefetchMap: Record<string, () => void> = {
     "/admin/conversations": () => queryClient.prefetchQuery({ queryKey: ["operator-conversations", "all", "admin-readonly"], queryFn: () => api.operator.listConversations(), staleTime: 4_000 }),
@@ -91,7 +94,7 @@ export function Sidebar() {
   const { data: duplicatesStats } = useQuery({
     queryKey: ["duplicates-stats"],
     queryFn: api.duplicates.stats,
-    enabled: isAdmin,
+    enabled: isAdmin,  // only for tenant admins
     refetchInterval: 60_000,
     staleTime: 30_000,
   });
@@ -117,7 +120,7 @@ export function Sidebar() {
 
   const isVisible = (item: NavItem) => {
     if (item.adminOnly && !isAdmin) return false;
-    if (item.superAdminOnly && userRole !== "super_admin") return false;
+    if (item.superAdminOnly && !isSuperAdmin) return false;
     return true;
   };
 
@@ -140,7 +143,8 @@ export function Sidebar() {
       <nav className="flex-1 overflow-y-auto p-2 space-y-3">
         {navSections.map((section, idx) => {
           const visibleItems = section.items.filter(isVisible);
-          const showChatTester = section.label === "Trabajo diario";
+          // "Probar chat" only for tenant admins (super_admin has no tenant schema)
+          const showChatTester = section.label === "Trabajo diario" && isAdmin;
           if (visibleItems.length === 0 && !showChatTester) return null;
 
           return (

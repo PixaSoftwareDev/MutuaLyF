@@ -67,6 +67,11 @@ class TenantMiddleware(BaseHTTPMiddleware):
                 content={"detail": "Tenant could not be resolved"},
             )
 
+        # __platform__ is the super-admin sentinel — valid, no schema lookup needed
+        if tenant_id == "__platform__":
+            request.state.tenant_id = tenant_id
+            return await call_next(request)
+
         # Attach to request state so endpoints can read it
         request.state.tenant_id = tenant_id
         logger.debug("tenant_resolved tenant_id=%s path=%s", tenant_id, request.url.path)

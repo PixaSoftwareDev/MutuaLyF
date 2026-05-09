@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS usuarios (
     email           VARCHAR(320) NOT NULL UNIQUE,
     name            VARCHAR(200) NOT NULL,
     hashed_password VARCHAR(256) NOT NULL,
-    role            VARCHAR(20)  NOT NULL DEFAULT 'user',
+    role            VARCHAR(20)  NOT NULL DEFAULT 'operator',
     is_active       BOOLEAN      NOT NULL DEFAULT TRUE,
     created_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW()
@@ -163,3 +163,20 @@ CREATE TABLE IF NOT EXISTS chunk_duplicate_pairs (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS ix_chunk_dup_pair ON chunk_duplicate_pairs (LEAST(chunk_id_a, chunk_id_b), GREATEST(chunk_id_a, chunk_id_b));
 CREATE INDEX IF NOT EXISTS ix_chunk_dup_status ON chunk_duplicate_pairs (status, created_at);
+
+
+-- ── Audit log ──────────────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS audit_log (
+    id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    actor_id    TEXT        NOT NULL,
+    actor_email TEXT,
+    actor_role  TEXT        NOT NULL,
+    action      TEXT        NOT NULL,
+    resource    TEXT,
+    detail      JSONB,
+    ip_address  TEXT,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS ix_audit_log_created ON audit_log (created_at DESC);
+CREATE INDEX IF NOT EXISTS ix_audit_log_action  ON audit_log (action);

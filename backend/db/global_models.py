@@ -39,6 +39,20 @@ class Tenant(Base):
     widget_token_hash: Mapped[str | None] = mapped_column(String(256), nullable=True)
 
 
+class PlatformUser(Base):
+    """Global super-admin accounts — not tied to any tenant."""
+
+    __tablename__ = "platform_users"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    email: Mapped[str] = mapped_column(String(320), nullable=False, unique=True)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    hashed_password: Mapped[str] = mapped_column(String(256), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_now, onupdate=_now)
+
+
 class UsageEvent(Base):
     """Per-query usage tracking for billing and quota enforcement."""
 

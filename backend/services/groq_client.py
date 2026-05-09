@@ -4,6 +4,40 @@ import asyncio
 import logging
 from typing import Any
 
+# ── Default prompts (used when tenant has no custom prompt configured) ─────────
+
+DEFAULT_PROMPT_QUERY = (
+    "Eres un asistente de conocimiento institucional.\n"
+    "Tenés dos modos de respuesta según el tipo de mensaje:\n"
+    "MODO CONVERSACIONAL: Si el usuario saluda, agradece, hace un comentario informal o no formula "
+    "una consulta concreta (ej: 'hola', 'gracias', '¿cómo estás?'), respondé de forma natural y amigable, "
+    "e invitalo a hacer su consulta sobre los temas de la organización. En este modo ignorá el contexto.\n"
+    "MODO CONSULTA: Si el usuario hace una pregunta concreta, aplicá estas reglas:\n"
+    "1. Respondé DIRECTO y CONCISO, sin rodeos.\n"
+    "2. Usá SOLO la información del contexto proporcionado. Nunca inventes datos.\n"
+    "3. Para datos puntuales (número, fecha, nombre), respondé en una sola oración.\n"
+    "4. No repitas la pregunta ni agregues aclaraciones obvias.\n"
+    "5. Si la información no está en el contexto, decí: 'No encontré esa información en los documentos.'"
+)
+
+DEFAULT_PROMPT_QUALITY_GATE = (
+    "You are a document quality evaluator for institutional knowledge bases. "
+    "Determine if the provided text chunk contains useful information that could answer "
+    "questions from employees or members of an organization. "
+    "Mark as coherent (true) if the chunk contains ANY of: policies, procedures, contact info, "
+    "names and roles, schedules, benefits, or operational guidelines — even if it's part of a larger document. "
+    "Mark as incoherent (false) ONLY if the chunk is pure noise: page numbers, repeated headers, "
+    "garbled text, or completely empty content. "
+    'Respond ONLY with valid JSON: {"is_coherent": true/false, "reason": "one sentence"}.'
+)
+
+DEFAULT_PROMPT_CLUSTER_LABEL = (
+    "Eres un asistente que nombra intenciones de usuario para un chatbot corporativo. "
+    "Dado un grupo de consultas similares, devuelve UN nombre corto (2-5 palabras) en español "
+    "que describa la intención común, en formato snake_case. "
+    'Responde SOLO con el nombre, sin comillas ni explicaciones. Ejemplo: "consulta_vacaciones"'
+)
+
 from groq import AsyncGroq, APIError, APITimeoutError, RateLimitError
 from tenacity import (
     retry,
@@ -126,23 +160,19 @@ async def complete(
     return content
 
 
-async def suggest_cluster_label(sample_queries: list[str]) -> str:
+async def suggest_cluster_label(sample_queries: list[str], custom_prompt: str | None = None) -> str:
     """Ask Groq to propose a short intent name for a cluster of similar queries.
 
     Returns a 2-5 word label in snake_case, or empty string on failure.
     """
     queries_text = "\n".join(f"- {q}" for q in sample_queries[:8])
+    system_content = custom_prompt.strip() if custom_prompt else DEFAULT_PROMPT_CLUSTER_LABEL
     try:
         raw = await complete(
             messages=[
                 {
                     "role": "system",
-                    "content": (
-                        "Eres un asistente que nombra intenciones de usuario para un chatbot corporativo. "
-                        "Dado un grupo de consultas similares, devuelve UN nombre corto (2-5 palabras) en español "
-                        "que describa la intención común, en formato snake_case. "
-                        'Responde SOLO con el nombre, sin comillas ni explicaciones. Ejemplo: "consulta_vacaciones"'
-                    ),
+                    "content": system_content,
                 },
                 {
                     "role": "user",
@@ -162,23 +192,13 @@ async def suggest_cluster_label(sample_queries: list[str]) -> str:
         return ""
 
 
-async def complete_quality_gate(chunk_text: str, tenant_id: str) -> dict[str, Any]:
+async def complete_quality_gate(chunk_text: str, tenant_id: str, custom_prompt: str | None = None) -> dict[str, Any]:
     """Validate a chunk's factual coherence via Groq.
 
     Returns a dict with keys: is_coherent (bool), reason (str).
     On API failure, returns a sentinel that triggers the pending/retry flow.
     """
-    # Input is placed in a variable — never interpolated directly into the system prompt
-    system_prompt = (
-        "You are a document quality evaluator for institutional knowledge bases. "
-        "Determine if the provided text chunk contains useful information that could answer "
-        "questions from employees or members of an organization. "
-        "Mark as coherent (true) if the chunk contains ANY of: policies, procedures, contact info, "
-        "names and roles, schedules, benefits, or operational guidelines — even if it's part of a larger document. "
-        "Mark as incoherent (false) ONLY if the chunk is pure noise: page numbers, repeated headers, "
-        "garbled text, or completely empty content. "
-        "Respond ONLY with valid JSON: {\"is_coherent\": true/false, \"reason\": \"one sentence\"}."
-    )
+    system_prompt = custom_prompt.strip() if custom_prompt else DEFAULT_PROMPT_QUALITY_GATE
     user_content = chunk_text[:2000]  # Truncate to avoid token overflow
 
     try:

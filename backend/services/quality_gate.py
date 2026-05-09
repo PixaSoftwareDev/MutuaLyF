@@ -35,7 +35,7 @@ class QualityResult:
     error: str | None = None
 
 
-async def validate_chunk(chunk: Chunk) -> QualityResult:
+async def validate_chunk(chunk: Chunk, custom_prompt: str | None = None) -> QualityResult:
     """Run stage-1 quality validation on a single chunk.
 
     Returns QualityResult with status PASSED, PENDING (on Groq failure), or SKIPPED.
@@ -43,7 +43,7 @@ async def validate_chunk(chunk: Chunk) -> QualityResult:
     """
     logger.debug("quality_gate_start chunk_id=%s tenant_id=%s", chunk.id, chunk.tenant_id)
 
-    result = await complete_quality_gate(chunk.text, chunk.tenant_id)
+    result = await complete_quality_gate(chunk.text, chunk.tenant_id, custom_prompt=custom_prompt)
 
     if result["error"] is not None and result["is_coherent"] is None:
         # Groq API failure — do not block ingestion
@@ -112,6 +112,7 @@ async def validate_chunk_semantic_autonomy(chunk: Chunk) -> bool:
 async def validate_chunks_batch(
     chunks: list[Chunk],
     max_concurrent: int = 1,
+    custom_prompt: str | None = None,
 ) -> list[QualityResult]:
     """Validate a batch of chunks with bounded concurrency.
 
@@ -125,7 +126,7 @@ async def validate_chunks_batch(
 
     async def _gated(chunk: Chunk) -> QualityResult:
         async with semaphore:
-            result = await validate_chunk(chunk)
+            result = await validate_chunk(chunk, custom_prompt=custom_prompt)
             # Small delay to avoid hitting Groq token-per-minute limits
             # when processing large batches. Does not block user queries
             # (those run in the FastAPI process, not here in the worker).
