@@ -2,25 +2,71 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { MessageSquare, FileText, Zap, Settings, LogOut, ChevronLeft, ChevronRight, Shield, Headphones, Building2, GitMerge, Users, Copy } from "lucide-react";
+import {
+  Inbox, FileText, Sparkles, Settings, LogOut, ChevronLeft, ChevronRight,
+  Shield, Building2, GitMerge, Users, ExternalLink, FlaskConical,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore, useUIStore } from "@/lib/store";
 import { api, apiClient } from "@/lib/api";
-import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "@/components/ui/toast";
 
-const navItems = [
-  { href: "/dashboard",             label: "Consultas",       icon: MessageSquare },
-  { href: "/operator",              label: "Panel Operador",  icon: Headphones, operatorExclusive: true },
-  { href: "/admin/documents",       label: "Documentos",      icon: FileText,   adminOnly: true },
-  { href: "/admin/intentions",      label: "Intenciones",     icon: Zap,        adminOnly: true },
-  { href: "/admin/duplicates",      label: "Duplicados",      icon: GitMerge,   adminOnly: true, badgeKey: "duplicates-pending" },
-  { href: "/admin/sectors",         label: "Sectores",        icon: Building2,  adminOnly: true },
-  { href: "/admin/operators",       label: "Operadores",      icon: Users,      adminOnly: true },
-  { href: "/admin/handoff-config",  label: "Config. Handoff", icon: Copy,       adminOnly: true },
-  { href: "/admin/settings",        label: "Configuración",   icon: Settings,   adminOnly: true },
-  { href: "/superadmin",            label: "Super Admin",     icon: Shield,     superAdminOnly: true },
+type NavItem = {
+  href: string;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  adminOnly?: boolean;
+  superAdminOnly?: boolean;
+  badgeKey?: string;
+  tooltip?: string;
+};
+
+type NavSection = {
+  label: string;
+  items: NavItem[];
+};
+
+const navSections: NavSection[] = [
+  {
+    label: "Trabajo diario",
+    items: [
+      { href: "/admin/conversations", label: "Conversaciones", icon: Inbox, adminOnly: true },
+    ],
+  },
+  {
+    label: "Conocimiento",
+    items: [
+      { href: "/admin/documents",  label: "Documentos",            icon: FileText, adminOnly: true },
+      { href: "/admin/intentions", label: "Temas reconocidos",     icon: Sparkles, adminOnly: true,
+        tooltip: "Categorías de consulta que el bot identifica. Validá las que aprendió." },
+      { href: "/admin/duplicates", label: "Documentos duplicados", icon: GitMerge, adminOnly: true,
+        badgeKey: "duplicates-pending",
+        tooltip: "Documentos parecidos que conviene unificar para evitar respuestas contradictorias." },
+    ],
+  },
+  {
+    label: "Equipo",
+    items: [
+      { href: "/admin/sectors",   label: "Sectores",   icon: Building2, adminOnly: true },
+      { href: "/admin/operators", label: "Operadores", icon: Users,     adminOnly: true },
+    ],
+  },
+  {
+    label: "Configuración",
+    items: [
+      { href: "/admin/settings", label: "Configuración del bot", icon: Settings, adminOnly: true,
+        tooltip: "Comportamiento del asistente y reglas de derivación a operadores humanos." },
+    ],
+  },
+  {
+    label: "Plataforma",
+    items: [
+      { href: "/superadmin", label: "Plataforma", icon: Shield, superAdminOnly: true,
+        tooltip: "Administración cross-tenant: organizaciones, planes y cuotas." },
+    ],
+  },
 ];
 
 export function Sidebar() {
@@ -33,12 +79,13 @@ export function Sidebar() {
   const isAdmin = ["admin", "super_admin"].includes(userRole ?? "");
 
   const prefetchMap: Record<string, () => void> = {
-    "/admin/documents": () => queryClient.prefetchQuery({ queryKey: ["documents"],  queryFn: api.documents.list,   staleTime: 10_000 }),
-    "/admin/intentions": () => queryClient.prefetchQuery({ queryKey: ["intentions"], queryFn: api.intentions.list,  staleTime: 30_000 }),
-    "/admin/duplicates": () => queryClient.prefetchQuery({ queryKey: ["duplicates"], queryFn: api.duplicates.list,  staleTime: 30_000 }),
-    "/admin/sectors":    () => queryClient.prefetchQuery({ queryKey: ["sectors"],    queryFn: api.sectors.list,     staleTime: 30_000 }),
-    "/admin/operators":  () => queryClient.prefetchQuery({ queryKey: ["operators"],  queryFn: () => apiClient.get("/admin/operators").then(r => r.data), staleTime: 30_000 }),
-    "/admin/settings":   () => tenantId && queryClient.prefetchQuery({ queryKey: ["bot-config", tenantId], queryFn: () => api.tenants.getBotConfig(tenantId), staleTime: 60_000 }),
+    "/admin/conversations": () => queryClient.prefetchQuery({ queryKey: ["operator-conversations", "all", "admin-readonly"], queryFn: () => api.operator.listConversations(), staleTime: 4_000 }),
+    "/admin/documents":     () => queryClient.prefetchQuery({ queryKey: ["documents"],   queryFn: api.documents.list,   staleTime: 10_000 }),
+    "/admin/intentions":    () => queryClient.prefetchQuery({ queryKey: ["intentions"],  queryFn: api.intentions.list,  staleTime: 30_000 }),
+    "/admin/duplicates":    () => queryClient.prefetchQuery({ queryKey: ["duplicates"],  queryFn: api.duplicates.list,  staleTime: 30_000 }),
+    "/admin/sectors":       () => queryClient.prefetchQuery({ queryKey: ["sectors"],     queryFn: api.sectors.list,     staleTime: 30_000 }),
+    "/admin/operators":     () => queryClient.prefetchQuery({ queryKey: ["operators"],   queryFn: () => apiClient.get("/admin/operators").then(r => r.data), staleTime: 30_000 }),
+    "/admin/settings":      () => tenantId && queryClient.prefetchQuery({ queryKey: ["bot-config", tenantId], queryFn: () => api.tenants.getBotConfig(tenantId), staleTime: 60_000 }),
   };
 
   const { data: duplicatesStats } = useQuery({
@@ -52,13 +99,26 @@ export function Sidebar() {
   const duplicatesPending: number = (duplicatesStats as any)?.pending ?? 0;
 
   const handleLogout = async () => {
-    try {
-      await api.auth.logout();
-    } catch {
-      // Ignore API errors on logout — clear local state regardless
-    }
+    try { await api.auth.logout(); } catch { /* ignore */ }
     clearAuth();
     router.push("/login");
+  };
+
+  const handleOpenChatTester = async () => {
+    if (!tenantId) return;
+    try {
+      const data = await api.tenants.generateWidgetToken(tenantId);
+      const url = `/chat?token=${encodeURIComponent(data.widget_token)}&tenant=${encodeURIComponent(tenantId)}`;
+      window.open(url, "_blank", "noopener");
+    } catch {
+      toast({ title: "No se pudo generar el link de prueba", variant: "destructive" });
+    }
+  };
+
+  const isVisible = (item: NavItem) => {
+    if (item.adminOnly && !isAdmin) return false;
+    if (item.superAdminOnly && userRole !== "super_admin") return false;
+    return true;
   };
 
   return (
@@ -77,45 +137,84 @@ export function Sidebar() {
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 p-2 space-y-1">
-        {navItems.map((item) => {
-          if (item.adminOnly && !isAdmin) return null;
-          if ((item as any).superAdminOnly && userRole !== "super_admin") return null;
-          if ((item as any).operatorOnly && !["operator","admin","super_admin"].includes(userRole ?? "")) return null;
-          if ((item as any).operatorExclusive && userRole !== "operator") return null;
-          const Icon = item.icon;
-          const active = pathname === item.href || pathname.startsWith(item.href + "/");
-          const pendingCount = (item as any).badgeKey === "duplicates-pending" ? duplicatesPending : 0;
+      <nav className="flex-1 overflow-y-auto p-2 space-y-3">
+        {navSections.map((section, idx) => {
+          const visibleItems = section.items.filter(isVisible);
+          const showChatTester = section.label === "Trabajo diario";
+          if (visibleItems.length === 0 && !showChatTester) return null;
+
           return (
-            <Link
-              key={item.href}
-              href={item.href}
-              onMouseEnter={() => prefetchMap[item.href]?.()}
-              onFocus={() => prefetchMap[item.href]?.()}
-              className={cn(
-                "relative flex items-center gap-3 rounded-md px-2 py-2 text-sm font-medium transition-colors",
-                active
-                  ? "bg-primary/10 text-primary"
-                  : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-                !sidebarOpen && "justify-center px-2"
+            <div key={section.label}>
+              {/* Section header */}
+              {sidebarOpen ? (
+                <p className="px-2 mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+                  {section.label}
+                </p>
+              ) : (
+                idx > 0 && <div className="border-t border-border/40 my-1.5 mx-1" />
               )}
-              title={!sidebarOpen ? item.label : undefined}
-            >
-              <Icon className="h-4 w-4 shrink-0" />
-              {sidebarOpen && (
-                <>
-                  <span className="flex-1">{item.label}</span>
-                  {pendingCount > 0 && (
-                    <span className="ml-auto inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-bold text-destructive-foreground">
-                      {pendingCount > 99 ? "99+" : pendingCount}
-                    </span>
-                  )}
-                </>
-              )}
-              {!sidebarOpen && pendingCount > 0 && (
-                <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-destructive" />
-              )}
-            </Link>
+
+              <div className="space-y-1">
+                {/* "Probar chat" lives inside Trabajo diario as a special button (opens new tab) */}
+                {showChatTester && (
+                  <button
+                    onClick={handleOpenChatTester}
+                    className={cn(
+                      "w-full flex items-center gap-3 rounded-md px-2 py-2 text-sm font-medium transition-colors",
+                      "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                      !sidebarOpen && "justify-center px-2"
+                    )}
+                    title={!sidebarOpen ? "Probar chat (nueva pestaña)" : "Abre el widget en una pestaña nueva"}
+                  >
+                    <FlaskConical className="h-4 w-4 shrink-0" />
+                    {sidebarOpen && (
+                      <>
+                        <span className="flex-1 text-left">Probar chat</span>
+                        <ExternalLink className="h-3.5 w-3.5 opacity-60" />
+                      </>
+                    )}
+                  </button>
+                )}
+
+                {visibleItems.map((item) => {
+                  const Icon = item.icon;
+                  const active = pathname === item.href || pathname.startsWith(item.href + "/");
+                  const pendingCount = item.badgeKey === "duplicates-pending" ? duplicatesPending : 0;
+                  const titleAttr = !sidebarOpen ? item.label : item.tooltip;
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      onMouseEnter={() => prefetchMap[item.href]?.()}
+                      onFocus={() => prefetchMap[item.href]?.()}
+                      className={cn(
+                        "relative flex items-center gap-3 rounded-md px-2 py-2 text-sm font-medium transition-colors",
+                        active
+                          ? "bg-primary/10 text-primary"
+                          : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                        !sidebarOpen && "justify-center px-2"
+                      )}
+                      title={titleAttr}
+                    >
+                      <Icon className="h-4 w-4 shrink-0" />
+                      {sidebarOpen && (
+                        <>
+                          <span className="flex-1">{item.label}</span>
+                          {pendingCount > 0 && (
+                            <span className="ml-auto inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-bold text-destructive-foreground">
+                              {pendingCount > 99 ? "99+" : pendingCount}
+                            </span>
+                          )}
+                        </>
+                      )}
+                      {!sidebarOpen && pendingCount > 0 && (
+                        <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-destructive" />
+                      )}
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
           );
         })}
       </nav>

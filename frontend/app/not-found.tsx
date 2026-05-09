@@ -12,7 +12,7 @@ export default function NotFound() {
           La página que buscás no existe o fue movida.
         </p>
         <Button asChild>
-          <Link href="/dashboard">Ir al inicio</Link>
+          <Link href="/admin/documents">Ir al inicio</Link>
         </Button>
       </div>
     </div>

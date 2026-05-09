@@ -1,12 +1,10 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { LogOut, Headphones, Shield } from "lucide-react";
+import { LogOut, Headphones } from "lucide-react";
 import { useAuthStore } from "@/lib/store";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { cn } from "@/lib/utils";
 
 export function OperatorTopbar() {
   const { userEmail, userRole, clearAuth } = useAuthStore();
@@ -17,8 +15,6 @@ export function OperatorTopbar() {
     clearAuth();
     router.push("/login");
   };
-
-  const isAdmin = ["admin", "super_admin"].includes(userRole ?? "");
 
   return (
     <header className="h-12 border-b bg-card flex items-center px-4 gap-3 shrink-0">
@@ -39,19 +35,6 @@ export function OperatorTopbar() {
       </div>
 
       <div className="flex-1" />
-
-      {/* Admin back link */}
-      {isAdmin && (
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-7 text-xs gap-1.5 text-muted-foreground"
-          onClick={() => router.push("/admin/documents")}
-        >
-          <Shield className="h-3.5 w-3.5" />
-          <span className="hidden sm:inline">Panel Admin</span>
-        </Button>
-      )}
 
       {/* User info + logout */}
       <div className="flex items-center gap-2">

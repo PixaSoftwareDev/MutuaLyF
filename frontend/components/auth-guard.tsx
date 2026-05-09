@@ -28,7 +28,8 @@ export function AdminGuard({ children }: { children: React.ReactNode }) {
       return;
     }
     if (!["admin", "super_admin"].includes(userRole ?? "")) {
-      router.replace("/dashboard");
+      // Operator only — send them to their panel.
+      router.replace("/operator");
     }
   }, [isAuthenticated, userRole, router]);
 

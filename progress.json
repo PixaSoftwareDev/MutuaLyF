@@ -1,6 +1,6 @@
 {
   "version": "1.8",
-  "last_updated": "2026-05-07T15:10:00Z",
+  "last_updated": "2026-05-08T08:05:00Z",
   "current_stage": "etapa_3",
   "current_step": "completed",
   "overall_status": "etapa_3_complete",
@@ -10,7 +10,7 @@
     "steps": {
       "docker_compose": { "status": "completed", "files_created": ["docker-compose.yml", ".env.example", "nginx/nginx.conf", "backend/Dockerfile", "backend/requirements.txt"] },
       "fastapi_base": { "status": "completed", "files_created": ["backend/main.py", "backend/core/config.py", "backend/core/tenant.py", "backend/api/v1/*.py"] },
-      "auth_jwt": { "status": "completed", "files_created": ["backend/core/security.py", "backend/models/*.py"], "notes": "Roles: super_admin/admin/operator/user. Scopes: full/refresh/widget." },
+      "auth_jwt": { "status": "completed", "files_created": ["backend/core/security.py", "backend/models/*.py"], "notes": "Roles: super_admin/admin/operator (3 roles, sin 'user'). Usuario final consume via widget_token sin login. Scopes JWT: full/refresh/widget." },
       "db_connections": { "status": "completed", "files_created": ["backend/core/database.py"], "notes": "search_path por sesión, sanitización anti-injection." },
       "migrations": { "status": "completed", "files_created": ["backend/db/alembic.ini", "backend/db/base.py", "backend/db/global_models.py", "backend/db/tenant_models.py", "backend/db/migrations/**", "backend/db/schemas/tenant_schema.sql"] },
       "tenant_onboarding": { "status": "completed", "files_created": ["scripts/provision_tenant.py"], "notes": "7 pasos transaccionales con rollback." },
@@ -115,7 +115,7 @@
     "status": "13/13 passing",
     "date": "2026-04-30",
     "url": "http://localhost",
-    "notes": "Stack corriendo en dev. Demo tenant: admin@demo.local / demo1234!"
+    "notes": "Stack corriendo en dev. Demo tenant (todos los roles comparten password tras UPDATE manual del 2026-05-04): admin@demo.local / Admin1234! · superadmin@demo.local / Admin1234! · operator@demo.local / Admin1234!. NOTA: user@demo.local fue creado historicamente pero el rol 'user' no existe en backend (security.py solo expone super_admin/admin/operator); el usuario final usa widget_token sin login."
   },
 
   "environment": {

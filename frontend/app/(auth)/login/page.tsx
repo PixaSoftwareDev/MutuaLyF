@@ -29,7 +29,7 @@ export default function LoginPage() {
       const payload = JSON.parse(atob(data.access_token.split(".")[1]));
       const role = payload.role as string;
       setAuth(data.access_token, tenantId, email, role);
-      router.push(role === "operator" ? "/operator" : "/dashboard");
+      router.push(role === "operator" ? "/operator" : "/admin/documents");
     } catch (err: any) {
       const detail = err?.response?.data?.detail;
       setError(typeof detail === "string" ? detail : "Credenciales incorrectas. Verificá email, contraseña y organización.");

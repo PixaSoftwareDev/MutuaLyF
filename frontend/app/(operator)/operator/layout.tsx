@@ -13,7 +13,7 @@ export default function OperatorLayout({ children }: { children: React.ReactNode
 
   useEffect(() => {
     if (!isAuthenticated) { router.replace("/login"); return; }
-    if (!ALLOWED_ROLES.includes(userRole ?? "")) { router.replace("/dashboard"); }
+    if (!ALLOWED_ROLES.includes(userRole ?? "")) { router.replace("/admin/documents"); }
   }, [isAuthenticated, userRole, router]);
 
   if (!isAuthenticated || !ALLOWED_ROLES.includes(userRole ?? "")) return null;

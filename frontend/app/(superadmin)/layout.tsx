@@ -11,7 +11,7 @@ export default function SuperAdminLayout({ children }: { children: React.ReactNo
 
   useEffect(() => {
     if (!isAuthenticated) { router.replace("/login"); return; }
-    if (userRole !== "super_admin") { router.replace("/dashboard"); }
+    if (userRole !== "super_admin") { router.replace("/admin/documents"); }
   }, [isAuthenticated, userRole, router]);
 
   if (!isAuthenticated || userRole !== "super_admin") return null;

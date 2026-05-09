@@ -141,6 +141,7 @@ export interface ConversationRow {
   operator_name: string | null;
   unread_count: number;
   last_message_at: string | null;
+  last_message_sender: "user" | "bot" | "operator" | "system" | null;
   created_at: string;
 }
 

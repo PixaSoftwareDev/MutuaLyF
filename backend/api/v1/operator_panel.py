@@ -108,13 +108,19 @@ async def list_conversations(
                 s.nombre AS sector_nombre,
                 u.name  AS operator_name,
                 COUNT(m.id) FILTER (WHERE m.read_at IS NULL AND m.sender_type = 'user') AS unread_count,
-                MAX(m.created_at) AS last_message_at
+                MAX(m.created_at) AS last_message_at,
+                lm.sender_type AS last_message_sender
             FROM conversaciones c
             LEFT JOIN sectores s ON s.id = c.sector_id
             LEFT JOIN usuarios u ON u.id = c.assigned_operator_id
             LEFT JOIN mensajes m ON m.conversation_id = c.id
+            LEFT JOIN LATERAL (
+                SELECT sender_type FROM mensajes
+                WHERE conversation_id = c.id
+                ORDER BY created_at DESC LIMIT 1
+            ) lm ON TRUE
             {where_sql}
-            GROUP BY c.id, s.nombre, u.name
+            GROUP BY c.id, s.nombre, u.name, lm.sender_type
             ORDER BY c.updated_at DESC
             LIMIT 200
         """), params)
@@ -136,6 +142,7 @@ async def list_conversations(
                 "operator_name":   conv["operator_name"],
                 "unread_count":    int(conv["unread_count"] or 0),
                 "last_message_at": conv["last_message_at"].isoformat() if conv["last_message_at"] else None,
+                "last_message_sender": conv["last_message_sender"],
                 "created_at":      conv["created_at"].isoformat(),
             })
 
