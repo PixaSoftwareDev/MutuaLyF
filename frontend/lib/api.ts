@@ -321,6 +321,39 @@ export const api = {
         per_tenant: Array<{ id: string; name: string; plan: string; status: string; queries_30d: number; ingests_30d: number; tokens_30d: number }>;
       };
     },
+    platformHealth: async () => {
+      const { data } = await apiClient.get("/tenants/platform/health");
+      return data as {
+        active_tenants: number;
+        total_tenants: number;
+        queries_today: number;
+        anomalies: Array<{ tenant_id: string; tenant_name: string; type: string; pct: number; detail: string }>;
+      };
+    },
+    platformSystem: async () => {
+      const { data } = await apiClient.get("/tenants/platform/system");
+      return data as {
+        postgres: { up: boolean; connections: number; db_size_bytes: number; cache_hit_rate: number | null; deadlocks_total: number };
+        redis: { up: boolean; memory_used_bytes: number; memory_max_bytes: number; connected_clients: number; keyspace_hit_rate: number | null; evicted_keys: number; fragmentation_ratio: number; slowlog_length: number; keys_by_db: Record<string, number> };
+        backend: { up: boolean; total_requests: number; error_rate_5m: number; latency_p95_ms: number | null };
+        groq: { by_model: Array<{ model: string; calls: Record<string, number>; total: number; errors: number }>; total_calls: number };
+        app: { active_tenants: number; total_queries: number; total_cache_hits: number; total_ingests: number; quality: Record<string, number> };
+        sparklines: { http_req_rate: Array<{ t: number; v: number }>; query_rate: Array<{ t: number; v: number }> };
+      };
+    },
+    metrics: async (tenantId: string) => {
+      const { data } = await apiClient.get(`/tenants/${tenantId}/metrics`);
+      return data as {
+        tenant: { id: string; name: string; plan: string; status: string; admin_email: string; created_at: string; limits: Record<string, number> };
+        usage: { queries_today: number; queries_7d: number; queries_30d: number; ingests_30d: number; llm_tokens_30d: number; daily_30d: Array<{ day: string; total: number }> };
+        docs: { total: number; ready: number; failed: number; processing: number; storage_bytes: number };
+        performance: { latency_p50: number | null; latency_p95: number | null; cache_hit_rate: number | null; avg_confidence: number | null; total_logged: number };
+        quality: { passed: number; pending: number; skipped: number };
+        quota: { queries_month: { used: number; limit: number; pct: number | null }; documents: { used: number; limit: number; pct: number | null } };
+        recent_queries: Array<{ question_text: string | null; intent_label: string | null; intent_confidence: number | null; latency_ms: number; from_cache: boolean; created_at: string }>;
+        top_intents: Array<{ label: string; count: number; avg_confidence: number | null }>;
+      };
+    },
     createAdmin: async (tenantId: string, payload: { email: string; name: string; password: string }) => {
       const { data } = await apiClient.post(`/tenants/${tenantId}/admin`, payload);
       return data;

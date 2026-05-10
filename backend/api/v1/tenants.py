@@ -11,8 +11,11 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy import text
 
+import time
+
 from core.config import settings
 from core.database import get_pg_session
+from core.prometheus import get_system_metrics
 from core.security import CurrentUser, create_widget_token, require_super_admin, require_admin
 from core.tenant import get_tenant_id
 from models.tenant import TenantCreate, TenantResponse, TenantPlan, TenantStatus, WidgetTokenResponse
@@ -482,6 +485,250 @@ async def create_tenant_admin(
 
     logger.info("tenant_admin_created tenant=%s email=%s by=%s", tenant_id, body.email, current_user.user_id)
     return {"id": new_id, "email": body.email.lower().strip(), "name": body.name.strip(), "role": "admin", "tenant_id": tenant_id}
+
+
+# ── Platform health summary ───────────────────────────────────────────────────
+
+@router.get("/platform/health")
+async def get_platform_health(
+    current_user: CurrentUser = Depends(require_super_admin),
+):
+    """Lightweight platform overview: active tenants, queries today, near-quota anomalies."""
+    async with get_pg_session(None) as session:
+        counts = await session.execute(text("""
+            SELECT
+                COUNT(*) FILTER (WHERE status = 'active')    AS active_count,
+                COUNT(*)                                      AS total_count
+            FROM tenants
+        """))
+        counts_row = counts.mappings().fetchone()
+
+        today_q = await session.execute(text("""
+            SELECT COALESCE(SUM(value), 0) AS queries_today
+            FROM usage_events
+            WHERE event_type = 'query' AND created_at >= CURRENT_DATE
+        """))
+        queries_today = int(today_q.scalar() or 0)
+
+        month_rows = await session.execute(text("""
+            SELECT
+                t.id, t.name, t.plan,
+                COALESCE(SUM(ue.value) FILTER (WHERE ue.event_type = 'query'), 0)  AS queries_month,
+                COALESCE(SUM(ue.value) FILTER (WHERE ue.event_type = 'ingest'), 0) AS ingests_month
+            FROM tenants t
+            LEFT JOIN usage_events ue
+                   ON ue.tenant_id = t.id
+                  AND ue.created_at >= date_trunc('month', NOW())
+            WHERE t.status = 'active'
+            GROUP BY t.id, t.name, t.plan
+        """))
+        month_data = month_rows.mappings().all()
+
+    anomalies = []
+    for r in month_data:
+        limit = PLAN_LIMITS.get(r["plan"], {}).get("queries_month", -1)
+        if limit > 0:
+            used = int(r["queries_month"])
+            pct = used / limit
+            if pct >= 0.8:
+                anomalies.append({
+                    "tenant_id":   r["id"],
+                    "tenant_name": r["name"],
+                    "type":        "near_quota",
+                    "pct":         round(pct * 100, 1),
+                    "detail":      f"{used:,} / {limit:,} consultas este mes",
+                })
+
+    return {
+        "active_tenants": int(counts_row["active_count"]),
+        "total_tenants":  int(counts_row["total_count"]),
+        "queries_today":  queries_today,
+        "anomalies":      anomalies,
+    }
+
+
+# ── Per-tenant comprehensive metrics ──────────────────────────────────────────
+
+@router.get("/{tenant_id}/metrics")
+async def get_tenant_metrics(
+    tenant_id: str,
+    current_user: CurrentUser = Depends(require_super_admin),
+):
+    """Full metrics for a single tenant: usage, performance, docs, quality, quota, recent activity."""
+    # 1. Global usage_events
+    async with get_pg_session(None) as session:
+        tenant_row = (await session.execute(
+            text("SELECT plan, status, name, admin_email, created_at FROM tenants WHERE id = :tid"),
+            {"tid": tenant_id},
+        )).mappings().fetchone()
+
+        if not tenant_row:
+            raise HTTPException(status_code=404, detail="Tenant not found")
+
+        usage_row = (await session.execute(text("""
+            SELECT
+                COALESCE(SUM(value) FILTER (WHERE event_type='query' AND created_at >= CURRENT_DATE),                     0) AS queries_today,
+                COALESCE(SUM(value) FILTER (WHERE event_type='query' AND created_at >= NOW() - INTERVAL '7 days'),        0) AS queries_7d,
+                COALESCE(SUM(value) FILTER (WHERE event_type='query' AND created_at >= NOW() - INTERVAL '30 days'),       0) AS queries_30d,
+                COALESCE(SUM(value) FILTER (WHERE event_type='query' AND created_at >= date_trunc('month', NOW())),       0) AS queries_this_month,
+                COALESCE(SUM(value) FILTER (WHERE event_type='ingest' AND created_at >= NOW() - INTERVAL '30 days'),      0) AS ingests_30d,
+                COALESCE(SUM(value) FILTER (WHERE event_type='llm_tokens' AND created_at >= NOW() - INTERVAL '30 days'), 0) AS llm_tokens_30d
+            FROM usage_events WHERE tenant_id = :tid
+        """), {"tid": tenant_id})).mappings().fetchone()
+
+        # Daily queries last 30 days for sparkline
+        daily_rows = (await session.execute(text("""
+            SELECT DATE(created_at) AS day, SUM(value)::int AS total
+            FROM usage_events
+            WHERE tenant_id = :tid AND event_type = 'query'
+              AND created_at >= NOW() - INTERVAL '30 days'
+            GROUP BY DATE(created_at)
+            ORDER BY day
+        """), {"tid": tenant_id})).mappings().all()
+
+    # 2. Per-tenant consultas_log (performance + quality + intents + recent)
+    perf = {"latency_p50": None, "latency_p95": None, "cache_hit_rate": None, "avg_confidence": None, "total_logged": 0}
+    quality = {"passed": 0, "pending": 0, "skipped": 0}
+    recent_queries: list = []
+    top_intents: list = []
+
+    try:
+        async with get_pg_session(tenant_id) as session:
+            perf_row = (await session.execute(text("""
+                SELECT
+                    PERCENTILE_CONT(0.5)  WITHIN GROUP (ORDER BY latency_ms)                     AS p50,
+                    PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY latency_ms)                     AS p95,
+                    AVG(CASE WHEN from_cache THEN 1.0 ELSE 0.0 END)                              AS cache_hit_rate,
+                    AVG(intent_confidence) FILTER (WHERE intent_confidence IS NOT NULL)           AS avg_confidence,
+                    COUNT(*)                                                                       AS total_logged
+                FROM consultas_log
+                WHERE created_at >= NOW() - INTERVAL '30 days'
+            """))).mappings().fetchone()
+
+            if perf_row and int(perf_row["total_logged"] or 0) > 0:
+                perf = {
+                    "latency_p50":    int(perf_row["p50"])  if perf_row["p50"]  else None,
+                    "latency_p95":    int(perf_row["p95"])  if perf_row["p95"]  else None,
+                    "cache_hit_rate": round(float(perf_row["cache_hit_rate"] or 0), 3),
+                    "avg_confidence": round(float(perf_row["avg_confidence"]), 3) if perf_row["avg_confidence"] else None,
+                    "total_logged":   int(perf_row["total_logged"]),
+                }
+
+            for r in (await session.execute(text("""
+                SELECT quality_gate_status, COUNT(*)::int AS cnt
+                FROM consultas_log
+                WHERE created_at >= NOW() - INTERVAL '30 days'
+                GROUP BY quality_gate_status
+            """))).mappings().all():
+                quality[r["quality_gate_status"]] = r["cnt"]
+
+            recent_queries = [
+                {
+                    "question_text":    r["question_text"],
+                    "intent_label":     r["intent_label"],
+                    "intent_confidence": round(float(r["intent_confidence"]), 2) if r["intent_confidence"] else None,
+                    "latency_ms":       r["latency_ms"],
+                    "from_cache":       r["from_cache"],
+                    "created_at":       r["created_at"].isoformat(),
+                }
+                for r in (await session.execute(text("""
+                    SELECT question_text, intent_label, intent_confidence,
+                           latency_ms, from_cache, created_at
+                    FROM consultas_log
+                    ORDER BY created_at DESC LIMIT 10
+                """))).mappings().all()
+            ]
+
+            top_intents = [
+                {
+                    "label":          r["intent_label"],
+                    "count":          int(r["cnt"]),
+                    "avg_confidence": round(float(r["avg_conf"]), 2) if r["avg_conf"] else None,
+                }
+                for r in (await session.execute(text("""
+                    SELECT intent_label, COUNT(*)::int AS cnt,
+                           AVG(intent_confidence) AS avg_conf
+                    FROM consultas_log
+                    WHERE intent_label IS NOT NULL
+                      AND created_at >= NOW() - INTERVAL '30 days'
+                    GROUP BY intent_label
+                    ORDER BY cnt DESC LIMIT 10
+                """))).mappings().all()
+            ]
+
+    except Exception as exc:
+        logger.warning("tenant_metrics_log_failed tenant=%s err=%s", tenant_id, exc)
+
+    # 3. Documents
+    docs = {"total": 0, "ready": 0, "failed": 0, "processing": 0, "storage_bytes": 0}
+    try:
+        async with get_pg_session(tenant_id) as session:
+            doc_row = (await session.execute(text("""
+                SELECT
+                    COUNT(*)::int                                               AS total,
+                    COUNT(*) FILTER (WHERE status='ready')::int                AS ready,
+                    COUNT(*) FILTER (WHERE status='failed')::int               AS failed,
+                    COUNT(*) FILTER (WHERE status='processing')::int           AS processing,
+                    COALESCE(SUM(size_bytes), 0)::bigint                       AS storage_bytes
+                FROM documentos
+            """))).mappings().fetchone()
+            if doc_row:
+                docs = {k: int(doc_row[k]) for k in docs}
+    except Exception as exc:
+        logger.warning("tenant_metrics_docs_failed tenant=%s err=%s", tenant_id, exc)
+
+    # 4. Quota
+    plan   = tenant_row["plan"]
+    limits = PLAN_LIMITS.get(plan, {})
+    q_used = int(usage_row["queries_this_month"])
+    d_used = docs["total"]
+
+    def quota_entry(used: int, limit: int) -> dict:
+        return {
+            "used":  used,
+            "limit": limit,
+            "pct":   round(used / limit * 100, 1) if limit > 0 else None,
+        }
+
+    return {
+        "tenant": {
+            "id":          tenant_id,
+            "name":        tenant_row["name"],
+            "plan":        plan,
+            "status":      tenant_row["status"],
+            "admin_email": tenant_row["admin_email"],
+            "created_at":  tenant_row["created_at"].isoformat() if tenant_row["created_at"] else None,
+            "limits":      limits,
+        },
+        "usage": {
+            "queries_today":  int(usage_row["queries_today"]),
+            "queries_7d":     int(usage_row["queries_7d"]),
+            "queries_30d":    int(usage_row["queries_30d"]),
+            "ingests_30d":    int(usage_row["ingests_30d"]),
+            "llm_tokens_30d": int(usage_row["llm_tokens_30d"]),
+            "daily_30d":      [{"day": r["day"].isoformat(), "total": r["total"]} for r in daily_rows],
+        },
+        "docs":        docs,
+        "performance": perf,
+        "quality":     quality,
+        "quota": {
+            "queries_month": quota_entry(q_used, limits.get("queries_month", -1)),
+            "documents":     quota_entry(d_used, limits.get("documents", -1)),
+        },
+        "recent_queries": recent_queries,
+        "top_intents":    top_intents,
+    }
+
+
+# ── Platform system metrics (Prometheus) ─────────────────────────────────────
+
+@router.get("/platform/system")
+async def get_platform_system(
+    current_user: CurrentUser = Depends(require_super_admin),
+):
+    """Infrastructure health from Prometheus: PostgreSQL, Redis, HTTP, Groq, application counters."""
+    now = int(time.time())
+    return await get_system_metrics(now)
 
 
 # ── Platform-wide traffic (super_admin only) ──────────────────────────────────
