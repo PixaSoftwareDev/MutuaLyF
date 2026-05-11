@@ -3,12 +3,12 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
-import { Loader2, Send, User, Sparkles, ChevronLeft, Headphones } from "lucide-react";
+import { Loader2, Send, User, Sparkles, ChevronLeft, Headphones, UserCheck } from "lucide-react";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
 interface Sector { id: string; nombre: string; descripcion: string | null; is_default: boolean; }
-interface Message { id: string; role: "user" | "bot" | "operator" | "system"; content: string; }
+interface Message { id: string; role: "user" | "bot" | "operator" | "system"; content: string; handoffOffer?: boolean; }
 
 export default function ChatPage() {
   return (
@@ -82,6 +82,30 @@ function SystemBubble({ content }: { content: string }) {
   );
 }
 
+function HandoffOfferBubble({ content, onConfirm, confirmed }: { content: string; onConfirm: () => void; confirmed: boolean }) {
+  return (
+    <div className="flex justify-center py-2">
+      <div className="max-w-[85%] bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3 text-center space-y-3">
+        <p className="text-sm text-amber-800">{content}</p>
+        {!confirmed ? (
+          <button
+            onClick={onConfirm}
+            className="inline-flex items-center gap-2 bg-amber-500 hover:bg-amber-600 active:scale-95 text-white text-sm font-medium rounded-xl px-4 py-2 transition-all"
+          >
+            <UserCheck className="h-4 w-4" />
+            Sí, conectarme con un operador
+          </button>
+        ) : (
+          <span className="inline-flex items-center gap-1.5 text-xs text-amber-600 font-medium">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            Buscando operador disponible…
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function TypingIndicator() {
   return (
     <div className="flex gap-3 items-end">
@@ -118,6 +142,8 @@ function ChatInner() {
   const [status, setStatus]                 = useState("bot_active");
   const [error, setError]                   = useState<string | null>(null);
   const [resolvedToken, setResolvedToken]   = useState(token);
+  const [operatorsOnline, setOperatorsOnline] = useState<{ count: number; names: string[] } | null>(null);
+  const [handoffConfirmed, setHandoffConfirmed] = useState(false);
   const bottomRef                           = useRef<HTMLDivElement>(null);
   const inputRef                            = useRef<HTMLInputElement>(null);
   const sessionId                           = useRef<string>("");
@@ -189,11 +215,20 @@ function ChatInner() {
     pollIntervalRef.current = setInterval(() => pollMessages(convId), 4000);
   }, [pollMessages]);
 
+  async function fetchOperatorsOnline(sectorId: string) {
+    try {
+      const r = await fetch(`${API_BASE}/api/v1/widget/operators-online?sector_id=${sectorId}`, { headers: getHeaders() });
+      if (r.ok) { const d = await r.json(); setOperatorsOnline({ count: d.online ?? 0, names: d.operators ?? [] }); }
+    } catch { /* non-critical */ }
+  }
+
   async function startChat(sector: Sector, pendingMessage?: string) {
     setSelectedSector(sector);
     setPhase("chat");
     setMessages([]);
+    setHandoffConfirmed(false);
     setTimeout(() => inputRef.current?.focus(), 100);
+    fetchOperatorsOnline(sector.id);
     try {
       const r = await fetch(`${API_BASE}/api/v1/widget/conversation/start`, {
         method: "POST", headers: getHeaders(),
@@ -229,7 +264,7 @@ function ChatInner() {
       if (data.bot_response)
         setMessages(prev => [...prev, { id: Date.now().toString() + "b", role: "bot", content: data.bot_response }]);
       if (data.handoff_offered && data.handoff_message)
-        setMessages(prev => [...prev, { id: Date.now().toString() + "h", role: "system", content: data.handoff_message }]);
+        setMessages(prev => [...prev, { id: Date.now().toString() + "h", role: "system", content: data.handoff_message, handoffOffer: true }]);
       if (data.handoff_activated && data.handoff_message)
         setMessages(prev => [...prev, { id: Date.now().toString() + "ha", role: "system", content: data.handoff_message }]);
     } catch {
@@ -252,7 +287,20 @@ function ChatInner() {
       const r = await fetch(`${API_BASE}/api/v1/widget/conversation/${conversationId}/human`, { method: "POST", headers: getHeaders() });
       const data = await r.json();
       setStatus(data.status);
-      if (data.message) setMessages(prev => [...prev, { id: Date.now().toString(), role: "system", content: data.message }]);
+      if (data.message)
+        setMessages(prev => [...prev, { id: Date.now().toString(), role: "system", content: data.message }]);
+    } catch { /* ignore */ }
+  }
+
+  async function confirmHandoff() {
+    if (!conversationId) return;
+    setHandoffConfirmed(true);
+    try {
+      const r = await fetch(`${API_BASE}/api/v1/widget/conversation/${conversationId}/confirm-handoff`, { method: "POST", headers: getHeaders() });
+      const data = await r.json();
+      setStatus(data.status ?? "handoff_requested");
+      if (data.message)
+        setMessages(prev => [...prev, { id: Date.now().toString() + "c", role: "system", content: data.message }]);
     } catch { /* ignore */ }
   }
 
@@ -284,7 +332,13 @@ function ChatInner() {
     <div className="h-screen flex flex-col bg-slate-50 overflow-hidden">
 
       {/* ── Top bar ──────────────────────────────────────────────────────────── */}
-      <header className="shrink-0 bg-gradient-to-r from-blue-700 via-blue-600 to-violet-600 shadow-lg shadow-blue-900/30 z-10">
+      <header className={`shrink-0 shadow-lg z-10 transition-colors duration-500 ${
+        status === "handoff_requested"
+          ? "bg-gradient-to-r from-amber-600 via-amber-500 to-orange-500 shadow-amber-900/30"
+          : status === "human_attending"
+          ? "bg-gradient-to-r from-emerald-700 via-emerald-600 to-teal-600 shadow-emerald-900/30"
+          : "bg-gradient-to-r from-blue-700 via-blue-600 to-violet-600 shadow-blue-900/30"
+      }`}>
         <div className="max-w-3xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
           {/* Left: brand + status */}
           <div className="flex items-center gap-3">
@@ -310,12 +364,23 @@ function ChatInner() {
               <div className="flex items-center gap-1.5 mt-1">
                 <span className={`w-1.5 h-1.5 rounded-full ${statusDot}`} />
                 <span className="text-blue-100 text-xs">{phase === "selecting" ? "Elige un área para comenzar" : statusLabel}</span>
+                {phase === "chat" && operatorsOnline !== null && status === "bot_active" && (
+                  operatorsOnline.count > 0 ? (
+                    <span className="text-blue-200/70 text-xs">
+                      · {operatorsOnline.count === 1 && operatorsOnline.names[0]
+                          ? `${operatorsOnline.names[0]} en línea`
+                          : `${operatorsOnline.count} operadores en línea`}
+                    </span>
+                  ) : (
+                    <span className="text-blue-200/50 text-xs">· Sin operadores en línea</span>
+                  )
+                )}
               </div>
             </div>
           </div>
 
           {/* Right: actions */}
-          {phase === "chat" && (
+          {phase === "chat" && status === "bot_active" && (
             <button
               onClick={requestHuman}
               className="flex items-center gap-1.5 text-blue-100 hover:text-white text-xs font-medium border border-white/30 hover:border-white/60 bg-white/10 hover:bg-white/20 rounded-xl px-3 py-2 transition-all"
@@ -387,6 +452,8 @@ function ChatInner() {
               {messages.map(m => {
                 if (m.role === "user")     return <UserBubble     key={m.id} content={m.content} />;
                 if (m.role === "operator") return <OperatorBubble key={m.id} content={m.content} />;
+                if (m.role === "system" && m.handoffOffer)
+                  return <HandoffOfferBubble key={m.id} content={m.content} onConfirm={confirmHandoff} confirmed={handoffConfirmed} />;
                 if (m.role === "system")   return <SystemBubble   key={m.id} content={m.content} />;
                 return                            <BotBubble      key={m.id} content={m.content} />;
               })}

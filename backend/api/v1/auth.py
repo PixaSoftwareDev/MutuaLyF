@@ -64,6 +64,17 @@ async def login(
             pu = result.mappings().fetchone()
 
         if pu is None or not verify_password(form.password, pu["hashed_password"]):
+            import asyncio
+            from core.audit import record as audit
+            asyncio.ensure_future(audit(
+                tenant_id="__platform__",
+                actor_id="unknown",
+                actor_email=form.username,
+                actor_role="unknown",
+                action="auth.login_failed",
+                detail={"reason": "invalid_credentials"},
+                request=request,
+            ))
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid credentials",
@@ -98,11 +109,34 @@ async def login(
         user = result.scalar_one_or_none()
 
     if user is None or not verify_password(form.password, user.hashed_password):
+        import asyncio
+        from core.audit import record as audit
+        from core.database import get_redis_cache
+        redis = get_redis_cache()
+        key = f"{tenant_id}:login_failed:{form.username.lower().strip()}"
+        fails = await redis.incr(key)
+        await redis.expire(key, 600)  # ventana de 10 min
+        detail_extra: dict = {"reason": "invalid_credentials", "attempt": int(fails)}
+        action = "auth.brute_force_alert" if fails >= 5 else "auth.login_failed"
+        asyncio.ensure_future(audit(
+            tenant_id=tenant_id,
+            actor_id="unknown",
+            actor_email=form.username,
+            actor_role="unknown",
+            action=action,
+            detail=detail_extra,
+            request=request,
+        ))
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+    # Login exitoso → limpiar contador de fallos
+    from core.database import get_redis_cache
+    redis = get_redis_cache()
+    await redis.delete(f"{tenant_id}:login_failed:{form.username.lower().strip()}")
 
     role = Role(user.role) if user.role in Role._value2member_map_ else Role.OPERATOR
     access_token = create_access_token(str(user.id), tenant_id, role)

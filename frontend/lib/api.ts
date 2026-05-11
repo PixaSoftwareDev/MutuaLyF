@@ -137,6 +137,7 @@ export interface ConversationRow {
   status: "bot_active" | "handoff_requested" | "human_attending" | "closed";
   afiliado_nombre: string | null;
   afiliado_email: string | null;
+  sector_id: string | null;
   sector_nombre: string | null;
   operator_name: string | null;
   unread_count: number;
@@ -390,6 +391,10 @@ export const api = {
       await apiClient.post(`/operator/conversations/${id}/transfer`, { sector_id: sectorId, message });
     },
     close: async (id: string) => { await apiClient.post(`/operator/conversations/${id}/close`); },
+    presence: async () => {
+      const { data } = await apiClient.get("/operator/presence");
+      return data as { operators: Array<{ user_id: string; name: string }>; count: number };
+    },
   },
 
   sectors: {
@@ -424,6 +429,76 @@ export const api = {
     stats: async () => { const { data } = await apiClient.get("/duplicates/stats"); return data; },
   },
 
+  promptTemplates: {
+    // Super admin
+    list: async () => {
+      const { data } = await apiClient.get("/superadmin/prompt-templates");
+      return data as PromptTemplate[];
+    },
+    get: async (id: string) => {
+      const { data } = await apiClient.get(`/superadmin/prompt-templates/${id}`);
+      return data as PromptTemplateDetail;
+    },
+    create: async (body: { nombre: string; descripcion?: string; contenido: string; categoria: string; plan_minimo: string }) => {
+      const { data } = await apiClient.post("/superadmin/prompt-templates", body);
+      return data as PromptTemplateDetail;
+    },
+    update: async (id: string, body: Partial<{ nombre: string; descripcion: string; contenido: string; categoria: string; plan_minimo: string; is_active: boolean }>) => {
+      const { data } = await apiClient.patch(`/superadmin/prompt-templates/${id}`, body);
+      return data;
+    },
+    delete: async (id: string) => {
+      await apiClient.delete(`/superadmin/prompt-templates/${id}`);
+    },
+    assignToTenants: async (id: string, tenant_ids: string[]) => {
+      const { data } = await apiClient.post(`/superadmin/prompt-templates/${id}/assign`, { tenant_ids });
+      return data as { assigned: string[]; errors: { tenant_id: string; error: string }[] };
+    },
+    unassign: async (tenant_id: string, template_id: string) => {
+      await apiClient.delete(`/superadmin/tenants/${tenant_id}/prompt-assignments/${template_id}`);
+    },
+    setMaxTemplates: async (tenant_id: string, max: number) => {
+      const { data } = await apiClient.patch(`/superadmin/tenants/${tenant_id}/max-templates`, { max_prompt_templates: max });
+      return data;
+    },
+    listCategories: async () => {
+      const { data } = await apiClient.get("/superadmin/prompt-categories");
+      return data.categories as string[];
+    },
+    listSystemComponents: async () => {
+      const { data } = await apiClient.get("/superadmin/system-components");
+      return data as { id: string; nombre: string; descripcion: string | null; categoria: string; contenido: string; updated_at: string | null }[];
+    },
+    // Admin
+    listAssigned: async () => {
+      const { data } = await apiClient.get("/admin/prompt-templates");
+      return data as { max_prompt_templates: number; templates: AssignedTemplate[] };
+    },
+    activate: async (template_id: string) => {
+      const { data } = await apiClient.post(`/admin/prompt-templates/${template_id}/activate`);
+      return data;
+    },
+    deactivate: async () => {
+      const { data } = await apiClient.post("/admin/prompt-templates/deactivate");
+      return data;
+    },
+  },
+
+  tenantBots: {
+    list: async (tenantId: string) => {
+      const { data } = await apiClient.get(`/superadmin/tenants/${tenantId}/bots`);
+      return data as { bots: TenantBot[] };
+    },
+    activate: async (tenantId: string, templateId: string) => {
+      const { data } = await apiClient.post(`/superadmin/tenants/${tenantId}/bots/${templateId}/activate`);
+      return data;
+    },
+    deactivate: async (tenantId: string) => {
+      const { data } = await apiClient.delete(`/superadmin/tenants/${tenantId}/bots/active`);
+      return data;
+    },
+  },
+
   audit: {
     list: async (params?: { limit?: number; offset?: number; action?: string }) => {
       const q = new URLSearchParams();
@@ -432,21 +507,53 @@ export const api = {
       if (params?.action) q.set("action", params.action);
       const { data } = await apiClient.get(`/audit?${q}`);
       return data as {
-        total: number;
-        offset: number;
-        limit: number;
-        events: Array<{
-          id: string;
-          actor_id: string;
-          actor_email: string | null;
-          actor_role: string;
-          action: string;
-          resource: string | null;
-          detail: Record<string, unknown> | null;
-          ip_address: string | null;
-          created_at: string;
-        }>;
+        total: number; offset: number; limit: number;
+        events: AuditEvent[];
+      };
+    },
+    globalList: async (params?: { limit?: number; offset?: number; action?: string; tenant_filter?: string }) => {
+      const q = new URLSearchParams();
+      if (params?.limit)         q.set("limit",         String(params.limit));
+      if (params?.offset)        q.set("offset",        String(params.offset));
+      if (params?.action)        q.set("action",        params.action);
+      if (params?.tenant_filter) q.set("tenant_filter", params.tenant_filter);
+      const { data } = await apiClient.get(`/superadmin/audit?${q}`);
+      return data as {
+        total: number; offset: number; limit: number;
+        tenants: string[];
+        events: (AuditEvent & { tenant_id: string })[];
       };
     },
   },
 };
+
+interface PromptTemplate {
+  id: string; nombre: string; descripcion: string | null; categoria: string;
+  plan_minimo: string; is_active: boolean; created_at: string; updated_at: string;
+  assigned_count: number; active_count: number;
+}
+interface PromptTemplateDetail extends Omit<PromptTemplate, "assigned_count" | "active_count"> {
+  contenido: string;
+  assignments: { id: string; tenant_id: string; tenant_name: string; is_active: boolean; assigned_at: string }[];
+}
+interface AssignedTemplate {
+  id: string; assignment_id: string; nombre: string; descripcion: string | null;
+  categoria: string; is_active: boolean; assigned_at: string;
+}
+
+interface TenantBot {
+  id: string; nombre: string; descripcion: string | null; categoria: string;
+  is_active: boolean; assigned_at: string;
+}
+
+interface AuditEvent {
+  id: string;
+  actor_id: string;
+  actor_email: string | null;
+  actor_role: string;
+  action: string;
+  resource: string | null;
+  detail: Record<string, unknown> | null;
+  ip_address: string | null;
+  created_at: string;
+}

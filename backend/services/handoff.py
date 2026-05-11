@@ -65,8 +65,31 @@ def _is_frustrated(text: str, frustration_phrases: list[str]) -> bool:
     return any(phrase.lower() in text_lower for phrase in frustration_phrases)
 
 
-def _is_response_insufficient(sources: list, intent_confidence: float | None) -> bool:
-    """Insufficient = no sources found OR very low intent confidence."""
+_CHITCHAT_RE = re.compile(
+    r"^\s*(hola|hi|hello|buenos?\s+d[ií]as?|buenas?\s+tardes?|buenas?\s+noches?|"
+    r"todo\s+bien|ok|okay|gracias?|de\s+nada|si|sí|no|claro|dale|genial|"
+    r"perfecto|entendido|listo|bueno|bien|excelente|muy\s+bien)\s*[!.?]?\s*$",
+    re.IGNORECASE,
+)
+
+_MIN_WORDS_FOR_INSUFFICIENT = 4  # queries with fewer words are treated as chitchat
+
+
+def _is_response_insufficient(sources: list, intent_confidence: float | None, user_message: str = "") -> bool:
+    """True only when the bot genuinely couldn't answer a substantive knowledge query.
+
+    Greetings, one-word replies, and chitchat are excluded — the bot
+    correctly responds to those without knowledge-base sources, so they
+    must not penalise the insufficient counter.
+    """
+    msg = user_message.strip()
+
+    # Skip short messages and known chitchat patterns
+    if len(msg.split()) < _MIN_WORDS_FOR_INSUFFICIENT:
+        return False
+    if _CHITCHAT_RE.match(msg):
+        return False
+
     if not sources:
         return True
     if intent_confidence is not None and intent_confidence < 0.3:
@@ -138,7 +161,7 @@ async def evaluate_handoff(
         )
 
     # ── Rule 1: Insufficient responses ────────────────────────────────────────
-    if _is_response_insufficient(sources, intent_confidence):
+    if _is_response_insufficient(sources, intent_confidence, user_message):
         signals["insufficient_count"] = signals.get("insufficient_count", 0) + 1
         await _save_signals(conversation_id, signals)
         threshold = config["consecutive_insufficient_count"]
@@ -153,7 +176,7 @@ async def evaluate_handoff(
                 offer_message=config["transition_messages"]["handoff_offer"],
             )
     else:
-        # Reset insufficient count on successful response
+        # Reset insufficient count on successful response or chitchat (not a real query)
         if signals.get("insufficient_count", 0) > 0:
             signals["insufficient_count"] = 0
             await _save_signals(conversation_id, signals)
@@ -180,6 +203,13 @@ async def request_handoff(conversation_id: str, tenant_id: str, message: str) ->
         """), {"cid": conversation_id, "msg": message})
 
     logger.info("handoff_requested conversation_id=%s tenant=%s", conversation_id, tenant_id)
+
+    # Notify all connected operators in real time
+    import asyncio
+    from services.events import publish
+    asyncio.ensure_future(publish(tenant_id, "handoff_requested", {
+        "conversation_id": conversation_id,
+    }))
 
 
 async def get_default_sector_id(tenant_id: str) -> str | None:

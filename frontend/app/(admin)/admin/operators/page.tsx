@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Users, Check, Loader2, Plus, Trash2, X } from "lucide-react";
+import { Users, Check, Loader2, Plus, Trash2 } from "lucide-react";
 import { apiClient } from "@/lib/api";
 import { api, type SectorRow } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -48,6 +48,13 @@ export default function OperatorsPage() {
     staleTime: 30_000,
   });
 
+  const { data: presenceData } = useQuery({
+    queryKey: ["operator-presence"],
+    queryFn: api.operator.presence,
+    refetchInterval: 15_000,
+  });
+  const onlineIds = new Set((presenceData?.operators ?? []).map(o => o.user_id));
+
   const createM = useMutation({
     mutationFn: () => apiClient.post("/admin/operators", { name: name.trim(), email: email.trim(), password }),
     onSuccess: () => {
@@ -62,7 +69,9 @@ export default function OperatorsPage() {
     },
   });
 
-  const operatorsFiltered = operators.filter(o => o.role === "operator" && o.is_active);
+  const operatorsFiltered = operators
+    .filter(o => o.role === "operator" && o.is_active)
+    .sort((a, b) => (onlineIds.has(b.id) ? 1 : 0) - (onlineIds.has(a.id) ? 1 : 0));
 
   return (
     <div className="p-6 space-y-6 max-w-3xl">
@@ -97,7 +106,7 @@ export default function OperatorsPage() {
       ) : (
         <div className="space-y-4">
           {operatorsFiltered.map(op => (
-            <OperatorCard key={op.id} operator={op} sectors={sectors} onDeleted={() => qc.invalidateQueries({ queryKey: ["operators"] })} />
+            <OperatorCard key={op.id} operator={op} sectors={sectors} isOnline={onlineIds.has(op.id)} onDeleted={() => qc.invalidateQueries({ queryKey: ["operators"] })} />
           ))}
         </div>
       )}
@@ -138,7 +147,7 @@ export default function OperatorsPage() {
   );
 }
 
-function OperatorCard({ operator, sectors, onDeleted }: { operator: OperatorUser; sectors: SectorRow[]; onDeleted: () => void }) {
+function OperatorCard({ operator, sectors, isOnline, onDeleted }: { operator: OperatorUser; sectors: SectorRow[]; isOnline: boolean; onDeleted: () => void }) {
   const qc = useQueryClient();
   const activeSectors = sectors.filter(s => s.is_active);
 
@@ -182,15 +191,33 @@ function OperatorCard({ operator, sectors, onDeleted }: { operator: OperatorUser
   };
 
   return (
-    <Card>
+    <Card className={cn(isOnline && "border-emerald-300 shadow-sm shadow-emerald-100")}>
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between gap-3">
-          <div>
-            <p className="font-semibold text-sm">{operator.name}</p>
-            <p className="text-xs text-muted-foreground">{operator.email}</p>
+          <div className="flex items-center gap-3">
+            {/* Avatar with online indicator */}
+            <div className="relative shrink-0">
+              <div className={cn(
+                "w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold",
+                isOnline ? "bg-emerald-100 text-emerald-700" : "bg-muted text-muted-foreground"
+              )}>
+                {operator.name.charAt(0).toUpperCase()}
+              </div>
+              <span className={cn(
+                "absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-white",
+                isOnline ? "bg-emerald-500" : "bg-slate-300"
+              )} />
+            </div>
+            <div>
+              <p className="font-semibold text-sm">{operator.name}</p>
+              <p className="text-xs text-muted-foreground">{operator.email}</p>
+            </div>
           </div>
           <div className="flex items-center gap-2">
-            <Badge variant="secondary" className="text-xs">operador</Badge>
+            {isOnline
+              ? <Badge className="text-xs bg-emerald-100 text-emerald-700 border-emerald-200 hover:bg-emerald-100">● En línea</Badge>
+              : <Badge variant="secondary" className="text-xs text-slate-400">○ Desconectado</Badge>
+            }
             {dirty && (
               <Button size="sm" onClick={() => saveM.mutate()} disabled={saveM.isPending}>
                 {saveM.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Check className="h-4 w-4 mr-1" />}

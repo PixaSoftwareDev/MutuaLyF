@@ -13,6 +13,7 @@ app = Celery(
         "workers.ingest_tasks",
         "workers.clustering_tasks",
         "workers.training_tasks",
+        "workers.handoff_tasks",
     ],
 )
 
@@ -73,7 +74,11 @@ app.conf.update(
         },
         "operator-inactivity-check": {
             "task": "workers.handoff_tasks.check_operator_inactivity",
-            "schedule": 60,  # every 60s — checks conversations waiting too long
+            "schedule": 60,
+        },
+        "close-stale-conversations": {
+            "task": "workers.handoff_tasks.close_stale_conversations",
+            "schedule": 300,  # every 5 min — close bot_active idle > 30 min
         },
     },
 )

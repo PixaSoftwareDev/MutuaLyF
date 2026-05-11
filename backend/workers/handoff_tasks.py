@@ -87,3 +87,56 @@ async def _check_tenant(tenant_id: str) -> int:
             logger.info("inactivity_alert_sent conversation_id=%s tenant=%s", conv_id, tenant_id)
 
     return len(stale_ids)
+
+
+# ── Auto-close stale bot_active conversations ─────────────────────────────────
+
+@app.task(name="workers.handoff_tasks.close_stale_conversations", queue="default")
+def close_stale_conversations() -> dict:
+    """Close bot_active conversations with no activity in the last 30 minutes.
+
+    A conversation that the user abandoned without closing stays bot_active
+    forever otherwise, cluttering the operator panel.
+    """
+    return asyncio.run(_run_close_stale())
+
+
+async def _run_close_stale() -> dict:
+    from core.database import get_worker_pg_session
+    from sqlalchemy import text
+
+    async with get_worker_pg_session(None) as session:
+        result = await session.execute(
+            text("SELECT id FROM tenants WHERE status = 'active'")
+        )
+        tenant_ids = [row[0] for row in result.fetchall()]
+
+    total = 0
+    for tenant_id in tenant_ids:
+        try:
+            closed = await _close_stale_tenant(tenant_id)
+            total += closed
+        except Exception as exc:
+            logger.error("close_stale_error tenant=%s error=%s", tenant_id, exc)
+
+    logger.info("close_stale_done tenants=%d closed=%d", len(tenant_ids), total)
+    return {"tenants": len(tenant_ids), "closed": total}
+
+
+async def _close_stale_tenant(tenant_id: str) -> int:
+    from core.database import get_worker_pg_session
+    from sqlalchemy import text
+
+    async with get_worker_pg_session(tenant_id) as session:
+        result = await session.execute(text("""
+            UPDATE conversaciones
+            SET status = 'closed', updated_at = NOW()
+            WHERE status = 'bot_active'
+              AND updated_at < NOW() - INTERVAL '30 minutes'
+            RETURNING id
+        """))
+        closed = result.fetchall()
+
+    if closed:
+        logger.info("stale_conversations_closed tenant=%s count=%d", tenant_id, len(closed))
+    return len(closed)

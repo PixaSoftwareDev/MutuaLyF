@@ -171,6 +171,11 @@ async def create_tenant(
             admin_name=payload.admin_name,
             admin_password=payload.admin_password,
         )
+
+        # Auto-assign system templates (all plans get them for free)
+        from api.v1.system_prompts import auto_assign_system_templates
+        await auto_assign_system_templates(payload.id)
+
         logger.info("tenant_create_complete id=%s", payload.id)
         return {
             "id":          payload.id,

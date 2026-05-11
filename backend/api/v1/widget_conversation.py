@@ -305,5 +305,40 @@ async def confirm_handoff(
     """Afiliado confirms they want handoff after being offered."""
     from services.handoff import _get_handoff_config
     config = await _get_handoff_config(tenant_id)
-    await request_handoff(conversation_id, tenant_id, config["transition_messages"]["handoff_auto"])
-    return {"status": ConvStatus.HANDOFF_REQUESTED}
+    msg = config["transition_messages"]["handoff_auto"]
+    await request_handoff(conversation_id, tenant_id, msg)
+    return {"status": ConvStatus.HANDOFF_REQUESTED, "message": msg}
+
+
+# ── Operators online count ────────────────────────────────────────────────────
+
+@router.get("/widget/operators-online")
+async def operators_online(
+    sector_id: str | None = None,
+    tenant_id: str = Depends(get_tenant_id),
+    widget_user: CurrentUser = Depends(get_widget_user),
+):
+    """Return count of operators currently marked as online for a sector."""
+    from services.events import get_online_operators
+    online_ops = await get_online_operators(tenant_id)
+
+    if not sector_id:
+        return {"online": len(online_ops), "operators": [o["name"] for o in online_ops]}
+
+    # Filter online operators by those assigned to the requested sector
+    if not online_ops:
+        return {"online": 0, "operators": []}
+
+    online_ids = [o["user_id"] for o in online_ops]
+    async with get_pg_session(tenant_id) as session:
+        placeholders = ", ".join(f":uid_{i}" for i in range(len(online_ids)))
+        result = await session.execute(text(f"""
+            SELECT DISTINCT u.id, u.name
+            FROM usuarios u
+            JOIN operador_sectores os ON os.operador_id = u.id
+            WHERE os.sector_id = :sector_id
+              AND u.id::text IN ({placeholders})
+        """), {"sector_id": sector_id, **{f"uid_{i}": uid for i, uid in enumerate(online_ids)}})
+        rows = result.fetchall()
+
+    return {"online": len(rows), "operators": [r[1] for r in rows]}

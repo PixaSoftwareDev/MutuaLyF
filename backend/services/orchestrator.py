@@ -122,11 +122,14 @@ async def handle_query(
         logger.warning("neo4j_retrieval_failed error=%s", neo4j_records)
         neo4j_records = []
 
-    # ── Step 4: Load tenant bot config (cached) ───────────────────────────────
+    # ── Step 4: Load tenant bot config + active prompt template (both cached) ──
     tenant_config = await _get_tenant_config(tenant_id)
     min_score: float = tenant_config.get("min_retrieval_score", 0.77)
     bot_scope: str   = tenant_config.get("bot_scope") or ""
-    prompt_query: str | None = tenant_config.get("prompt_query") or None
+
+    # Active template overrides prompt_query if set
+    active_template = await _get_active_template(tenant_id)
+    prompt_query: str | None = active_template or tenant_config.get("prompt_query") or None
 
     # ── Step 5: Build context — drop chunks below relevance threshold ──────────
     context_parts: list[str] = []
@@ -335,6 +338,44 @@ async def _log_usage_event_app(tenant_id: str, event_type: str, value: int) -> N
 
 async def _empty_list() -> list:
     return []
+
+
+async def _get_active_template(tenant_id: str) -> str | None:
+    """Return the active template content for this tenant, Redis-cached for 5 min."""
+    redis = get_redis_cache()
+    cache_key = f"{tenant_id}:active_template"
+
+    try:
+        raw = await redis.get(cache_key)
+        if raw is not None:
+            return raw.decode() if raw else None
+    except Exception:
+        pass
+
+    try:
+        from core.database import get_pg_session
+        from sqlalchemy import text
+        async with get_pg_session(None) as session:
+            result = await session.execute(text("""
+                SELECT t.contenido
+                FROM tenant_prompt_assignments a
+                JOIN system_prompt_templates t ON t.id = a.template_id
+                WHERE a.tenant_id = :tid AND a.is_active = TRUE AND t.is_active = TRUE
+                LIMIT 1
+            """), {"tid": tenant_id})
+            row = result.fetchone()
+    except Exception as exc:
+        logger.warning("active_template_load_failed tenant_id=%s error=%s", tenant_id, exc)
+        return None
+
+    contenido = row[0] if row else None
+    try:
+        # Cache empty string as sentinel so we don't query DB every time
+        await redis.setex(cache_key, 300, contenido or "")
+    except Exception:
+        pass
+
+    return contenido
 
 
 async def _get_tenant_config(tenant_id: str) -> dict:

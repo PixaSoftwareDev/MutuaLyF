@@ -7,7 +7,7 @@ import {
   ArrowLeft, RefreshCw, Loader2, AlertTriangle, CheckCircle2,
   PauseCircle, PlayCircle, Settings2, UserPlus, Building2,
   TrendingUp, FileText, Zap, Clock, Database, Shield,
-  MessageSquare, Target, Activity, ChevronRight, Bot,
+  MessageSquare, Target, Activity, ChevronRight, Bot, X,
 } from "lucide-react";
 import { api, apiClient } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -55,6 +55,11 @@ function relTime(iso: string): string {
   return `hace ${Math.floor(h / 24)}d`;
 }
 
+const CAT_ICONS: Record<string, string> = {
+  general: "🤖", ventas: "📊", atencion: "🤝",
+  legal: "⚖️", rrhh: "👥", educacion: "🎓", salud: "🧠", otro: "✨",
+};
+
 const PLAN_COLORS: Record<string, string> = {
   starter:      "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300",
   professional: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
@@ -77,6 +82,7 @@ export default function TenantDetailPage() {
   const [editPlan, setEditPlan]               = useState(false);
 
   const inv = () => qc.invalidateQueries({ queryKey: ["tenant-metrics", tenantId] });
+  const invBots = () => qc.invalidateQueries({ queryKey: ["tenant-bots", tenantId] });
 
   const { data: m, isLoading, error } = useQuery({
     queryKey: ["tenant-metrics", tenantId],
@@ -90,6 +96,39 @@ export default function TenantDetailPage() {
     queryFn:  api.tenants.platformSystem,
     refetchInterval: 60_000,
     staleTime: 30_000,
+  });
+
+  const { data: botsData } = useQuery({
+    queryKey: ["tenant-bots", tenantId],
+    queryFn: () => api.tenantBots.list(tenantId),
+    staleTime: 30_000,
+  });
+  const bots = botsData?.bots ?? [];
+  const activeBot = bots.find(b => b.is_active) ?? null;
+
+  const { data: allTemplates = [] } = useQuery({
+    queryKey: ["prompt-templates"],
+    queryFn: api.promptTemplates.list,
+    staleTime: 60_000,
+  });
+
+  const activateBotM = useMutation({
+    mutationFn: (templateId: string) => api.tenantBots.activate(tenantId, templateId),
+    onSuccess: () => { invBots(); toast({ title: "Bot activado", variant: "success" }); },
+    onError: () => toast({ title: "Error al activar bot", variant: "destructive" }),
+  });
+  const deactivateBotM = useMutation({
+    mutationFn: () => api.tenantBots.deactivate(tenantId),
+    onSuccess: () => { invBots(); toast({ title: "Bot desactivado" }); },
+    onError: () => toast({ title: "Error al desactivar bot", variant: "destructive" }),
+  });
+  const assignAndActivateM = useMutation({
+    mutationFn: async (templateId: string) => {
+      await api.promptTemplates.assignToTenants(templateId, [tenantId]);
+      await api.tenantBots.activate(tenantId, templateId);
+    },
+    onSuccess: () => { invBots(); toast({ title: "Bot asignado y activado", variant: "success" }); },
+    onError: (e: any) => toast({ title: e?.response?.data?.detail ?? "Error al asignar", variant: "destructive" }),
   });
 
   const suspendM  = useMutation({ mutationFn: () => apiClient.post(`/tenants/${tenantId}/suspend`),  onSuccess: () => { inv(); qc.invalidateQueries({ queryKey: ["tenants"] }); toast({ title: "Tenant suspendido" }); }, onError: () => toast({ title: "Error", variant: "destructive" }) });
@@ -200,6 +239,17 @@ export default function TenantDetailPage() {
               )}
             </div>
           </div>
+
+          {/* ── Bot activo ───────────────────────────────────────────── */}
+          <SectionTitle icon={Bot} label="Bot activo" sublabel="personalidad del asistente de este tenant" />
+          <BotSelector
+            allTemplates={allTemplates}
+            bots={bots}
+            activeBot={activeBot}
+            activateBotM={activateBotM}
+            deactivateBotM={deactivateBotM}
+            assignAndActivateM={assignAndActivateM}
+          />
 
           {/* ── Usage KPIs ───────────────────────────────────────────── */}
           <SectionTitle icon={TrendingUp} label="Uso" />
@@ -493,6 +543,131 @@ function LoadingState() {
           </div>
           <Skeleton className="h-24 w-full rounded-xl" />
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ── BotSelector ───────────────────────────────────────────────────────────────
+function BotSelector({ allTemplates, bots, activeBot, activateBotM, deactivateBotM, assignAndActivateM }: {
+  allTemplates: any[];
+  bots: any[];
+  activeBot: any | null;
+  activateBotM: any;
+  deactivateBotM: any;
+  assignAndActivateM: any;
+}) {
+  const assignedIds = new Set(bots.map((b: any) => b.id));
+  const activeTemplates = allTemplates.filter((t: any) => t.is_active);
+
+  if (activeTemplates.length === 0) {
+    return (
+      <div className="rounded-xl border bg-card shadow-sm px-5 py-6 text-center">
+        <Bot className="h-8 w-8 mx-auto mb-2 text-muted-foreground/30" />
+        <p className="text-sm text-muted-foreground">No hay bots creados en la plataforma aún.</p>
+      </div>
+    );
+  }
+
+  // Order: active first, then assigned+inactive, then unassigned
+  const sorted = [
+    ...activeTemplates.filter((t: any) => {
+      const a = bots.find((b: any) => b.id === t.id);
+      return a?.is_active;
+    }),
+    ...activeTemplates.filter((t: any) => {
+      const a = bots.find((b: any) => b.id === t.id);
+      return a && !a.is_active;
+    }),
+    ...activeTemplates.filter((t: any) => !assignedIds.has(t.id)),
+  ];
+
+  return (
+    <div className="rounded-xl border bg-card shadow-sm px-5 py-4 space-y-3">
+      {/* Status strip */}
+      <div className={cn(
+        "flex items-center justify-between gap-3 rounded-lg border px-4 py-3 text-sm",
+        activeBot ? "bg-green-50 border-green-200" : "bg-slate-50 border-slate-200"
+      )}>
+        <div className="flex items-center gap-2">
+          {activeBot ? (
+            <>
+              <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />
+              <span className="font-medium text-green-800">
+                {CAT_ICONS[activeBot.categoria] ?? "🤖"} {activeBot.nombre} activo
+              </span>
+            </>
+          ) : (
+            <span className="text-slate-600">Modo estándar — hacé clic en un bot para activarlo</span>
+          )}
+        </div>
+        {activeBot && (
+          <button
+            onClick={() => deactivateBotM.mutate()}
+            disabled={deactivateBotM.isPending}
+            className="text-xs text-muted-foreground hover:text-destructive transition-colors shrink-0 flex items-center gap-1"
+          >
+            {deactivateBotM.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <X className="h-3 w-3" />}
+            Desactivar
+          </button>
+        )}
+      </div>
+
+      {/* Bot grid */}
+      <div className="grid gap-2 sm:grid-cols-2">
+        {sorted.map((t: any) => {
+          const assigned = bots.find((b: any) => b.id === t.id);
+          const isActive = assigned?.is_active ?? false;
+          const isAssigned = !!assigned;
+          const isBusy = (activateBotM.isPending && activateBotM.variables === t.id)
+            || (assignAndActivateM.isPending && assignAndActivateM.variables === t.id);
+
+          return (
+            <div
+              key={t.id}
+              className={cn(
+                "flex items-center gap-3 rounded-lg border px-3 py-3 transition-all",
+                isActive
+                  ? "border-primary bg-primary/5 ring-1 ring-primary/20"
+                  : "border-border"
+              )}
+            >
+              <span className="text-2xl shrink-0">{CAT_ICONS[t.categoria] ?? "🤖"}</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium truncate">{t.nombre}</p>
+                {t.descripcion && (
+                  <p className="text-xs text-muted-foreground truncate">{t.descripcion}</p>
+                )}
+                {!isAssigned && (
+                  <p className="text-[10px] text-muted-foreground/60 mt-0.5">No asignado</p>
+                )}
+              </div>
+              <div className="shrink-0">
+                {isActive ? (
+                  <span className="text-xs font-semibold text-primary">Activo</span>
+                ) : isBusy ? (
+                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                ) : isAssigned ? (
+                  <Button
+                    size="sm" variant="outline" className="h-7 text-xs"
+                    onClick={() => activateBotM.mutate(t.id)}
+                    disabled={activateBotM.isPending || assignAndActivateM.isPending}
+                  >
+                    Activar
+                  </Button>
+                ) : (
+                  <Button
+                    size="sm" className="h-7 text-xs"
+                    onClick={() => assignAndActivateM.mutate(t.id)}
+                    disabled={activateBotM.isPending || assignAndActivateM.isPending}
+                  >
+                    Asignar
+                  </Button>
+                )}
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

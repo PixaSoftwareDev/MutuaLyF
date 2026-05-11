@@ -8,7 +8,14 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuthStore } from "@/lib/store";
 import { api } from "@/lib/api";
-import { Loader2, AlertTriangle, Shield } from "lucide-react";
+import { Loader2, AlertTriangle, Shield, Zap } from "lucide-react";
+
+const DEV_USERS = [
+  { name: "Admin Principal", email: "admin@empresa1.com", password: "Admin1234!", tenant: "empresa1", role: "admin" },
+  { name: "Operador Uno",    email: "op@empresa1.com",    password: "Operador123", tenant: "empresa1", role: "operator" },
+  { name: "Operador Dos",    email: "op2@empresa1.com",   password: "Operador123", tenant: "empresa1", role: "operator" },
+  { name: "pixs (super)",    email: "pixs@gmail.com",     password: "Admin1234!", tenant: "",         role: "super_admin" },
+];
 
 export default function LoginPage() {
   const router = useRouter();
@@ -21,19 +28,17 @@ export default function LoginPage() {
   const [error, setError]         = useState<string | null>(null);
   const [loading, setLoading]     = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const doLogin = async (em: string, pw: string, tenant: string, superAdmin: boolean) => {
     setError(null);
     setLoading(true);
     try {
-      // Super-admin sends no tenantId → backend checks platform_users table
-      const effectiveTenant = isSuperAdmin ? "" : tenantId;
-      const data = await api.auth.login(email, password, effectiveTenant);
+      const effectiveTenant = superAdmin ? "" : tenant;
+      const data = await api.auth.login(em, pw, effectiveTenant);
       const payload = JSON.parse(atob(data.access_token.split(".")[1]));
       const role = payload.role as string;
       const resolvedTenant = payload.tenant_id as string;
 
-      setAuth(data.access_token, resolvedTenant, email, role);
+      setAuth(data.access_token, resolvedTenant, em, role);
       document.cookie = `ia_role=${role}; path=/; SameSite=strict`;
       document.cookie = `ia_tenant=${resolvedTenant}; path=/; SameSite=strict`;
 
@@ -46,6 +51,11 @@ export default function LoginPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await doLogin(email, password, tenantId, isSuperAdmin);
   };
 
   return (
@@ -135,6 +145,32 @@ export default function LoginPage() {
               {isSuperAdmin ? "← Volver a login de organización" : "Soy administrador de la plataforma"}
             </button>
           </form>
+
+          {/* Dev quick-fill */}
+          <div className="mt-6 pt-4 border-t border-dashed border-slate-200">
+            <p className="text-xs text-muted-foreground flex items-center gap-1 mb-2">
+              <Zap className="h-3 w-3" /> Acceso rápido (dev)
+            </p>
+            <div className="flex flex-col gap-1">
+              {DEV_USERS.map((u) => (
+                <button
+                  key={u.email}
+                  type="button"
+                  disabled={loading}
+                  onClick={() => doLogin(u.email, u.password, u.tenant, u.role === "super_admin")}
+                  className="w-full text-left px-3 py-2 rounded-md bg-slate-50 hover:bg-slate-100 border border-slate-200 transition-colors disabled:opacity-50"
+                >
+                  <span className="text-sm font-medium text-slate-700">{u.name}</span>
+                  <span className="ml-2 text-xs text-muted-foreground">{u.email}</span>
+                  <span className={`ml-2 text-xs px-1.5 py-0.5 rounded font-medium ${
+                    u.role === "super_admin" ? "bg-violet-100 text-violet-700" :
+                    u.role === "admin"       ? "bg-blue-100 text-blue-700" :
+                                              "bg-green-100 text-green-700"
+                  }`}>{u.role}</span>
+                </button>
+              ))}
+            </div>
+          </div>
         </CardContent>
       </Card>
     </div>

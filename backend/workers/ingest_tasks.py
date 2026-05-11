@@ -255,55 +255,27 @@ async def _run_ingest_pipeline(
     timings["neo4j_ms"] = _ms(t)
 
     # ── 7b. Duplicate detection (non-blocking) ────────────────────────────────
+    # Only cross-document duplicates are reported. Within-batch comparison is
+    # skipped because every batch belongs to a single document — comparing its
+    # chunks against each other always yields same-doc pairs, which are never
+    # actionable (overlap artifact, not a real duplicate).
     try:
-        from services.duplicate_detector import (
-            find_chunk_duplicates_in_batch,
-            find_duplicates_against_existing,
-        )
+        from services.duplicate_detector import find_duplicates_against_existing
         from core.database import get_worker_pg_session
         from sqlalchemy import text as sa_text
 
         valid_chunks = [c for c, _ in valid]
         valid_vectors = [emb for _, emb in valid]
 
-        batch_pairs = await find_chunk_duplicates_in_batch(valid_chunks, tenant_id)
         existing_pairs = await find_duplicates_against_existing(
             valid_chunks, tenant_id, valid_vectors, qdrant_client=qdrant
         )
 
-        if batch_pairs or existing_pairs:
+        if existing_pairs:
             logger.warning(
-                "duplicates_detected document_id=%s batch_pairs=%d existing_pairs=%d",
-                document_id, len(batch_pairs), len(existing_pairs),
+                "duplicates_detected document_id=%s existing_pairs=%d",
+                document_id, len(existing_pairs),
             )
-
-        # Insert batch duplicate pairs into PG
-        if batch_pairs:
-            async with get_worker_pg_session(tenant_id) as pg_session:
-                for idx_a, idx_b, jaccard in batch_pairs:
-                    ca = valid_chunks[idx_a]
-                    cb = valid_chunks[idx_b]
-                    try:
-                        await pg_session.execute(
-                            sa_text(
-                                "INSERT INTO chunk_duplicate_pairs "
-                                "(chunk_id_a, chunk_id_b, doc_id_a, doc_id_b, "
-                                " text_a, text_b, jaccard_score, cosine_score) "
-                                "VALUES (:a, :b, :da, :db, :ta, :tb, :j, NULL) "
-                                "ON CONFLICT DO NOTHING"
-                            ),
-                            {
-                                "a": ca.id, "b": cb.id,
-                                "da": ca.document_id, "db": cb.document_id,
-                                "ta": ca.text[:10000], "tb": cb.text[:10000],
-                                "j": jaccard,
-                            },
-                        )
-                    except Exception as exc:
-                        logger.warning(
-                            "dup_pair_insert_failed chunk_ids=%s,%s error=%s",
-                            ca.id, cb.id, exc,
-                        )
 
         # Insert existing-vs-new duplicate pairs into PG
         if existing_pairs:

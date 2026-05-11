@@ -1,10 +1,11 @@
 "use client";
 
+import React from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   Inbox, FileText, Sparkles, Settings, LogOut, ChevronLeft, ChevronRight,
-  Shield, Building2, GitMerge, Users, ExternalLink, FlaskConical, ClipboardList,
+  Shield, Building2, GitMerge, Users, ExternalLink, FlaskConical, ClipboardList, Bot,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore, useUIStore } from "@/lib/store";
@@ -57,7 +58,12 @@ const navSections: NavSection[] = [
     label: "Configuración",
     items: [
       { href: "/admin/settings", label: "Configuración del bot", icon: Settings, adminOnly: true,
-        tooltip: "Comportamiento del asistente y reglas de derivación a operadores humanos." },
+        tooltip: "Personalidad, mensaje de saludo y comportamiento del asistente." },
+    ],
+  },
+  {
+    label: "Sistema",
+    items: [
       { href: "/admin/audit", label: "Auditoría", icon: ClipboardList, adminOnly: true,
         tooltip: "Registro de acciones críticas: logins, subidas, cambios de configuración." },
     ],
@@ -65,8 +71,12 @@ const navSections: NavSection[] = [
   {
     label: "Plataforma",
     items: [
-      { href: "/superadmin", label: "Plataforma", icon: Shield, superAdminOnly: true,
+      { href: "/superadmin",         label: "Plataforma",       icon: Shield,        superAdminOnly: true,
         tooltip: "Administración cross-tenant: organizaciones, planes y cuotas." },
+      { href: "/superadmin/prompts", label: "Bots / Prompts",   icon: Bot,           superAdminOnly: true,
+        tooltip: "Creá y asignás templates de prompt a los tenants." },
+      { href: "/superadmin/audit",   label: "Auditoría global", icon: ClipboardList, superAdminOnly: true,
+        tooltip: "Registro de actividad de todas las organizaciones." },
     ],
   },
 ];
@@ -77,6 +87,11 @@ export function Sidebar() {
   const queryClient = useQueryClient();
   const { userEmail, userRole, tenantId, clearAuth } = useAuthStore();
   const { sidebarOpen, toggleSidebar } = useUIStore();
+
+  // All sections open by default; persists in component state
+  const [collapsed, setCollapsed] = React.useState<Record<string, boolean>>({});
+  const toggleSection = (label: string) =>
+    setCollapsed(prev => ({ ...prev, [label]: !prev[label] }));
 
   const isAdmin = userRole === "admin";
   const isSuperAdmin = userRole === "super_admin";
@@ -143,81 +158,101 @@ export function Sidebar() {
       <nav className="flex-1 overflow-y-auto p-2 space-y-3">
         {navSections.map((section, idx) => {
           const visibleItems = section.items.filter(isVisible);
-          // "Probar chat" only for tenant admins (super_admin has no tenant schema)
           const showChatTester = section.label === "Trabajo diario" && isAdmin;
           if (visibleItems.length === 0 && !showChatTester) return null;
+
+          const isSectionCollapsed = !!collapsed[section.label];
+          // If any item in section is active, force-open even if collapsed
+          const hasActive = visibleItems.some(
+            item => pathname === item.href || pathname.startsWith(item.href + "/")
+          );
+          const isOpen = !isSectionCollapsed || hasActive;
 
           return (
             <div key={section.label}>
               {/* Section header */}
               {sidebarOpen ? (
-                <p className="px-2 mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
-                  {section.label}
-                </p>
+                <div className="flex items-center justify-between px-2 mb-1">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+                    {section.label}
+                  </span>
+                  <button
+                    onClick={() => toggleSection(section.label)}
+                    className="rounded p-0.5 hover:bg-accent transition-colors"
+                    title={isOpen ? "Colapsar" : "Expandir"}
+                  >
+                    <ChevronRight className={cn(
+                      "h-3 w-3 text-muted-foreground/40 hover:text-muted-foreground transition-all duration-200",
+                      isOpen && "rotate-90"
+                    )} />
+                  </button>
+                </div>
               ) : (
                 idx > 0 && <div className="border-t border-border/40 my-1.5 mx-1" />
               )}
 
-              <div className="space-y-1">
-                {/* "Probar chat" lives inside Trabajo diario as a special button (opens new tab) */}
-                {showChatTester && (
-                  <button
-                    onClick={handleOpenChatTester}
-                    className={cn(
-                      "w-full flex items-center gap-3 rounded-md px-2 py-2 text-sm font-medium transition-colors",
-                      "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-                      !sidebarOpen && "justify-center px-2"
-                    )}
-                    title={!sidebarOpen ? "Probar chat (nueva pestaña)" : "Abre el widget en una pestaña nueva"}
-                  >
-                    <FlaskConical className="h-4 w-4 shrink-0" />
-                    {sidebarOpen && (
-                      <>
-                        <span className="flex-1 text-left">Probar chat</span>
-                        <ExternalLink className="h-3.5 w-3.5 opacity-60" />
-                      </>
-                    )}
-                  </button>
-                )}
-
-                {visibleItems.map((item) => {
-                  const Icon = item.icon;
-                  const active = pathname === item.href || pathname.startsWith(item.href + "/");
-                  const pendingCount = item.badgeKey === "duplicates-pending" ? duplicatesPending : 0;
-                  const titleAttr = !sidebarOpen ? item.label : item.tooltip;
-                  return (
-                    <Link
-                      key={item.href}
-                      href={item.href}
-                      onMouseEnter={() => prefetchMap[item.href]?.()}
-                      onFocus={() => prefetchMap[item.href]?.()}
+              {/* Items — hidden when collapsed (only in expanded sidebar mode) */}
+              {(isOpen || !sidebarOpen) && (
+                <div className="space-y-1">
+                  {showChatTester && (
+                    <button
+                      onClick={handleOpenChatTester}
                       className={cn(
-                        "relative flex items-center gap-3 rounded-md px-2 py-2 text-sm font-medium transition-colors",
-                        active
-                          ? "bg-primary/10 text-primary"
-                          : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                        "w-full flex items-center gap-3 rounded-md px-2 py-2 text-sm font-medium transition-colors",
+                        "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
                         !sidebarOpen && "justify-center px-2"
                       )}
-                      title={titleAttr}
+                      title={!sidebarOpen ? "Probar chat (nueva pestaña)" : "Abre el widget en una pestaña nueva"}
                     >
-                      <Icon className="h-4 w-4 shrink-0" />
+                      <FlaskConical className="h-4 w-4 shrink-0" />
                       {sidebarOpen && (
                         <>
-                          <span className="flex-1">{item.label}</span>
-                          {pendingCount > 0 && (
-                            <span className="ml-auto inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-bold text-destructive-foreground">
-                              {pendingCount > 99 ? "99+" : pendingCount}
-                            </span>
-                          )}
+                          <span className="flex-1 text-left">Probar chat</span>
+                          <ExternalLink className="h-3.5 w-3.5 opacity-60" />
                         </>
                       )}
-                      {!sidebarOpen && pendingCount > 0 && (
-                        <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-destructive" />
-                      )}
-                    </Link>
-                  );
-                })}
-              </div>
+                    </button>
+                  )}
+
+                  {visibleItems.map((item) => {
+                    const Icon = item.icon;
+                    const active = pathname === item.href || pathname.startsWith(item.href + "/");
+                    const pendingCount = item.badgeKey === "duplicates-pending" ? duplicatesPending : 0;
+                    const titleAttr = !sidebarOpen ? item.label : item.tooltip;
+                    return (
+                      <Link
+                        key={item.href}
+                        href={item.href}
+                        onMouseEnter={() => prefetchMap[item.href]?.()}
+                        onFocus={() => prefetchMap[item.href]?.()}
+                        className={cn(
+                          "relative flex items-center gap-3 rounded-md px-2 py-2 text-sm font-medium transition-colors",
+                          active
+                            ? "bg-primary/10 text-primary"
+                            : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                          !sidebarOpen && "justify-center px-2"
+                        )}
+                        title={titleAttr}
+                      >
+                        <Icon className="h-4 w-4 shrink-0" />
+                        {sidebarOpen && (
+                          <>
+                            <span className="flex-1">{item.label}</span>
+                            {pendingCount > 0 && (
+                              <span className="ml-auto inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-bold text-destructive-foreground">
+                                {pendingCount > 99 ? "99+" : pendingCount}
+                              </span>
+                            )}
+                          </>
+                        )}
+                        {!sidebarOpen && pendingCount > 0 && (
+                          <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-destructive" />
+                        )}
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           );
         })}

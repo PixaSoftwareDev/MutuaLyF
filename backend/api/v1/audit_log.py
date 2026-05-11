@@ -1,10 +1,10 @@
-"""Audit log endpoint — admin only."""
+"""Audit log endpoints — tenant admin + super_admin global view."""
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import text
 
 from core.database import get_pg_session
-from core.security import CurrentUser, require_admin
+from core.security import CurrentUser, require_admin, require_super_admin
 from core.tenant import get_tenant_id
 
 router = APIRouter()
@@ -59,4 +59,65 @@ async def list_audit_events(
             }
             for r in rows
         ],
+    }
+
+
+@router.get("/superadmin/audit")
+async def global_audit_log(
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    action: str | None = None,
+    tenant_filter: str | None = None,
+    _: CurrentUser = Depends(require_super_admin),
+):
+    """Global audit log across all tenants — super_admin only."""
+    async with get_pg_session(None) as session:
+        tenants_result = await session.execute(
+            text("SELECT id FROM tenants WHERE status != 'suspended' ORDER BY id")
+        )
+        tenant_ids = [r[0] for r in tenants_result.fetchall()]
+
+    if tenant_filter:
+        tenant_ids = [t for t in tenant_ids if t == tenant_filter]
+
+    all_events: list[dict] = []
+    for tid in tenant_ids:
+        try:
+            where = "WHERE 1=1"
+            params: dict = {}
+            if action:
+                where += " AND action = :action"
+                params["action"] = action
+            async with get_pg_session(tid) as session:
+                result = await session.execute(
+                    text(
+                        f"SELECT id, actor_id, actor_email, actor_role, action, resource, detail, ip_address, created_at "
+                        f"FROM audit_log {where} ORDER BY created_at DESC LIMIT 500"
+                    ),
+                    params,
+                )
+                for r in result.mappings().all():
+                    all_events.append({
+                        "tenant_id": tid,
+                        "id": str(r["id"]),
+                        "actor_id": r["actor_id"],
+                        "actor_email": r["actor_email"],
+                        "actor_role": r["actor_role"],
+                        "action": r["action"],
+                        "resource": r["resource"],
+                        "detail": r["detail"],
+                        "ip_address": r["ip_address"],
+                        "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+                    })
+        except Exception:
+            pass  # tenant schema may not have audit_log yet — skip silently
+
+    all_events.sort(key=lambda e: e["created_at"] or "", reverse=True)
+    total = len(all_events)
+    return {
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "tenants": tenant_ids,
+        "events": all_events[offset: offset + limit],
     }

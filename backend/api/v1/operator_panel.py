@@ -4,10 +4,12 @@ Operators see only their assigned sectors.
 Admins see all sectors and can transfer conversations between them.
 """
 
+import asyncio
 import logging
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import text
 
@@ -15,6 +17,7 @@ from core.database import get_pg_session
 from core.security import CurrentUser, Role, get_current_user, require_admin, require_operator, get_widget_user, create_widget_token
 from core.tenant import get_tenant_id
 from services.handoff import ConvStatus, invalidate_config_cache
+from services.events import publish
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -149,6 +152,7 @@ async def list_conversations(
                 "status":         conv["status"],
                 "afiliado_nombre": conv["afiliado_nombre"],
                 "afiliado_email":  conv["afiliado_email"],
+                "sector_id":       sid,
                 "sector_nombre":   conv["sector_nombre"],
                 "operator_name":   conv["operator_name"],
                 "unread_count":    int(conv["unread_count"] or 0),
@@ -218,6 +222,7 @@ async def get_conversation(
 @router.post("/operator/conversations/{conversation_id}/accept")
 async def accept_handoff(
     conversation_id: str,
+    request: Request,
     tenant_id: str = Depends(get_tenant_id),
     current_user: CurrentUser = Depends(require_operator),
 ):
@@ -244,6 +249,15 @@ async def accept_handoff(
         """), {"cid": conversation_id, "msg": msg})
 
     logger.info("handoff_accepted conversation_id=%s operator=%s", conversation_id, current_user.user_id)
+    from core.audit import record as audit
+    asyncio.ensure_future(audit(
+        tenant_id=tenant_id, actor_id=current_user.user_id, actor_email=None,
+        actor_role=current_user.role.value, action="handoff.accepted",
+        resource=conversation_id, request=request,
+    ))
+    asyncio.ensure_future(publish(tenant_id, "conversation_updated", {
+        "conversation_id": conversation_id, "status": ConvStatus.HUMAN_ATTENDING,
+    }))
     return {"status": ConvStatus.HUMAN_ATTENDING, "system_message": msg}
 
 
@@ -274,6 +288,9 @@ async def reply(
             "UPDATE conversaciones SET updated_at = NOW() WHERE id = :id"
         ), {"id": conversation_id})
 
+    asyncio.ensure_future(publish(tenant_id, "new_message", {
+        "conversation_id": conversation_id, "sender": "operator",
+    }))
     return {"status": "sent"}
 
 
@@ -283,6 +300,7 @@ async def reply(
 async def transfer(
     conversation_id: str,
     body: TransferRequest,
+    request: Request,
     tenant_id: str = Depends(get_tenant_id),
     current_user: CurrentUser = Depends(require_operator),
 ):
@@ -307,6 +325,15 @@ async def transfer(
         """), {"cid": conversation_id, "msg": msg})
 
     logger.info("conversation_transferred id=%s to_sector=%s by=%s", conversation_id, body.sector_id, current_user.user_id)
+    from core.audit import record as audit
+    asyncio.ensure_future(audit(
+        tenant_id=tenant_id, actor_id=current_user.user_id, actor_email=None,
+        actor_role=current_user.role.value, action="handoff.transferred",
+        resource=conversation_id, detail={"to_sector": body.sector_id}, request=request,
+    ))
+    asyncio.ensure_future(publish(tenant_id, "conversation_updated", {
+        "conversation_id": conversation_id, "status": ConvStatus.HANDOFF_REQUESTED,
+    }))
     return {"status": ConvStatus.HANDOFF_REQUESTED, "system_message": msg}
 
 
@@ -315,6 +342,7 @@ async def transfer(
 @router.post("/operator/conversations/{conversation_id}/close")
 async def close_conversation(
     conversation_id: str,
+    request: Request,
     tenant_id: str = Depends(get_tenant_id),
     current_user: CurrentUser = Depends(require_operator),
 ):
@@ -334,7 +362,86 @@ async def close_conversation(
             VALUES (:cid, 'system', :msg)
         """), {"cid": conversation_id, "msg": msg})
 
+    from core.audit import record as audit
+    asyncio.ensure_future(audit(
+        tenant_id=tenant_id, actor_id=current_user.user_id, actor_email=None,
+        actor_role=current_user.role.value, action="handoff.closed",
+        resource=conversation_id, request=request,
+    ))
+    asyncio.ensure_future(publish(tenant_id, "conversation_updated", {
+        "conversation_id": conversation_id, "status": ConvStatus.CLOSED,
+    }))
     return {"status": ConvStatus.CLOSED}
+
+
+# ── SSE — real-time event stream ─────────────────────────────────────────────
+
+@router.get("/operator/events")
+async def operator_events(
+    request: Request,
+    token: str | None = None,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Server-Sent Events stream. Operators subscribe here instead of polling.
+
+    EventSource doesn't support custom headers, so we accept the JWT as a
+    query param and validate it manually.
+    """
+    from core.security import _get_current_user_from_token, Role
+    from fastapi import HTTPException
+
+    if not token:
+        # Fall back to standard Bearer header
+        auth = request.headers.get("Authorization", "")
+        token = auth.removeprefix("Bearer ").strip()
+
+    if not token:
+        raise HTTPException(status_code=401, detail="Missing token")
+
+    try:
+        user = _get_current_user_from_token(token)
+    except HTTPException:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    if user.role not in (Role.OPERATOR, Role.ADMIN, Role.SUPER_ADMIN):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    # Fetch operator name for presence display
+    user_name = str(user.user_id)
+    try:
+        async with get_pg_session(tenant_id) as session:
+            r = await session.execute(
+                text("SELECT name FROM usuarios WHERE id = :id LIMIT 1"),
+                {"id": user.user_id},
+            )
+            row = r.fetchone()
+            if row and row[0]:
+                user_name = row[0]
+    except Exception:
+        pass
+
+    from services.events import subscribe
+    return StreamingResponse(
+        subscribe(tenant_id, user_id=str(user.user_id), user_name=user_name),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+# ── Operator presence ─────────────────────────────────────────────────────────
+
+@router.get("/operator/presence")
+async def operator_presence(
+    tenant_id: str = Depends(get_tenant_id),
+    current_user: CurrentUser = Depends(require_operator),
+):
+    """Return list of currently online operators (based on active SSE connections)."""
+    from services.events import get_online_operators
+    online = await get_online_operators(tenant_id)
+    return {"operators": online, "count": len(online)}
 
 
 # ── Public chat endpoints (no auth required) ──────────────────────────────────
@@ -421,6 +528,7 @@ async def set_default_sector(
 @router.post("/admin/sectors", status_code=status.HTTP_201_CREATED)
 async def create_sector(
     body: SectorCreate,
+    request: Request,
     tenant_id: str = Depends(get_tenant_id),
     current_user: CurrentUser = Depends(require_admin),
 ):
@@ -430,6 +538,13 @@ async def create_sector(
             RETURNING id, nombre
         """), {"nombre": body.nombre, "desc": body.descripcion})
         row = result.fetchone()
+    import asyncio
+    from core.audit import record as audit
+    asyncio.ensure_future(audit(
+        tenant_id=tenant_id, actor_id=current_user.user_id, actor_email=None,
+        actor_role=current_user.role.value, action="sector.created",
+        resource=str(row[0]), detail={"nombre": body.nombre}, request=request,
+    ))
     return {"id": str(row[0]), "nombre": row[1]}
 
 
@@ -450,6 +565,7 @@ async def update_sector(
 @router.delete("/admin/sectors/{sector_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_sector(
     sector_id: str,
+    request: Request,
     tenant_id: str = Depends(get_tenant_id),
     current_user: CurrentUser = Depends(require_admin),
 ):
@@ -458,6 +574,13 @@ async def delete_sector(
             text("UPDATE sectores SET is_active = FALSE WHERE id = :id"),
             {"id": sector_id},
         )
+    import asyncio
+    from core.audit import record as audit
+    asyncio.ensure_future(audit(
+        tenant_id=tenant_id, actor_id=current_user.user_id, actor_email=None,
+        actor_role=current_user.role.value, action="sector.deleted",
+        resource=sector_id, request=request,
+    ))
 
 
 # ── Operator-sector assignment ────────────────────────────────────────────────
@@ -529,6 +652,7 @@ class CreateOperatorRequest(BaseModel):
 @router.post("/admin/operators", status_code=201)
 async def create_operator(
     body: CreateOperatorRequest,
+    request: Request,
     tenant_id: str = Depends(get_tenant_id),
     current_user: CurrentUser = Depends(require_admin),
 ):
@@ -557,12 +681,20 @@ async def create_operator(
         })
 
     logger.info("operator_created id=%s email=%s tenant=%s by=%s", new_id, body.email, tenant_id, current_user.user_id)
+    import asyncio
+    from core.audit import record as audit
+    asyncio.ensure_future(audit(
+        tenant_id=tenant_id, actor_id=current_user.user_id, actor_email=None,
+        actor_role=current_user.role.value, action="user.created",
+        resource=new_id, detail={"email": body.email.lower().strip(), "name": body.name.strip()}, request=request,
+    ))
     return {"id": new_id, "email": body.email.lower().strip(), "name": body.name.strip(), "role": "operator", "is_active": True}
 
 
 @router.delete("/admin/operators/{operator_id}", status_code=204)
 async def deactivate_operator(
     operator_id: str,
+    request: Request,
     tenant_id: str = Depends(get_tenant_id),
     current_user: CurrentUser = Depends(require_admin),
 ):
@@ -580,6 +712,13 @@ async def deactivate_operator(
             raise HTTPException(status_code=404, detail="Usuario no encontrado o sin permiso")
 
     logger.info("operator_deactivated id=%s tenant=%s by=%s", operator_id, tenant_id, current_user.user_id)
+    import asyncio
+    from core.audit import record as audit
+    asyncio.ensure_future(audit(
+        tenant_id=tenant_id, actor_id=current_user.user_id, actor_email=None,
+        actor_role=current_user.role.value, action="user.deactivated",
+        resource=operator_id, request=request,
+    ))
 
 
 # ── Handoff config (admin) ────────────────────────────────────────────────────
