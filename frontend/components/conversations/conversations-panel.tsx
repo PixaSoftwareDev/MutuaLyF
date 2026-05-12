@@ -268,23 +268,24 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
       {/* ── LEFT: queue ──────────────────────────────────────────────────── */}
       <div className="w-72 border-r flex flex-col shrink-0 bg-card">
 
-        {/* Header + stats */}
-        <div className="px-4 pt-4 pb-3 border-b space-y-3">
-          <div className="flex items-center justify-between">
-            <h1 className="font-semibold text-sm flex items-center gap-2">
-              <MessageSquare className="h-4 w-4 text-primary" />
-              {readOnly ? "Conversaciones" : "Panel Operador"}
-            </h1>
-            {!readOnly && (
-              <div className="flex items-center gap-1.5" title={sseConnected ? "Tiempo real activo" : "Reconectando..."}>
-                {sseConnected
-                  ? <Wifi    className="h-3.5 w-3.5 text-emerald-500" />
-                  : <WifiOff className="h-3.5 w-3.5 text-muted-foreground animate-pulse" />}
-                <span className="text-[10px] text-muted-foreground">{sseConnected ? "En vivo" : "..."}</span>
-              </div>
-            )}
-          </div>
+        {/* Title bar — aligned with sidebar brand (h-16) */}
+        <div className="h-16 px-4 flex items-center justify-between border-b shrink-0">
+          <h1 className="font-semibold text-sm flex items-center gap-2">
+            <MessageSquare className="h-4 w-4 text-primary" />
+            {readOnly ? "Conversaciones" : "Panel Operador"}
+          </h1>
+          {!readOnly && (
+            <div className="flex items-center gap-1.5" title={sseConnected ? "Tiempo real activo" : "Reconectando..."}>
+              {sseConnected
+                ? <Wifi    className="h-3.5 w-3.5 text-emerald-500" />
+                : <WifiOff className="h-3.5 w-3.5 text-muted-foreground animate-pulse" />}
+              <span className="text-[10px] text-muted-foreground">{sseConnected ? "En vivo" : "..."}</span>
+            </div>
+          )}
+        </div>
 
+        {/* Filters + stats */}
+        <div className="px-4 pt-3 pb-3 space-y-3">
           {/* Online operators */}
           {!readOnly && presenceData && presenceData.operators.length > 0 && (
             <div className="flex flex-wrap gap-1 items-center">
@@ -334,26 +335,25 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
             />
           </div>
 
-          {/* Sector pills */}
+          {/* Sector filter — dropdown */}
           {sectorOptions.length > 1 && (
-            <div className="flex flex-wrap gap-1">
-              <button
-                onClick={() => setSectorFilter("all")}
+            <div className="relative">
+              <select
+                value={sectorFilter}
+                onChange={e => setSectorFilter(e.target.value)}
                 className={cn(
-                  "text-[10px] px-2 py-0.5 rounded-full border transition-colors",
-                  sectorFilter === "all" ? "bg-primary text-white border-primary" : "border-border text-muted-foreground hover:border-primary/40"
+                  "w-full h-8 pl-3 pr-8 rounded-md border bg-background text-xs cursor-pointer appearance-none focus:outline-none focus:ring-1 focus:ring-primary transition-colors",
+                  sectorFilter === "all"
+                    ? "border-input text-muted-foreground"
+                    : "border-primary/60 text-foreground font-medium"
                 )}
-              >Todos</button>
-              {sectorOptions.map(s => (
-                <button
-                  key={s}
-                  onClick={() => setSectorFilter(sectorFilter === s ? "all" : s)}
-                  className={cn(
-                    "text-[10px] px-2 py-0.5 rounded-full border transition-colors",
-                    sectorFilter === s ? "bg-primary text-white border-primary" : "border-border text-muted-foreground hover:border-primary/40"
-                  )}
-                >{s}</button>
-              ))}
+              >
+                <option value="all">Todos los sectores</option>
+                {sectorOptions.map(s => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+              <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
             </div>
           )}
         </div>
@@ -691,10 +691,7 @@ function ConvCard({ conv, now, selected, readOnly, onlineNames, onSelect, onAcce
       <button className="w-full text-left px-3 py-2.5" onClick={onSelect}>
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-1.5">
-              {isUrgent && <Flame className="h-3 w-3 text-red-500 shrink-0 animate-pulse" />}
-              <p className="text-sm font-medium truncate">{conv.afiliado_nombre || "Anónimo"}</p>
-            </div>
+            <p className="text-sm font-medium truncate">{conv.afiliado_nombre || "Anónimo"}</p>
             <p className="text-[11px] text-muted-foreground truncate mt-0.5">{conv.sector_nombre || "Sin sector"}</p>
             {conv.operator_name && (
               <p className="text-[10px] mt-0.5 flex items-center gap-1">
