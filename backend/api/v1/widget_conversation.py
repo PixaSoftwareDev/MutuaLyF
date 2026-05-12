@@ -80,6 +80,16 @@ async def start_conversation(
         if not sector_id:
             sector_id = await get_default_sector_id(tenant_id)
 
+        # Fetch sector name for greeting
+        sector_name = "consultas"
+        if sector_id:
+            sector_result = await session.execute(
+                text("SELECT nombre FROM sectores WHERE id = :id"), {"id": sector_id}
+            )
+            sector_row = sector_result.fetchone()
+            if sector_row:
+                sector_name = sector_row[0]
+
         conv_id = str(uuid.uuid4())
         await session.execute(text("""
             INSERT INTO conversaciones
@@ -93,8 +103,15 @@ async def start_conversation(
             "email": body.afiliado_email,
         })
 
+        # Insert greeting as first bot message so it survives polling
+        greeting = f"¡Hola! Soy el asistente de {sector_name}. ¿En qué te puedo ayudar hoy?"
+        await session.execute(text("""
+            INSERT INTO mensajes (conversation_id, sender_type, content)
+            VALUES (:cid, 'bot', :msg)
+        """), {"cid": conv_id, "msg": greeting})
+
     logger.info("conversation_started id=%s tenant=%s", conv_id, tenant_id)
-    return {"conversation_id": conv_id, "status": ConvStatus.BOT_ACTIVE, "resumed": False}
+    return {"conversation_id": conv_id, "status": ConvStatus.BOT_ACTIVE, "resumed": False, "greeting": greeting}
 
 
 # ── Send message ──────────────────────────────────────────────────────────────

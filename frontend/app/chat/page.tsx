@@ -238,11 +238,8 @@ function ChatInner() {
       const data = await r.json();
       setConversationId(data.conversation_id);
       setStatus(data.status);
-      if (data.resumed) {
-        await pollMessages(data.conversation_id);
-      } else {
-        setMessages([{ id: "welcome", role: "bot", content: `¡Hola! Soy el asistente de ${sector.nombre}. ¿En qué te puedo ayudar hoy?` }]);
-      }
+      // Always poll: greeting is persisted in DB so it survives subsequent polls
+      await pollMessages(data.conversation_id);
       startPolling(data.conversation_id);
       if (pendingMessage) await sendMessageTo(data.conversation_id, pendingMessage);
     } catch (e: unknown) {
@@ -379,17 +376,6 @@ function ChatInner() {
             </div>
           </div>
 
-          {/* Right: actions */}
-          {phase === "chat" && status === "bot_active" && (
-            <button
-              onClick={requestHuman}
-              className="flex items-center gap-1.5 text-blue-100 hover:text-white text-xs font-medium border border-white/30 hover:border-white/60 bg-white/10 hover:bg-white/20 rounded-xl px-3 py-2 transition-all"
-            >
-              <User className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Hablar con operador</span>
-              <span className="sm:hidden">Operador</span>
-            </button>
-          )}
         </div>
       </header>
 
