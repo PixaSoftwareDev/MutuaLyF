@@ -127,10 +127,11 @@ services:
     deploy:
       resources:
         limits:
-          # Bumped 2->4 cpu / 4G->6G tras load test 2026-05-13 que mostró
-          # backend pegado al 200% CPU (= 2 cores agotados) y RAM 3.4G/4G.
-          # El cuello eran los modelos locales (embed/NER/rerank) compitiendo.
-          cpus: "4"
+          # Bumped 2->4->6 cpu / 4G->6G tras load tests 2026-05-13.
+          # Run 3 (4cpu): backend pegado al 409% CPU permanente bajo 10 concurrent.
+          # Subir a 6 cpu deja 2 cores libres para celery + DBs (host tiene 8 totales).
+          # Memoria queda en 6G — uso real solo llega a 3.3G, sobra margen.
+          cpus: "6"
           memory: 6G
 
   celery_worker:
