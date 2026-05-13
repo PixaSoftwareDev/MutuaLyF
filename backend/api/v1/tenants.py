@@ -16,7 +16,7 @@ import time
 from core.config import settings
 from core.database import get_pg_session
 from core.prometheus import get_system_metrics
-from core.security import CurrentUser, create_widget_token, require_super_admin, require_admin
+from core.security import CurrentUser, create_widget_token, require_super_admin, require_admin, require_admin_or_super
 from core.tenant import get_tenant_id
 from models.tenant import TenantCreate, TenantResponse, TenantPlan, TenantStatus, WidgetTokenResponse
 
@@ -316,7 +316,7 @@ class BotConfigUpdate(BaseModel):
 @router.get("/{tenant_id}/bot-config", response_model=BotConfigResponse)
 async def get_bot_config(
     tenant_id: str,
-    current_user: CurrentUser = Depends(require_admin),
+    current_user: CurrentUser = Depends(require_admin_or_super),
 ):
     """Return bot configuration for this tenant."""
     if current_user.role.value != "super_admin" and current_user.tenant_id != tenant_id:
@@ -348,7 +348,7 @@ async def update_bot_config(
     tenant_id: str,
     body: BotConfigUpdate,
     request: Request,
-    current_user: CurrentUser = Depends(require_admin),
+    current_user: CurrentUser = Depends(require_admin_or_super),
 ):
     """Update bot description, scope, minimum relevance threshold and greeting message."""
     if current_user.role.value != "super_admin" and current_user.tenant_id != tenant_id:
@@ -405,7 +405,7 @@ async def update_bot_config(
     asyncio.ensure_future(audit(
         tenant_id=tenant_id,
         actor_id=current_user.user_id,
-        actor_email=None,
+        actor_email=current_user.email,
         actor_role=current_user.role.value,
         action="config.bot_config_update",
         detail={"fields": list(changed.keys())},
@@ -420,7 +420,7 @@ async def update_bot_config(
 @router.post("/{tenant_id}/widget-token", response_model=WidgetTokenResponse)
 async def generate_widget_token(
     tenant_id: str,
-    current_user: CurrentUser = Depends(require_admin),
+    current_user: CurrentUser = Depends(require_admin_or_super),
 ):
     """Generate a long-lived widget token (90 days) scoped to this tenant."""
     if current_user.role.value != "super_admin" and current_user.tenant_id != tenant_id:

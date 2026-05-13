@@ -126,7 +126,7 @@ async def list_intentions(
 
     pending = [
         {
-            "id": f"pending_{r['intent_label'].replace(' ', '_')}",
+            "id": f"pending_{r['intent_label']}",
             "label": r["intent_label"],
             "query_count": r["query_count"],
             "avg_confidence": round(float(r["avg_confidence"] or 0), 3),
@@ -360,7 +360,7 @@ async def approve_intention(
     """Approve a pending intention: activate it and index its examples in Qdrant."""
     # intention_id may be a real UUID or a "pending_{label}" string
     if intention_id.startswith("pending_"):
-        label = intention_id.removeprefix("pending_").replace("_", " ")
+        label = intention_id.removeprefix("pending_")
         return await _promote_pending_to_active(tenant_id, label)
 
     async with get_pg_session(tenant_id) as session:
@@ -393,7 +393,7 @@ async def reject_intention(
 ):
     """Reject/deactivate an intention. Pending ones are dismissed from consultas_log."""
     if intention_id.startswith("pending_"):
-        label = intention_id.removeprefix("pending_").replace("_", " ")
+        label = intention_id.removeprefix("pending_")
         async with get_pg_session(tenant_id) as session:
             await session.execute(text("""
                 UPDATE consultas_log

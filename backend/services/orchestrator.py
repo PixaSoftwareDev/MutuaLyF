@@ -198,6 +198,7 @@ async def handle_query(
                 {"role": "user", "content": user_message},
             ],
             complexity=complexity,
+            tenant_id=tenant_id,
         )
     except (APITimeoutError, RateLimitError, APIError) as exc:
         latency_ms = int(time.monotonic() * 1000) - start_ms

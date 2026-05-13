@@ -13,7 +13,7 @@ from sqlalchemy import text
 
 from core.config import settings
 from core.database import get_pg_session, get_qdrant_client
-from core.security import CurrentUser, get_current_user, require_operator
+from core.security import CurrentUser, require_admin, require_operator
 from core.tenant import get_tenant_id
 from models.document import DocumentIngestResponse, DocumentResponse, DocumentStatus, document_response_from_row
 
@@ -24,7 +24,7 @@ router = APIRouter()
 @router.get("/documents", response_model=list[DocumentResponse])
 async def list_documents(
     tenant_id: str = Depends(get_tenant_id),
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: CurrentUser = Depends(require_admin),
 ):
     """List all documents for the tenant ordered by creation date (newest first)."""
     async with get_pg_session(tenant_id) as session:
@@ -42,7 +42,7 @@ async def list_documents(
 async def list_chunks(
     document_id: str,
     tenant_id: str = Depends(get_tenant_id),
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: CurrentUser = Depends(require_admin),
 ):
     """Return all chunks for a document, retrieved from Qdrant."""
     qdrant = get_qdrant_client()
@@ -145,7 +145,7 @@ async def delete_document(
     asyncio.ensure_future(audit(
         tenant_id=tenant_id,
         actor_id=current_user.user_id,
-        actor_email=None,
+        actor_email=current_user.email,
         actor_role=current_user.role.value,
         action="document.delete",
         resource=document_id,
@@ -355,7 +355,7 @@ async def ingest_document(
     asyncio.ensure_future(audit(
         tenant_id=tenant_id,
         actor_id=current_user.user_id,
-        actor_email=None,
+        actor_email=current_user.email,
         actor_role=current_user.role.value,
         action="document.upload",
         resource=document_id,

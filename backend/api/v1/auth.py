@@ -81,7 +81,7 @@ async def login(
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
-        access_token = create_access_token(str(pu["id"]), "__platform__", Role.SUPER_ADMIN)
+        access_token = create_access_token(str(pu["id"]), "__platform__", Role.SUPER_ADMIN, email=form.username.lower().strip())
         refresh_tok  = create_refresh_token(str(pu["id"]), "__platform__")
         _set_refresh_cookie(response, refresh_tok)
 
@@ -139,7 +139,7 @@ async def login(
     await redis.delete(f"{tenant_id}:login_failed:{form.username.lower().strip()}")
 
     role = Role(user.role) if user.role in Role._value2member_map_ else Role.OPERATOR
-    access_token = create_access_token(str(user.id), tenant_id, role)
+    access_token = create_access_token(str(user.id), tenant_id, role, email=user.email)
     refresh_tok  = create_refresh_token(str(user.id), tenant_id)
     _set_refresh_cookie(response, refresh_tok)
 
@@ -183,7 +183,7 @@ async def refresh_token(request: Request, response: Response):
             )
             if not result.fetchone():
                 raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
-        access_token = create_access_token(user_id, "__platform__", Role.SUPER_ADMIN)
+        access_token = create_access_token(user_id, "__platform__", Role.SUPER_ADMIN, email=payload.get("email"))
         return TokenResponse(access_token=access_token, expires_in=settings.jwt_expire_minutes * 60)
 
     # Tenant user refresh
@@ -198,7 +198,7 @@ async def refresh_token(request: Request, response: Response):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
     role = Role(user.role) if user.role in Role._value2member_map_ else Role.OPERATOR
-    access_token = create_access_token(user_id, tenant_id, role)
+    access_token = create_access_token(user_id, tenant_id, role, email=user.email)
     return TokenResponse(access_token=access_token, expires_in=settings.jwt_expire_minutes * 60)
 
 
@@ -212,7 +212,7 @@ async def logout(request: Request, response: Response, current_user: CurrentUser
     asyncio.ensure_future(audit(
         tenant_id=current_user.tenant_id,
         actor_id=current_user.user_id,
-        actor_email=None,
+        actor_email=current_user.email,
         actor_role=current_user.role.value,
         action="auth.logout",
         request=request,

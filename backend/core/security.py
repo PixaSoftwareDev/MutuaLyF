@@ -57,9 +57,12 @@ def _create_token(
     return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
 
-def create_access_token(user_id: str, tenant_id: str, role: Role) -> str:
+def create_access_token(user_id: str, tenant_id: str, role: Role, email: str | None = None) -> str:
+    data: dict[str, Any] = {"sub": user_id, "tenant_id": tenant_id, "role": role.value}
+    if email:
+        data["email"] = email
     return _create_token(
-        {"sub": user_id, "tenant_id": tenant_id, "role": role.value},
+        data,
         timedelta(minutes=settings.jwt_expire_minutes),
         TokenScope.FULL,
     )
@@ -107,11 +110,12 @@ def decode_token(token: str) -> dict[str, Any]:
 class CurrentUser:
     """Parsed identity from a validated JWT."""
 
-    def __init__(self, user_id: str, tenant_id: str, role: Role, scope: TokenScope) -> None:
+    def __init__(self, user_id: str, tenant_id: str, role: Role, scope: TokenScope, email: str | None = None) -> None:
         self.user_id = user_id
         self.tenant_id = tenant_id
         self.role = role
         self.scope = scope
+        self.email = email
 
 
 def _get_current_user_from_token(token: str) -> CurrentUser:
@@ -120,6 +124,7 @@ def _get_current_user_from_token(token: str) -> CurrentUser:
     user_id: str = payload.get("sub", "")
     tenant_id: str = payload.get("tenant_id", "")
     role_str: str = payload.get("role", Role.OPERATOR.value)
+    email: str | None = payload.get("email")
 
     if not tenant_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing tenant_id in token")
@@ -129,6 +134,7 @@ def _get_current_user_from_token(token: str) -> CurrentUser:
         tenant_id=tenant_id,
         role=Role(role_str),
         scope=scope,
+        email=email,
     )
 
 
@@ -208,3 +214,7 @@ def require_role(*roles: Role):
 require_admin    = require_role(Role.ADMIN)
 require_operator = require_role(Role.ADMIN, Role.OPERATOR)
 require_super_admin = require_role(Role.SUPER_ADMIN)
+# For endpoints that manage a tenant's config and should be reachable by both
+# the tenant admin (for their own tenant) AND the platform super_admin (for any tenant).
+# Handlers must still enforce tenant ownership for ADMIN.
+require_admin_or_super = require_role(Role.ADMIN, Role.SUPER_ADMIN)

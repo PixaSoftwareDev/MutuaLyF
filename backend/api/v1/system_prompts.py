@@ -559,7 +559,7 @@ async def activate_template(
     import asyncio
     from core.audit import record as audit
     asyncio.ensure_future(audit(
-        tenant_id=tenant_id, actor_id=current_user.user_id, actor_email=None,
+        tenant_id=tenant_id, actor_id=current_user.user_id, actor_email=current_user.email,
         actor_role=current_user.role.value, action="bot.template_activated",
         resource=template_id, request=request,
     ))
@@ -585,7 +585,7 @@ async def deactivate_all_templates(
     import asyncio
     from core.audit import record as audit
     asyncio.ensure_future(audit(
-        tenant_id=tenant_id, actor_id=current_user.user_id, actor_email=None,
+        tenant_id=tenant_id, actor_id=current_user.user_id, actor_email=current_user.email,
         actor_role=current_user.role.value, action="bot.template_deactivated",
         request=request,
     ))

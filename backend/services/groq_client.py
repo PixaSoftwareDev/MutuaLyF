@@ -121,6 +121,7 @@ async def complete(
     complexity: str = QueryComplexity.SIMPLE,
     temperature: float = 0.0,
     max_tokens: int = 1024,
+    tenant_id: str | None = None,
 ) -> str:
     """Send a chat completion request to Groq.
 
@@ -129,6 +130,7 @@ async def complete(
         complexity: Routes to fast or reasoning model.
         temperature: Generation temperature.
         max_tokens: Maximum tokens in the response.
+        tenant_id: When provided, total tokens used are logged to usage_events for billing.
 
     Returns:
         The model's response text.
@@ -153,13 +155,36 @@ async def complete(
         )
 
     content = response.choices[0].message.content or ""
-    logger.debug("groq_response model=%s tokens=%d", model, response.usage.total_tokens if response.usage else 0)
+    total_tokens = response.usage.total_tokens if response.usage else 0
+    logger.debug("groq_response model=%s tokens=%d", model, total_tokens)
     try:
         from core.metrics import GROQ_REQUESTS_TOTAL
         GROQ_REQUESTS_TOTAL.labels(model=model, status="success").inc()
     except Exception:
         pass
+
+    if tenant_id and total_tokens > 0:
+        import asyncio as _asyncio
+        _asyncio.create_task(_log_llm_tokens(tenant_id, total_tokens))
+
     return content
+
+
+async def _log_llm_tokens(tenant_id: str, tokens: int) -> None:
+    """Fire-and-forget logger of LLM token usage to usage_events for billing."""
+    try:
+        from core.database import get_pg_session
+        from sqlalchemy import text as _sa_text
+        async with get_pg_session() as session:
+            await session.execute(
+                _sa_text(
+                    "INSERT INTO usage_events (tenant_id, event_type, value) "
+                    "VALUES (:tenant_id, 'llm_tokens', :value)"
+                ),
+                {"tenant_id": tenant_id, "value": tokens},
+            )
+    except Exception as exc:
+        logger.warning("llm_tokens_log_failed tenant=%s tokens=%d error=%s", tenant_id, tokens, exc)
 
 
 async def suggest_cluster_label(sample_queries: list[str], custom_prompt: str | None = None) -> str:

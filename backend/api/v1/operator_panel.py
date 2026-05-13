@@ -251,7 +251,7 @@ async def accept_handoff(
     logger.info("handoff_accepted conversation_id=%s operator=%s", conversation_id, current_user.user_id)
     from core.audit import record as audit
     asyncio.ensure_future(audit(
-        tenant_id=tenant_id, actor_id=current_user.user_id, actor_email=None,
+        tenant_id=tenant_id, actor_id=current_user.user_id, actor_email=current_user.email,
         actor_role=current_user.role.value, action="handoff.accepted",
         resource=conversation_id, request=request,
     ))
@@ -327,7 +327,7 @@ async def transfer(
     logger.info("conversation_transferred id=%s to_sector=%s by=%s", conversation_id, body.sector_id, current_user.user_id)
     from core.audit import record as audit
     asyncio.ensure_future(audit(
-        tenant_id=tenant_id, actor_id=current_user.user_id, actor_email=None,
+        tenant_id=tenant_id, actor_id=current_user.user_id, actor_email=current_user.email,
         actor_role=current_user.role.value, action="handoff.transferred",
         resource=conversation_id, detail={"to_sector": body.sector_id}, request=request,
     ))
@@ -364,7 +364,7 @@ async def close_conversation(
 
     from core.audit import record as audit
     asyncio.ensure_future(audit(
-        tenant_id=tenant_id, actor_id=current_user.user_id, actor_email=None,
+        tenant_id=tenant_id, actor_id=current_user.user_id, actor_email=current_user.email,
         actor_role=current_user.role.value, action="handoff.closed",
         resource=conversation_id, request=request,
     ))
@@ -541,7 +541,7 @@ async def create_sector(
     import asyncio
     from core.audit import record as audit
     asyncio.ensure_future(audit(
-        tenant_id=tenant_id, actor_id=current_user.user_id, actor_email=None,
+        tenant_id=tenant_id, actor_id=current_user.user_id, actor_email=current_user.email,
         actor_role=current_user.role.value, action="sector.created",
         resource=str(row[0]), detail={"nombre": body.nombre}, request=request,
     ))
@@ -577,7 +577,7 @@ async def delete_sector(
     import asyncio
     from core.audit import record as audit
     asyncio.ensure_future(audit(
-        tenant_id=tenant_id, actor_id=current_user.user_id, actor_email=None,
+        tenant_id=tenant_id, actor_id=current_user.user_id, actor_email=current_user.email,
         actor_role=current_user.role.value, action="sector.deleted",
         resource=sector_id, request=request,
     ))
@@ -684,7 +684,7 @@ async def create_operator(
     import asyncio
     from core.audit import record as audit
     asyncio.ensure_future(audit(
-        tenant_id=tenant_id, actor_id=current_user.user_id, actor_email=None,
+        tenant_id=tenant_id, actor_id=current_user.user_id, actor_email=current_user.email,
         actor_role=current_user.role.value, action="user.created",
         resource=new_id, detail={"email": body.email.lower().strip(), "name": body.name.strip()}, request=request,
     ))
@@ -715,7 +715,7 @@ async def deactivate_operator(
     import asyncio
     from core.audit import record as audit
     asyncio.ensure_future(audit(
-        tenant_id=tenant_id, actor_id=current_user.user_id, actor_email=None,
+        tenant_id=tenant_id, actor_id=current_user.user_id, actor_email=current_user.email,
         actor_role=current_user.role.value, action="user.deactivated",
         resource=operator_id, request=request,
     ))
