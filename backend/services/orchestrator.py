@@ -224,7 +224,18 @@ async def handle_query(
     }
 
     # ── Step 7: Cache the response ────────────────────────────────────────────
-    await _set_cache(question_hash, tenant_id, response)
+    # Skip cache cuando la respuesta es el template "no tengo información" o
+    # cuando NO hay sources Y la respuesta es larga (no es conversacional).
+    # Cachear esos casos envenena el cache: una query que falló por contención
+    # transitoria devolvería template-vacío a todas las queries similares
+    # posteriores. Saludos cortos (<60 chars) sí se cachean.
+    _no_info_marker = "No tengo información sobre ese tema en los documentos"
+    is_no_info = _no_info_marker in (answer or "")
+    is_long_no_sources = not sources and len(answer or "") > 60
+    if not is_no_info and not is_long_no_sources:
+        await _set_cache(question_hash, tenant_id, response)
+    else:
+        logger.debug("cache_skip_empty_response tenant_id=%s", tenant_id)
 
     # ── Step 8: Log async (non-blocking) ──────────────────────────────────────
     asyncio.create_task(

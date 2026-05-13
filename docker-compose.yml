@@ -140,7 +140,7 @@ services:
       dockerfile: Dockerfile
     container_name: ia_celery_worker
     restart: unless-stopped
-    command: celery -A workers.celery_app worker --loglevel=info --concurrency=1 -Q ingest,clustering,training,default
+    command: celery -A workers.celery_app worker --loglevel=info --concurrency=2 -Q ingest,clustering,training,default
     env_file: .env
     environment:
       PYTHONPATH: /app
