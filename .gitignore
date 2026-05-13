@@ -28,6 +28,12 @@ build/
 .env.test
 .env.production
 
+# Claude Code session artifacts
+.claude/
+
+# Celery beat runtime state (binary, regenerated on startup)
+backend/celerybeat-schedule
+
 # =========================
 # BACKEND (Node / Python)
 # =========================

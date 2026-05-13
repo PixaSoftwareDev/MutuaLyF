@@ -10,7 +10,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import text
 
 from core.database import get_pg_session
@@ -37,12 +37,12 @@ def _assert_tenant_access(current_user: CurrentUser, tenant_id: str) -> None:
 # ── Schemas ───────────────────────────────────────────────────────────────────
 
 class ReplyRequest(BaseModel):
-    content: str
+    content: str = Field(..., min_length=1, max_length=4000)
 
 
 class TransferRequest(BaseModel):
-    sector_id: str
-    message: str | None = None
+    sector_id: str = Field(..., min_length=1, max_length=64)
+    message: str | None = Field(default=None, max_length=2000)
 
 
 class SectorCreate(BaseModel):

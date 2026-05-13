@@ -16,7 +16,7 @@ import uuid
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import text
 
 from core.database import get_pg_session
@@ -33,16 +33,19 @@ router = APIRouter()
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
 
+_MAX_MESSAGE_CHARS = 2000  # caps user input to prevent oversized LLM contexts and DoS
+
+
 class StartConversationRequest(BaseModel):
-    widget_session_id: str
-    sector_id: str | None = None
-    afiliado_nombre: str | None = None
-    afiliado_email: str | None = None
+    widget_session_id: str = Field(..., min_length=1, max_length=128)
+    sector_id: str | None = Field(default=None, max_length=64)
+    afiliado_nombre: str | None = Field(default=None, max_length=200)
+    afiliado_email: str | None = Field(default=None, max_length=320)
 
 
 class SendMessageRequest(BaseModel):
-    content: str
-    widget_session_id: str
+    content: str = Field(..., min_length=1, max_length=_MAX_MESSAGE_CHARS)
+    widget_session_id: str = Field(..., min_length=1, max_length=128)
 
 
 class PollRequest(BaseModel):
