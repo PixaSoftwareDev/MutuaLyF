@@ -87,10 +87,9 @@ async def subscribe(tenant_id: str, user_id: str | None = None, user_name: str |
     Automatically cleans up the pubsub connection on client disconnect.
     """
     import asyncio
-    import redis.asyncio as aioredis
-    from core.config import settings
+    from core.database import new_redis_pubsub_connection
 
-    redis_conn = aioredis.from_url(settings.redis_url_cache, decode_responses=True)
+    redis_conn = new_redis_pubsub_connection()
     pubsub = redis_conn.pubsub()
     await pubsub.subscribe(_channel(tenant_id))
     logger.info("sse_subscribed tenant=%s user=%s", tenant_id, user_id)

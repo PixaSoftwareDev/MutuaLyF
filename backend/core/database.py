@@ -215,6 +215,22 @@ def get_redis_ratelimit() -> aioredis.Redis:
     return _redis_ratelimit
 
 
+def new_redis_pubsub_connection() -> aioredis.Redis:
+    """Create a NEW dedicated Redis connection for pubsub.
+
+    PubSub holds blocking subscriptions — must NOT share the connection pool.
+    Caller is responsible for closing the connection (e.g. SSE subscribers
+    should `await conn.aclose()` on disconnect). Uses the same socket timeouts
+    as the shared cache client for consistency under load.
+    """
+    return aioredis.from_url(
+        settings.redis_url_cache,
+        decode_responses=True,
+        socket_timeout=settings.redis_timeout_ms / 1000,
+        socket_connect_timeout=0.1,
+    )
+
+
 async def close_redis_connections() -> None:
     global _redis_cache, _redis_ratelimit
     if _redis_cache:
