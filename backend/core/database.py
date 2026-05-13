@@ -190,11 +190,14 @@ _redis_ratelimit: aioredis.Redis | None = None
 def get_redis_cache() -> aioredis.Redis:
     global _redis_cache
     if _redis_cache is None:
+        # connect_timeout stays tight (local network); read timeout must absorb
+        # event loop contention under load (200%+ CPU on backend).
         _redis_cache = aioredis.from_url(
             settings.redis_url_cache,
             decode_responses=True,
             socket_timeout=settings.redis_timeout_ms / 1000,
-            socket_connect_timeout=settings.redis_timeout_ms / 1000,
+            socket_connect_timeout=0.1,
+            max_connections=50,
         )
     return _redis_cache
 
@@ -206,7 +209,8 @@ def get_redis_ratelimit() -> aioredis.Redis:
             settings.redis_url_ratelimit,
             decode_responses=True,
             socket_timeout=settings.redis_timeout_ms / 1000,
-            socket_connect_timeout=settings.redis_timeout_ms / 1000,
+            socket_connect_timeout=0.1,
+            max_connections=50,
         )
     return _redis_ratelimit
 

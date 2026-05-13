@@ -17,6 +17,13 @@ class Settings(BaseSettings):
     groq_model_fast: str = "llama-3.3-70b-versatile"
     groq_model_reasoning: str = "meta-llama/llama-4-scout-17b-16e-instruct"
 
+    # ── LLM provider switch (groq | openai) ──────────────────────────────────
+    # OpenAI is supported as test-only alternative for benchmarking. Production
+    # default is groq for latency. See load test scripts.
+    llm_provider: str = "groq"
+    openai_api_key: str = ""
+    openai_model: str = "gpt-4o-mini"
+
     # ── PostgreSQL ─────────────────────────────────────────────────────────────
     postgres_host: str = "postgres"
     postgres_port: int = 5432
@@ -80,15 +87,18 @@ class Settings(BaseSettings):
         return self.environment == "production"
 
     # ── Timeouts (ms) ─────────────────────────────────────────────────────────
-    redis_timeout_ms: int = 20
-    classifier_timeout_ms: int = 80
-    nlu_timeout_ms: int = 200
-    orchestrator_timeout_ms: int = 50
-    db_timeout_ms: int = 500
-    reranker_timeout_ms: int = 300
-    llm_fast_timeout_ms: int = 1500
-    llm_reasoning_timeout_ms: int = 7000
-    neo4j_timeout_ms: int = 500
+    # Valores calibrados con load test 10 concurrentes (2026-05-13).
+    # Bajo contención CPU en backend (~200%), modelos locales y conexiones
+    # de red necesitan headroom mayor que el ideal de "happy path".
+    redis_timeout_ms: int = 200          # antes 20ms: causaba timeouts en cada request bajo carga
+    classifier_timeout_ms: int = 200     # antes 80ms
+    nlu_timeout_ms: int = 1000           # antes 200ms: GLiNER local CPU-bound bajo carga
+    orchestrator_timeout_ms: int = 100   # antes 50ms
+    db_timeout_ms: int = 1500            # antes 500ms
+    reranker_timeout_ms: int = 800       # antes 300ms: bge-reranker local CPU-bound
+    llm_fast_timeout_ms: int = 3000      # antes 1500ms: bajo carga + retries
+    llm_reasoning_timeout_ms: int = 10000  # antes 7000ms
+    neo4j_timeout_ms: int = 1500         # antes 500ms
 
     # ── Chunking ──────────────────────────────────────────────────────────────
     chunk_size_tokens: int = 512
