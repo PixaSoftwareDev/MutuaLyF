@@ -40,6 +40,7 @@ DEFAULT_PROMPT_CLUSTER_LABEL = (
     'Responde SOLO con el nombre, sin comillas ni explicaciones. Ejemplo: "consulta_vacaciones"'
 )
 
+import httpx
 from groq import AsyncGroq, APIError, APITimeoutError, RateLimitError
 from tenacity import (
     retry,
@@ -54,6 +55,18 @@ from core.config import settings
 logger = logging.getLogger(__name__)
 
 _groq_client: AsyncGroq | None = None
+_openai_http_client: httpx.AsyncClient | None = None
+
+
+def _get_openai_http_client() -> httpx.AsyncClient:
+    global _openai_http_client
+    if _openai_http_client is None:
+        _openai_http_client = httpx.AsyncClient(
+            base_url="https://api.openai.com/v1",
+            headers={"Authorization": f"Bearer {settings.openai_api_key}"},
+            timeout=30.0,
+        )
+    return _openai_http_client
 
 # Global semaphore: max concurrent Groq requests across queries + quality gate.
 # Prevents quality gate batch from starving user-facing queries.
@@ -135,13 +148,44 @@ async def complete(
     Returns:
         The model's response text.
     """
-    model = _model_for_complexity(complexity)
+    provider = (settings.llm_provider or "groq").lower()
     timeout = (
         settings.llm_reasoning_timeout_ms / 1000
         if complexity == QueryComplexity.COMPLEX
         else settings.llm_fast_timeout_ms / 1000
     )
 
+    if provider == "openai":
+        model = settings.openai_model
+        logger.debug("openai_request model=%s message_count=%d", model, len(messages))
+        client = _get_openai_http_client()
+        async with _get_groq_semaphore():
+            r = await client.post(
+                "/chat/completions",
+                json={
+                    "model": model,
+                    "messages": messages,
+                    "temperature": temperature,
+                    "max_tokens": max_tokens,
+                },
+                timeout=max(timeout, 30.0),
+            )
+            r.raise_for_status()
+            data = r.json()
+        content = data["choices"][0]["message"]["content"] or ""
+        total_tokens = (data.get("usage") or {}).get("total_tokens", 0)
+        logger.debug("openai_response model=%s tokens=%d", model, total_tokens)
+        try:
+            from core.metrics import GROQ_REQUESTS_TOTAL
+            GROQ_REQUESTS_TOTAL.labels(model=model, status="success").inc()
+        except Exception:
+            pass
+        if tenant_id and total_tokens > 0:
+            import asyncio as _asyncio
+            _asyncio.create_task(_log_llm_tokens(tenant_id, total_tokens))
+        return content
+
+    model = _model_for_complexity(complexity)
     logger.debug("groq_request model=%s message_count=%d", model, len(messages))
 
     client = get_groq_client()

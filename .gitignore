@@ -34,6 +34,9 @@ build/
 # Celery beat runtime state (binary, regenerated on startup)
 backend/celerybeat-schedule
 
+# Load test runtime copy (oficial vive en scripts/load_test_widget.py)
+backend/load_test_widget.py
+
 # =========================
 # BACKEND (Node / Python)
 # =========================
