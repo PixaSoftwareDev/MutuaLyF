@@ -31,10 +31,13 @@ _openai_sync_client: httpx.Client | None = None
 def _get_openai_sync_client() -> httpx.Client:
     global _openai_sync_client
     if _openai_sync_client is None:
+        # Connection pool grande para soportar 15+ requests paralelas sin que
+        # se encolen esperando socket. keepalive evita reconexión en cada call.
         _openai_sync_client = httpx.Client(
             base_url="https://api.openai.com/v1",
             headers={"Authorization": f"Bearer {settings.openai_api_key}"},
             timeout=15.0,
+            limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
         )
     return _openai_sync_client
 

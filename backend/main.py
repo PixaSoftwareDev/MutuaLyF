@@ -29,10 +29,17 @@ async def lifespan(app: FastAPI):
     setup_tracing(app)
     await connect_all()
 
-    # Pre-warm ML models in a thread so the first query doesn't pay cold-load cost.
-    # multilingual-e5-large: ~5s from volume | bge-reranker-large: ~15s from volume
+    # Default ThreadPoolExecutor en Python es min(32, cpu+4)=10 threads.
+    # Bajo carga concurrente el RAG necesita threads para: embed(local o
+    # HTTP-sync OpenAI), NLU GLiNER (CPU), reranker (CPU), Redis cache.
+    # 10 threads se saturan con ~3-4 queries paralelas, encolando todo lo demás.
+    # Subir a 64 destraba el cuello sin costo significativo (threads idle son
+    # baratos en Python).
     import asyncio
+    from concurrent.futures import ThreadPoolExecutor
     loop = asyncio.get_running_loop()
+    loop.set_default_executor(ThreadPoolExecutor(max_workers=64, thread_name_prefix="bg"))
+    logger.info("executor_configured", max_workers=64)
     try:
         from services.embeddings import _load_model as _warm_embed
         from services.retrieval import _load_reranker

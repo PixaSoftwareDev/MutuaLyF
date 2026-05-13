@@ -31,8 +31,12 @@ def get_pg_engine() -> AsyncEngine:
     if _pg_engine is None:
         _pg_engine = create_async_engine(
             settings.postgres_dsn,
-            pool_size=10,
-            max_overflow=20,
+            # Bumped from 10/20 -> 30/50 (max 80 connections). Cada query del
+            # widget abre 2-3 sesiones (search_path SET, leer datos, log async).
+            # Con 15 concurrent users el viejo cap de 30 (10+20) se saturaba
+            # y los logs de query/usage_event empezaban a fallar en cascada.
+            pool_size=30,
+            max_overflow=50,
             pool_pre_ping=True,
             pool_timeout=settings.db_timeout_ms / 1000,
             echo=False,
