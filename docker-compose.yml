@@ -98,7 +98,10 @@ services:
       dockerfile: Dockerfile
     container_name: ia_backend
     restart: unless-stopped
-    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload --no-access-log
+    # Modo producción: 2 workers dedicados, sin --reload (que en stress causa
+    # zombies de healthcheck y procesos sin worker).
+    # Para hot-reload en desarrollo: agregar --reload manualmente y bajar workers a 1.
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --workers 2 --no-access-log
     env_file: .env
     ports:
       - "127.0.0.1:8000:8000"
