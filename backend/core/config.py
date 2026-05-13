@@ -24,6 +24,16 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
 
+    # ── Embedding provider switch (local | openai) ───────────────────────────
+    # local: multilingual-e5-large CPU-bound, ~1.5GB RAM, ~200ms/embed.
+    # openai: text-embedding-3-small con dimensions=1024 (compat Qdrant).
+    #   Beneficio: libera 1.5GB RAM del backend y el celery_worker, embeddings
+    #   ~80ms via API. NOTA: cambiar provider requiere re-embeddear chunks
+    #   existentes (ver scripts/re_embed_qdrant.py) — los vectores no son
+    #   intercambiables entre modelos.
+    embedding_provider: str = "local"
+    openai_embedding_model: str = "text-embedding-3-small"
+
     # ── PostgreSQL ─────────────────────────────────────────────────────────────
     postgres_host: str = "postgres"
     postgres_port: int = 5432
