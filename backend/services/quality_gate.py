@@ -32,6 +32,7 @@ class QualityResult:
     status: QualityStatus
     is_coherent: bool
     reason: str
+    confidence: float = 1.0   # 0.0–1.0 — Groq's self-reported certainty
     error: str | None = None
 
 
@@ -54,25 +55,26 @@ async def validate_chunk(chunk: Chunk, custom_prompt: str | None = None) -> Qual
         return QualityResult(
             chunk_id=chunk.id,
             status=QualityStatus.PENDING,
-            is_coherent=True,   # Optimistic default — chunk is indexed
+            is_coherent=True,
             reason="groq_unavailable",
+            confidence=0.0,
             error=result["error"],
         )
 
     is_coherent: bool = bool(result["is_coherent"])
-    # SKIPPED = Groq assessed it as incoherent (no retry needed)
-    # PENDING = Groq was unavailable (retry will reassess)
+    confidence: float = float(result.get("confidence", 0.9))
     status = QualityStatus.PASSED if is_coherent else QualityStatus.SKIPPED
 
     logger.debug(
-        "quality_gate_done chunk_id=%s status=%s coherent=%s reason=%s",
-        chunk.id, status, is_coherent, result["reason"],
+        "quality_gate_done chunk_id=%s status=%s coherent=%s confidence=%.2f reason=%s",
+        chunk.id, status, is_coherent, confidence, result["reason"],
     )
     return QualityResult(
         chunk_id=chunk.id,
         status=status,
         is_coherent=is_coherent,
         reason=result["reason"] or "",
+        confidence=confidence,
         error=result["error"],
     )
 
@@ -90,7 +92,7 @@ async def validate_chunk_semantic_autonomy(chunk: Chunk) -> bool:
     # to provide a useful answer (e.g., orphaned sentence fragments from
     # section transitions)
     from core.config import settings
-    min_tokens = getattr(settings, "semantic_min_tokens", 50)
+    min_tokens = settings.semantic_min_tokens
 
     if getattr(chunk, "strategy", "fixed") == "semantic":
         if chunk.token_count < min_tokens:
@@ -153,8 +155,9 @@ async def validate_chunks_batch(
 
     passed = sum(1 for r in validated if r.status == QualityStatus.PASSED)
     pending = sum(1 for r in validated if r.status == QualityStatus.PENDING)
+    skipped = sum(1 for r in validated if r.status == QualityStatus.SKIPPED)
     logger.info(
-        "quality_gate_batch_done total=%d passed=%d pending=%d",
-        len(validated), passed, pending,
+        "quality_gate_batch_done total=%d passed=%d pending=%d skipped=%d",
+        len(validated), passed, pending, skipped,
     )
     return validated

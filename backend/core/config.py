@@ -113,10 +113,12 @@ class Settings(BaseSettings):
     # ── Chunking ──────────────────────────────────────────────────────────────
     chunk_size_tokens: int = 512
     chunk_overlap_tokens: int = 64
+    semantic_min_tokens: int = 20
 
     # ── ML models ─────────────────────────────────────────────────────────────
     embedding_model: str = "intfloat/multilingual-e5-large"
     reranker_model: str = "BAAI/bge-reranker-large"
+    reranker_enabled: bool = True
     nlu_model: str = "urchade/gliner_large-v2.1"
 
     # ── Cache ─────────────────────────────────────────────────────────────────

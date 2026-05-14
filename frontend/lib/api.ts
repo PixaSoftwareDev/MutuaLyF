@@ -83,6 +83,15 @@ export interface ChunkResponse {
   total_chunks: number;
   text: string;
   quality_gate_status: "pending" | "passed" | "skipped";
+  quality_gate_confidence: number | null;
+  quality_gate_reason: string | null;
+  manually_reviewed?: boolean;
+  reviewed_by?: string;
+}
+
+export interface PendingChunkResponse extends ChunkResponse {
+  document_id: string;
+  document_title: string;
 }
 
 export interface Intention {
@@ -130,6 +139,32 @@ export interface IntentionResponse {
   total: number;
   pending_total: number;
   clusters_total: number;
+}
+
+export interface TrainingExample {
+  id: string;
+  question_text: string | null;
+  is_auto_learned: boolean;
+  is_approved: boolean;
+  version_id: string | null;
+  created_at: string;
+}
+
+export interface RecentMatch {
+  id: string;
+  question_text: string | null;
+  intent_confidence: number | null;
+  auto_learning_blocked: boolean;
+  from_cache: boolean;
+  latency_ms: number | null;
+  created_at: string;
+}
+
+export interface IntentionDetail {
+  intention_id: string;
+  label: string;
+  training_examples: TrainingExample[];
+  recent_matches: RecentMatch[];
 }
 
 export interface ConversationRow {
@@ -268,11 +303,30 @@ export const api = {
     delete: async (documentId: string): Promise<void> => {
       await apiClient.delete(`/documents/${documentId}`);
     },
+    reviewChunk: async (
+      documentId: string,
+      chunkId: string,
+      action: "approve" | "reject",
+    ): Promise<{ quality_gate_status: string; document_quality_gate_status: string }> => {
+      const { data } = await apiClient.patch(
+        `/documents/${documentId}/chunks/${chunkId}/quality`,
+        { action },
+      );
+      return data;
+    },
+    pendingChunks: async (): Promise<PendingChunkResponse[]> => {
+      const { data } = await apiClient.get<PendingChunkResponse[]>("/chunks/pending");
+      return data;
+    },
   },
 
   intentions: {
     list: async (): Promise<IntentionResponse> => {
       const { data } = await apiClient.get<IntentionResponse>("/intentions");
+      return data;
+    },
+    getExamples: async (intentionId: string): Promise<IntentionDetail> => {
+      const { data } = await apiClient.get<IntentionDetail>(`/intentions/${intentionId}/examples`);
       return data;
     },
     approve: async (intentionId: string) => {

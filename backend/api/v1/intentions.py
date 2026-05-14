@@ -164,9 +164,9 @@ async def get_intention_examples(
     intention_id: str,
     tenant_id: str = Depends(get_tenant_id),
     current_user: CurrentUser = Depends(require_admin),
-    limit: int = 10,
+    limit: int = 50,
 ):
-    """Return recent queries that matched this intention, for review."""
+    """Return training examples (intencion_ejemplos) + recent matched queries (consultas_log)."""
     async with get_pg_session(tenant_id) as session:
         row = await session.execute(
             text("SELECT label FROM intenciones WHERE id = :id"),
@@ -176,9 +176,27 @@ async def get_intention_examples(
         if not intention:
             raise HTTPException(status_code=404, detail="Intention not found")
 
-        result = await session.execute(text("""
+        # Training examples — seed + auto-learned
+        training_result = await session.execute(text("""
             SELECT
                 id,
+                question_text,
+                is_auto_learned,
+                is_approved,
+                version_id,
+                created_at
+            FROM intencion_ejemplos
+            WHERE intencion_id = :iid
+            ORDER BY created_at DESC
+            LIMIT :limit
+        """), {"iid": intention_id, "limit": limit})
+        training = [dict(r) for r in training_result.mappings().all()]
+
+        # Recent queries that matched this intention (from consultas_log)
+        matched_result = await session.execute(text("""
+            SELECT
+                id,
+                question_text,
                 intent_confidence,
                 auto_learning_blocked,
                 from_cache,
@@ -186,12 +204,18 @@ async def get_intention_examples(
                 created_at
             FROM consultas_log
             WHERE intent_label = :label
+              AND created_at >= NOW() - INTERVAL '30 days'
             ORDER BY created_at DESC
             LIMIT :limit
         """), {"label": intention["label"], "limit": limit})
-        examples = [dict(r) for r in result.mappings().all()]
+        matched = [dict(r) for r in matched_result.mappings().all()]
 
-    return {"intention_id": intention_id, "examples": examples}
+    return {
+        "intention_id": intention_id,
+        "label": intention["label"],
+        "training_examples": training,
+        "recent_matches": matched,
+    }
 
 
 @router.get("/intentions/label/{label}/examples")
@@ -304,6 +328,13 @@ async def approve_cluster(
 
     if sample_texts:
         await _index_examples_in_qdrant(tenant_id, intention_id, body.label, sample_texts)
+
+    # Trigger async retraining after indexing new examples
+    try:
+        from workers.training_tasks import retrain_intent_classifier
+        retrain_intent_classifier.apply_async(args=[tenant_id], queue="training", countdown=5)
+    except Exception as exc:
+        logger.warning("retrain_trigger_failed tenant=%s error=%s", tenant_id, exc)
 
     logger.info("cluster_approved tenant=%s cluster_id=%s label=%s", tenant_id, cluster_id, body.label)
     return {"id": intention_id, "label": body.label, "status": "created", "examples_indexed": len(sample_texts)}
@@ -552,12 +583,28 @@ def _serialize_intention(row: dict) -> dict:
 
 
 async def _promote_pending_to_active(tenant_id: str, label: str) -> dict:
-    """Promote a pending cluster label to an active Intention."""
+    """Promote a pending cluster label to an active Intention.
+
+    Fetches sample queries from consultas_log, creates the intention in PG,
+    indexes the examples in Qdrant, and triggers retraining.
+    """
     async with get_pg_session(tenant_id) as session:
         existing = await session.execute(
             text("SELECT id FROM intenciones WHERE label = :label"), {"label": label}
         )
         row = existing.fetchone()
+
+        # Fetch queries from consultas_log that matched this pending label
+        samples_result = await session.execute(text("""
+            SELECT DISTINCT question_text FROM consultas_log
+            WHERE intent_label = :label
+              AND question_text IS NOT NULL
+              AND intent_confidence >= 0.70
+            ORDER BY question_text
+            LIMIT 20
+        """), {"label": label})
+        sample_texts = [r[0] for r in samples_result.fetchall()]
+
         if row:
             await session.execute(
                 text("UPDATE intenciones SET is_active = TRUE, updated_at = NOW() WHERE id = :id"),
@@ -568,11 +615,25 @@ async def _promote_pending_to_active(tenant_id: str, label: str) -> dict:
             intention_id = str(uuid.uuid4())
             await session.execute(text("""
                 INSERT INTO intenciones (id, label, is_active, example_count)
-                VALUES (:id, :label, TRUE, 0)
-            """), {"id": intention_id, "label": label})
+                VALUES (:id, :label, TRUE, :example_count)
+            """), {"id": intention_id, "label": label, "example_count": len(sample_texts)})
 
-    logger.info("pending_promoted tenant=%s label=%s id=%s", tenant_id, label, intention_id)
-    return {"id": intention_id, "label": label, "status": "approved"}
+    # Index example queries in Qdrant so the classifier can match against them
+    if sample_texts:
+        await _index_examples_in_qdrant(tenant_id, intention_id, label, sample_texts)
+
+    # Trigger async retraining
+    try:
+        from workers.training_tasks import retrain_intent_classifier
+        retrain_intent_classifier.apply_async(args=[tenant_id], queue="training", countdown=5)
+    except Exception as exc:
+        logger.warning("retrain_trigger_failed tenant=%s error=%s", tenant_id, exc)
+
+    logger.info(
+        "pending_promoted tenant=%s label=%s id=%s examples=%d",
+        tenant_id, label, intention_id, len(sample_texts),
+    )
+    return {"id": intention_id, "label": label, "status": "approved", "examples_indexed": len(sample_texts)}
 
 
 async def _index_examples_in_qdrant(

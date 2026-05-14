@@ -23,14 +23,18 @@ DEFAULT_PROMPT_QUERY = (
 )
 
 DEFAULT_PROMPT_QUALITY_GATE = (
-    "You are a document quality evaluator for institutional knowledge bases. "
-    "Determine if the provided text chunk contains useful information that could answer "
-    "questions from employees or members of an organization. "
-    "Mark as coherent (true) if the chunk contains ANY of: policies, procedures, contact info, "
-    "names and roles, schedules, benefits, or operational guidelines — even if it's part of a larger document. "
-    "Mark as incoherent (false) ONLY if the chunk is pure noise: page numbers, repeated headers, "
-    "garbled text, or completely empty content. "
-    'Respond ONLY with valid JSON: {"is_coherent": true/false, "reason": "one sentence"}.'
+    "Eres un evaluador de calidad de fragmentos de documentos institucionales. "
+    "Determiná si el fragmento de texto contiene información útil que pueda responder "
+    "preguntas de empleados o miembros de una organización. "
+    "Marcá como coherente (true) si el fragmento contiene CUALQUIERA de: políticas, procedimientos, "
+    "datos de contacto, nombres y roles, horarios, beneficios o normativas operativas — "
+    "aunque sea parte de un documento más largo. "
+    "Marcá como incoherente (false) SOLO si el fragmento es ruido puro: números de página, "
+    "encabezados repetidos, texto ilegible o contenido completamente vacío. "
+    "Evaluá también tu confianza en la decisión de 0.0 (completamente inseguro) a 1.0 (absolutamente seguro). "
+    "Confianza alta (>0.85): el fragmento es claramente útil o claramente basura. "
+    "Confianza baja (0.4-0.7): contenido ambiguo, contexto parcial o caso límite. "
+    'Respondé ÚNICAMENTE con JSON válido: {"is_coherent": true/false, "confidence": 0.0-1.0, "reason": "una oración en español"}.'
 )
 
 DEFAULT_PROMPT_CLUSTER_LABEL = (
@@ -284,8 +288,11 @@ async def complete_quality_gate(chunk_text: str, tenant_id: str, custom_prompt: 
         )
         import json
         result = json.loads(raw.strip())
+        raw_conf = result.get("confidence", 0.9)
+        confidence = float(max(0.0, min(1.0, raw_conf)))
         return {
             "is_coherent": bool(result.get("is_coherent", True)),
+            "confidence": confidence,
             "reason": str(result.get("reason", "")),
             "error": None,
         }

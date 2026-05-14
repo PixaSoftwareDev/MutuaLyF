@@ -5,9 +5,11 @@ import logging
 import os
 import re
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
+from typing import Literal
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
+from pydantic import BaseModel
 from qdrant_client.models import Filter, FieldCondition, MatchValue
 from sqlalchemy import text
 
@@ -63,12 +65,180 @@ async def list_chunks(
                 "total_chunks": point.payload.get("total_chunks", 1),
                 "text": point.payload.get("text", ""),
                 "quality_gate_status": point.payload.get("quality_gate_status", "pending"),
+                "quality_gate_confidence": point.payload.get("quality_gate_confidence"),
+                "quality_gate_reason": point.payload.get("quality_gate_reason"),
+                "manually_reviewed": point.payload.get("manually_reviewed", False),
+                "reviewed_by": point.payload.get("reviewed_by"),
             }
             for point in results
         ],
         key=lambda c: c["chunk_index"],
     )
     return chunks
+
+
+@router.get("/chunks/pending")
+async def list_pending_chunks(
+    tenant_id: str = Depends(get_tenant_id),
+    current_user: CurrentUser = Depends(require_admin),
+):
+    """Return all chunks with quality_gate_status pending or skipped across all documents.
+
+    Used by the admin panel to show a centralized review queue without having
+    to open each document individually.
+    """
+    from qdrant_client.models import FieldCondition, MatchAny
+
+    qdrant = get_qdrant_client()
+    collection = f"{tenant_id}_docs"
+
+    results, _ = await qdrant.scroll(
+        collection_name=collection,
+        scroll_filter=Filter(
+            must=[
+                FieldCondition(
+                    key="quality_gate_status",
+                    match=MatchAny(any=["pending", "skipped"]),
+                )
+            ]
+        ),
+        limit=500,
+        with_payload=True,
+        with_vectors=False,
+    )
+
+    # Group by document_id and enrich with document title from PG
+    doc_ids = list({p.payload.get("document_id") for p in results if p.payload.get("document_id")})
+    doc_titles: dict[str, str] = {}
+    if doc_ids:
+        async with get_pg_session(tenant_id) as session:
+            placeholders = ", ".join(f":id{i}" for i in range(len(doc_ids)))
+            rows = await session.execute(
+                text(f"SELECT id, title FROM documentos WHERE id IN ({placeholders})"),
+                {f"id{i}": did for i, did in enumerate(doc_ids)},
+            )
+            doc_titles = {str(r["id"]): r["title"] for r in rows.mappings().all()}
+
+    chunks = sorted(
+        [
+            {
+                "id": str(p.id),
+                "document_id": p.payload.get("document_id"),
+                "document_title": doc_titles.get(p.payload.get("document_id", ""), "—"),
+                "chunk_index": p.payload.get("chunk_index", 0),
+                "total_chunks": p.payload.get("total_chunks", 1),
+                "text": p.payload.get("text", ""),
+                "quality_gate_status": p.payload.get("quality_gate_status", "pending"),
+                "quality_gate_confidence": p.payload.get("quality_gate_confidence"),
+                "quality_gate_reason": p.payload.get("quality_gate_reason"),
+                "manually_reviewed": p.payload.get("manually_reviewed", False),
+                "reviewed_by": p.payload.get("reviewed_by"),
+            }
+            for p in results
+        ],
+        key=lambda c: (c["quality_gate_status"], c["document_id"], c["chunk_index"]),
+    )
+    return chunks
+
+
+class ChunkReviewBody(BaseModel):
+    action: Literal["approve", "reject"]
+
+
+@router.patch("/documents/{document_id}/chunks/{chunk_id}/quality")
+async def review_chunk(
+    document_id: str,
+    chunk_id: str,
+    body: ChunkReviewBody,
+    request: Request,
+    tenant_id: str = Depends(get_tenant_id),
+    current_user: CurrentUser = Depends(require_admin),
+):
+    """Manually override the quality_gate_status of a single chunk.
+
+    approve → status: passed
+    reject  → status: skipped
+
+    The override is stamped in the Qdrant payload (manually_reviewed,
+    reviewed_by, reviewed_at). The Celery retry task respects this stamp
+    and will not overwrite a manually reviewed chunk.
+
+    After the update, the document's aggregate quality_gate_status in
+    PostgreSQL is recalculated from all its chunks.
+    """
+    qdrant = get_qdrant_client()
+    collection = f"{tenant_id}_docs"
+
+    # Verify chunk exists and belongs to this document
+    results = await qdrant.retrieve(
+        collection_name=collection,
+        ids=[chunk_id],
+        with_payload=True,
+    )
+    if not results:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chunk not found")
+    if results[0].payload.get("document_id") != document_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Chunk does not belong to this document")
+
+    new_status = "passed" if body.action == "approve" else "skipped"
+    now = datetime.now(timezone.utc).isoformat()
+
+    await qdrant.set_payload(
+        collection_name=collection,
+        payload={
+            "quality_gate_status": new_status,
+            "manually_reviewed": True,
+            "reviewed_by": current_user.email,
+            "reviewed_at": now,
+        },
+        points=[chunk_id],
+    )
+
+    # Recalculate document aggregate quality status from all its chunks
+    all_chunks, _ = await qdrant.scroll(
+        collection_name=collection,
+        scroll_filter=Filter(
+            must=[FieldCondition(key="document_id", match=MatchValue(value=document_id))]
+        ),
+        limit=1000,
+        with_payload=True,
+        with_vectors=False,
+    )
+    status_list = [p.payload.get("quality_gate_status", "pending") for p in all_chunks]
+    passed_count = sum(1 for s in status_list if s == "passed")
+    pending_count = sum(1 for s in status_list if s == "pending")
+    if pending_count > 0:
+        agg = "pending"
+    elif passed_count > 0:
+        agg = "passed"
+    else:
+        agg = "skipped"
+
+    async with get_pg_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE documentos SET quality_gate_status = :qgs, updated_at = NOW() WHERE id = :id"),
+            {"qgs": agg, "id": document_id},
+        )
+
+    logger.info(
+        "chunk_reviewed document_id=%s chunk_id=%s action=%s new_status=%s agg=%s user=%s",
+        document_id, chunk_id, body.action, new_status, agg, current_user.email,
+    )
+
+    import asyncio
+    from core.audit import record as audit
+    asyncio.ensure_future(audit(
+        tenant_id=tenant_id,
+        actor_id=current_user.user_id,
+        actor_email=current_user.email,
+        actor_role=current_user.role.value,
+        action="chunk.review",
+        resource=chunk_id,
+        detail={"action": body.action, "document_id": document_id, "new_status": new_status},
+        request=request,
+    ))
+
+    return {"chunk_id": chunk_id, "quality_gate_status": new_status, "document_quality_gate_status": agg}
 
 
 @router.delete("/documents/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -285,7 +455,9 @@ async def ingest_document(
         )
 
     # ── Compute file hashes for duplicate detection ───────────────────────────
-    hash_bytes, hash_text = _compute_file_hashes(content, mime_type)
+    # Run in thread pool — PDF/DOCX parsing is CPU-bound and would block the event loop.
+    import asyncio as _asyncio
+    hash_bytes, hash_text = await _asyncio.to_thread(_compute_file_hashes, content, mime_type)
 
     document_id = str(uuid.uuid4())
     logger.info(
@@ -295,7 +467,41 @@ async def ingest_document(
 
     # ── Atomic insert with duplicate detection (avoids TOCTOU race) ──────────
     # INSERT ... ON CONFLICT DO NOTHING. If 0 rows inserted → duplicate exists.
+    # NOTE: the constraint covers hash_bytes (byte-identical files). For same-content
+    # different-format duplicates (PDF vs DOCX of same text), we do a pre-check on
+    # hash_text. A tiny TOCTOU window remains but the consequence is a duplicate doc,
+    # not data loss — acceptable given the rarity of concurrent same-content uploads.
     async with get_pg_session(tenant_id) as session:
+        text_dup_result = await session.execute(
+            text(
+                "SELECT id, title, filename, created_at FROM documentos "
+                "WHERE content_hash_text = :h AND content_hash_bytes != :hb LIMIT 1"
+            ),
+            {"h": hash_text, "hb": hash_bytes},
+        )
+        text_dup_row = text_dup_result.mappings().fetchone()
+        if text_dup_row is not None:
+            logger.info(
+                "ingest_text_hash_duplicate tenant_id=%s existing_id=%s",
+                tenant_id, text_dup_row["id"],
+            )
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "detail": "Documento duplicado",
+                    "duplicate_of": {
+                        "id": str(text_dup_row["id"]),
+                        "title": text_dup_row["title"],
+                        "filename": text_dup_row["filename"],
+                        "created_at": (
+                            text_dup_row["created_at"].isoformat()
+                            if isinstance(text_dup_row["created_at"], datetime)
+                            else str(text_dup_row["created_at"])
+                        ),
+                    },
+                    "match_type": "same_content",
+                },
+            )
         insert_result = await session.execute(
             text(
                 "INSERT INTO documentos (id, title, filename, mime_type, size_bytes, uploaded_by, "

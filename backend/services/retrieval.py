@@ -47,6 +47,9 @@ class RetrievedChunk:
 
 @lru_cache(maxsize=1)
 def _load_reranker():
+    if not settings.reranker_enabled:
+        logger.info("reranker_disabled via RERANKER_ENABLED=false")
+        return None
     try:
         from sentence_transformers import CrossEncoder
         logger.info("reranker_loading model=%s", settings.reranker_model)
@@ -154,6 +157,52 @@ async def retrieve(
         tenant_id, len(chunks), len(reranked),
     )
     return reranked
+
+
+async def retrieve_by_ids(
+    chunk_ids: list[str],
+    tenant_id: str,
+) -> list[RetrievedChunk]:
+    """Fetch specific chunks from Qdrant by ID.
+
+    Used to materialize Neo4j entity-graph results: Neo4j returns chunk_ids that
+    contain a named entity; this function fetches the actual text from Qdrant so
+    those chunks can be included in the LLM context.
+
+    Chunks returned here get score=1.0 — entity-graph lookup is always highly
+    relevant by definition (the entity was explicitly named in the query).
+    """
+    if not chunk_ids:
+        return []
+
+    collection = f"{tenant_id}_docs"
+    qdrant = get_qdrant_client()
+
+    try:
+        async with asyncio.timeout(_QDRANT_TIMEOUT_S):
+            points = await qdrant.retrieve(
+                collection_name=collection,
+                ids=chunk_ids,
+                with_payload=True,
+            )
+    except asyncio.TimeoutError:
+        logger.warning("retrieve_by_ids_timeout tenant_id=%s", tenant_id)
+        return []
+    except Exception as exc:
+        logger.warning("retrieve_by_ids_failed tenant_id=%s error=%s", tenant_id, exc)
+        return []
+
+    return [
+        RetrievedChunk(
+            chunk_id=str(point.id),
+            document_id=point.payload.get("document_id", ""),
+            text=point.payload.get("text", ""),
+            score=1.0,
+            quality_gate_status=point.payload.get("quality_gate_status", "unknown"),
+            metadata={k: v for k, v in point.payload.items() if k not in ("text", "document_id")},
+        )
+        for point in points
+    ]
 
 
 def _rerank(query: str, chunks: list[RetrievedChunk], top_k: int) -> list[RetrievedChunk]:

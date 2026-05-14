@@ -188,7 +188,7 @@ async def _run_ingest_pipeline(
     # ── 4+5. Quality gate stage 1 (Groq I/O) + Embeddings (CPU) run concurrently ─
     from services.orchestrator import _get_tenant_config as _get_config
     _cfg = await _get_config(tenant_id)
-    quality_task = validate_chunks_batch(chunks, max_concurrent=5, custom_prompt=_cfg.get("prompt_quality_gate"))
+    quality_task = validate_chunks_batch(chunks, max_concurrent=1, custom_prompt=_cfg.get("prompt_quality_gate"))
     embed_task = loop.run_in_executor(None, embed_batch, [c.text for c in chunks], False)
     quality_results, embeddings = await asyncio.gather(quality_task, embed_task)
     timings["quality_and_embed_ms"] = _ms(t)
@@ -223,6 +223,10 @@ async def _run_ingest_pipeline(
                 "parent_id": chunk.parent_id,
                 "quality_gate_status": (quality_map[chunk.id].status.value
                                         if chunk.id in quality_map else "pending"),
+                "quality_gate_confidence": (round(quality_map[chunk.id].confidence, 3)
+                                            if chunk.id in quality_map else None),
+                "quality_gate_reason": (quality_map[chunk.id].reason
+                                        if chunk.id in quality_map else None),
                 **chunk.metadata,
             },
         )
@@ -329,12 +333,15 @@ async def _run_ingest_pipeline(
         revalidate_chunk_quality.apply_async(args=[chunk.id, tenant_id], countdown=_RETRY_DELAYS[0])
 
     # ── 10. Finalize — status update FIRST, then metrics (graceful) ──────────
-    # Compute aggregate quality_gate_status for the document
-    all_statuses = {r.status.value for r in quality_results}
-    if all_statuses == {"passed"}:
-        agg_quality = "passed"
-    elif "pending" in all_statuses:
+    # Compute aggregate quality_gate_status for the document.
+    # "skipped" only when EVERY chunk failed — a single bad chunk should not
+    # mark the whole document as unusable.
+    passed_count = sum(1 for r in quality_results if r.status.value == "passed")
+    pending_count = sum(1 for r in quality_results if r.status.value == "pending")
+    if pending_count > 0:
         agg_quality = "pending"
+    elif passed_count > 0:
+        agg_quality = "passed"
     else:
         agg_quality = "skipped"
 
@@ -351,6 +358,11 @@ async def _run_ingest_pipeline(
         quality_gate_status=agg_quality,
     )
     await _log_usage_event(tenant_id, "ingest", len(points))
+
+    # Invalidate the tenant's response cache so newly indexed content is
+    # immediately searchable. Without this, cached "no info" answers persist
+    # for up to TTL seconds after ingestion completes.
+    await _invalidate_tenant_cache(tenant_id)
 
     try:
         from core.metrics import INGEST_TOTAL, PIPELINE_DURATION, QUALITY_GATE_TOTAL
@@ -409,6 +421,14 @@ async def _run_revalidation(chunk_id: str, tenant_id: str) -> str:
         from services.orchestrator import _get_tenant_config as _get_config
         _cfg = await _get_config(tenant_id)
         result = await complete_quality_gate(chunk_text, tenant_id, custom_prompt=_cfg.get("prompt_quality_gate"))
+
+        # Respect manual overrides — never overwrite a human decision
+        if results[0].payload.get("manually_reviewed"):
+            logger.info(
+                "quality_gate_retry_skipped_manual_override chunk_id=%s reviewed_by=%s",
+                chunk_id, results[0].payload.get("reviewed_by"),
+            )
+            return "done"
 
         if result["error"] is not None and result["is_coherent"] is None:
             # Groq still down — let the caller decide whether to retry or skip
@@ -487,6 +507,32 @@ async def _update_document_status(
                 text("UPDATE documentos SET status = :status, updated_at = NOW() WHERE id = :id"),
                 {"status": status, "id": document_id},
             )
+
+
+async def _invalidate_tenant_cache(tenant_id: str) -> None:
+    """Delete all cached query responses for the tenant.
+
+    Called after a successful ingestion so newly indexed content is immediately
+    searchable. Without this, a 'no info' response cached before ingestion
+    would be served for up to TTL seconds even after the document is ready.
+    """
+    try:
+        from core.database import get_redis_cache
+        redis = get_redis_cache()
+        pattern = f"{tenant_id}:cache:*"
+        cursor = 0
+        deleted = 0
+        while True:
+            cursor, keys = await redis.scan(cursor, match=pattern, count=200)
+            if keys:
+                await redis.delete(*keys)
+                deleted += len(keys)
+            if cursor == 0:
+                break
+        if deleted:
+            logger.info("cache_invalidated tenant_id=%s keys_deleted=%d", tenant_id, deleted)
+    except Exception as exc:
+        logger.warning("cache_invalidation_failed tenant_id=%s error=%s (continuing)", tenant_id, exc)
 
 
 async def _log_usage_event(tenant_id: str, event_type: str, value: int) -> None:

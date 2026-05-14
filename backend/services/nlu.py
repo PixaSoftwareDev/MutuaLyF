@@ -5,11 +5,21 @@ GLiNER runs locally — no external API call.
 """
 
 import logging
+import threading
 from dataclasses import dataclass
-from functools import lru_cache
 from typing import Any
 
 from core.config import settings
+
+# Pre-import gliner at module level so transformers is fully loaded before uvicorn
+# forks worker processes. Without this, concurrent forks race on transformers'
+# __pycache__ files and hit "cannot import name 'AutoConfig' from 'transformers'".
+try:
+    from gliner import GLiNER as _GLiNER_CLASS
+    _GLINER_AVAILABLE = True
+except ImportError:
+    _GLiNER_CLASS = None  # type: ignore[assignment,misc]
+    _GLINER_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -67,21 +77,33 @@ class Entity:
     end: int
 
 
-@lru_cache(maxsize=1)
+_nlu_model = None
+_nlu_model_lock = threading.Lock()
+_nlu_model_ready = False
+
+
 def _load_model():
-    """Load GLiNER model once and cache in memory."""
-    try:
-        from gliner import GLiNER
-        logger.info("nlu_model_loading model=%s", settings.nlu_model)
-        model = GLiNER.from_pretrained(settings.nlu_model)
-        logger.info("nlu_model_loaded model=%s", settings.nlu_model)
-        return model
-    except ImportError:
-        logger.warning("gliner_not_installed nlu_disabled")
-        return None
-    except Exception as exc:
-        logger.error("nlu_model_load_failed error=%s", exc)
-        return None
+    """Load GLiNER model once and cache in memory. Thread-safe."""
+    global _nlu_model, _nlu_model_ready
+    if _nlu_model_ready:
+        return _nlu_model
+    with _nlu_model_lock:
+        if _nlu_model_ready:
+            return _nlu_model
+        try:
+            if not _GLINER_AVAILABLE:
+                logger.warning("gliner_not_installed nlu_disabled")
+                _nlu_model = None
+            else:
+                logger.info("nlu_model_loading model=%s", settings.nlu_model)
+                _nlu_model = _GLiNER_CLASS.from_pretrained(settings.nlu_model)  # type: ignore[union-attr]
+                logger.info("nlu_model_loaded model=%s", settings.nlu_model)
+        except Exception as exc:
+            logger.error("nlu_model_load_failed error=%s", exc)
+            _nlu_model = None
+        finally:
+            _nlu_model_ready = True
+    return _nlu_model
 
 
 def extract_entities(text: str, threshold: float = 0.5) -> list[Entity]:

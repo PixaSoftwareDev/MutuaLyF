@@ -67,6 +67,17 @@ async def handle_query(
         QUERY_DURATION.labels(tenant_id=tenant_id, complexity="cached").observe(latency_ms)
         cached["from_cache"] = True
         cached["latency_ms"] = latency_ms
+        # Log cache hits too — needed for accurate usage billing and HDBSCAN training data.
+        asyncio.ensure_future(_log_query(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            question_text=question[:500],
+            question_hash=question_hash,
+            intent_label=cached.get("intent_label"),
+            intent_confidence=cached.get("intent_confidence", 0.0),
+            latency_ms=latency_ms,
+            from_cache=True,
+        ))
         return cached
 
     # ── Step 2: Parallel classification + NLU ─────────────────────────────────
@@ -121,6 +132,33 @@ async def handle_query(
     if isinstance(neo4j_records, Exception):
         logger.warning("neo4j_retrieval_failed error=%s", neo4j_records)
         neo4j_records = []
+
+    # ── Step 3b: Merge Neo4j entity chunks into Qdrant results ───────────────
+    # Neo4j returns chunk_ids that contain named entities from the query.
+    # Two cases:
+    # 1. Chunk already in qdrant_chunks but score below min_score threshold →
+    #    boost its score to 1.0 (entity match is always relevant).
+    # 2. Chunk not in qdrant_chunks at all → fetch from Qdrant and add with score=1.0.
+    if neo4j_records:
+        from services.retrieval import retrieve_by_ids
+        neo4j_chunk_ids = {r["chunk_id"] for r in neo4j_records}
+        # Boost already-retrieved chunks that Neo4j confirms contain named entities
+        qdrant_list = list(qdrant_chunks or [])
+        for chunk in qdrant_list:
+            if chunk.chunk_id in neo4j_chunk_ids:
+                chunk.score = 1.0
+        # Fetch chunks that Qdrant didn't retrieve at all
+        existing_ids = {c.chunk_id for c in qdrant_list}
+        new_ids = [cid for cid in neo4j_chunk_ids if cid not in existing_ids]
+        if new_ids:
+            entity_chunks = await retrieve_by_ids(new_ids, tenant_id)
+            qdrant_list.extend(entity_chunks)
+        if neo4j_chunk_ids:
+            logger.info(
+                "neo4j_entity_boost tenant_id=%s entity_chunk_ids=%d new_fetched=%d",
+                tenant_id, len(neo4j_chunk_ids), len(new_ids),
+            )
+        qdrant_chunks = qdrant_list
 
     # ── Step 4: Load tenant bot config + active prompt template (both cached) ──
     tenant_config = await _get_tenant_config(tenant_id)
@@ -305,18 +343,41 @@ async def _log_query(
     intent_label: str | None,
     intent_confidence: float | None,
     latency_ms: int,
+    from_cache: bool = False,
 ) -> None:
-    """Persist query log to consultas_log. Non-fatal on failure."""
+    """Persist query log to consultas_log and trigger auto-learning when applicable.
+
+    Auto-learning (per CLAUDE.md):
+      - confidence >= 95% AND intent exists → add to intencion_ejemplos (cap 30%)
+      - if cap exceeded → set auto_learning_blocked=TRUE instead
+    Non-fatal on failure.
+    """
     try:
         from core.database import get_pg_session
         from sqlalchemy import text
 
+        auto_learning_blocked = False
+
         async with get_pg_session(tenant_id) as session:
+            # ── Auto-learning: high-confidence non-cache queries ──────────────
+            if (
+                intent_label
+                and intent_confidence is not None
+                and intent_confidence >= settings.intent_confidence_high
+                and not from_cache
+                and question_text
+            ):
+                auto_learning_blocked = await _maybe_auto_learn(
+                    session, tenant_id, intent_label, question_hash, question_text
+                )
+
             await session.execute(
                 text(
                     "INSERT INTO consultas_log "
-                    "(user_id, question_hash, question_text, intent_label, intent_confidence, latency_ms, from_cache) "
-                    "VALUES (:user_id, :question_hash, :question_text, :intent_label, :intent_confidence, :latency_ms, FALSE)"
+                    "(user_id, question_hash, question_text, intent_label, intent_confidence, "
+                    "latency_ms, from_cache, auto_learning_blocked) "
+                    "VALUES (:user_id, :question_hash, :question_text, :intent_label, "
+                    ":intent_confidence, :latency_ms, :from_cache, :auto_learning_blocked)"
                 ),
                 {
                     "user_id": user_id,
@@ -325,10 +386,92 @@ async def _log_query(
                     "intent_label": intent_label,
                     "intent_confidence": intent_confidence,
                     "latency_ms": latency_ms,
+                    "from_cache": from_cache,
+                    "auto_learning_blocked": auto_learning_blocked,
                 },
             )
     except Exception as exc:
         logger.warning("query_log_failed tenant_id=%s error=%s", tenant_id, exc)
+
+
+async def _maybe_auto_learn(
+    session,
+    tenant_id: str,
+    intent_label: str,
+    question_hash: str,
+    question_text: str,
+) -> bool:
+    """Add example to intencion_ejemplos if under the 30% auto-learn cap.
+
+    Returns True if the cap was exceeded (auto_learning_blocked).
+    """
+    from sqlalchemy import text
+
+    # Fetch intention stats: example_count, auto_learned_count
+    row = await session.execute(
+        text(
+            "SELECT id, example_count, auto_learned_count "
+            "FROM intenciones WHERE label = :label AND is_active = TRUE"
+        ),
+        {"label": intent_label},
+    )
+    intention = row.mappings().fetchone()
+    if not intention:
+        return False  # Intention doesn't exist yet — skip
+
+    example_count = intention["example_count"] or 0
+    auto_learned = intention["auto_learned_count"] or 0
+    cap = settings.intent_auto_learn_cap  # 0.30
+
+    # Check if this exact query_hash already exists as an example
+    dup = await session.execute(
+        text(
+            "SELECT 1 FROM intencion_ejemplos "
+            "WHERE intencion_id = :iid AND question_hash = :qh LIMIT 1"
+        ),
+        {"iid": str(intention["id"]), "qh": question_hash},
+    )
+    if dup.fetchone():
+        return False  # Already learned — not blocked
+
+    # Enforce 30% cap: auto_learned / (example_count + auto_learned) <= 30%
+    total = example_count + auto_learned
+    if total > 0 and auto_learned / total >= cap:
+        logger.debug(
+            "auto_learn_cap_exceeded tenant=%s label=%s auto=%d total=%d",
+            tenant_id, intent_label, auto_learned, total,
+        )
+        return True  # Blocked — caller sets auto_learning_blocked=TRUE in log
+
+    # Under cap — insert example
+    import uuid as _uuid
+    await session.execute(
+        text(
+            "INSERT INTO intencion_ejemplos "
+            "(id, intencion_id, question_hash, question_text, is_auto_learned, is_approved) "
+            "VALUES (:id, :iid, :qh, :qt, TRUE, TRUE)"
+        ),
+        {
+            "id": str(_uuid.uuid4()),
+            "iid": str(intention["id"]),
+            "qh": question_hash,
+            "qt": question_text,
+        },
+    )
+    # Increment auto_learned_count
+    await session.execute(
+        text(
+            "UPDATE intenciones "
+            "SET auto_learned_count = auto_learned_count + 1, updated_at = NOW() "
+            "WHERE id = :id"
+        ),
+        {"id": str(intention["id"])},
+    )
+    logger.debug(
+        "auto_learned tenant=%s label=%s auto=%d total=%d",
+        tenant_id, intent_label, auto_learned + 1, total + 1,
+    )
+    return False
 
 
 async def _log_usage_event_app(tenant_id: str, event_type: str, value: int) -> None:

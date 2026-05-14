@@ -142,7 +142,7 @@ export function Sidebar() {
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 overflow-y-auto px-3 pt-5 pb-3">
+      <nav className="flex-1 overflow-y-hidden px-3 pt-5 pb-3">
         {(() => {
           let visibleGroupCount = 0;
           return navGroups.map((group, groupIdx) => {
