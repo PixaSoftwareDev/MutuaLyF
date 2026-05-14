@@ -163,14 +163,28 @@ async def send_message(
             """), {"cid": conversation_id})
         return {"message_id": msg_id, "status": conv_status, "bot_response": None}
 
-    # Bot active — call RAG orchestrator
+    # Bot active — fetch recent history then call RAG orchestrator
     from services.orchestrator import handle_query
+    async with get_pg_session(tenant_id) as session:
+        hist_result = await session.execute(text("""
+            SELECT sender_type, content FROM mensajes
+            WHERE conversation_id = :cid AND sender_type IN ('user', 'bot')
+            ORDER BY created_at DESC LIMIT 10
+        """), {"cid": conversation_id})
+        history_rows = list(reversed(hist_result.mappings().fetchall()))
+    # Build list of (role, content) tuples, excluding the just-inserted user message
+    conversation_history = [
+        (r["sender_type"], r["content"])
+        for r in history_rows
+        if r["content"] != body.content or r["sender_type"] != "user"
+    ]
     try:
         rag_result = await handle_query(
             question=body.content,
             tenant_id=tenant_id,
             user_id=None,
             language="es",
+            conversation_history=conversation_history,
         )
         bot_answer = rag_result["answer"]
         sources = rag_result.get("sources", [])

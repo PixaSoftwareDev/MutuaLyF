@@ -469,14 +469,13 @@ function ChatInner() {
                     : "Escribí tu mensaje…"
                 }
                 disabled={phase === "selecting" && (sectorsLoading || sectors.length === 0)}
-                value={phase === "chat" ? input : undefined}
-                defaultValue={phase === "selecting" ? "" : undefined}
-                onChange={phase === "chat" ? e => setInput(e.target.value) : undefined}
+                value={input}
+                onChange={e => setInput(e.target.value)}
                 onKeyDown={e => {
                   if (e.key !== "Enter" || e.shiftKey) return;
                   e.preventDefault();
                   if (phase === "selecting") {
-                    const val = (e.target as HTMLInputElement).value.trim();
+                    const val = input.trim();
                     if (val && sectors.length > 0) {
                       const def = sectors.find(s => s.is_default) || sectors[0];
                       startChat(def, val);

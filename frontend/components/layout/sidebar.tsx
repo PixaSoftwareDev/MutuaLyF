@@ -6,7 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import Image from "next/image";
 import {
   Inbox, FileText, Tags, Settings, LogOut, ChevronLeft, ChevronRight,
-  Shield, Building2, GitMerge, Users, ExternalLink, FlaskConical, ClipboardList, Bot,
+  Shield, Building2, GitMerge, Users, ExternalLink, FlaskConical, ClipboardList, Bot, Network,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore, useUIStore } from "@/lib/store";
@@ -35,6 +35,8 @@ const navGroups: NavItem[][] = [
     { href: "/admin/documents",  label: "Documentos", icon: FileText, adminOnly: true },
     { href: "/admin/intentions", label: "Temas reconocidos", icon: Tags, adminOnly: true,
       tooltip: "Categorías de consulta que el bot identifica. Validá las que aprendió." },
+    { href: "/admin/entities",   label: "Entidades",  icon: Network, adminOnly: true,
+      tooltip: "Personas, departamentos y más extraídos automáticamente de tus documentos." },
     { href: "/admin/duplicates", label: "Duplicados", icon: GitMerge, adminOnly: true,
       badgeKey: "duplicates-pending",
       tooltip: "Documentos parecidos que conviene unificar para evitar respuestas contradictorias." },
@@ -78,6 +80,7 @@ export function Sidebar() {
     "/admin/documents":     () => queryClient.prefetchQuery({ queryKey: ["documents"],   queryFn: api.documents.list,   staleTime: 10_000 }),
     "/admin/intentions":    () => queryClient.prefetchQuery({ queryKey: ["intentions"],  queryFn: api.intentions.list,  staleTime: 30_000 }),
     "/admin/duplicates":    () => queryClient.prefetchQuery({ queryKey: ["duplicates"],  queryFn: api.duplicates.list,  staleTime: 30_000 }),
+    "/admin/entities":      () => queryClient.prefetchQuery({ queryKey: ["entity-stats"], queryFn: api.entities.stats,   staleTime: 60_000 }),
     "/admin/sectors":       () => queryClient.prefetchQuery({ queryKey: ["sectors"],     queryFn: api.sectors.list,     staleTime: 30_000 }),
     "/admin/operators":     () => queryClient.prefetchQuery({ queryKey: ["operators"],   queryFn: () => apiClient.get("/admin/operators").then(r => r.data), staleTime: 30_000 }),
     "/admin/settings":      () => tenantId && queryClient.prefetchQuery({ queryKey: ["bot-config", tenantId], queryFn: () => api.tenants.getBotConfig(tenantId), staleTime: 60_000 }),

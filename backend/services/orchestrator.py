@@ -34,6 +34,7 @@ async def handle_query(
     tenant_id: str,
     user_id: str | None = None,
     language: str = "es",
+    conversation_history: list[tuple[str, str]] | None = None,
 ) -> dict[str, Any]:
     """Main entry point for a user query.
 
@@ -180,7 +181,9 @@ async def handle_query(
                 chunk.chunk_id, chunk.score, min_score,
             )
             continue
-        context_parts.append(chunk.text)
+        doc_name = chunk.metadata.get("filename", "")
+        chunk_text = f"Fuente: {doc_name}\n{chunk.text}" if doc_name else chunk.text
+        context_parts.append(chunk_text)
         sources.append({
             "chunk_id": chunk.chunk_id,
             "document_id": chunk.document_id,
@@ -216,25 +219,41 @@ async def handle_query(
             f"o a '{second_label}'. Considerá ambos contextos al responder."
         )
 
-    from services.groq_client import DEFAULT_PROMPT_QUERY
     if prompt_query:
-        # Admin-defined prompt: used as-is. Dynamic runtime parts appended after.
-        base_prompt = prompt_query.strip()
-    else:
-        # Default: inject scope if configured
         scope_rule = f"\nAlcance: {bot_scope}" if bot_scope else ""
-        base_prompt = DEFAULT_PROMPT_QUERY + scope_rule
+        base_prompt = prompt_query.strip() + scope_rule
+    else:
+        # No prompt available at all — last resort bare instruction
+        base_prompt = "Respondé únicamente con información del contexto proporcionado."
 
     system_prompt = f"{base_prompt}{ambiguity_note}\nResponde en {language}."
     # User input is in a separate message — never interpolated into the system prompt
-    user_message = f"Contexto:\n{context}\n\nPregunta: {_sanitize_input(question)}"
+    ctx_block = context if context else "(vacío — sin documentos relevantes para esta consulta)"
+    user_message = (
+        f"INSTRUCCION CRITICA — ANTES DE RESPONDER VERIFICÁ ESTO:\n"
+        f"1. La respuesta debe aparecer LITERALMENTE en el Contexto de abajo. No inferir, no completar, no agregar datos propios.\n"
+        f"2. Si el dato específico que pregunta el usuario (ej: días de licencia por paternidad, monto de reintegro, etc.) "
+        f"no aparece TEXTUALMENTE en el Contexto, respondé: "
+        f"'No encontré esa información en los documentos de la organización. "
+        f"Te sugiero consultar directamente con el área correspondiente o con Recursos Humanos.'\n"
+        f"3. Que el Contexto mencione un tema RELACIONADO (ej: licencias en general) NO autoriza a agregar datos específicos "
+        f"que no estén escritos. Solo usá lo que está textualmente.\n\n"
+        f"Contexto:\n{ctx_block}\n\nPregunta del usuario: {_sanitize_input(question)}"
+    )
+
+    # Build message list: system + up to 6 prior turns + current user message
+    messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
+    if conversation_history:
+        role_map = {"user": "user", "bot": "assistant"}
+        for sender, content in conversation_history[-6:]:
+            role = role_map.get(sender)
+            if role:
+                messages.append({"role": role, "content": content[:500]})
+    messages.append({"role": "user", "content": user_message})
 
     try:
         answer = await complete(
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_message},
-            ],
+            messages=messages,
             complexity=complexity,
             tenant_id=tenant_id,
         )
@@ -496,7 +515,13 @@ async def _empty_list() -> list:
 
 
 async def _get_active_template(tenant_id: str) -> str | None:
-    """Return the active template content for this tenant, Redis-cached for 5 min."""
+    """Return the prompt for this tenant, Redis-cached for 5 min.
+
+    Priority:
+      1. Active template assigned to the tenant
+      2. Global default template (is_default=TRUE in system_prompt_templates)
+      3. None → caller falls back to tenant's prompt_query config field
+    """
     redis = get_redis_cache()
     cache_key = f"{tenant_id}:active_template"
 
@@ -511,6 +536,7 @@ async def _get_active_template(tenant_id: str) -> str | None:
         from core.database import get_pg_session
         from sqlalchemy import text
         async with get_pg_session(None) as session:
+            # 1. Tenant-specific assignment
             result = await session.execute(text("""
                 SELECT t.contenido
                 FROM tenant_prompt_assignments a
@@ -519,13 +545,21 @@ async def _get_active_template(tenant_id: str) -> str | None:
                 LIMIT 1
             """), {"tid": tenant_id})
             row = result.fetchone()
+
+            # 2. Global default (no assignment for this tenant)
+            if not row:
+                result = await session.execute(text("""
+                    SELECT contenido FROM system_prompt_templates
+                    WHERE is_default = TRUE AND is_active = TRUE
+                    LIMIT 1
+                """))
+                row = result.fetchone()
     except Exception as exc:
         logger.warning("active_template_load_failed tenant_id=%s error=%s", tenant_id, exc)
         return None
 
     contenido = row[0] if row else None
     try:
-        # Cache empty string as sentinel so we don't query DB every time
         await redis.setex(cache_key, 300, contenido or "")
     except Exception:
         pass
@@ -566,7 +600,7 @@ async def _get_tenant_config(tenant_id: str) -> dict:
     config = {
         "bot_description":      row["bot_description"]      if row else None,
         "bot_scope":            row["bot_scope"]             if row else None,
-        "min_retrieval_score":  float(row["min_retrieval_score"]) if row and row["min_retrieval_score"] is not None else 0.77,
+        "min_retrieval_score":  float(row["min_retrieval_score"]) if row and row["min_retrieval_score"] is not None else 0.73,
         "prompt_query":         row["prompt_query"]          if row else None,
         "prompt_quality_gate":  row["prompt_quality_gate"]   if row else None,
         "prompt_cluster_label": row["prompt_cluster_label"]  if row else None,
