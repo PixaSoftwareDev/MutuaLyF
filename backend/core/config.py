@@ -120,6 +120,7 @@ class Settings(BaseSettings):
     reranker_model: str = "BAAI/bge-reranker-large"
     reranker_enabled: bool = True
     nlu_model: str = "urchade/gliner_large-v2.1"
+    nlu_enabled: bool = True
 
     # ── Cache ─────────────────────────────────────────────────────────────────
     cache_ttl_seconds: int = 3600

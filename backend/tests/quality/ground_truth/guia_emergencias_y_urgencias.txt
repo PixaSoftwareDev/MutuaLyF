@@ -1,0 +1,297 @@
+﻿Tiempo promedio de atenciÃ³n de la llamada: 15 segundos.
+
+B.2 AplicaciÃ³n mÃ³vil
+La app MutualYF tiene un botÃ³n de "EMERGENCIA" que permite:
+- Llamar directo al 0800-555-1234 con un toque.
+- Enviar la geolocalizaciÃ³n para despacho de ambulancia.
+- Mostrar al operador los datos mÃ©dicos relevantes (alergias, medicaciÃ³n habitual, condiciones crÃ³nicas).
+- Notificar automÃ¡ticamente a contactos de emergencia previamente configurados.
+
+B.3 LÃ­neas regionales
+Para situaciones donde el 0800 no estÃ¡ disponible (problemas de red), lÃ­neas locales:
+- CABA: 011-4555-1000 opciÃ³n 9.
+- GBA: 011-4555-1100 opciÃ³n 9.
+- Mar del Plata: 0223-455-1400 opciÃ³n 9.
+- CÃ³rdoba: 0351-455-1500 opciÃ³n 9.
+- Mendoza: 0261-455-1600 opciÃ³n 9.
+- Rosario: 0341-455-1700 opciÃ³n 9.
+
+âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+SECCIÃN C â SERVICIO DE AMBULANCIAS
+âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+
+C.1 Tipos de ambulancia
+- UTIM (Unidad de Terapia Intensiva MÃ³vil): equipada con respirador, monitor multiparamÃ©trico, desfibrilador, medicaciÃ³n de emergencia. TripulaciÃ³n: mÃ©dico, enfermero, conductor camillero.
+- ALSV (Ambulancia de Soporte Vital): equipamiento bÃ¡sico de reanimaciÃ³n. TripulaciÃ³n: enfermero, conductor camillero.
+- Traslado programado: para movilizar pacientes a internaciÃ³n o estudios.
+
+C.2 Cobertura geogrÃ¡fica
+- Cobertura propia en CABA y GBA: tiempo de respuesta promedio 12 minutos en zona cÃ©ntrica, 18 minutos en periferia.
+- Cobertura tercerizada en interior: convenios con servicios locales (Vital, ECCO, Same, etc.) segÃºn ciudad.
+- Servicio de helicÃ³ptero sanitario para traslados de larga distancia (autorizaciÃ³n especial del ComitÃ© de Emergencias).
+---CHUNK---
+âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+SECCIÃN I â INFORMACIÃN PARA EL ASOCIADO
+âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+
+I.1 QuÃ© hacer ante una emergencia
+1. Mantener la calma.
+2. Llamar al 0800-555-1234 inmediatamente.
+3. Brindar informaciÃ³n clara: ubicaciÃ³n, quÃ© pasÃ³, edad y estado del paciente.
+4. Seguir las instrucciones del operador mÃ©dico.
+5. No mover al paciente si hay sospecha de lesiÃ³n cervical o columna.
+6. Si es posible, tener a mano los datos del paciente: DNI, alergias, medicaciÃ³n habitual.
+
+I.2 BotiquÃ­n familiar recomendado
+- TermÃ³metro digital.
+- AntitÃ©rmicos: paracetamol, ibuprofeno (adultos y pediÃ¡trico).
+- AnalgÃ©sicos.
+- Sales de rehidrataciÃ³n oral.
+- AntialÃ©rgicos bÃ¡sicos (loratadina, difenhidramina).
+- Crema corticoide tÃ³pica.
+- Crema antibiÃ³tica tÃ³pica.
+- Vendas, gasas, tela adhesiva.
+- AntisÃ©ptico (povidona iodada, agua oxigenada).
+- Tijera y pinza.
+- Manta tÃ©rmica.
+
+I.3 EducaciÃ³n en RCP
+La mutual ofrece capacitaciÃ³n gratuita en RCP a sus asociados:
+- Cursos bÃ¡sicos presenciales (4 horas) en sedes principales.
+- Cursos online certificados.
+- Cursos especiales para padres de bebÃ©s y niÃ±os pequeÃ±os.
+- Cursos para empresas (con descuento corporativo).
+---CHUNK---
+G.3 Cobertura del parto
+Sin importar la modalidad (parto natural, cesÃ¡rea programada, cesÃ¡rea de urgencia):
+- InternaciÃ³n de la madre por todo el tiempo necesario.
+- InternaciÃ³n del reciÃ©n nacido.
+- AcompaÃ±amiento del padre o pareja durante el trabajo de parto.
+- HabitaciÃ³n individual con cama acompaÃ±ante (Plan Plata en adelante).
+- Plan BÃ¡sico: habitaciÃ³n compartida (2 camas).
+- Profesionales: obstetra, neonatÃ³logo, anestesiÃ³logo, enfermerÃ­a especializada.
+
+âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+SECCIÃN H â EMERGENCIAS PEDIÃTRICAS
+âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+
+H.1 LÃ­nea pediÃ¡trica especial
+0800-555-PEDS (7337) â atenciÃ³n por pediatras de guardia 24/7.
+
+H.2 SÃ­ntomas que requieren atenciÃ³n inmediata
+- Fiebre alta (>39Â°C) que no cede con antitÃ©rmicos.
+- VÃ³mitos persistentes con signos de deshidrataciÃ³n.
+- Diarrea con sangre o moco.
+- Dificultad respiratoria.
+- Convulsiones.
+- PÃ©rdida de conciencia.
+- Lesiones traumÃ¡ticas con sangrado.
+- Ingesta accidental de sustancias tÃ³xicas (consultar tambiÃ©n al Centro Nacional de Intoxicaciones 0800-444-8694).
+- Reacciones alÃ©rgicas con compromiso respiratorio.
+- Cuerpos extraÃ±os en vÃ­as aÃ©reas o digestivas.
+
+H.3 Pediatra a domicilio en urgencia
+Disponible en CABA y GBA. Tiempo de respuesta ~90 minutos.
+Casos tÃ­picos:
+- Fiebre alta nocturna.
+- Cuadro respiratorio en lactante.
+- Diarrea aguda con riesgo de deshidrataciÃ³n.
+- Otitis con dolor intenso.
+
+âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+SECCIÃN I â INFORMACIÃN PARA EL ASOCIADO
+âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+---CHUNK---
+GUÃA INTEGRAL DE EMERGENCIAS Y URGENCIAS â MUTUAL YF
+Departamento de Emergencias MÃ©dicas
+VersiÃ³n 6.2 â Vigente desde enero 2026
+
+âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+SECCIÃN A â CLASIFICACIÃN DE URGENCIAS
+âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+
+A.1 Definiciones operativas
+- EMERGENCIA: situaciÃ³n que pone en riesgo inmediato la vida o funciÃ³n vital del paciente. Requiere atenciÃ³n dentro de los primeros 5-15 minutos.
+- URGENCIA: situaciÃ³n de salud que requiere atenciÃ³n dentro de las primeras 1-4 horas, sin riesgo vital inmediato.
+- CONSULTA NO URGENTE: condiciÃ³n que puede esperar atenciÃ³n programada en consultorio.
+
+A.2 Sistema de triage Manchester
+Las guardias adheridas implementan el Sistema de Triage Manchester con cÃ³digos de colores:
+
+| Color | Tiempo mÃ¡x. atenciÃ³n | Tipo |
+|-------|---------------------|------|
+| Rojo | Inmediato | Emergencia vital |
+| Naranja | 10 minutos | Muy urgente |
+| Amarillo | 60 minutos | Urgente |
+| Verde | 120 minutos | EstÃ¡ndar |
+| Azul | 240 minutos | No urgente |
+
+âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+SECCIÃN B â CANALES DE CONTACTO
+âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+
+B.1 LÃ­nea de Emergencias 24/7
+**0800-555-1234** â disponible las 24 horas, todos los dÃ­as del aÃ±o.
+Atendida por mÃ©dicos de guardia con capacidad de:
+- Evaluar la situaciÃ³n telefÃ³nica.
+- Despachar ambulancia.
+- Autorizar prestaciones in situ.
+- Coordinar internaciÃ³n urgente.
+- Brindar instrucciones de primeros auxilios mientras llega la ambulancia.
+
+Tiempo promedio de atenciÃ³n de la llamada: 15 segundos.
+---CHUNK---
+âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+SECCIÃN E â CÃDIGOS DE EMERGENCIA INTRA-HOSPITALARIOS
+âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+
+E.1 CÃ³digo Azul (paro cardiorrespiratorio)
+ActivaciÃ³n inmediata por personal del sanatorio o llamada al interno 999. Equipo de respuesta:
+- MÃ©dico de guardia.
+- Enfermero capacitado en RCP.
+- AnestesiÃ³logo si estÃ¡ disponible.
+- Camillero con carro de paro.
+
+Equipamiento: monitor desfibrilador, ambÃº, intubaciÃ³n, drogas de paro.
+
+Tiempo de respuesta interno: <3 minutos.
+
+E.2 CÃ³digo ACV (accidente cerebrovascular)
+Activado al primer contacto con paciente con sÃ­ntomas:
+- PÃ©rdida brusca de fuerza en hemicuerpo.
+- AlteraciÃ³n de la palabra.
+- AsimetrÃ­a facial.
+- PÃ©rdida de visiÃ³n brusca.
+- VÃ©rtigo intenso con vÃ³mitos.
+
+AcciÃ³n:
+- Triage rojo automÃ¡tico.
+- TomografÃ­a cerebral en <30 minutos.
+- EvaluaciÃ³n neurolÃ³gica urgente.
+- Trombolisis IV si estÃ¡ indicada (ventana <4.5 horas).
+- TrombectomÃ­a mecÃ¡nica si estÃ¡ indicada (ventana extendida 6-24 hs segÃºn TAC perfusiÃ³n).
+
+E.3 CÃ³digo Infarto (sÃ­ndrome coronario agudo)
+Activado por dolor torÃ¡cico opresivo, especialmente con factores de riesgo:
+- Triage rojo.
+- ECG en <10 minutos.
+- Marcadores de daÃ±o miocÃ¡rdico (troponina) en <30 minutos.
+- ActivaciÃ³n del laboratorio de hemodinamia si hay supradesnivel del ST.
+- Ventana puerta-balÃ³n <90 minutos para angioplastia primaria.
+
+E.4 CÃ³digo Trauma
+Activado por politraumatizado grave (accidente de trÃ¡nsito, caÃ­da, herida de arma):
+- Triage rojo.
+- EvaluaciÃ³n ATLS (Advanced Trauma Life Support).
+- TAC body en <30 minutos.
+- EvaluaciÃ³n quirÃºrgica.
+- ActivaciÃ³n de quirÃ³fano y banco de sangre.
+
+âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+SECCIÃN F â ATENCIÃN DE EMERGENCIAS PSIQUIÃTRICAS
+âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+---CHUNK---
+âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+SECCIÃN F â ATENCIÃN DE EMERGENCIAS PSIQUIÃTRICAS
+âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+
+F.1 DefiniciÃ³n
+Toda situaciÃ³n de salud mental que ponga en riesgo la vida del paciente o de terceros, requiriendo intervenciÃ³n especializada inmediata:
+- IdeaciÃ³n suicida con plan estructurado.
+- Intento de suicidio reciente.
+- Heteroagresividad descontrolada.
+- Crisis psicÃ³tica aguda con desorganizaciÃ³n conductual.
+- SÃ­ndrome de abstinencia grave (alcohol, opioides, benzodiazepinas).
+- Trastorno conversivo agudo.
+
+F.2 Circuito de atenciÃ³n
+1. Llamada al 0800-555-1234 informando situaciÃ³n.
+2. Triage telefÃ³nico por psiquiatra de guardia.
+3. Despacho de ambulancia con personal capacitado.
+4. Traslado a guardia con servicio de psiquiatrÃ­a.
+5. EvaluaciÃ³n inmediata por psiquiatra de guardia.
+6. DecisiÃ³n: tratamiento ambulatorio, internaciÃ³n voluntaria o internaciÃ³n involuntaria (con autorizaciÃ³n judicial).
+
+F.3 LÃ­nea Vidas
+La mutual ofrece la lÃ­nea telefÃ³nica VIDAS para atenciÃ³n psicolÃ³gica 24/7:
+**0800-555-VIDAS (84327)**
+Atendida por psicÃ³logos capacitados en crisis. Ofrece:
+- ContenciÃ³n emocional.
+- EvaluaciÃ³n de riesgo suicida.
+- CoordinaciÃ³n con servicios de emergencia si es necesario.
+- DerivaciÃ³n a psiquiatra/psicÃ³logo para seguimiento.
+
+âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+SECCIÃN G â EMERGENCIAS DURANTE EL EMBARAZO
+âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+
+G.1 Situaciones de emergencia obstÃ©trica
+- Sangrado vaginal abundante.
+- Dolor abdominal intenso.
+- Contracciones rÃ­tmicas antes de la semana 37.
+- PÃ©rdida de lÃ­quido amniÃ³tico.
+- DisminuciÃ³n o ausencia de movimientos fetales.
+- HipertensiÃ³n severa o eclampsia.
+- Cefalea intensa con visiÃ³n borrosa.
+- Edema sÃºbito generalizado.
+
+G.2 Servicios disponibles 24/7
+- LÃ­nea obstÃ©trica especializada: 0800-555-MAMA (6262).
+- Guardia obstÃ©trica en todos los sanatorios principales adheridos.
+- Servicio de emergencia obstÃ©trica con quirÃ³fano de cesÃ¡rea inmediato.
+- NeonatologÃ­a y UCI neonatal en sanatorios de referencia.
+---CHUNK---
+C.3 Indicaciones de despacho de UTIM
+- Sospecha de infarto agudo de miocardio.
+- Sospecha de ACV (accidente cerebrovascular).
+- PÃ©rdida de conciencia.
+- Insuficiencia respiratoria aguda.
+- Trauma severo (politraumatismo, accidente de trÃ¡nsito).
+- Heridas con sangrado masivo.
+- Convulsiones que no ceden.
+- ReacciÃ³n anafilÃ¡ctica.
+- Dolor torÃ¡cico opresivo.
+- AlteraciÃ³n del estado mental.
+
+C.4 Cobertura econÃ³mica
+- Emergencias y urgencias: cobertura del 100% sin coseguro en todos los planes.
+- Traslados programados con prescripciÃ³n mÃ©dica: cobertura del 100%.
+- Traslados sociales o por conveniencia: no cubiertos.
+
+âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+SECCIÃN D â GUARDIAS HOSPITALARIAS
+âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+
+D.1 Sanatorios con guardia 24/7 adheridos
+- Sanatorio Central CABA (Av. Corrientes 1500).
+- Sanatorio Zona Norte (Vicente LÃ³pez, Av. MaipÃº 2500).
+- Sanatorio Zona Oeste (MorÃ³n, Av. Rivadavia 18500).
+- Sanatorio Zona Sur (Lomas de Zamora, Yrigoyen 8200).
+- Sanatorio Mar del Plata (Belgrano 3300).
+- Sanatorio CÃ³rdoba Capital (Bv. San Juan 500).
+- Sanatorio Rosario (Mitre 1234).
+- Sanatorio Mendoza (Las Heras 555).
+
+D.2 Especialidades de guardia disponibles
+- ClÃ­nica mÃ©dica.
+- PediatrÃ­a.
+- CirugÃ­a general.
+- TraumatologÃ­a y ortopedia.
+- CardiologÃ­a (con servicio de hemodinamia 24 hs en Sanatorio Central).
+- NeurologÃ­a (cÃ³digo ACV 24 hs).
+- GinecologÃ­a y obstetricia.
+- PsiquiatrÃ­a (en sanatorios principales).
+
+D.3 Guardias perifÃ©ricas
+Centros mÃ©dicos con horario extendido (8 a 24 hs) en localidades:
+- Nordelta (Tigre).
+- Pilar.
+- San Isidro.
+- Quilmes.
+- Avellaneda.
+- La Matanza (varios).
+- Florencio Varela.
+
+âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+SECCIÃN E â CÃDIGOS DE EMERGENCIA INTRA-HOSPITALARIOS
+âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ

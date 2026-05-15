@@ -67,8 +67,8 @@ def _load_reranker():
 async def retrieve(
     query: str,
     tenant_id: str,
-    top_k: int = 10,
-    rerank_top_k: int = 5,
+    top_k: int = 100,
+    rerank_top_k: int = 15,
 ) -> list[RetrievedChunk]:
     """Embed query, search Qdrant with independent timeout, rerank results.
 
@@ -206,16 +206,33 @@ async def retrieve_by_ids(
 
 
 def _rerank(query: str, chunks: list[RetrievedChunk], top_k: int) -> list[RetrievedChunk]:
-    """Rerank chunks using bge-reranker-large. Falls back to Qdrant scores on failure."""
+    """Rerank chunks using a CrossEncoder. Falls back to Qdrant scores on failure.
+
+    Memory hygiene (critical — without these, the backend OOMs after ~5-10 queries):
+      1. torch.no_grad() — disable autograd
+      2. torch.inference_mode() — even stronger; disables view tracking
+      3. del refs + gc.collect() after each predict — release tokenizer/output tensors
+    """
+    import gc
+
     reranker = _load_reranker()
     if reranker is None:
         return sorted(chunks, key=lambda c: c.score, reverse=True)[:top_k]
 
     try:
+        import torch
         pairs = [(query, chunk.text) for chunk in chunks]
-        scores: list[float] = reranker.predict(pairs).tolist()
+        with torch.inference_mode():
+            raw_scores = reranker.predict(pairs, convert_to_tensor=False, show_progress_bar=False)
+        # Materialize as plain Python list and drop any tensor reference.
+        scores: list[float] = list(raw_scores) if not hasattr(raw_scores, "tolist") else raw_scores.tolist()
         scored = sorted(zip(scores, chunks), key=lambda x: x[0], reverse=True)
-        return [chunk for _, chunk in scored[:top_k]]
+        result = [chunk for _, chunk in scored[:top_k]]
+        # Drop intermediates and force GC: empty_cache is a no-op on CPU but
+        # gc.collect() releases tokenizer state held by sentence-transformers.
+        del raw_scores, pairs, scored
+        gc.collect()
+        return result
     except Exception as exc:
         logger.error("rerank_failed error=%s falling_back_to_qdrant_scores", exc)
         return sorted(chunks, key=lambda c: c.score, reverse=True)[:top_k]

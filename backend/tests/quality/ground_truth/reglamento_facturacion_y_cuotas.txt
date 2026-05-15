@@ -1,0 +1,117 @@
+﻿8.1 Reclamos por errores de facturaciÃ³n
+El asociado tiene 60 dÃ­as para reclamar errores en su factura. Canal:
+- App: secciÃ³n "Mis facturas" â "Reclamar". - Email: facturacion@mutualyf.com.ar
+- TelefÃ³nico: 011-4555-1000 opciÃ³n 4. - Presencial en cualquier sede. 8.2 Tipos de errores frecuentes
+- Cobro de plan incorrecto. - Adicional de integrante que ya fue dado de baja. - Recargo por mora indebido (cuando el pago se realizÃ³ en tÃ©rmino). - Falta de aplicaciÃ³n de bonificaciones. - Doble cobro por error sistÃ©mico. 8.3 ResoluciÃ³n
+- Plazo de respuesta: 5 dÃ­as hÃ¡biles. - Si el reclamo es procedente, se emite nota de crÃ©dito o se ajusta la factura siguiente. - Si el cargo se debitÃ³ indebidamente, se devuelve por el mismo medio dentro de 10 dÃ­as hÃ¡biles. 8.4 Consultas frecuentes sobre facturaciÃ³n
+- Â¿CuÃ¡ndo vence mi cuota? El dÃ­a 15 de cada mes. - Â¿CuÃ¡ndo se debita mi cuota? El dÃ­a 10 si estÃ¡ en dÃ©bito automÃ¡tico. - Â¿Puedo cambiar el dÃ­a de dÃ©bito? No, estÃ¡ fijado en dÃ­a 10 para todos los asociados. - Â¿QuÃ© pasa si el dÃ­a 10 cae en feriado? Se procesa el siguiente dÃ­a hÃ¡bil. - Â¿CÃ³mo descargo mi factura? Por la app, web o solicitÃ¡ndola por email. - Â¿Por quÃ© mi cuota subiÃ³ este mes? Probablemente por ajuste paritario, cambio de plan, alta de integrante, o aplicaciÃ³n de recargo por edad. Se detalla en la factura.
+---CHUNK---
+- 6 a 15 dÃ­as de atraso: 3% de recargo sobre la cuota. - 16 a 30 dÃ­as de atraso: 5% de recargo. - 31 a 60 dÃ­as de atraso: 8% de recargo + bloqueo parcial de prestaciones (solo emergencias y crÃ³nicos). - 61 a 90 dÃ­as de atraso: 12% de recargo + bloqueo total de prestaciones programadas. - MÃ¡s de 90 dÃ­as: baja automÃ¡tica del padrÃ³n con notificaciÃ³n por carta documento. 4.3 Bloqueo parcial de prestaciones
+A partir de los 31 dÃ­as de mora se bloquean:
+- Consultas programadas no urgentes. - Ortodoncia, implantes, cirugÃ­as estÃ©ticas. - Reintegros pendientes (se acreditan al regularizar). Se mantienen activas:
+- AtenciÃ³n de emergencias y urgencias. - MedicaciÃ³n crÃ³nica para hipertensiÃ³n, diabetes, oncologÃ­a, enfermedades neurolÃ³gicas degenerativas. - InternaciÃ³n de urgencia. - Continuidad de tratamientos oncolÃ³gicos en curso. - AtenciÃ³n del embarazo y parto. 4.4 Bloqueo total
+A partir de los 61 dÃ­as de mora, solo se cubren:
+- AtenciÃ³n de emergencias vitales (urgencias absolutas). - AtenciÃ³n obligatoria conforme a la Ley 26.682. 4.5 Plan de pagos
+El asociado en mora puede solicitar plan de pagos de hasta 12 cuotas para regularizar. Requisitos:
+- Cuota mÃ­nima de regularizaciÃ³n: $30.000. - Pago al dÃ­a de la cuota corriente durante el plan. - Anticipo del 20% del total adeudado. - Plan firmado en sede o por la app. Durante el plan de pagos se reactivan progresivamente las prestaciones:
+- Al pagar el anticipo: prestaciones de urgencia restauradas. - Al pagar el 50% del total: prestaciones programadas no costosas. - Al cancelar el plan: cobertura plena restaurada. âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+CAPÃTULO 5 â REINTEGROS POR PRESTACIONES
+âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+
+5.1 Tipos de reintegro
+a) Reintegro por prestaciÃ³n realizada con prestador no adherido cuando no habÃ­a alternativa adherida. b) Reintegro por medicamento no incluido en cobertura directa. c) Reintegro por traslados sanitarios fuera de la red. d) Reintegro por prÃ¡cticas autorizadas que el asociado decidiÃ³ pagar adelantado. 5.2 DocumentaciÃ³n requerida
+- Factura A o B con CUIT del prestador, descripciÃ³n del servicio, fecha y monto. - Receta mÃ©dica original cuando aplique. - Constancia de CBU del titular para depÃ³sito. - Formulario F-201 de solicitud de reintegro. - AuditorÃ­a mÃ©dica si el monto supera $200.000. 5.3 Plazos
+- Plazo para presentar el reintegro: 60 dÃ­as corridos desde la fecha de la factura. - Plazo de liquidaciÃ³n: 15 dÃ­as hÃ¡biles desde recepciÃ³n completa. - Plazo de pago al CBU del asociado: 5 dÃ­as hÃ¡biles desde liquidaciÃ³n. 5.4 Tope de reintegros
+La mutual reintegra hasta el monto del valor de cartilla equivalente. Si el prestador no adherido cobrÃ³ mÃ¡s, la diferencia queda a cargo del asociado. Excepciones (cobertura del 100% del valor facturado sin tope):
+- Tratamientos oncolÃ³gicos. - Prestaciones de internaciÃ³n de emergencia en lugar fuera de la red. - Medicamentos huÃ©rfanos para enfermedades poco frecuentes. âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+CAPÃTULO 6 â CAMBIO DE PLAN Y MIGRACIONES
+âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+---CHUNK---
+6.1 Cambio a plan superior
+- Vigencia inmediata. - Diferencia de cuota se prorratea sobre el mes en curso. - Se aplican carencias por las prestaciones no cubiertas en el plan anterior. - ExcepciÃ³n: si el asociado tiene mÃ¡s de 12 meses de antigÃ¼edad, se reducen las carencias en un 50%. 6.2 Cambio a plan inferior
+- Vigencia desde el primer dÃ­a del mes siguiente. - No hay devoluciÃ³n proporcional del mes en curso. - Se mantienen los beneficios obtenidos durante la vigencia del plan anterior (por ejemplo, tratamientos en curso). 6.3 MigraciÃ³n entre regiones
+Cuando un asociado cambia de domicilio a otra ciudad/provincia:
+- Su cobertura se mantiene sin cambios. - Se actualiza la cartilla disponible segÃºn la nueva localidad. - Si en la nueva localidad no hay sede o cobertura propia, se aplica el rÃ©gimen de reintegros para todas las prestaciones realizadas localmente. - Sin recargo ni penalizaciÃ³n por migraciÃ³n. âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+CAPÃTULO 7 â ALTAS Y BAJAS
+âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+
+7.1 Alta de nuevo asociado
+- InscripciÃ³n inmediata si la documentaciÃ³n estÃ¡ completa. - Carencia general: las indicadas en el reglamento general. - Pro-rateo de la cuota del primer mes segÃºn el dÃ­a de alta. - Primera factura emitida dentro de los 5 dÃ­as hÃ¡biles posteriores al alta. 7.2 Alta de integrantes del grupo familiar
+- InclusiÃ³n retroactiva al primer dÃ­a del mes en curso si se solicita antes del dÃ­a 15. - Si se solicita despuÃ©s del dÃ­a 15, vigencia desde el primer dÃ­a del mes siguiente. - DocumentaciÃ³n requerida: DNI, partida de nacimiento (hijos), partida de matrimonio o declaraciÃ³n jurada de uniÃ³n convivencial (cÃ³nyuge), declaraciÃ³n jurada de dependencia econÃ³mica (padres). 7.3 Baja del asociado
+Solicitud por escrito (carta, email a bajas@mutualyf.com.ar, o presencial en sede). - Plazo mÃ­nimo de aviso: 30 dÃ­as. - Cobertura activa hasta el Ãºltimo dÃ­a del mes pagado. - Sin devoluciÃ³n proporcional. - Pendiente de pagos: se requiere cancelaciÃ³n previa. 7.4 Baja de integrantes
+IdÃ©ntico procedimiento. Caso especial: hijos que cumplen 25 aÃ±os se dan de baja automÃ¡ticamente, salvo continuidad como Asociado Activo independiente. 7.5 ReincorporaciÃ³n
+El asociado que se dio de baja puede reincorporarse en cualquier momento, pero:
+- Se aplican carencias completas como nuevo ingreso. - Si se reincorpora dentro de los 6 meses posteriores a la baja, las carencias se reducen al 50%. - Si se reincorpora dentro de los 30 dÃ­as posteriores a la baja, no se aplican carencias. âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+CAPÃTULO 8 â AUDITORÃA Y CONTROL DE FACTURACIÃN
+âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+---CHUNK---
+REGLAMENTO DE FACTURACIÃN, COBRANZAS Y MORA â MUTUAL YF
+Departamento de AdministraciÃ³n y Finanzas
+EdiciÃ³n 2026 â Vigente desde el 1 de enero
+
+âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+CAPÃTULO 1 â ESTRUCTURA TARIFARIA
+âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+
+1.1 Cuota mensual
+La cuota mensual de cada plan se factura por adelantado y se compone de:
+a) Cuota base del titular segÃºn el plan elegido. b) Adicional por integrantes del grupo familiar (cÃ³nyuge, hijos, padres a cargo).
+---CHUNK---
+c) Adicional por edad del titular (a partir de los 65 aÃ±os, recargo del 15%; a partir de los 75, recargo del 25%). d) Bonificaciones por antigÃ¼edad (5% a los 5 aÃ±os, 10% a los 10 aÃ±os, 15% a los 20 aÃ±os, 20% a los 30 aÃ±os â mÃ¡ximo 20%). e) Descuentos por modalidad de pago (5% por dÃ©bito automÃ¡tico, 8% por pago anticipado anual). 1.2 Adicionales por grupo familiar
+- CÃ³nyuge o conviviente: 90% de la cuota individual del titular.
+---CHUNK---
+2.6 Rapipago y Pago FÃ¡cil
+La cuota se puede abonar en cualquier sucursal de Rapipago o Pago FÃ¡cil presentando el cÃ³digo de pago electrÃ³nico (CPE) que llega por email cada mes. El pago se acredita en 48-72 hs hÃ¡biles. âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+CAPÃTULO 3 â FACTURACIÃN
+âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+
+3.1 Tipos de factura
+- Consumidor final: factura B (no discrimina IVA). - Responsable inscripto: factura A (con IVA discriminado). - Monotributo: factura A o B segÃºn corresponda. Para emitir factura A se requiere informar el CUIT y la condiciÃ³n frente al IVA. Cambio de tipo de facturaciÃ³n: solicitud por la web o app, vigencia desde el siguiente mes. 3.2 Factura corporativa
+Empresas con planes corporativos reciben:
+- Factura Ãºnica mensual con detalle por empleado. - LiquidaciÃ³n discriminada por sucursal o centro de costo si la empresa lo solicita. - Reporte de uso del beneficio (estadÃ­sticas anonimizadas). 3.3 FacturaciÃ³n electrÃ³nica
+Todas las facturas se emiten electrÃ³nicamente. Se envÃ­an por:
+- Email al titular. - Disponible en la app y la web (secciÃ³n "Mis trÃ¡mites" â "Facturas"). - Se conservan los Ãºltimos 24 meses online. Para obtener facturas anteriores a 24 meses: solicitud al Ã¡rea de AdministraciÃ³n (administracion@mutualyf.com.ar). Plazo de entrega: 5 dÃ­as hÃ¡biles. âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+CAPÃTULO 4 â RÃGIMEN DE MORA
+âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+
+4.1 DefiniciÃ³n de mora
+La cuota mensual vence el dÃ­a 15 de cada mes. A partir del dÃ­a 16, la cuenta entra en mora y se generan intereses moratorios. 4.2 Intereses moratorios
+- 0 a 5 dÃ­as de atraso: sin recargo (gracia).
+---CHUNK---
+1.3 Ejemplos de cÃ¡lculo
+Caso 1: Familia tipo, Plan Plata, sin antigÃ¼edad
+- Titular adulto Plan Plata: $42.000
+- CÃ³nyuge (90% de plata): $37.800
+- 2 hijos menores (30% c/u): $25.200
+- Total mensual: $105.000
+
+Caso 2: Adulto mayor solo, Plan Oro, 12 aÃ±os de antigÃ¼edad
+- Cuota Plan Oro: $68.000
+- Recargo por edad (>65): +15% = $10.200
+- BonificaciÃ³n por antigÃ¼edad: -10% = -$6.800
+- Total mensual: $71.400
+
+Caso 3: Pareja con hijo, Plan Premium con dÃ©bito automÃ¡tico y antigÃ¼edad de 8 aÃ±os
+- Titular Premium: $125.000
+- CÃ³nyuge: $112.500
+- Hijo menor: $37.500
+- Subtotal: $275.000
+- BonificaciÃ³n por antigÃ¼edad (5%): -$13.750
+- BonificaciÃ³n por dÃ©bito automÃ¡tico (5%): -$13.750
+- Total mensual: $247.500
+
+âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+CAPÃTULO 2 â MEDIOS DE PAGO ACEPTADOS
+âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+
+2.1 DÃ©bito automÃ¡tico
+Modalidad recomendada. Aplica descuento del 5% sobre la cuota base. Bancos disponibles para dÃ©bito CBU: Santander, Galicia, Macro, BBVA, Patagonia, ItaÃº, ICBC, HSBC, Credicoop, Provincia, NaciÃ³n, Comafi, Hipotecario, Banco del Sol, Brubank, Wilobank. El dÃ©bito se procesa el dÃ­a 10 de cada mes. Si el dÃ­a 10 es inhÃ¡bil, se procesa el siguiente dÃ­a hÃ¡bil. Si el primer dÃ©bito es rechazado, el sistema reintenta el dÃ­a 15 y luego el dÃ­a 20. 2.2 Tarjeta de crÃ©dito
+Aceptamos: Visa, MasterCard, American Express, Cabal, Naranja X. Posibilidad de adherir a pago automÃ¡tico con tarjeta. Sin comisiÃ³n adicional para el asociado (la mutual absorbe el costo de la pasarela). Promociones por banco emisor:
+- Santander: 3 cuotas sin interÃ©s en cuota anual. - Galicia: 6 cuotas sin interÃ©s en upgrade de plan. - Macro: descuento del 10% en cuota mensual los dÃ­as miÃ©rcoles. 2.3 Transferencia bancaria
+CBU de la mutual:
+0140 1234 5678 9012 3456 78
+CUIT: 30-12345678-9
+RazÃ³n social: MUTUAL YF AYM ASOC. Tras la transferencia, enviar comprobante a cobranzas@mutualyf.com.ar indicando nÃºmero de socio. La acreditaciÃ³n se verifica en 24-48 hs hÃ¡biles. 2.4 MercadoPago, Modo y similares
+Aceptamos pagos con QR de MercadoPago, Modo (red SCA), YacarÃ©, ChauChau Pay. Los pagos se acreditan en tiempo real. 2.5 Efectivo en sedes
+Cualquier sede acepta pago en efectivo en horario de atenciÃ³n al asociado:
+- Lunes a viernes 9 a 18 hs. - SÃ¡bados 9 a 13 hs. Pagos hasta $1.000.000 sin presentar documentaciÃ³n adicional. Mayores requieren DNI del depositante.

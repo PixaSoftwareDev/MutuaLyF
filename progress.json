@@ -1,23 +1,97 @@
 {
-  "version": "1.8",
-  "last_updated": "2026-05-08T08:05:00Z",
+  "version": "1.9",
+  "last_updated": "2026-05-15T20:30:00Z",
   "current_stage": "etapa_3",
   "current_step": "completed",
   "overall_status": "etapa_3_complete",
-
   "etapa_1": {
     "status": "completed",
     "steps": {
-      "docker_compose": { "status": "completed", "files_created": ["docker-compose.yml", ".env.example", "nginx/nginx.conf", "backend/Dockerfile", "backend/requirements.txt"] },
-      "fastapi_base": { "status": "completed", "files_created": ["backend/main.py", "backend/core/config.py", "backend/core/tenant.py", "backend/api/v1/*.py"] },
-      "auth_jwt": { "status": "completed", "files_created": ["backend/core/security.py", "backend/models/*.py"], "notes": "Roles: super_admin/admin/operator (3 roles, sin 'user'). Usuario final consume via widget_token sin login. Scopes JWT: full/refresh/widget." },
-      "db_connections": { "status": "completed", "files_created": ["backend/core/database.py"], "notes": "search_path por sesión, sanitización anti-injection." },
-      "migrations": { "status": "completed", "files_created": ["backend/db/alembic.ini", "backend/db/base.py", "backend/db/global_models.py", "backend/db/tenant_models.py", "backend/db/migrations/**", "backend/db/schemas/tenant_schema.sql"] },
-      "tenant_onboarding": { "status": "completed", "files_created": ["scripts/provision_tenant.py"], "notes": "7 pasos transaccionales con rollback." },
-      "ingest_pipeline": { "status": "completed", "files_created": ["backend/services/groq_client.py", "backend/services/chunker.py", "backend/services/quality_gate.py", "backend/services/nlu.py", "backend/services/embeddings.py", "backend/services/neo4j_client.py", "backend/workers/ingest_tasks.py"] },
-      "query_endpoint": { "status": "completed", "files_created": ["backend/services/orchestrator.py", "backend/services/retrieval.py", "backend/services/classifier.py", "backend/api/v1/query.py"] },
-      "intent_classifier": { "status": "completed", "files_created": ["backend/services/classifier.py"] },
-      "widget": { "status": "completed", "files_created": ["frontend/public/widget/widget.js"] },
+      "docker_compose": {
+        "status": "completed",
+        "files_created": [
+          "docker-compose.yml",
+          ".env.example",
+          "nginx/nginx.conf",
+          "backend/Dockerfile",
+          "backend/requirements.txt"
+        ]
+      },
+      "fastapi_base": {
+        "status": "completed",
+        "files_created": [
+          "backend/main.py",
+          "backend/core/config.py",
+          "backend/core/tenant.py",
+          "backend/api/v1/*.py"
+        ]
+      },
+      "auth_jwt": {
+        "status": "completed",
+        "files_created": [
+          "backend/core/security.py",
+          "backend/models/*.py"
+        ],
+        "notes": "Roles: super_admin/admin/operator (3 roles, sin 'user'). Usuario final consume via widget_token sin login. Scopes JWT: full/refresh/widget."
+      },
+      "db_connections": {
+        "status": "completed",
+        "files_created": [
+          "backend/core/database.py"
+        ],
+        "notes": "search_path por sesión, sanitización anti-injection."
+      },
+      "migrations": {
+        "status": "completed",
+        "files_created": [
+          "backend/db/alembic.ini",
+          "backend/db/base.py",
+          "backend/db/global_models.py",
+          "backend/db/tenant_models.py",
+          "backend/db/migrations/**",
+          "backend/db/schemas/tenant_schema.sql"
+        ]
+      },
+      "tenant_onboarding": {
+        "status": "completed",
+        "files_created": [
+          "scripts/provision_tenant.py"
+        ],
+        "notes": "7 pasos transaccionales con rollback."
+      },
+      "ingest_pipeline": {
+        "status": "completed",
+        "files_created": [
+          "backend/services/groq_client.py",
+          "backend/services/chunker.py",
+          "backend/services/quality_gate.py",
+          "backend/services/nlu.py",
+          "backend/services/embeddings.py",
+          "backend/services/neo4j_client.py",
+          "backend/workers/ingest_tasks.py"
+        ]
+      },
+      "query_endpoint": {
+        "status": "completed",
+        "files_created": [
+          "backend/services/orchestrator.py",
+          "backend/services/retrieval.py",
+          "backend/services/classifier.py",
+          "backend/api/v1/query.py"
+        ]
+      },
+      "intent_classifier": {
+        "status": "completed",
+        "files_created": [
+          "backend/services/classifier.py"
+        ]
+      },
+      "widget": {
+        "status": "completed",
+        "files_created": [
+          "frontend/public/widget/widget.js"
+        ]
+      },
       "frontend": {
         "status": "completed",
         "files_created": [
@@ -49,11 +123,18 @@
         ],
         "notes": "Type-check limpio. Next.js 14 App Router. React Query + Zustand. Login, chat dashboard, docs panel, intentions panel."
       },
-      "tests": { "status": "completed", "files_created": ["backend/tests/*.py"], "notes": "55/55 tests pasando." }
+      "tests": {
+        "status": "completed",
+        "files_created": [
+          "backend/tests/*.py"
+        ],
+        "notes": "55/55 tests pasando."
+      }
     }
   },
-
-  "etapa_2": {"status": "completed"},
+  "etapa_2": {
+    "status": "completed"
+  },
   "etapa_3": {
     "status": "completed",
     "items": {
@@ -68,9 +149,14 @@
       "infra_propia_modelos": "deferred_to_production"
     }
   },
-
   "ingest_bugfixes_2026_05_01": {
-    "files_modified": ["api/v1/ingest.py", "services/quality_gate.py", "services/chunker.py", "services/neo4j_client.py", "workers/ingest_tasks.py"],
+    "files_modified": [
+      "api/v1/ingest.py",
+      "services/quality_gate.py",
+      "services/chunker.py",
+      "services/neo4j_client.py",
+      "workers/ingest_tasks.py"
+    ],
     "bugs_fixed": [
       "MIME type check failed for 'text/plain; charset=utf-8' (Chrome behavior) → strip charset before validation",
       "Non-coherent chunks marked PENDING (infinite retry) instead of SKIPPED",
@@ -86,7 +172,6 @@
       "No per-step timing → timings dict logged at end of every pipeline run"
     ]
   },
-
   "decisions": [
     {
       "decision": "bcrypt==4.0.1 en requirements.txt",
@@ -109,7 +194,6 @@
       "date": "2026-04-30"
     }
   ],
-
   "blockers": [],
   "smoke_tests": {
     "status": "13/13 passing",
@@ -117,14 +201,12 @@
     "url": "http://localhost",
     "notes": "Stack corriendo en dev. Demo tenant (todos los roles comparten password tras UPDATE manual del 2026-05-04): admin@demo.local / Admin1234! · superadmin@demo.local / Admin1234! · operator@demo.local / Admin1234!. NOTA: user@demo.local fue creado historicamente pero el rol 'user' no existe en backend (security.py solo expone super_admin/admin/operator); el usuario final usa widget_token sin login."
   },
-
   "environment": {
     "python_version": "3.10 (host) / 3.11 (Docker target)",
     "node_version": "25 (host) / 20 (Docker target)",
     "docker_compose_version": "v2",
     "os": "Ubuntu 22.04"
   },
-
   "session_2026_05_04": {
     "bugs_fixed": [
       "test_validate_chunk_pending_on_incoherent: assertion PENDING→SKIPPED corregida",
@@ -152,7 +234,6 @@
       "multitenancy": "JWT isolation verificado, cross-tenant tests passing"
     }
   },
-
   "session_2026_05_07_deep_audit": {
     "type": "auditoría profunda de ingeniería",
     "bugs_críticos_encontrados_y_corregidos": [
@@ -185,7 +266,7 @@
     "problemas_pendientes_sin_fix": [
       "Groq semaphore es por-proceso: no previene contención entre FastAPI y Celery en el mismo API key → solución ideal: API key separada para quality gate o Redis-based distributed semaphore",
       "Latencia media histórica 16.6s en consultas_log (de pre-fix era) no refleja performance actual",
-      "complexity='complex' para "¿..." + >12 palabras puede ser muy agresivo para algunas preguntas cortas",
+      "complexity='complex' para '¿...' + >12 palabras puede ser muy agresivo para algunas preguntas cortas",
       "docker-compose sin --reload en uvicorn: cambios de código requieren restart manual"
     ],
     "mejoras_de_arquitectura_recomendadas": [
@@ -196,5 +277,47 @@
       "Alertas Prometheus: p95 latencia > 5s, error_rate > 1%, queue_depth > 10"
     ]
   },
-  "next_step": "Etapa 2: Observabilidad (Prometheus + Grafana + Loki), panel de intenciones en frontend, HDBSCAN clustering nocturno, SSO OAuth 2.0."
+  "next_step": "Etapa 2: Observabilidad (Prometheus + Grafana + Loki), panel de intenciones en frontend, HDBSCAN clustering nocturno, SSO OAuth 2.0.",
+  "session_2026_05_15_quality": {
+    "objective": "Validar calidad de respuestas del bot (no performance). Dejar listo para demo en VPS.",
+    "deliverables": [
+      "backend/tests/quality/dataset.yaml (113 preguntas en 11 categorias + 6 conversaciones multi-turno)",
+      "backend/tests/quality/ground_truth/facts.md (hechos verificables del tenant demo)",
+      "backend/tests/quality/seed_docs/ (3 docs trampa: contradicciones, datos parciales, ambiguedad)",
+      "scripts/run_quality_suite.py (runner con rubrica de scoring + reporte HTML/JSON)"
+    ],
+    "quality_results": {
+      "baseline": "77/113 = 68% (saludos 25%, identidad 17%, factual 80%)",
+      "run_v6": "102/113 = 90.3% (8 categorias en PASS; saludos 100%, identidad 100%, off-scope 100%, injection 100%, edge 100%, ambig 100%)",
+      "run_v7": "95/113 = 84% (regresion por crashes intermitentes locales, no de calidad)"
+    },
+    "fixes_que_mejoran_calidad": [
+      "orchestrator.py: prompt generico (multi-tenant agnostic), sin atar a vertical (salud/RRHH)",
+      "orchestrator.py: inyectar bot_description ademas de bot_scope per tenant en system_prompt",
+      "orchestrator.py: user_message bifurcado (con/sin contexto) — soluciona saludos/identidad rechazados como factual",
+      "orchestrator.py: context_parts[:5] -> [:15] — chunks correctos entran al LLM",
+      "retrieval.py: top_k 10->100 + rerank_top_k 5->15 — mejora retrieval semantico",
+      "retrieval.py: _rerank con torch.inference_mode + gc.collect (mitiga memory leak)",
+      "nlu.py: torch.inference_mode + gc.collect + toggle NLU_ENABLED por env",
+      "config.py: nlu_enabled toggle",
+      "docker-compose.yml: healthcheck holgado (30/30/10/180), mem_limit 10g, celery --pool=solo",
+      "system_prompt_templates: Asistente estandar reescrito con 5 modos (saludo/identidad/aclaracion/off-scope/consulta + anti-injection), totalmente generico",
+      "tenant_prompt_assignments: demo asignado a Asistente estandar",
+      "tenants.bot_description y bot_scope seteados para demo (via correcta de customizacion per cliente)"
+    ],
+    "bugs_pendientes_para_vps": [
+      "Memory leak bge-reranker-large ~250MB/query. Mitigado con torch.inference_mode + gc.collect pero no eliminado. Bug PyTorch. Fix definitivo requiere subprocess isolation o managed reranker (Cohere, Voyage).",
+      "Docker Desktop local 8GB satura el VM Linux: backend + celery + DBs no entran. NO sucede en VPS con 16GB+.",
+      "Healthcheck timeout reducir 30s->15s en VPS estable"
+    ],
+    "recomendaciones_para_vps_production": [
+      "VPS minimo 16GB RAM (32GB ideal)",
+      "En .env: NLU_ENABLED=true (default), RERANKER_ENABLED=true",
+      "En docker-compose backend command: cambiar --workers 1 a --workers 2",
+      "Configurar pg_backrest backups diarios",
+      "Monitoring de memoria del backend con alerta a >80% RAM",
+      "OTEL_ENABLED=true si hay Jaeger en VPS",
+      "Plan B para leak: cron diario que reinicie backend en horario de bajo trafico"
+    ]
+  }
 }

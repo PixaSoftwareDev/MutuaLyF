@@ -1,0 +1,104 @@
+PROTOCOLO DE TELEMEDICINA — BORRADOR INTERNO (versión 0.7)
+Mutual YF — Departamento Médico
+Estado: en revisión. NO DIFUNDIR A ASOCIADOS hasta aprobación final.
+
+────────────────────────────────────────────────────────────
+SECCIÓN 1 — OBJETIVO
+────────────────────────────────────────────────────────────
+
+Establecer el marco de funcionamiento del servicio de telemedicina de Mutual YF para consultas médicas no presenciales mediante videoconsulta.
+
+────────────────────────────────────────────────────────────
+SECCIÓN 2 — ESPECIALIDADES HABILITADAS
+────────────────────────────────────────────────────────────
+
+Las siguientes especialidades están habilitadas para atención por telemedicina:
+
+- Clínica médica general
+- Pediatría (para seguimiento, no para primera consulta de menores de 6 meses)
+- Cardiología (seguimiento de hipertensión y arritmias estables)
+- Endocrinología
+- Dermatología (con limitaciones — ver sección 4)
+- Psicología y psiquiatría
+- Nutrición
+- [PENDIENTE DE DEFINIR: ginecología, urología, neurología]
+
+────────────────────────────────────────────────────────────
+SECCIÓN 3 — PLATAFORMA TECNOLÓGICA
+────────────────────────────────────────────────────────────
+
+La plataforma se accede desde:
+- App MutualYF, sección "Telemedicina"
+- Web mutualyf.com.ar/telemedicina
+- [REVISAR: integración con WhatsApp Business pendiente]
+
+Requisitos técnicos:
+- Conexión estable
+- Cámara y micrófono
+- [PENDIENTE: especificar ancho de banda mínimo]
+
+────────────────────────────────────────────────────────────
+SECCIÓN 4 — LIMITACIONES CLÍNICAS
+────────────────────────────────────────────────────────────
+
+No procede telemedicina para:
+- Primera consulta de dolor agudo abdominal o torácico
+- Sospecha clínica de emergencia (derivar al 0800-555-1234)
+- Examen físico imprescindible (auscultación, palpación profunda)
+- Trauma reciente
+
+En dermatología, se requiere foto previa enviada con anticipación. [REVISAR: protocolo de fotos a definir con Comité Médico — falta indicar resolución mínima y formato]
+
+────────────────────────────────────────────────────────────
+SECCIÓN 5 — COSTOS Y COBERTURA
+────────────────────────────────────────────────────────────
+
+[SECCIÓN INCOMPLETA — pendiente de definición por Gerencia Comercial]
+
+Lo definido hasta el momento:
+- Plan Básico: aún no definido si tiene cobertura
+- Plan Plata: cobertura incluida, sin bono adicional
+- Plan Oro: cobertura incluida, sin bono adicional
+- Plan Premium: cobertura incluida, atención prioritaria
+
+────────────────────────────────────────────────────────────
+SECCIÓN 6 — DURACIÓN Y AGENDA
+────────────────────────────────────────────────────────────
+
+Las videoconsultas tienen una duración estándar de [PENDIENTE — proponer 20-30 minutos según especialidad].
+
+Agenda:
+- Lunes a viernes: 8 a [HORARIO POR DEFINIR]
+- Sábados: cobertura parcial, especialidades de guardia
+- Domingos y feriados: solo guardia clínica general
+
+────────────────────────────────────────────────────────────
+SECCIÓN 7 — RECETA ELECTRÓNICA
+────────────────────────────────────────────────────────────
+
+El profesional emite receta electrónica desde la plataforma. La receta:
+- Tiene validez de 30 días desde la emisión.
+- Es válida en todas las farmacias adheridas.
+- Se envía por email al asociado y queda en el historial de la app.
+
+[PENDIENTE: integración con receta digital electrónica nacional]
+
+────────────────────────────────────────────────────────────
+SECCIÓN 8 — INDICADORES DE CALIDAD
+────────────────────────────────────────────────────────────
+
+Indicadores a relevar (todavía sin definir umbrales):
+
+- Tiempo de espera para turno
+- Duración promedio de consulta
+- Tasa de derivación a consulta presencial
+- Satisfacción del asociado (encuesta post-consulta)
+- [PROPUESTO: tasa de resolución sin segunda consulta]
+
+────────────────────────────────────────────────────────────
+NOTA FINAL
+────────────────────────────────────────────────────────────
+
+Este documento es un borrador en proceso de aprobación.
+Próxima reunión de revisión: por confirmar.
+Responsable: Gerencia Médica.

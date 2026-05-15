@@ -101,3 +101,11 @@ tmp/
 temp/node_modules/
 .env
 .next/
+
+# =========================
+# QUALITY SUITE — artefactos
+# =========================
+# El dataset y el runner se commitean (backend/tests/quality/, scripts/).
+# Los outputs de cada corrida (reports/) y los archivos derivados (reingest/) no.
+reports/
+backend/tests/quality/reingest/

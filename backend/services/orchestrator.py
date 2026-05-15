@@ -165,6 +165,7 @@ async def handle_query(
     tenant_config = await _get_tenant_config(tenant_id)
     min_score: float = tenant_config.get("min_retrieval_score", 0.77)
     bot_scope: str   = tenant_config.get("bot_scope") or ""
+    bot_description: str = tenant_config.get("bot_description") or ""
 
     # Active template overrides prompt_query if set
     active_template = await _get_active_template(tenant_id)
@@ -203,7 +204,7 @@ async def handle_query(
         )
         context_parts = []  # LLM will use empty context and decide via MODO CONVERSACIONAL
 
-    context = "\n\n---\n\n".join(context_parts[:5])  # Top 5 chunks in context
+    context = "\n\n---\n\n".join(context_parts[:15])  # Top 15 chunks in context (aligned with rerank_top_k)
 
     # ── Step 6: Choose model based on complexity ───────────────────────────────
     from services.groq_client import QueryComplexity, classify_complexity, complete
@@ -220,26 +221,42 @@ async def handle_query(
         )
 
     if prompt_query:
-        scope_rule = f"\nAlcance: {bot_scope}" if bot_scope else ""
-        base_prompt = prompt_query.strip() + scope_rule
+        # Per-tenant customization: description (who the bot is) + scope (what topics it handles).
+        # The base template is generic; these two fields adapt it to each tenant's domain.
+        description_rule = f"\n\n=== SOBRE ESTA ORGANIZACIÓN ===\n{bot_description}" if bot_description else ""
+        scope_rule = f"\n\n=== ALCANCE TEMÁTICO ===\nLos temas sobre los que tenés información son: {bot_scope}" if bot_scope else ""
+        base_prompt = prompt_query.strip() + description_rule + scope_rule
     else:
         # No prompt available at all — last resort bare instruction
         base_prompt = "Respondé únicamente con información del contexto proporcionado."
 
     system_prompt = f"{base_prompt}{ambiguity_note}\nResponde en {language}."
     # User input is in a separate message — never interpolated into the system prompt
-    ctx_block = context if context else "(vacío — sin documentos relevantes para esta consulta)"
-    user_message = (
-        f"INSTRUCCION CRITICA — ANTES DE RESPONDER VERIFICÁ ESTO:\n"
-        f"1. La respuesta debe aparecer LITERALMENTE en el Contexto de abajo. No inferir, no completar, no agregar datos propios.\n"
-        f"2. Si el dato específico que pregunta el usuario (ej: días de licencia por paternidad, monto de reintegro, etc.) "
-        f"no aparece TEXTUALMENTE en el Contexto, respondé: "
-        f"'No encontré esa información en los documentos de la organización. "
-        f"Te sugiero consultar directamente con el área correspondiente o con Recursos Humanos.'\n"
-        f"3. Que el Contexto mencione un tema RELACIONADO (ej: licencias en general) NO autoriza a agregar datos específicos "
-        f"que no estén escritos. Solo usá lo que está textualmente.\n\n"
-        f"Contexto:\n{ctx_block}\n\nPregunta del usuario: {_sanitize_input(question)}"
-    )
+    sanitized_q = _sanitize_input(question)
+    if context_parts:
+        # Hay contexto recuperado: aplicar reglas anti-alucinación con tolerancia
+        # a sinónimos obvios (intencionalmente sin ejemplos atados a un dominio).
+        user_message = (
+            f"REGLAS PARA RESPONDER:\n"
+            f"1. Basá tu respuesta EXCLUSIVAMENTE en datos presentes en el Contexto de abajo. "
+            f"NO inventes números, fechas, nombres, direcciones, importes ni detalles.\n"
+            f"2. Si la pregunta usa una palabra y el Contexto usa un sinónimo evidente con el MISMO significado "
+            f"(mismo referente del mundo real), respondé igual con el dato del Contexto. "
+            f"No rechaces sólo por diferencia léxica cuando el significado es claramente equivalente.\n"
+            f"3. NO extrapoles. Si el Contexto menciona un tema relacionado pero NO el dato específico que pide la pregunta, "
+            f"NO completes con suposiciones — el dato debe estar (textual o como sinónimo evidente) en el Contexto.\n"
+            f"4. Si el dato puntual que pide la pregunta NO aparece en el Contexto bajo ninguna forma, respondé EXACTAMENTE:\n"
+            f"   'No encontré esa información en los documentos. Te sugiero consultar directamente con el área correspondiente.'\n"
+            f"5. Respondé DIRECTO y CONCISO. Una sola oración cuando el dato lo permita. Sin introducciones ni rodeos.\n\n"
+            f"Contexto:\n{context}\n\nPregunta del usuario: {sanitized_q}"
+        )
+    else:
+        # Sin contexto: dejar que el system prompt decida (greeting / clarify / no-info).
+        # No imponer la "INSTRUCCION CRITICA" porque contradice el MODO CONVERSACIONAL.
+        user_message = (
+            f"(No se recuperó contexto documental relevante para esta consulta.)\n\n"
+            f"Mensaje del usuario: {sanitized_q}"
+        )
 
     # Build message list: system + up to 6 prior turns + current user message
     messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]

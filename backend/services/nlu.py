@@ -109,24 +109,25 @@ def _load_model():
 def extract_entities(text: str, threshold: float = 0.5) -> list[Entity]:
     """Extract named entities from text using GLiNER.
 
-    Args:
-        text: Input text (query or document chunk).
-        threshold: Minimum confidence score for an entity to be included.
-
-    Returns:
-        List of Entity objects. Empty list if model unavailable.
+    Memory hygiene: wrapped in torch.inference_mode() + gc.collect after each call.
+    Without these, PyTorch retains hidden state and leaks ~50-100MB per query.
     """
+    import gc
+    if not settings.nlu_enabled:
+        return []
+
     model = _load_model()
     if model is None:
         return []
 
-    # Truncate to avoid memory issues on very long texts
     truncated = text[:1000]
 
     try:
-        raw_entities: list[dict[str, Any]] = model.predict_entities(
-            truncated, _ENTITY_TYPES, threshold=threshold
-        )
+        import torch
+        with torch.inference_mode():
+            raw_entities: list[dict[str, Any]] = model.predict_entities(
+                truncated, _ENTITY_TYPES, threshold=threshold
+            )
         entities = [
             Entity(
                 text=e["text"],
@@ -138,6 +139,8 @@ def extract_entities(text: str, threshold: float = 0.5) -> list[Entity]:
             for e in raw_entities
             if _is_valid_entity(e["text"], float(e["score"]))
         ]
+        del raw_entities
+        gc.collect()
         logger.debug("nlu_entities_extracted count=%d", len(entities))
         return entities
     except Exception as exc:

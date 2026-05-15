@@ -101,7 +101,7 @@ services:
     # Modo producción: 2 workers dedicados, sin --reload (que en stress causa
     # zombies de healthcheck y procesos sin worker).
     # Para hot-reload en desarrollo: agregar --reload manualmente y bajar workers a 1.
-    command: uvicorn main:app --host 0.0.0.0 --port 8000 --workers 2 --no-access-log
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1 --log-level info --timeout-keep-alive 30 --timeout-graceful-shutdown 30
     env_file: .env
     ports:
       - "127.0.0.1:8000:8000"
@@ -122,20 +122,23 @@ services:
       - internal
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
-      interval: 15s
-      timeout: 10s
-      retries: 5
-      start_period: 120s
+      interval: 30s
+      timeout: 30s
+      retries: 10
+      start_period: 180s
     logging: *default-logging
+    # docker-compose standalone ignora deploy.resources.limits — usar atajos directos.
+    # 10G RAM y 6 CPU. Subido de 6G a 10G tras descubrir leak ~250MB/query en
+    # bge-reranker-large (PyTorch retiene state aún con torch.inference_mode + gc).
+    # En VPS conviene 16G+. Con restart: unless-stopped + healthcheck holgado,
+    # los OOM intermitentes se recuperan en ~60s sin intervención.
+    mem_limit: 10g
+    cpus: 6
     deploy:
       resources:
         limits:
-          # Bumped 2->4->6 cpu / 4G->6G tras load tests 2026-05-13.
-          # Run 3 (4cpu): backend pegado al 409% CPU permanente bajo 10 concurrent.
-          # Subir a 6 cpu deja 2 cores libres para celery + DBs (host tiene 8 totales).
-          # Memoria queda en 6G — uso real solo llega a 3.3G, sobra margen.
           cpus: "6"
-          memory: 6G
+          memory: 10G
 
   celery_worker:
     build:
@@ -143,7 +146,7 @@ services:
       dockerfile: Dockerfile
     container_name: ia_celery_worker
     restart: unless-stopped
-    command: celery -A workers.celery_app worker --loglevel=info --concurrency=2 -Q ingest,clustering,training,default
+    command: celery -A workers.celery_app worker --loglevel=info --pool=solo -Q ingest,clustering,training,default
     env_file: .env
     environment:
       PYTHONPATH: /app
