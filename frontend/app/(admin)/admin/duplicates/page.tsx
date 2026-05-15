@@ -1,10 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { GitMerge, CheckCircle2, Loader2, RefreshCw } from "lucide-react";
+import { CheckCircle2, ChevronLeft, ChevronRight, Loader2, RefreshCw } from "lucide-react";
 import { api, type ChunkDuplicatePair } from "@/lib/api";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -116,52 +115,39 @@ function DiffView({ textA, textB }: { textA: string; textB: string }) {
   );
 }
 
-// ── Score badge helpers ────────────────────────────────────────────────────────
+// ── Match summary ──────────────────────────────────────────────────────────────
 
-function scoreBadgeVariant(score: number): string {
-  if (score >= 0.9) return "bg-red-100 text-red-800 border-red-200";
-  if (score >= 0.75) return "bg-amber-100 text-amber-800 border-amber-200";
-  return "bg-yellow-50 text-yellow-700 border-yellow-200";
-}
+type MatchKind = "identical" | "semantic" | "similar";
 
-function ScoreBadge({ label, score }: { label: string; score: number | null }) {
-  if (score === null) return null;
-  const pct = Math.round(score * 100);
-  return (
-    <span
-      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${scoreBadgeVariant(score)}`}
-    >
-      {label}: {pct}%
-    </span>
-  );
-}
-
-function statusBadgeVariant(status: ChunkDuplicatePair["status"]) {
-  switch (status) {
-    case "pending":   return "secondary";
-    case "keep_a":    return "default";
-    case "keep_b":    return "default";
-    case "keep_both": return "outline";
-  }
-}
-
-const STATUS_LABELS: Record<ChunkDuplicatePair["status"], string> = {
-  pending:   "Pendiente",
-  keep_a:    "Mantener A",
-  keep_b:    "Mantener B",
-  keep_both: "Mantener ambos",
-};
-
-function matchTypeBadge(pair: ChunkDuplicatePair) {
+function classifyMatch(pair: ChunkDuplicatePair): { kind: MatchKind; label: string; dot: string } {
   const cosine = pair.cosine_score ?? 0;
   const jaccard = pair.jaccard_score ?? 0;
-  if (jaccard >= 0.7) {
-    return <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium bg-red-100 text-red-800 border-red-200">Texto casi idéntico</span>;
-  }
-  if (cosine >= 0.92) {
-    return <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium bg-purple-100 text-purple-800 border-purple-200">Mismo significado</span>;
-  }
-  return <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium bg-amber-100 text-amber-800 border-amber-200">Contenido similar</span>;
+  if (jaccard >= 0.7)  return { kind: "identical", label: "Texto casi idéntico", dot: "bg-rose-500" };
+  if (cosine  >= 0.92) return { kind: "semantic",  label: "Mismo significado",   dot: "bg-violet-500" };
+  return                      { kind: "similar",   label: "Contenido similar",   dot: "bg-amber-500" };
+}
+
+function MatchSummary({ pair }: { pair: ChunkDuplicatePair }) {
+  const { label } = classifyMatch(pair);
+  const cosinePct  = pair.cosine_score  !== null ? Math.round(pair.cosine_score  * 100) : null;
+  const jaccardPct = pair.jaccard_score !== null ? Math.round(pair.jaccard_score * 100) : null;
+  // Only surface the text score when it adds signal (≥ 30%) — below that it is noise.
+  const showJaccard = jaccardPct !== null && jaccardPct >= 30;
+
+  return (
+    <div className="flex items-center gap-2 text-sm">
+      <span className="font-medium text-foreground">{label}</span>
+      {cosinePct !== null && (
+        <span className="text-muted-foreground tabular-nums">{cosinePct}%</span>
+      )}
+      {showJaccard && (
+        <>
+          <span className="text-muted-foreground/40">·</span>
+          <span className="text-xs text-muted-foreground tabular-nums">texto {jaccardPct}%</span>
+        </>
+      )}
+    </div>
+  );
 }
 
 // ── Pair card ──────────────────────────────────────────────────────────────────
@@ -175,79 +161,157 @@ function PairCard({
   onResolve: (action: "keep_a" | "keep_b" | "keep_both") => void;
   resolving: boolean;
 }) {
-  const titleA = pair.doc_title_a ?? pair.doc_id_a.slice(0, 8) + "…";
-  const titleB = pair.doc_title_b ?? pair.doc_id_b.slice(0, 8) + "…";
+  const titleA = pair.doc_title_a;
+  const titleB = pair.doc_title_b;
   const sameDoc = pair.doc_id_a === pair.doc_id_b;
+  const hasTitles = Boolean(titleA || titleB);
 
   return (
     <Card className="overflow-hidden">
-      <CardHeader className="pb-2 space-y-2">
-        {/* Top row: type badge + scores + status */}
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-2 flex-1 min-w-0 flex-wrap">
-            {matchTypeBadge(pair)}
-            <ScoreBadge label="Semántica" score={pair.cosine_score} />
-            {(pair.jaccard_score !== null && pair.jaccard_score > 0) && (
-              <ScoreBadge label="Texto" score={pair.jaccard_score} />
+      <CardHeader className="pb-3 space-y-2">
+        {/* Header: match summary (left) + actions (right) */}
+        <div className="flex items-start justify-between gap-3">
+          <div className="space-y-1 min-w-0">
+            <MatchSummary pair={pair} />
+            {(hasTitles || sameDoc) && (
+              <div className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+                {hasTitles && (
+                  <>
+                    <span className="truncate max-w-[14rem]">{titleA ?? "—"}</span>
+                    <span className="text-muted-foreground/40">↔</span>
+                    <span className="truncate max-w-[14rem]">{titleB ?? "—"}</span>
+                  </>
+                )}
+                {sameDoc && (
+                  <span className="text-amber-600 font-medium">{hasTitles ? "· " : ""}mismo documento</span>
+                )}
+              </div>
             )}
-            <Badge variant={statusBadgeVariant(pair.status)}>
-              {STATUS_LABELS[pair.status]}
-            </Badge>
           </div>
-        </div>
 
-        {/* Document origin row */}
-        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-          <span>
-            <span className="font-medium text-foreground">A:</span>{" "}
-            <span className="font-mono">{titleA}</span>
-          </span>
-          <span>·</span>
-          <span>
-            <span className="font-medium text-foreground">B:</span>{" "}
-            <span className="font-mono">{titleB}</span>
-          </span>
-          {sameDoc && (
-            <span className="text-amber-600 font-medium">mismo documento</span>
-          )}
-        </div>
-
-        {/* Action buttons */}
-        <div className="flex items-center gap-1 flex-wrap">
-          <span className="text-xs text-muted-foreground mr-1">Resolución:</span>
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={resolving}
-            onClick={() => onResolve("keep_a")}
-            className="h-7 text-xs"
-          >
-            {resolving ? <Loader2 className="h-3 w-3 animate-spin" /> : "Mantener A"}
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={resolving}
-            onClick={() => onResolve("keep_b")}
-            className="h-7 text-xs"
-          >
-            Mantener B
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={resolving}
-            onClick={() => onResolve("keep_both")}
-            className="h-7 text-xs"
-          >
-            Mantener ambos
-          </Button>
+          <div className="flex items-center gap-1 shrink-0">
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={resolving}
+              onClick={() => onResolve("keep_a")}
+              className="h-8 text-xs gap-1"
+            >
+              {resolving ? <Loader2 className="h-3 w-3 animate-spin" /> : (
+                <>
+                  <span className="h-1.5 w-1.5 rounded-full bg-primary/70" />
+                  Mantener A
+                </>
+              )}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={resolving}
+              onClick={() => onResolve("keep_b")}
+              className="h-8 text-xs gap-1"
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-primary/70" />
+              Mantener B
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={resolving}
+              onClick={() => onResolve("keep_both")}
+              className="h-8 text-xs text-muted-foreground hover:text-foreground"
+            >
+              Mantener ambos
+            </Button>
+          </div>
         </div>
       </CardHeader>
       <CardContent>
         <DiffView textA={pair.text_a} textB={pair.text_b} />
       </CardContent>
     </Card>
+  );
+}
+
+// ── Pagination ─────────────────────────────────────────────────────────────────
+
+const PAGE_SIZE = 10;
+
+/** Build a compact page list: [1, '…', 4, 5, 6, '…', 12] */
+function paginationRange(current: number, total: number): (number | "…")[] {
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+  const range: (number | "…")[] = [1];
+  const start = Math.max(2, current - 1);
+  const end   = Math.min(total - 1, current + 1);
+  if (start > 2) range.push("…");
+  for (let i = start; i <= end; i++) range.push(i);
+  if (end < total - 1) range.push("…");
+  range.push(total);
+  return range;
+}
+
+function Pagination({
+  page,
+  totalPages,
+  totalItems,
+  pageSize,
+  onChange,
+}: {
+  page: number;
+  totalPages: number;
+  totalItems: number;
+  pageSize: number;
+  onChange: (p: number) => void;
+}) {
+  if (totalPages <= 1) return null;
+  const from = (page - 1) * pageSize + 1;
+  const to   = Math.min(page * pageSize, totalItems);
+
+  return (
+    <div className="flex flex-col-reverse sm:flex-row items-center justify-between gap-3 pt-2">
+      <p className="text-xs text-muted-foreground tabular-nums">
+        Mostrando <span className="font-medium text-foreground">{from}–{to}</span> de{" "}
+        <span className="font-medium text-foreground">{totalItems}</span>
+      </p>
+      <div className="flex items-center gap-1">
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 w-8 p-0"
+          disabled={page === 1}
+          onClick={() => onChange(page - 1)}
+          aria-label="Página anterior"
+        >
+          <ChevronLeft className="h-4 w-4" />
+        </Button>
+        {paginationRange(page, totalPages).map((item, idx) =>
+          item === "…" ? (
+            <span key={`gap-${idx}`} className="px-1 text-muted-foreground text-xs select-none">…</span>
+          ) : (
+            <Button
+              key={item}
+              variant={item === page ? "default" : "outline"}
+              size="sm"
+              className="h-8 w-8 p-0 text-xs tabular-nums"
+              onClick={() => onChange(item)}
+              aria-current={item === page ? "page" : undefined}
+            >
+              {item}
+            </Button>
+          )
+        )}
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 w-8 p-0"
+          disabled={page === totalPages}
+          onClick={() => onChange(page + 1)}
+          aria-label="Página siguiente"
+        >
+          <ChevronRight className="h-4 w-4" />
+        </Button>
+      </div>
+    </div>
   );
 }
 
@@ -258,6 +322,7 @@ export default function DuplicatesPage() {
   // Optimistic: track pair IDs hidden after resolution
   const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
   const [resolvingId, setResolvingId] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["duplicates"],
@@ -292,23 +357,30 @@ export default function DuplicatesPage() {
 
   const allPairs = data?.pairs ?? [];
   const visiblePairs = allPairs.filter((p) => !hiddenIds.has(p.id));
-  const pendingPairs = visiblePairs.filter((p) => p.status === "pending");
+  const pendingPairs = useMemo(
+    () => visiblePairs.filter((p) => p.status === "pending"),
+    [visiblePairs]
+  );
   const resolvedCount = (data?.total ?? 0) - (data?.pending ?? 0) + hiddenIds.size;
+
+  const totalPages = Math.max(1, Math.ceil(pendingPairs.length / PAGE_SIZE));
+
+  // Clamp current page when items disappear (e.g. last item on last page resolved)
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
+
+  const pagedPairs = pendingPairs.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   return (
     <div className="p-6 space-y-6">
       {/* Page header — always visible */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="p-2 rounded-lg bg-primary/10">
-            <GitMerge className="h-5 w-5 text-primary" />
-          </div>
-          <div>
-            <h1 className="text-xl font-semibold">Fragmentos Duplicados</h1>
-            <p className="text-sm text-muted-foreground">
-              Revisá y resolvé pares de fragmentos con contenido similar
-            </p>
-          </div>
+        <div>
+          <h1 className="text-xl font-semibold">Fragmentos Duplicados</h1>
+          <p className="text-sm text-muted-foreground">
+            Revisá y resolvé pares de fragmentos con contenido similar
+          </p>
         </div>
         <Button variant="outline" size="sm" onClick={refresh}>
           <RefreshCw className="h-4 w-4 mr-1" />
@@ -351,7 +423,7 @@ export default function DuplicatesPage() {
         </div>
       ) : (
         <div className="space-y-4">
-          {pendingPairs.map((pair) => (
+          {pagedPairs.map((pair) => (
             <PairCard
               key={pair.id}
               pair={pair}
@@ -359,6 +431,16 @@ export default function DuplicatesPage() {
               onResolve={(action) => resolveMutation.mutate({ pairId: pair.id, action })}
             />
           ))}
+          <Pagination
+            page={page}
+            totalPages={totalPages}
+            totalItems={pendingPairs.length}
+            pageSize={PAGE_SIZE}
+            onChange={(p) => {
+              setPage(p);
+              window.scrollTo({ top: 0, behavior: "smooth" });
+            }}
+          />
         </div>
       )}
 

@@ -199,9 +199,11 @@ services:
     env_file: .env
     environment:
       - NODE_ENV=production
-      - NEXT_PUBLIC_API_URL=
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
       - PORT=3000
       - HOSTNAME=0.0.0.0
+    ports:
+      - "127.0.0.1:3000:3000"
     networks:
       - internal
     depends_on:

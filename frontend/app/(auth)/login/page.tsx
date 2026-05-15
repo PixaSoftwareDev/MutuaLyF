@@ -148,27 +148,32 @@ export default function LoginPage() {
 
           {/* Dev quick-fill */}
           <div className="mt-6 pt-4 border-t border-dashed border-slate-200">
-            <p className="text-xs text-muted-foreground flex items-center gap-1 mb-2">
-              <Zap className="h-3 w-3" /> Acceso rápido (dev)
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground/70 flex items-center gap-1 mb-2">
+              <Zap className="h-3 w-3" /> Acceso rápido · dev
             </p>
-            <div className="flex flex-col gap-1">
-              {DEV_USERS.map((u) => (
-                <button
-                  key={u.email}
-                  type="button"
-                  disabled={loading}
-                  onClick={() => doLogin(u.email, u.password, u.tenant, u.role === "super_admin")}
-                  className="w-full text-left px-3 py-2 rounded-md bg-slate-50 hover:bg-slate-100 border border-slate-200 transition-colors disabled:opacity-50"
-                >
-                  <span className="text-sm font-medium text-slate-700">{u.name}</span>
-                  <span className="ml-2 text-xs text-muted-foreground">{u.email}</span>
-                  <span className={`ml-2 text-xs px-1.5 py-0.5 rounded font-medium ${
-                    u.role === "super_admin" ? "bg-violet-100 text-violet-700" :
-                    u.role === "admin"       ? "bg-blue-100 text-blue-700" :
-                                              "bg-green-100 text-green-700"
-                  }`}>{u.role}</span>
-                </button>
-              ))}
+            <div className="flex flex-wrap gap-1.5">
+              {DEV_USERS.map((u) => {
+                const label =
+                  u.role === "super_admin" ? "super" :
+                  u.role === "admin"       ? "admin" :
+                  u.name.endsWith("Dos")   ? "op 2"  : "op 1";
+                const color =
+                  u.role === "super_admin" ? "border-violet-200 text-violet-700 hover:bg-violet-50" :
+                  u.role === "admin"       ? "border-blue-200 text-blue-700 hover:bg-blue-50" :
+                                             "border-emerald-200 text-emerald-700 hover:bg-emerald-50";
+                return (
+                  <button
+                    key={u.email}
+                    type="button"
+                    disabled={loading}
+                    onClick={() => doLogin(u.email, u.password, u.tenant, u.role === "super_admin")}
+                    title={`${u.name} · ${u.email}`}
+                    className={`text-[11px] px-2 py-0.5 rounded-full border bg-white transition-colors disabled:opacity-50 ${color}`}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
             </div>
           </div>
         </CardContent>
