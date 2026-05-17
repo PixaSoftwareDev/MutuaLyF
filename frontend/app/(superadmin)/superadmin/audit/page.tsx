@@ -108,10 +108,10 @@ export default function GlobalAuditPage() {
   const hasAlertsOnPage = data?.events.some(e => e.action === "auth.brute_force_alert");
 
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-5">
+    <div className="p-4 sm:p-6 max-w-7xl mx-auto space-y-4 sm:space-y-5">
       {/* Header */}
       <div>
-        <h1 className="text-xl font-semibold tracking-tight">Auditoría global</h1>
+        <h1 className="text-lg sm:text-xl font-semibold tracking-tight">Auditoría global</h1>
         <p className="text-sm text-muted-foreground mt-1">
           Actividad de todas las organizaciones de la plataforma
           {kpis.total > 0 && <> · <span className="font-medium text-foreground">{kpis.total}</span> eventos en total</>}
@@ -119,7 +119,7 @@ export default function GlobalAuditPage() {
       </div>
 
       {/* KPIs */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 sm:gap-3">
         <Kpi label="Hoy"             value={kpis.today} />
         <Kpi label="Últimas 24h"     value={kpis.last24} />
         <Kpi label="Logins"          value={kpis.logins} />
@@ -166,77 +166,118 @@ export default function GlobalAuditPage() {
 
       {/* Table */}
       <div className="rounded-md border overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-muted/40">
-              <tr className="text-left text-[11px] uppercase tracking-wider text-muted-foreground">
-                <th className="px-4 py-2 font-medium w-[160px]">Fecha</th>
-                <th className="px-4 py-2 font-medium w-[120px]">Org</th>
-                <th className="px-4 py-2 font-medium">Usuario</th>
-                <th className="px-4 py-2 font-medium w-[110px]">Perfil</th>
-                <th className="px-4 py-2 font-medium w-[200px]">Acción</th>
-                <th className="px-4 py-2 font-medium">Recurso</th>
-                <th className="px-4 py-2 font-medium w-[120px]">IP</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {isLoading && (
-                <tr><td colSpan={7} className="py-12 text-center text-muted-foreground">
-                  <Loader2 className="w-5 h-5 animate-spin inline" />
-                </td></tr>
-              )}
-              {isError && (
-                <tr><td colSpan={7} className="py-8 text-center text-destructive">
-                  No se pudo cargar el registro global.
-                </td></tr>
-              )}
-              {data && filteredEvents.length === 0 && (
-                <tr><td colSpan={7} className="py-8 text-center text-muted-foreground">
-                  {search ? "Ningún evento coincide con la búsqueda." : "No hay eventos registrados."}
-                </td></tr>
-              )}
-              {filteredEvents.map(ev => {
-                const isCritical = CRITICAL_ACTIONS.has(ev.action);
-                return (
-                  <tr key={ev.id} className={isCritical ? "bg-red-50/60 hover:bg-red-50" : "hover:bg-muted/30"}>
-                    <td className="px-4 py-2.5 align-top whitespace-nowrap font-mono text-xs text-muted-foreground">
-                      {fmtDate(ev.created_at)}
-                    </td>
-                    <td className="px-4 py-2.5 align-top">
+        {isLoading && (
+          <div className="py-12 text-center text-muted-foreground">
+            <Loader2 className="w-5 h-5 animate-spin inline" />
+          </div>
+        )}
+        {isError && (
+          <div className="py-8 text-center text-destructive text-sm">No se pudo cargar el registro global.</div>
+        )}
+        {data && filteredEvents.length === 0 && (
+          <div className="py-8 text-center text-muted-foreground text-sm">
+            {search ? "Ningún evento coincide con la búsqueda." : "No hay eventos registrados."}
+          </div>
+        )}
+
+        {/* Mobile cards */}
+        {filteredEvents.length > 0 && (
+          <div className="sm:hidden divide-y">
+            {filteredEvents.map(ev => {
+              const isCritical = CRITICAL_ACTIONS.has(ev.action);
+              return (
+                <div key={ev.id} className={`px-4 py-3 space-y-1.5 ${isCritical ? "bg-red-50/60" : ""}`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-mono text-xs text-muted-foreground">{fmtDate(ev.created_at)}</span>
+                    <div className="flex items-center gap-1.5">
                       <span className="inline-block rounded-sm border border-border bg-muted/60 px-1.5 py-0.5 text-[11px] font-mono text-foreground">
                         {ev.tenant_id}
                       </span>
-                    </td>
-                    <td className="px-4 py-2.5 align-top">
-                      <div className="font-medium truncate max-w-[260px]">
-                        {ev.actor_email ?? <span className="text-muted-foreground">—</span>}
-                      </div>
-                    </td>
-                    <td className="px-4 py-2.5 align-top">
                       <RoleBadge role={ev.actor_role} />
-                    </td>
-                    <td className={`px-4 py-2.5 align-top ${isCritical ? "text-red-700 font-medium" : ""}`}>
+                    </div>
+                  </div>
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="text-sm font-medium truncate">{ev.actor_email ?? "—"}</span>
+                    <span className={`text-xs shrink-0 ${isCritical ? "text-red-700 font-medium" : "text-muted-foreground"}`}>
                       {actionLabel(ev.action)}
-                    </td>
-                    <td className="px-4 py-2.5 align-top">
-                      <div className="font-mono text-xs truncate max-w-[280px]">
-                        {ev.resource ?? <span className="text-muted-foreground">—</span>}
-                      </div>
-                      {ev.detail && (
-                        <div className="text-xs text-muted-foreground truncate max-w-[280px]">
-                          {Object.entries(ev.detail).map(([k, v]) => `${k}: ${v}`).join(" · ")}
+                    </span>
+                  </div>
+                  {(ev.resource || ev.detail) && (
+                    <div className="text-xs text-muted-foreground font-mono truncate">
+                      {ev.resource ?? ""}
+                      {ev.detail && <span className="ml-1 not-italic">
+                        {Object.entries(ev.detail).map(([k, v]) => `${k}: ${v}`).join(" · ")}
+                      </span>}
+                    </div>
+                  )}
+                  {ev.ip_address && (
+                    <div className="text-xs text-muted-foreground font-mono">{ev.ip_address}</div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Desktop table */}
+        {filteredEvents.length > 0 && (
+          <div className="hidden sm:block overflow-x-auto">
+            <table className="w-full text-sm min-w-[800px]">
+              <thead className="bg-muted/40">
+                <tr className="text-left text-[11px] uppercase tracking-wider text-muted-foreground">
+                  <th className="px-4 py-2 font-medium w-[145px]">Fecha</th>
+                  <th className="px-4 py-2 font-medium w-[110px]">Org</th>
+                  <th className="px-4 py-2 font-medium">Usuario</th>
+                  <th className="px-4 py-2 font-medium w-[100px]">Perfil</th>
+                  <th className="px-4 py-2 font-medium w-[190px]">Acción</th>
+                  <th className="px-4 py-2 font-medium">Recurso</th>
+                  <th className="px-4 py-2 font-medium w-[110px]">IP</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {filteredEvents.map(ev => {
+                  const isCritical = CRITICAL_ACTIONS.has(ev.action);
+                  return (
+                    <tr key={ev.id} className={isCritical ? "bg-red-50/60 hover:bg-red-50" : "hover:bg-muted/30"}>
+                      <td className="px-4 py-2.5 align-top whitespace-nowrap font-mono text-xs text-muted-foreground">
+                        {fmtDate(ev.created_at)}
+                      </td>
+                      <td className="px-4 py-2.5 align-top">
+                        <span className="inline-block rounded-sm border border-border bg-muted/60 px-1.5 py-0.5 text-[11px] font-mono text-foreground">
+                          {ev.tenant_id}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2.5 align-top">
+                        <div className="font-medium truncate max-w-[260px]">
+                          {ev.actor_email ?? <span className="text-muted-foreground">—</span>}
                         </div>
-                      )}
-                    </td>
-                    <td className="px-4 py-2.5 align-top font-mono text-xs text-muted-foreground whitespace-nowrap">
-                      {ev.ip_address ?? "—"}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                      </td>
+                      <td className="px-4 py-2.5 align-top">
+                        <RoleBadge role={ev.actor_role} />
+                      </td>
+                      <td className={`px-4 py-2.5 align-top ${isCritical ? "text-red-700 font-medium" : ""}`}>
+                        {actionLabel(ev.action)}
+                      </td>
+                      <td className="px-4 py-2.5 align-top">
+                        <div className="font-mono text-xs truncate max-w-[280px]">
+                          {ev.resource ?? <span className="text-muted-foreground">—</span>}
+                        </div>
+                        {ev.detail && (
+                          <div className="text-xs text-muted-foreground truncate max-w-[280px]">
+                            {Object.entries(ev.detail).map(([k, v]) => `${k}: ${v}`).join(" · ")}
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-4 py-2.5 align-top font-mono text-xs text-muted-foreground whitespace-nowrap">
+                        {ev.ip_address ?? "—"}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* Pagination */}

@@ -218,6 +218,7 @@ export interface WidgetTokenResponse {
 }
 
 export interface BotConfig {
+  bot_name: string | null;
   bot_description: string | null;
   bot_scope: string | null;
   min_retrieval_score: number;
@@ -225,6 +226,17 @@ export interface BotConfig {
   prompt_query: string | null;
   prompt_quality_gate: string | null;
   prompt_cluster_label: string | null;
+  onboarding_completed: boolean;
+}
+
+export interface OnboardingGenerateRequest {
+  org_name: string;
+  org_type: string;
+  serves: string;
+  main_topics: string;
+  excluded_topics: string;
+  tone: string;
+  bot_name: string;
 }
 
 export interface ChunkDuplicatePair {
@@ -424,6 +436,13 @@ export const api = {
     updateBotConfig: async (tenantId: string, payload: Partial<BotConfig>): Promise<BotConfig> => {
       const { data } = await apiClient.patch<BotConfig>(`/tenants/${tenantId}/bot-config`, payload);
       return data;
+    },
+    onboardingGenerate: async (tenantId: string, payload: OnboardingGenerateRequest): Promise<{ bot_description: string }> => {
+      const { data } = await apiClient.post(`/tenants/${tenantId}/onboarding/generate`, payload);
+      return data;
+    },
+    onboardingComplete: async (tenantId: string, payload: { bot_name: string; bot_description: string }): Promise<void> => {
+      await apiClient.post(`/tenants/${tenantId}/onboarding/complete`, payload);
     },
   },
 

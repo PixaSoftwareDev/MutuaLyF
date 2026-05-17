@@ -18,7 +18,6 @@ PLANS = Literal["starter", "professional", "enterprise"]
 PLAN_ORDER = {"starter": 0, "professional": 1, "enterprise": 2}
 MAX_PROMPT_LENGTH = 4000  # ~3000 tokens
 
-
 # ── Schemas ───────────────────────────────────────────────────────────────────
 
 class TemplateCreate(BaseModel):
@@ -256,6 +255,7 @@ async def update_template(
     updates["template_id"] = template_id
 
     async with get_pg_session(None) as session:
+        # Validate placeholders before writing — fetch current nombre/categoria if not in body
         result = await session.execute(
             text(f"UPDATE system_prompt_templates SET {', '.join(set_parts)} WHERE id = :template_id RETURNING id"),
             updates,
@@ -263,14 +263,27 @@ async def update_template(
         if not result.fetchone():
             raise HTTPException(status_code=404, detail="Template no encontrado")
 
-        # If content changed, invalidate cache for all tenants that have this active
         if "contenido" in updates or "is_active" in updates:
+            # Invalidate tenant caches for assigned templates
             active = await session.execute(text("""
                 SELECT tenant_id FROM tenant_prompt_assignments
                 WHERE template_id = :tid AND is_active = TRUE
             """), {"tid": template_id})
             for a in active.mappings().all():
                 await _invalidate_tenant_cache(a["tenant_id"])
+
+            # Invalidate system template cache for calidad/intenciones templates
+            sys_tmpl = await session.execute(text("""
+                SELECT nombre, categoria FROM system_prompt_templates
+                WHERE id = :id AND is_system = TRUE
+            """), {"id": template_id})
+            sys_row = sys_tmpl.mappings().fetchone()
+            if sys_row:
+                redis = get_redis_cache()
+                try:
+                    await redis.delete(f"platform:system_template:{sys_row['nombre']}")
+                except Exception:
+                    pass
 
     return {"id": template_id, "updated": True}
 

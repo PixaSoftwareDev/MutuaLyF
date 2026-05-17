@@ -161,15 +161,31 @@ async def handle_query(
             )
         qdrant_chunks = qdrant_list
 
-    # ── Step 4: Load tenant bot config + active prompt template (both cached) ──
+    # ── Step 4: Load configs + personality template (all Redis-cached) ──────────
     tenant_config = await _get_tenant_config(tenant_id)
     min_score: float = tenant_config.get("min_retrieval_score", 0.77)
-    bot_scope: str   = tenant_config.get("bot_scope") or ""
+    bot_scope: str       = tenant_config.get("bot_scope") or ""
     bot_description: str = tenant_config.get("bot_description") or ""
 
-    # Active template overrides prompt_query if set
-    active_template = await _get_active_template(tenant_id)
-    prompt_query: str | None = active_template or tenant_config.get("prompt_query") or None
+    personality, anti_hallucination = await asyncio.gather(
+        _get_active_template(tenant_id),
+        _get_system_template("Reglas anti-alucinación"),
+    )
+
+    if not personality:
+        logger.warning("no_active_personality tenant_id=%s", tenant_id)
+        return {
+            "answer": "Este asistente no tiene una personalidad configurada. Contactá al administrador de tu organización.",
+            "sources": [],
+            "intent": None,
+            "from_cache": False,
+            "latency_ms": 0,
+        }
+
+    # Emergency fallback if anti-hallucination template missing from DB
+    if not anti_hallucination:
+        logger.error("anti_hallucination_template_missing tenant_id=%s — using emergency fallback", tenant_id)
+        anti_hallucination = _FALLBACK_ANTI_HALLUCINATION
 
     # ── Step 5: Build context — drop chunks below relevance threshold ──────────
     context_parts: list[str] = []
@@ -193,8 +209,6 @@ async def handle_query(
             "score": round(chunk.score, 4),
         })
 
-    # No relevant context found — let the LLM decide how to respond.
-    # It may be a greeting, thanks, or genuine no-info case; the prompt handles each.
     if not context_parts:
         logger.info(
             "no_relevant_context tenant_id=%s best_score=%.3f min_score=%.3f",
@@ -202,63 +216,47 @@ async def handle_query(
             max((c.score for c in (qdrant_chunks or [])), default=0.0),
             min_score,
         )
-        context_parts = []  # LLM will use empty context and decide via MODO CONVERSACIONAL
-
-    context = "\n\n---\n\n".join(context_parts[:15])  # Top 15 chunks in context (aligned with rerank_top_k)
 
     # ── Step 6: Choose model based on complexity ───────────────────────────────
     from services.groq_client import QueryComplexity, classify_complexity, complete
 
-    entity_count = len(entity_names)
-    complexity = classify_complexity(question, entity_count)
+    complexity = classify_complexity(question, len(entity_names))
 
-    # ── Step 7: Generate answer with isolated user input ──────────────────────
+    # ── Step 7: Assemble system prompt and user message ───────────────────────
+    # Architecture: system = personality + org context + anti-hallucination rules + retrieved context
+    #               user   = bare question (isolated from instructions)
+    #
+    # Putting everything in system gives the LLM a single coherent ground truth.
+    # The user turn is kept clean so conversation history stays readable.
+
     ambiguity_note = ""
     if is_ambiguous and second_label and intent_result:
         ambiguity_note = (
-            f"\nLa consulta del usuario podría referirse a '{intent_result.label}' "
+            f"La consulta del usuario podría referirse a '{intent_result.label}' "
             f"o a '{second_label}'. Considerá ambos contextos al responder."
         )
 
-    if prompt_query:
-        # Per-tenant customization: description (who the bot is) + scope (what topics it handles).
-        # The base template is generic; these two fields adapt it to each tenant's domain.
-        description_rule = f"\n\n=== SOBRE ESTA ORGANIZACIÓN ===\n{bot_description}" if bot_description else ""
-        scope_rule = f"\n\n=== ALCANCE TEMÁTICO ===\nLos temas sobre los que tenés información son: {bot_scope}" if bot_scope else ""
-        base_prompt = prompt_query.strip() + description_rule + scope_rule
-    else:
-        # No prompt available at all — last resort bare instruction
-        base_prompt = "Respondé únicamente con información del contexto proporcionado."
+    context_block = (
+        "Contexto disponible:\n" + "\n\n---\n\n".join(context_parts[:15])
+        if context_parts
+        else "(No hay información documental disponible para esta consulta.)"
+    )
 
-    system_prompt = f"{base_prompt}{ambiguity_note}\nResponde en {language}."
-    # User input is in a separate message — never interpolated into the system prompt
-    sanitized_q = _sanitize_input(question)
-    if context_parts:
-        # Hay contexto recuperado: aplicar reglas anti-alucinación con tolerancia
-        # a sinónimos obvios (intencionalmente sin ejemplos atados a un dominio).
-        user_message = (
-            f"REGLAS PARA RESPONDER:\n"
-            f"1. Basá tu respuesta EXCLUSIVAMENTE en datos presentes en el Contexto de abajo. "
-            f"NO inventes números, fechas, nombres, direcciones, importes ni detalles.\n"
-            f"2. Si la pregunta usa una palabra y el Contexto usa un sinónimo evidente con el MISMO significado "
-            f"(mismo referente del mundo real), respondé igual con el dato del Contexto. "
-            f"No rechaces sólo por diferencia léxica cuando el significado es claramente equivalente.\n"
-            f"3. NO extrapoles. Si el Contexto menciona un tema relacionado pero NO el dato específico que pide la pregunta, "
-            f"NO completes con suposiciones — el dato debe estar (textual o como sinónimo evidente) en el Contexto.\n"
-            f"4. Si el dato puntual que pide la pregunta NO aparece en el Contexto bajo ninguna forma, respondé EXACTAMENTE:\n"
-            f"   'No encontré esa información en los documentos. Te sugiero consultar directamente con el área correspondiente.'\n"
-            f"5. Respondé DIRECTO y CONCISO. Una sola oración cuando el dato lo permita. Sin introducciones ni rodeos.\n\n"
-            f"Contexto:\n{context}\n\nPregunta del usuario: {sanitized_q}"
-        )
-    else:
-        # Sin contexto: dejar que el system prompt decida (greeting / clarify / no-info).
-        # No imponer la "INSTRUCCION CRITICA" porque contradice el MODO CONVERSACIONAL.
-        user_message = (
-            f"(No se recuperó contexto documental relevante para esta consulta.)\n\n"
-            f"Mensaje del usuario: {sanitized_q}"
-        )
+    system_parts = [personality.strip()]
+    if bot_description:
+        system_parts.append(f"=== SOBRE ESTA ORGANIZACIÓN ===\n{bot_description}")
+    if bot_scope:
+        system_parts.append(f"=== ALCANCE TEMÁTICO ===\nSolo respondés sobre: {bot_scope}")
+    if ambiguity_note:
+        system_parts.append(ambiguity_note)
+    system_parts.append(anti_hallucination.strip())
+    system_parts.append(context_block)
+    system_parts.append(f"Respondé en {language}.")
 
-    # Build message list: system + up to 6 prior turns + current user message
+    system_prompt = "\n\n".join(system_parts)
+    sanitized_q   = _sanitize_input(question)
+
+    # Build message list: system + up to 6 prior turns + current user question
     messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
     if conversation_history:
         role_map = {"user": "user", "bot": "assistant"}
@@ -266,7 +264,7 @@ async def handle_query(
             role = role_map.get(sender)
             if role:
                 messages.append({"role": role, "content": content[:500]})
-    messages.append({"role": "user", "content": user_message})
+    messages.append({"role": "user", "content": sanitized_q})
 
     try:
         answer = await complete(
@@ -532,12 +530,10 @@ async def _empty_list() -> list:
 
 
 async def _get_active_template(tenant_id: str) -> str | None:
-    """Return the prompt for this tenant, Redis-cached for 5 min.
+    """Return the active personality prompt for this tenant, Redis-cached for 5 min.
 
-    Priority:
-      1. Active template assigned to the tenant
-      2. Global default template (is_default=TRUE in system_prompt_templates)
-      3. None → caller falls back to tenant's prompt_query config field
+    Returns the contenido of the active assigned personality template, or None if
+    no personality is assigned and active. Caller must handle the None case.
     """
     redis = get_redis_cache()
     cache_key = f"{tenant_id}:active_template"
@@ -553,24 +549,15 @@ async def _get_active_template(tenant_id: str) -> str | None:
         from core.database import get_pg_session
         from sqlalchemy import text
         async with get_pg_session(None) as session:
-            # 1. Tenant-specific assignment
             result = await session.execute(text("""
                 SELECT t.contenido
                 FROM tenant_prompt_assignments a
                 JOIN system_prompt_templates t ON t.id = a.template_id
-                WHERE a.tenant_id = :tid AND a.is_active = TRUE AND t.is_active = TRUE
+                WHERE a.tenant_id = :tid AND a.is_active = TRUE
+                  AND t.is_active = TRUE AND t.is_system = FALSE
                 LIMIT 1
             """), {"tid": tenant_id})
             row = result.fetchone()
-
-            # 2. Global default (no assignment for this tenant)
-            if not row:
-                result = await session.execute(text("""
-                    SELECT contenido FROM system_prompt_templates
-                    WHERE is_default = TRUE AND is_active = TRUE
-                    LIMIT 1
-                """))
-                row = result.fetchone()
     except Exception as exc:
         logger.warning("active_template_load_failed tenant_id=%s error=%s", tenant_id, exc)
         return None
@@ -578,6 +565,65 @@ async def _get_active_template(tenant_id: str) -> str | None:
     contenido = row[0] if row else None
     try:
         await redis.setex(cache_key, 300, contenido or "")
+    except Exception:
+        pass
+
+    return contenido
+
+
+# Emergency fallback used only when the "Reglas anti-alucinación" DB template is missing.
+_FALLBACK_ANTI_HALLUCINATION = (
+    "REGLAS DE RESPUESTA — aplicar siempre, sin excepción:\n\n"
+    "1. FUENTE ÚNICA: Respondé exclusivamente con datos presentes en el Contexto. "
+    "Nunca uses información de tu entrenamiento previo.\n\n"
+    "2. SINÓNIMOS EVIDENTES: Si la pregunta usa una palabra y el Contexto usa un sinónimo "
+    "con el mismo referente del mundo real, aceptá el dato como válido. "
+    "No rechaces por diferencia léxica cuando el significado es claramente equivalente.\n\n"
+    "3. NO EXTRAPOLES: Si el Contexto menciona un tema relacionado pero no el dato exacto "
+    "que pide la pregunta, no completes con suposiciones.\n\n"
+    "4. SIN INFORMACIÓN: Si el dato puntual no aparece en el Contexto de ninguna forma, respondé: "
+    "\"No encontré esa información en los documentos. "
+    "Te sugiero consultar directamente con el área correspondiente.\"\n\n"
+    "5. SIN INVENTAR: Nunca inventes nombres, fechas, números, importes, direcciones ni contactos."
+)
+
+
+_SYSTEM_TEMPLATE_CACHE_TTL = 300  # 5 min
+
+
+async def _get_system_template(nombre: str) -> str | None:
+    """Return contenido of a system template by exact nombre, Redis-cached for 5 min.
+
+    Used by ingest and clustering to read their prompts from DB instead of hardcoded defaults.
+    Returns None if not found — callers fall back to their own hardcoded emergency default.
+    """
+    redis = get_redis_cache()
+    cache_key = f"platform:system_template:{nombre}"
+
+    try:
+        raw = await redis.get(cache_key)
+        if raw is not None:
+            return raw.decode() or None
+    except Exception:
+        pass
+
+    contenido: str | None = None
+    try:
+        from core.database import get_pg_session
+        from sqlalchemy import text
+        async with get_pg_session(None) as session:
+            result = await session.execute(text("""
+                SELECT contenido FROM system_prompt_templates
+                WHERE nombre = :nombre AND is_system = TRUE AND is_active = TRUE
+                LIMIT 1
+            """), {"nombre": nombre})
+            row = result.fetchone()
+            contenido = row[0] if row else None
+    except Exception as exc:
+        logger.warning("system_template_load_failed nombre=%s error=%s", nombre, exc)
+
+    try:
+        await redis.setex(cache_key, _SYSTEM_TEMPLATE_CACHE_TTL, contenido or "")
     except Exception:
         pass
 

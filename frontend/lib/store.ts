@@ -124,12 +124,18 @@ export const useChatStore = create<ChatState>()((set) => ({
 
 interface UIState {
   sidebarOpen: boolean;
+  mobileSidebarOpen: boolean;
   toggleSidebar: () => void;
   setSidebarOpen: (v: boolean) => void;
+  openMobileSidebar: () => void;
+  closeMobileSidebar: () => void;
 }
 
 export const useUIStore = create<UIState>()((set) => ({
   sidebarOpen: true,
+  mobileSidebarOpen: false,
   toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
   setSidebarOpen: (v) => set({ sidebarOpen: v }),
+  openMobileSidebar: () => set({ mobileSidebarOpen: true }),
+  closeMobileSidebar: () => set({ mobileSidebarOpen: false }),
 }));

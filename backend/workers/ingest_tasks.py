@@ -186,9 +186,10 @@ async def _run_ingest_pipeline(
     chunks = chunks_stage2 if chunks_stage2 else chunks  # keep original if all filtered
 
     # ── 4+5. Quality gate stage 1 (Groq I/O) + Embeddings (CPU) run concurrently ─
-    from services.orchestrator import _get_tenant_config as _get_config
+    from services.orchestrator import _get_tenant_config as _get_config, _get_system_template
     _cfg = await _get_config(tenant_id)
-    quality_task = validate_chunks_batch(chunks, max_concurrent=1, custom_prompt=_cfg.get("prompt_quality_gate"))
+    quality_prompt = _cfg.get("prompt_quality_gate") or await _get_system_template("Validador de documentos")
+    quality_task = validate_chunks_batch(chunks, max_concurrent=1, custom_prompt=quality_prompt)
     embed_task = loop.run_in_executor(None, embed_batch, [c.text for c in chunks], False)
     quality_results, embeddings = await asyncio.gather(quality_task, embed_task)
     timings["quality_and_embed_ms"] = _ms(t)
@@ -418,9 +419,10 @@ async def _run_revalidation(chunk_id: str, tenant_id: str) -> str:
             return "done"
 
         chunk_text = results[0].payload.get("text", "")
-        from services.orchestrator import _get_tenant_config as _get_config
+        from services.orchestrator import _get_tenant_config as _get_config, _get_system_template
         _cfg = await _get_config(tenant_id)
-        result = await complete_quality_gate(chunk_text, tenant_id, custom_prompt=_cfg.get("prompt_quality_gate"))
+        quality_prompt = _cfg.get("prompt_quality_gate") or await _get_system_template("Validador de documentos")
+        result = await complete_quality_gate(chunk_text, tenant_id, custom_prompt=quality_prompt)
 
         # Respect manual overrides — never overwrite a human decision
         if results[0].payload.get("manually_reviewed"):

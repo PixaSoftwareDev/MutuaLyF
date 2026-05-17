@@ -93,19 +93,22 @@ async def list_entities(
     if _circuit_is_open():
         raise HTTPException(status_code=503, detail="Neo4j no disponible")
 
-    label_filter = f":{label}" if label else ""
+    # Filter to entity labels only — exclude Chunk/Documento structural nodes
+    _ENTITY_LABELS = ["Persona", "Rol", "Departamento", "Horario", "Dominio", "Organizacion", "Fecha", "Lugar", "Entidad"]
+    label_filter = f":{label}" if label else (":" + "|".join(_ENTITY_LABELS))
     name_filter = "AND toLower(e.nombre) CONTAINS toLower($search)" if search else ""
 
     cypher = f"""
         MATCH (e{label_filter} {{tenant_id: $tid}})
-        WHERE 1=1 {name_filter}
-        OPTIONAL MATCH (e)-[:MENCIONADA_EN]->(c:Chunk)
-        RETURN
-            labels(e)[0]         AS label,
-            e.nombre             AS nombre,
-            e.nombre_normalizado AS nombre_normalizado,
-            e.created_at         AS created_at,
-            count(DISTINCT c)    AS mention_count
+        WHERE e.nombre IS NOT NULL {name_filter}
+        OPTIONAL MATCH (e)-[:MENCIONADA_EN]->(c:Chunk {{tenant_id: $tid}})
+        WITH
+            labels(e)[0]              AS label,
+            e.nombre_normalizado      AS nombre_normalizado,
+            min(e.nombre)             AS nombre,
+            max(e.created_at)         AS created_at,
+            count(DISTINCT c)         AS mention_count
+        RETURN label, nombre_normalizado, nombre, created_at, mention_count
         ORDER BY mention_count DESC, nombre
         LIMIT $limit
     """

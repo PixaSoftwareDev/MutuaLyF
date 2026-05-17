@@ -6,7 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import Image from "next/image";
 import {
   Inbox, FileText, Tags, Settings, LogOut, ChevronLeft, ChevronRight,
-  Shield, Building2, GitMerge, Users, ExternalLink, FlaskConical, ClipboardList, Bot, Network,
+  Shield, Building2, GitMerge, Users, ExternalLink, FlaskConical, ClipboardList, Bot, Network, X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore, useUIStore } from "@/lib/store";
@@ -24,13 +24,10 @@ type NavItem = {
   tooltip?: string;
 };
 
-// Flat groups — no section headers. Visual dividers separate them.
 const navGroups: NavItem[][] = [
-  // Trabajo diario
   [
     { href: "/admin/conversations", label: "Conversaciones", icon: Inbox, adminOnly: true },
   ],
-  // Conocimiento
   [
     { href: "/admin/documents",  label: "Documentos", icon: FileText, adminOnly: true },
     { href: "/admin/intentions", label: "Temas reconocidos", icon: Tags, adminOnly: true,
@@ -41,19 +38,16 @@ const navGroups: NavItem[][] = [
       badgeKey: "duplicates-pending",
       tooltip: "Documentos parecidos que conviene unificar para evitar respuestas contradictorias." },
   ],
-  // Equipo
   [
     { href: "/admin/sectors",   label: "Sectores",   icon: Building2, adminOnly: true },
     { href: "/admin/operators", label: "Operadores", icon: Users,     adminOnly: true },
   ],
-  // Configuración + sistema
   [
     { href: "/admin/settings", label: "Configuración", icon: Settings, adminOnly: true,
       tooltip: "Personalidad, mensaje de saludo y comportamiento del asistente." },
     { href: "/admin/audit",    label: "Auditoría",     icon: ClipboardList, adminOnly: true,
       tooltip: "Registro de acciones críticas: logins, subidas, cambios de configuración." },
   ],
-  // Plataforma (super admin)
   [
     { href: "/superadmin",         label: "Plataforma",     icon: Shield,        superAdminOnly: true,
       tooltip: "Administración cross-tenant: organizaciones, planes y cuotas." },
@@ -69,11 +63,13 @@ export function Sidebar() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { userEmail, userRole, tenantId, clearAuth } = useAuthStore();
-  const { sidebarOpen, toggleSidebar } = useUIStore();
-
+  const { sidebarOpen, toggleSidebar, mobileSidebarOpen, closeMobileSidebar } = useUIStore();
 
   const isAdmin = userRole === "admin";
   const isSuperAdmin = userRole === "super_admin";
+
+  // On mobile the sidebar is always expanded (no icon-only mode)
+  const collapsed = sidebarOpen === false;
 
   const prefetchMap: Record<string, () => void> = {
     "/admin/conversations": () => queryClient.prefetchQuery({ queryKey: ["operator-conversations", "all", "admin-readonly"], queryFn: () => api.operator.listConversations(), staleTime: 4_000 }),
@@ -89,7 +85,7 @@ export function Sidebar() {
   const { data: duplicatesStats } = useQuery({
     queryKey: ["duplicates-stats"],
     queryFn: api.duplicates.stats,
-    enabled: isAdmin,  // only for tenant admins
+    enabled: isAdmin,
     refetchInterval: 60_000,
     staleTime: 30_000,
   });
@@ -97,6 +93,7 @@ export function Sidebar() {
   const duplicatesPending: number = (duplicatesStats as any)?.pending ?? 0;
 
   const handleLogout = async () => {
+    closeMobileSidebar();
     try { await api.auth.logout(); } catch { /* ignore */ }
     clearAuth();
     router.push("/login");
@@ -119,139 +116,177 @@ export function Sidebar() {
     return true;
   };
 
+  const handleNavClick = () => {
+    // Close mobile drawer when navigating
+    closeMobileSidebar();
+  };
+
+  // Shared label/icon visibility: on desktop respect collapsed state; on mobile always show labels
+  // We use CSS to handle this: `hidden lg:inline` for labels when collapsed
+  const showLabel = !collapsed;
+
   return (
-    <aside
-      className={cn(
-        "relative flex flex-col border-r border-white/10 bg-[#7A2731] text-white transition-all duration-200",
-        sidebarOpen ? "w-56" : "w-14"
+    <>
+      {/* Mobile backdrop */}
+      {mobileSidebarOpen && (
+        <div
+          className="lg:hidden fixed inset-0 z-40 bg-black/50 backdrop-blur-sm"
+          onClick={closeMobileSidebar}
+          aria-hidden="true"
+        />
       )}
-    >
-      {/* Brand */}
-      <div className={cn("flex items-center gap-3 h-16 px-4 border-b border-white/10 bg-[#5C1D24]", !sidebarOpen && "justify-center px-2")}>
-        <div className="relative w-7 h-7 flex items-center justify-center shrink-0">
-          <Image
-            src="/Logo.png"
-            alt="MutualBot"
-            width={28}
-            height={28}
-            className="w-full h-full object-cover rounded-sm"
-            priority
-            unoptimized
-          />
-        </div>
-        {sidebarOpen && (
-          <span className="font-semibold text-sm tracking-tight text-white">MutualBot</span>
+
+      <aside
+        className={cn(
+          // Base
+          "flex flex-col border-r border-white/10 bg-[#7A2731] text-white",
+          // Mobile: fixed overlay drawer
+          "fixed inset-y-0 left-0 z-50 lg:static lg:z-auto",
+          // Mobile visibility via transform
+          "transition-transform duration-200 ease-in-out",
+          mobileSidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0",
+          // Width: mobile always full-width label sidebar; desktop respects collapsed
+          collapsed ? "lg:w-14 w-64" : "w-64 lg:w-56",
         )}
-      </div>
+      >
+        {/* Brand */}
+        <div className={cn(
+          "flex items-center gap-3 h-16 px-4 border-b border-white/10 bg-[#5C1D24] shrink-0",
+          collapsed && "lg:justify-center lg:px-2"
+        )}>
+          <div className="relative w-7 h-7 flex items-center justify-center shrink-0">
+            <Image
+              src="/Logo.png"
+              alt="MutualBot"
+              width={28}
+              height={28}
+              className="w-full h-full object-cover rounded-sm"
+              priority
+              unoptimized
+            />
+          </div>
+          <span className={cn(
+            "font-semibold text-sm tracking-tight text-white flex-1",
+            collapsed && "lg:hidden"
+          )}>
+            MutualBot
+          </span>
+          {/* Close button — mobile only */}
+          <button
+            onClick={closeMobileSidebar}
+            className="lg:hidden flex items-center justify-center w-7 h-7 rounded-md text-white/70 hover:text-white hover:bg-white/10 transition-colors"
+            aria-label="Cerrar menú"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
 
-      {/* Nav */}
-      <nav className="flex-1 overflow-y-hidden px-3 pt-5 pb-3">
-        {(() => {
-          let visibleGroupCount = 0;
-          return navGroups.map((group, groupIdx) => {
-            const visibleItems = group.filter(isVisible);
-            const showChatTester = groupIdx === 0 && isAdmin;
-            if (visibleItems.length === 0 && !showChatTester) return null;
-            const needsDivider = visibleGroupCount > 0;
-            visibleGroupCount++;
+        {/* Nav */}
+        <nav className="flex-1 overflow-y-auto scrollbar-hide px-3 pt-5 pb-3">
+          {(() => {
+            let visibleGroupCount = 0;
+            return navGroups.map((group, groupIdx) => {
+              const visibleItems = group.filter(isVisible);
+              const showChatTester = groupIdx === 0 && isAdmin;
+              if (visibleItems.length === 0 && !showChatTester) return null;
+              const needsDivider = visibleGroupCount > 0;
+              visibleGroupCount++;
 
-            return (
-            <React.Fragment key={groupIdx}>
-              {needsDivider && <div className="h-px bg-white/10 my-3 mx-1" />}
-              <div className="space-y-1">
-                {showChatTester && (
-                  <button
-                    onClick={handleOpenChatTester}
-                    className={cn(
-                      "w-full flex items-center gap-3 rounded-md px-2.5 py-2.5 text-sm font-medium transition-colors",
-                      "text-white/75 hover:bg-white/10 hover:text-white",
-                      !sidebarOpen && "justify-center px-2"
+              return (
+                <React.Fragment key={groupIdx}>
+                  {needsDivider && <div className="h-px bg-white/10 my-3 mx-1" />}
+                  <div className="space-y-1">
+                    {showChatTester && (
+                      <button
+                        onClick={handleOpenChatTester}
+                        className={cn(
+                          "w-full flex items-center gap-3 rounded-md px-2.5 py-2.5 text-sm font-medium transition-colors",
+                          "text-white/75 hover:bg-white/10 hover:text-white",
+                          collapsed && "lg:justify-center lg:px-2"
+                        )}
+                        title={collapsed ? "Probar chat (nueva pestaña)" : "Abre el widget en una pestaña nueva"}
+                      >
+                        <FlaskConical className="h-4 w-4 shrink-0" />
+                        <span className={cn("flex-1 text-left", collapsed && "lg:hidden")}>
+                          Probar chat
+                        </span>
+                        <ExternalLink className={cn("h-3.5 w-3.5 opacity-60", collapsed && "lg:hidden")} />
+                      </button>
                     )}
-                    title={!sidebarOpen ? "Probar chat (nueva pestaña)" : "Abre el widget en una pestaña nueva"}
-                  >
-                    <FlaskConical className="h-4 w-4 shrink-0" />
-                    {sidebarOpen && (
-                      <>
-                        <span className="flex-1 text-left">Probar chat</span>
-                        <ExternalLink className="h-3.5 w-3.5 opacity-60" />
-                      </>
-                    )}
-                  </button>
-                )}
 
-                {visibleItems.map((item) => {
-                  const Icon = item.icon;
-                  const active = pathname === item.href || pathname.startsWith(item.href + "/");
-                  const pendingCount = item.badgeKey === "duplicates-pending" ? duplicatesPending : 0;
-                  const titleAttr = !sidebarOpen ? item.label : item.tooltip;
-                  return (
-                    <Link
-                      key={item.href}
-                      href={item.href}
-                      onMouseEnter={() => prefetchMap[item.href]?.()}
-                      onFocus={() => prefetchMap[item.href]?.()}
-                      className={cn(
-                        "relative flex items-center gap-3 rounded-md px-2.5 py-2.5 text-sm font-medium transition-colors",
-                        active
-                          ? "bg-white/15 text-white shadow-sm"
-                          : "text-white/75 hover:bg-white/10 hover:text-white",
-                        !sidebarOpen && "justify-center px-2"
-                      )}
-                      title={titleAttr}
-                    >
-                      <Icon className="h-4 w-4 shrink-0" />
-                      {sidebarOpen && (
-                        <>
-                          <span className="flex-1">{item.label}</span>
+                    {visibleItems.map((item) => {
+                      const Icon = item.icon;
+                      const active = pathname === item.href || pathname.startsWith(item.href + "/");
+                      const pendingCount = item.badgeKey === "duplicates-pending" ? duplicatesPending : 0;
+                      const titleAttr = collapsed ? item.label : item.tooltip;
+                      return (
+                        <Link
+                          key={item.href}
+                          href={item.href}
+                          onClick={handleNavClick}
+                          onMouseEnter={() => prefetchMap[item.href]?.()}
+                          onFocus={() => prefetchMap[item.href]?.()}
+                          className={cn(
+                            "relative flex items-center gap-3 rounded-md px-2.5 py-2.5 text-sm font-medium transition-colors",
+                            active
+                              ? "bg-white/15 text-white shadow-sm"
+                              : "text-white/75 hover:bg-white/10 hover:text-white",
+                            collapsed && "lg:justify-center lg:px-2"
+                          )}
+                          title={titleAttr}
+                        >
+                          <Icon className="h-4 w-4 shrink-0" />
+                          <span className={cn("flex-1", collapsed && "lg:hidden")}>
+                            {item.label}
+                          </span>
                           {pendingCount > 0 && (
-                            <span className="ml-auto inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-white px-1 text-[10px] font-bold text-[#7A2731]">
-                              {pendingCount > 99 ? "99+" : pendingCount}
+                            <span className={cn(
+                              "inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-white px-1 text-[10px] font-bold text-[#7A2731]",
+                              collapsed ? "lg:absolute lg:right-1 lg:top-1 lg:h-2 lg:w-2 lg:rounded-full lg:bg-white lg:px-0" : "ml-auto"
+                            )}>
+                              <span className={cn(collapsed && "lg:hidden")}>
+                                {pendingCount > 99 ? "99+" : pendingCount}
+                              </span>
                             </span>
                           )}
-                        </>
-                      )}
-                      {!sidebarOpen && pendingCount > 0 && (
-                        <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-white" />
-                      )}
-                    </Link>
-                  );
-                })}
-              </div>
-            </React.Fragment>
-            );
-          });
-        })()}
-      </nav>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                </React.Fragment>
+              );
+            });
+          })()}
+        </nav>
 
-      <div className="h-px bg-white/10" />
+        <div className="h-px bg-white/10 shrink-0" />
 
-      {/* User + logout */}
-      <div className={cn("p-3 space-y-2", !sidebarOpen && "flex flex-col items-center p-2")}>
-        {sidebarOpen && (
-          <div className="px-2.5 py-1">
+        {/* User + logout */}
+        <div className={cn("p-3 space-y-2 shrink-0", collapsed && "lg:flex lg:flex-col lg:items-center lg:p-2 lg:space-y-2")}>
+          <div className={cn("px-2.5 py-1", collapsed && "lg:hidden")}>
             <p className="text-xs text-white/70 truncate" title={userRole || undefined}>{userEmail}</p>
           </div>
-        )}
-        <button
-          onClick={handleLogout}
-          className={cn(
-            "flex items-center gap-3 rounded-md px-2.5 py-2.5 text-sm text-white/75 hover:bg-white/10 hover:text-white w-full transition-colors",
-            !sidebarOpen && "justify-center"
-          )}
-          title="Cerrar sesión"
-        >
-          <LogOut className="h-4 w-4 shrink-0" />
-          {sidebarOpen && <span>Cerrar sesión</span>}
-        </button>
-      </div>
+          <button
+            onClick={handleLogout}
+            className={cn(
+              "flex items-center gap-3 rounded-md px-2.5 py-2.5 text-sm text-white/75 hover:bg-white/10 hover:text-white w-full transition-colors",
+              collapsed && "lg:justify-center"
+            )}
+            title="Cerrar sesión"
+          >
+            <LogOut className="h-4 w-4 shrink-0" />
+            <span className={cn(collapsed && "lg:hidden")}>Cerrar sesión</span>
+          </button>
+        </div>
 
-      {/* Collapse toggle */}
-      <button
-        onClick={toggleSidebar}
-        className="absolute -right-3 top-16 z-10 flex h-6 w-6 items-center justify-center rounded-full border border-white/20 bg-[#7A2731] text-white shadow-md hover:bg-[#99323D] transition-colors"
-      >
-        {sidebarOpen ? <ChevronLeft className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-      </button>
-    </aside>
+        {/* Collapse toggle — desktop only */}
+        <button
+          onClick={toggleSidebar}
+          className="hidden lg:flex absolute -right-3 top-16 z-10 h-6 w-6 items-center justify-center rounded-full border border-white/20 bg-[#7A2731] text-white shadow-md hover:bg-[#99323D] transition-colors"
+        >
+          {collapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronLeft className="h-3 w-3" />}
+        </button>
+      </aside>
+    </>
   );
 }

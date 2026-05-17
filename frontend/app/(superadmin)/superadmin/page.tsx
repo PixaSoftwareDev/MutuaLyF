@@ -489,17 +489,27 @@ function TenantRowCard({ tenant: t, anomaly, onClick }: {
 }
 
 // ── Modal crear tenant ────────────────────────────────────────────────────────
+const EMPTY_FORM = { id: "", name: "", plan: "starter", admin_email: "", admin_name: "", admin_password: "", personality_id: "" };
+
 function CreateTenantModal({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: () => void }) {
-  const [form, setForm] = useState({ id: "", name: "", plan: "starter", admin_email: "", admin_name: "", admin_password: "" });
+  const [form, setForm] = useState(EMPTY_FORM);
   const [error, setError] = useState("");
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setForm(f => ({ ...f, [k]: e.target.value }));
+
+  // Load available personalities
+  const { data: personalities = [], isLoading: loadingP } = useQuery({
+    queryKey: ["prompt-templates"],
+    queryFn: api.promptTemplates.list,
+    enabled: open,
+    staleTime: 60_000,
+  });
 
   const createM = useMutation({
     mutationFn: () => tenantsApi.create(form),
     onSuccess: () => {
       onCreated(); onClose();
-      setForm({ id: "", name: "", plan: "starter", admin_email: "", admin_name: "", admin_password: "" });
+      setForm(EMPTY_FORM);
       toast({ title: "Organización creada", description: `'${form.id}' provisionada correctamente.`, variant: "success" });
     },
     onError: (err: any) => {
@@ -507,6 +517,13 @@ function CreateTenantModal({ open, onClose, onCreated }: { open: boolean; onClos
       setError(typeof msg === "string" ? msg : JSON.stringify(msg));
     },
   });
+
+  const PLAN_ORDER: Record<string, number> = { starter: 0, professional: 1, enterprise: 2 };
+  const availablePersonalities = personalities.filter(
+    (p: any) => PLAN_ORDER[p.plan_minimo] <= PLAN_ORDER[form.plan]
+  );
+
+  const canSubmit = !createM.isPending && form.id && form.admin_email && form.admin_password && form.personality_id;
 
   const fields = [
     { key: "id",             label: "ID único (slug)",           placeholder: "mi-empresa",           type: "text",     hint: "Solo minúsculas, números y guiones." },
@@ -532,19 +549,57 @@ function CreateTenantModal({ open, onClose, onCreated }: { open: boolean; onClos
               {"hint" in f && f.hint && <p className="text-[11px] text-muted-foreground">{f.hint}</p>}
             </div>
           ))}
+
           <div className="space-y-1">
             <Label className="text-xs font-medium">Plan</Label>
-            <select className="w-full text-sm border rounded-md px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-ring" value={form.plan} onChange={set("plan")}>
+            <select className="w-full text-sm border rounded-md px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-ring" value={form.plan} onChange={e => { set("plan")(e); setForm(f => ({ ...f, plan: e.target.value, personality_id: "" })); }}>
               <option value="starter">Starter — 5 usuarios, 500 docs, 5K consultas/mes</option>
               <option value="professional">Professional — 50 usuarios, 10K docs, 100K consultas/mes</option>
               <option value="enterprise">Enterprise — Sin límites</option>
             </select>
           </div>
+
+          <div className="space-y-1">
+            <Label className="text-xs font-medium flex items-center gap-1">
+              <Bot className="h-3.5 w-3.5 text-primary" />
+              Personalidad del bot <span className="text-destructive ml-0.5">*</span>
+            </Label>
+            {loadingP ? (
+              <div className="h-9 border rounded-md flex items-center px-3 gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Cargando personalidades…
+              </div>
+            ) : availablePersonalities.length === 0 ? (
+              <div className="h-9 border rounded-md flex items-center px-3 text-sm text-muted-foreground bg-muted/40">
+                No hay personalidades disponibles para este plan
+              </div>
+            ) : (
+              <select
+                className="w-full text-sm border rounded-md px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+                value={form.personality_id}
+                onChange={set("personality_id")}
+              >
+                <option value="">Elegir personalidad…</option>
+                {availablePersonalities.map((p: any) => (
+                  <option key={p.id} value={p.id}>{p.nombre}</option>
+                ))}
+              </select>
+            )}
+            {form.personality_id && (() => {
+              const p = availablePersonalities.find((x: any) => x.id === form.personality_id);
+              return p?.descripcion ? (
+                <p className="text-[11px] text-muted-foreground pl-1">{p.descripcion}</p>
+              ) : null;
+            })()}
+            <p className="text-[11px] text-muted-foreground">
+              Se puede cambiar o agregar más personalidades desde el panel de la organización.
+            </p>
+          </div>
+
           {error && <div className="rounded-md bg-destructive/10 border border-destructive/20 px-3 py-2"><p className="text-xs text-destructive">{error}</p></div>}
         </div>
         <DialogFooter className="flex-col sm:flex-row gap-2">
           <Button variant="outline" className="w-full sm:w-auto" onClick={onClose}>Cancelar</Button>
-          <Button className="w-full sm:w-auto" disabled={createM.isPending || !form.id || !form.admin_email || !form.admin_password} onClick={() => { setError(""); createM.mutate(); }}>
+          <Button className="w-full sm:w-auto" disabled={!canSubmit} onClick={() => { setError(""); createM.mutate(); }}>
             {createM.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
             Crear organización
           </Button>

@@ -27,6 +27,7 @@ class DocumentIngestResponse(BaseModel):
 class DocumentResponse(BaseModel):
     id: str
     title: str
+    filename: str | None = None
     status: DocumentStatus
     chunk_count: int
     quality_gate_status: QualityGateStatus

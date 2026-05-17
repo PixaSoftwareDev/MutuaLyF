@@ -32,7 +32,7 @@ async def list_documents(
     async with get_pg_session(tenant_id) as session:
         result = await session.execute(
             text(
-                "SELECT id, title, status, chunk_count, quality_gate_status, created_at, updated_at "
+                "SELECT id, title, filename, status, chunk_count, quality_gate_status, created_at, updated_at "
                 "FROM documentos ORDER BY created_at DESC LIMIT 500"
             )
         )

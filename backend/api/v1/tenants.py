@@ -172,11 +172,36 @@ async def create_tenant(
             admin_password=payload.admin_password,
         )
 
-        # Auto-assign system templates (all plans get them for free)
-        from api.v1.system_prompts import auto_assign_system_templates
+        # Auto-assign system infrastructure templates
+        from api.v1.system_prompts import auto_assign_system_templates, _invalidate_tenant_cache
         await auto_assign_system_templates(payload.id)
 
-        logger.info("tenant_create_complete id=%s", payload.id)
+        # Assign and activate the chosen personality
+        async with get_pg_session(None) as session:
+            tpl = await session.execute(
+                text("SELECT id, plan_minimo FROM system_prompt_templates WHERE id = :id AND is_active = TRUE AND is_system = FALSE"),
+                {"id": payload.personality_id},
+            )
+            tpl_row = tpl.mappings().fetchone()
+            if not tpl_row:
+                raise HTTPException(status_code=422, detail="La personalidad seleccionada no existe o está inactiva")
+
+            from api.v1.system_prompts import PLAN_ORDER
+            tenant_plan = payload.plan.value
+            if PLAN_ORDER.get(tenant_plan, 0) < PLAN_ORDER.get(tpl_row["plan_minimo"], 0):
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"El plan {tenant_plan} no permite la personalidad seleccionada (requiere {tpl_row['plan_minimo']})",
+                )
+
+            await session.execute(text("""
+                INSERT INTO tenant_prompt_assignments (tenant_id, template_id, assigned_by, is_active)
+                VALUES (:tid, :tmpl, 'system', TRUE)
+                ON CONFLICT (tenant_id, template_id) DO UPDATE SET is_active = TRUE
+            """), {"tid": payload.id, "tmpl": payload.personality_id})
+
+        await _invalidate_tenant_cache(payload.id)
+        logger.info("tenant_create_complete id=%s personality=%s", payload.id, payload.personality_id)
         return {
             "id":          payload.id,
             "name":        payload.name,
@@ -184,12 +209,15 @@ async def create_tenant(
             "status":      "active",
             "admin_email": payload.admin_email,
         }
+    except HTTPException:
+        raise
     except Exception as exc:
         err = str(exc)
-        if "already exists" in err.lower() or "duplicate" in err.lower():
-            raise HTTPException(status_code=409, detail=f"Tenant '{payload.id}' already exists")
+        # Distinguish PG duplicate (tenant truly exists) from Qdrant orphan mismatch
+        if ("already exists" in err.lower() or "duplicate" in err.lower()) and "qdrant" not in err.lower() and "collection" not in err.lower():
+            raise HTTPException(status_code=409, detail=f"Tenant '{payload.id}' ya existe")
         logger.error("tenant_create_failed id=%s error=%s", payload.id, exc)
-        raise HTTPException(status_code=500, detail=f"Provisioning failed: {err[:200]}")
+        raise HTTPException(status_code=500, detail=f"Provisioning failed: {err[:300]}")
 
 
 # ── Update tenant plan / status ───────────────────────────────────────────────
@@ -294,6 +322,7 @@ async def get_tenant_usage(
 # ── Bot config (admin endpoint — read/update from settings page) ─────────────
 
 class BotConfigResponse(BaseModel):
+    bot_name: str | None
     bot_description: str | None
     bot_scope: str | None
     min_retrieval_score: float
@@ -301,6 +330,7 @@ class BotConfigResponse(BaseModel):
     prompt_query: str | None
     prompt_quality_gate: str | None
     prompt_cluster_label: str | None
+    onboarding_completed: bool
 
 
 class BotConfigUpdate(BaseModel):
@@ -324,7 +354,7 @@ async def get_bot_config(
 
     async with get_pg_session() as session:
         result = await session.execute(
-            text("SELECT bot_description, bot_scope, min_retrieval_score, greeting_message, prompt_query, prompt_quality_gate, prompt_cluster_label FROM tenants WHERE id = :tid"),
+            text("SELECT bot_name, bot_description, bot_scope, min_retrieval_score, greeting_message, prompt_query, prompt_quality_gate, prompt_cluster_label, onboarding_completed FROM tenants WHERE id = :tid"),
             {"tid": tenant_id},
         )
         row = result.mappings().fetchone()
@@ -333,6 +363,7 @@ async def get_bot_config(
         raise HTTPException(status_code=404, detail="Tenant not found")
 
     return BotConfigResponse(
+        bot_name=row["bot_name"],
         bot_description=row["bot_description"],
         bot_scope=row["bot_scope"],
         min_retrieval_score=float(row["min_retrieval_score"]) if row["min_retrieval_score"] is not None else 0.45,
@@ -340,6 +371,7 @@ async def get_bot_config(
         prompt_query=row["prompt_query"],
         prompt_quality_gate=row["prompt_quality_gate"],
         prompt_cluster_label=row["prompt_cluster_label"],
+        onboarding_completed=bool(row["onboarding_completed"]),
     )
 
 
@@ -413,6 +445,152 @@ async def update_bot_config(
     ))
 
     return await get_bot_config(tenant_id, current_user)
+
+
+# ── Onboarding (admin — first-login setup) ────────────────────────────────────
+
+class OnboardingGenerateRequest(BaseModel):
+    org_name: str
+    org_type: str
+    serves: str
+    main_topics: str
+    excluded_topics: str = ""
+    tone: str
+    bot_name: str = ""
+
+
+class OnboardingGenerateResponse(BaseModel):
+    bot_description: str
+
+
+class OnboardingCompleteRequest(BaseModel):
+    bot_name: str
+    bot_description: str
+
+
+@router.post("/{tenant_id}/onboarding/generate", response_model=OnboardingGenerateResponse)
+async def onboarding_generate(
+    tenant_id: str,
+    body: OnboardingGenerateRequest,
+    current_user: CurrentUser = Depends(require_admin),
+):
+    """Call Groq to generate a rich bot_description from structured org data.
+    Only callable by the tenant's own admin. Does not persist anything yet.
+    """
+    if current_user.tenant_id != tenant_id:
+        raise HTTPException(status_code=403, detail="Cannot generate for another tenant")
+
+    async with get_pg_session() as session:
+        result = await session.execute(
+            text("SELECT onboarding_completed FROM tenants WHERE id = :tid"),
+            {"tid": tenant_id},
+        )
+        row = result.mappings().fetchone()
+
+    if row is None:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+    if row["onboarding_completed"]:
+        raise HTTPException(status_code=409, detail="Onboarding already completed")
+
+    excluded_line = f"No responde sobre: {body.excluded_topics}." if body.excluded_topics.strip() else ""
+    bot_name_line = f"El asistente se llama '{body.bot_name}'." if body.bot_name.strip() else "El asistente no tiene nombre propio."
+
+    prompt = f"""Generá una descripción concisa (4-6 oraciones) de un asistente virtual, \
+optimizada para ser leída por un modelo de lenguaje como parte de su system prompt. \
+La descripción debe ser en español, en tercera persona, sin saludos ni listas, \
+y debe incluir: quién es la organización, a quién atiende el bot, \
+qué temas cubre y qué tono usa.
+
+Datos de la organización:
+- Nombre: {body.org_name}
+- Tipo: {body.org_type}
+- Atiende a: {body.serves}
+- Temas principales: {body.main_topics}
+- {excluded_line}
+- Tono: {body.tone}
+- {bot_name_line}
+
+Respondé únicamente con el texto de la descripción, sin título ni formato extra."""
+
+    from services.groq_client import complete, QueryComplexity
+    try:
+        result_text = await complete(
+            messages=[{"role": "user", "content": prompt}],
+            complexity=QueryComplexity.SIMPLE,
+            temperature=0.4,
+            max_tokens=300,
+        )
+    except Exception as exc:
+        logger.error("onboarding_generate_failed tenant_id=%s error=%s", tenant_id, exc)
+        raise HTTPException(status_code=502, detail="No se pudo generar la descripción. Intentá de nuevo.")
+
+    return OnboardingGenerateResponse(bot_description=result_text.strip())
+
+
+@router.post("/{tenant_id}/onboarding/complete", status_code=204)
+async def onboarding_complete(
+    tenant_id: str,
+    body: OnboardingCompleteRequest,
+    request: Request,
+    current_user: CurrentUser = Depends(require_admin),
+):
+    """Persist bot_name + bot_description and mark onboarding as done.
+    Only callable once — after that returns 409.
+    """
+    if current_user.tenant_id != tenant_id:
+        raise HTTPException(status_code=403, detail="Cannot complete onboarding for another tenant")
+
+    if not body.bot_description.strip():
+        raise HTTPException(status_code=422, detail="bot_description cannot be empty")
+
+    async with get_pg_session() as session:
+        result = await session.execute(
+            text("SELECT onboarding_completed FROM tenants WHERE id = :tid"),
+            {"tid": tenant_id},
+        )
+        row = result.mappings().fetchone()
+
+    if row is None:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+    if row["onboarding_completed"]:
+        raise HTTPException(status_code=409, detail="Onboarding already completed")
+
+    async with get_pg_session() as session:
+        await session.execute(
+            text("""
+                UPDATE tenants
+                SET bot_name = :bot_name,
+                    bot_description = :bot_description,
+                    onboarding_completed = true,
+                    updated_at = NOW()
+                WHERE id = :tid
+            """),
+            {
+                "tid": tenant_id,
+                "bot_name": body.bot_name.strip() or None,
+                "bot_description": body.bot_description.strip(),
+            },
+        )
+
+    try:
+        from core.database import get_redis_cache
+        redis = get_redis_cache()
+        await redis.delete(f"{tenant_id}:bot_config")
+    except Exception:
+        pass
+
+    import asyncio
+    from core.audit import record as audit
+    asyncio.ensure_future(audit(
+        tenant_id=tenant_id,
+        actor_id=current_user.user_id,
+        actor_email=current_user.email,
+        actor_role=current_user.role.value,
+        action="config.onboarding_completed",
+        request=request,
+    ))
+
+    logger.info("onboarding_completed tenant_id=%s by=%s", tenant_id, current_user.user_id)
 
 
 # ── Widget token (admin endpoint — also used from settings page) ──────────────

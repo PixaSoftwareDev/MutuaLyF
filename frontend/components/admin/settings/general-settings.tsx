@@ -103,6 +103,35 @@ export function GeneralSettings() {
   return (
     <div className="space-y-6 max-w-2xl">
 
+      {/* ── Identidad del bot (read-only para el admin) ── */}
+      {botConfig && (botConfig.bot_name || botConfig.bot_description) && (
+        <Card>
+          <CardHeader className="pb-3">
+            <h2 className="font-semibold text-sm flex items-center gap-2">
+              <Bot className="h-4 w-4" />
+              Identidad del asistente
+            </h2>
+            <p className="text-xs text-muted-foreground">
+              Configurado durante el alta. Solo el equipo de soporte puede modificarlo.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {botConfig.bot_name && (
+              <div>
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">Nombre</p>
+                <p className="text-sm font-medium">{botConfig.bot_name}</p>
+              </div>
+            )}
+            {botConfig.bot_description && (
+              <div>
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">Descripción de la organización</p>
+                <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">{botConfig.bot_description}</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       {/* ── Personalidad del bot ── */}
       <Card>
         <CardHeader className="pb-3">

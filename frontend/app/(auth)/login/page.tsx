@@ -12,8 +12,8 @@ import { Loader2, AlertTriangle, Shield, Zap } from "lucide-react";
 
 const DEV_USERS = [
   { name: "Admin Principal", email: "admin@empresa1.com", password: "Admin1234!", tenant: "empresa1", role: "admin" },
-  { name: "Operador Uno",    email: "op@empresa1.com",    password: "Operador123", tenant: "empresa1", role: "operator" },
-  { name: "Operador Dos",    email: "op2@empresa1.com",   password: "Operador123", tenant: "empresa1", role: "operator" },
+  { name: "Operador Uno",    email: "op@empresa1.com",    password: "Admin1234!", tenant: "empresa1", role: "operator" },
+  { name: "Operador Dos",    email: "op2@empresa1.com",   password: "Admin1234!", tenant: "empresa1", role: "operator" },
   { name: "pixs (super)",    email: "pixs@gmail.com",     password: "Admin1234!", tenant: "",         role: "super_admin" },
 ];
 

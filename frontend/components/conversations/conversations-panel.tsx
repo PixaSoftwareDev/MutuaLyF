@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   MessageSquare, Loader2, Send, UserCheck, XCircle, User, Bot,
-  Info, ChevronDown, Search, Flame, ArrowRightLeft, Eye, Wifi, WifiOff, Circle,
+  Info, ChevronDown, ChevronLeft, Search, Flame, ArrowRightLeft, Eye, Wifi, WifiOff, Circle,
 } from "lucide-react";
 import { api, type ConversationRow } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -266,7 +266,11 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
     <div className="flex h-full overflow-hidden">
 
       {/* ── LEFT: queue ──────────────────────────────────────────────────── */}
-      <div className="w-72 border-r flex flex-col shrink-0 bg-card">
+      <div className={cn(
+        "border-r flex flex-col shrink-0 bg-card",
+        "w-full sm:w-72",
+        selectedId ? "hidden sm:flex" : "flex"
+      )}>
 
         {/* Title bar — aligned with sidebar brand (h-16) */}
         <div className="h-16 px-4 flex items-center justify-between border-b shrink-0">
@@ -453,7 +457,10 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
       </div>
 
       {/* ── RIGHT: detail ────────────────────────────────────────────────── */}
-      <div className="flex-1 flex flex-col min-w-0 bg-background">
+      <div className={cn(
+        "flex-1 flex flex-col min-w-0 bg-background",
+        !selectedId && "hidden sm:flex"
+      )}>
         {!selectedId ? (
           <div className="flex-1 flex items-center justify-center text-muted-foreground">
             <div className="text-center space-y-2">
@@ -469,12 +476,21 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
           <>
             {/* ── Header ── */}
             <div className="px-4 py-3 border-b flex items-center justify-between gap-3 bg-card">
-              <div className="min-w-0">
-                <p className="font-semibold text-sm truncate">{detail.afiliado_nombre || "Afiliado anónimo"}</p>
-                <p className="text-xs text-muted-foreground truncate">
-                  {detail.sector_nombre}
-                  {detail.afiliado_email && ` · ${detail.afiliado_email}`}
-                </p>
+              <div className="flex items-center gap-2 min-w-0">
+                <button
+                  onClick={() => setSelectedId(null)}
+                  className="sm:hidden flex items-center justify-center w-7 h-7 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0"
+                  aria-label="Volver"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
+                <div className="min-w-0">
+                  <p className="font-semibold text-sm truncate">{detail.afiliado_nombre || "Afiliado anónimo"}</p>
+                  <p className="text-xs text-muted-foreground truncate">
+                    {detail.sector_nombre}
+                    {detail.afiliado_email && ` · ${detail.afiliado_email}`}
+                  </p>
+                </div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <StatusBadge status={detail.status} />
