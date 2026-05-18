@@ -419,9 +419,24 @@ async def _run_revalidation(chunk_id: str, tenant_id: str) -> str:
             return "done"
 
         chunk_text = results[0].payload.get("text", "")
-        from services.orchestrator import _get_tenant_config as _get_config, _get_system_template
-        _cfg = await _get_config(tenant_id)
-        quality_prompt = _cfg.get("prompt_quality_gate") or await _get_system_template("Validador de documentos")
+        # Load tenant quality-gate prompt via worker pg session (avoids using the
+        # FastAPI app pool, which is not available in the Celery process).
+        quality_prompt: str | None = None
+        try:
+            from core.database import get_worker_pg_session
+            from sqlalchemy import text as _sa_text
+            async with get_worker_pg_session(tenant_id) as _pg:
+                row = await _pg.execute(
+                    _sa_text(
+                        "SELECT pt.content FROM system_prompt_templates pt "
+                        "JOIN tenants t ON t.prompt_template_id = pt.id "
+                        "WHERE t.id = :tid"
+                    ),
+                    {"tid": tenant_id},
+                )
+                quality_prompt = (row.scalar_one_or_none() or None)
+        except Exception as _cfg_exc:
+            logger.warning("tenant_config_load_failed_worker tenant_id=%s error=%s", tenant_id, _cfg_exc)
         result = await complete_quality_gate(chunk_text, tenant_id, custom_prompt=quality_prompt)
 
         # Respect manual overrides — never overwrite a human decision
@@ -453,7 +468,54 @@ async def _run_revalidation(chunk_id: str, tenant_id: str) -> str:
             points=[chunk_id],
         )
         logger.info("quality_gate_retry_done chunk_id=%s status=%s", chunk_id, new_status)
+
+        # Update the document-level quality_gate_status in PostgreSQL if all
+        # chunks for this document are now resolved (none pending).
+        doc_id = results[0].payload.get("document_id")
+        if doc_id:
+            await _maybe_resolve_document_quality(qdrant, collection, doc_id, tenant_id)
+
         return "done"
+
+
+async def _maybe_resolve_document_quality(
+    qdrant: AsyncQdrantClient,
+    collection: str,
+    doc_id: str,
+    tenant_id: str,
+) -> None:
+    """Update document quality_gate_status in PG once all its chunks are resolved."""
+    from qdrant_client.http import models as qmodels
+
+    scroll_result = await qdrant.scroll(
+        collection_name=collection,
+        scroll_filter=qmodels.Filter(
+            must=[qmodels.FieldCondition(key="document_id", match=qmodels.MatchValue(value=doc_id))]
+        ),
+        limit=1000,
+        with_payload=["quality_gate_status"],
+    )
+    chunk_statuses = [p.payload.get("quality_gate_status", "pending") for p in scroll_result[0]]
+
+    if any(s == "pending" for s in chunk_statuses):
+        return  # Still chunks pending — do not update document yet
+
+    agg = "passed" if any(s == "passed" for s in chunk_statuses) else "skipped"
+
+    try:
+        from core.database import get_worker_pg_session
+        from sqlalchemy import text as _sa_text
+        async with get_worker_pg_session(tenant_id) as pg:
+            await pg.execute(
+                _sa_text(
+                    "UPDATE documentos SET quality_gate_status = :status, updated_at = now() "
+                    "WHERE id = :doc_id"
+                ),
+                {"status": agg, "doc_id": doc_id},
+            )
+        logger.info("document_quality_resolved doc_id=%s status=%s", doc_id, agg)
+    except Exception as exc:
+        logger.warning("document_quality_update_failed doc_id=%s error=%s", doc_id, exc)
 
 
 # ── Internal helpers ──────────────────────────────────────────────────────────

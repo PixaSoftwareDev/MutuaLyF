@@ -41,38 +41,54 @@ from core.config import settings
 logger = logging.getLogger(__name__)
 
 _groq_client: AsyncGroq | None = None
+_groq_client_loop: asyncio.AbstractEventLoop | None = None
 _openai_http_client: httpx.AsyncClient | None = None
-
-
-def _get_openai_http_client() -> httpx.AsyncClient:
-    global _openai_http_client
-    if _openai_http_client is None:
-        _openai_http_client = httpx.AsyncClient(
-            base_url="https://api.openai.com/v1",
-            headers={"Authorization": f"Bearer {settings.openai_api_key}"},
-            timeout=30.0,
-        )
-    return _openai_http_client
+_openai_http_client_loop: asyncio.AbstractEventLoop | None = None
 
 # Global semaphore: max concurrent Groq requests across queries + quality gate.
 # Prevents quality gate batch from starving user-facing queries.
 # 4 total: 3 for user queries (orchestrator) + 1 reserved for quality gate.
 _GROQ_SEMAPHORE: asyncio.Semaphore | None = None
+_GROQ_SEMAPHORE_LOOP: asyncio.AbstractEventLoop | None = None
 _GROQ_MAX_CONCURRENT = 4
 _QUALITY_GATE_MAX_CONCURRENT = 1  # Quality gate takes max 1 slot to avoid starving queries
 
 
+def _current_loop() -> asyncio.AbstractEventLoop | None:
+    try:
+        return asyncio.get_running_loop()
+    except RuntimeError:
+        return None
+
+
+def _get_openai_http_client() -> httpx.AsyncClient:
+    global _openai_http_client, _openai_http_client_loop
+    loop = _current_loop()
+    if _openai_http_client is None or loop is not _openai_http_client_loop:
+        _openai_http_client = httpx.AsyncClient(
+            base_url="https://api.openai.com/v1",
+            headers={"Authorization": f"Bearer {settings.openai_api_key}"},
+            timeout=30.0,
+        )
+        _openai_http_client_loop = loop
+    return _openai_http_client
+
+
 def _get_groq_semaphore() -> asyncio.Semaphore:
-    global _GROQ_SEMAPHORE
-    if _GROQ_SEMAPHORE is None:
+    global _GROQ_SEMAPHORE, _GROQ_SEMAPHORE_LOOP
+    loop = _current_loop()
+    if _GROQ_SEMAPHORE is None or loop is not _GROQ_SEMAPHORE_LOOP:
         _GROQ_SEMAPHORE = asyncio.Semaphore(_GROQ_MAX_CONCURRENT)
+        _GROQ_SEMAPHORE_LOOP = loop
     return _GROQ_SEMAPHORE
 
 
 def get_groq_client() -> AsyncGroq:
-    global _groq_client
-    if _groq_client is None:
+    global _groq_client, _groq_client_loop
+    loop = _current_loop()
+    if _groq_client is None or loop is not _groq_client_loop:
         _groq_client = AsyncGroq(api_key=settings.groq_api_key)
+        _groq_client_loop = loop
     return _groq_client
 
 
@@ -194,8 +210,12 @@ async def complete(
         pass
 
     if tenant_id and total_tokens > 0:
-        import asyncio as _asyncio
-        _asyncio.create_task(_log_llm_tokens(tenant_id, total_tokens))
+        try:
+            import asyncio as _asyncio
+            _asyncio.create_task(_log_llm_tokens(tenant_id, total_tokens))
+        except RuntimeError:
+            # No running event loop (e.g. Celery worker context) — skip fire-and-forget log
+            pass
 
     return content
 

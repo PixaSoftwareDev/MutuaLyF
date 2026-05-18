@@ -1,11 +1,13 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   FileText, RefreshCw, Clock, Trash2, Loader2,
   ChevronDown, ChevronRight, Search, CheckCircle2,
-  XCircle, UserCheck, AlertTriangle, ChevronUp,
+  XCircle, UserCheck, AlertTriangle, ShieldCheck, ChevronUp,
+  GitMerge, ArrowRight,
 } from "lucide-react";
 import { api, type DocumentResponse, type ChunkResponse, type PendingChunkResponse } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
@@ -27,15 +29,12 @@ const DOC_STATUS_CONFIG: Record<DocumentResponse["status"], { label: string; var
   failed:     { label: "Error",      variant: "destructive" },
 };
 
-// Human-readable names for quality gate status on the document row.
-// "passed" intentionally has no badge — the happy path should be silent.
 const QG_DOC_CONFIG: Record<DocumentResponse["quality_gate_status"], { label: string; variant: any } | null> = {
   passed:  null,
-  pending: { label: "Revisión pendiente", variant: "warning" },
-  skipped: { label: "Fragmentos excluidos", variant: "secondary" },
+  pending: { label: "Verificación pendiente", variant: "warning" },
+  skipped: { label: "Fragmentos excluidos",   variant: "secondary" },
 };
 
-// Quality gate labels inside the expanded chunk view.
 const QG_CHUNK_CONFIG: Record<ChunkResponse["quality_gate_status"], { label: string; variant: any }> = {
   passed:  { label: "Verificado", variant: "success" },
   pending: { label: "Por revisar", variant: "warning" },
@@ -48,7 +47,7 @@ function humanReason(reason: string | null | undefined): string | null {
   if (!reason) return null;
   if (reason === "groq_unavailable") return "El verificador automático no estaba disponible al procesar este fragmento.";
   if (reason === "exception_defaulting_to_pending") return "Ocurrió un error inesperado durante la verificación.";
-  if (reason === "groq_unavailable" || reason.startsWith("groq")) return "El verificador automático no estaba disponible.";
+  if (reason.startsWith("groq")) return "El verificador automático no estaba disponible.";
   return reason;
 }
 
@@ -72,12 +71,20 @@ export default function DocumentsPage() {
     refetchInterval: 30_000,
   });
 
+  const { data: duplicatesData, isLoading: duplicatesLoading } = useQuery({
+    queryKey: ["duplicates"],
+    queryFn: api.duplicates.list,
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  });
+
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: ["documents"] });
     queryClient.invalidateQueries({ queryKey: ["chunks", "pending"] });
+    queryClient.invalidateQueries({ queryKey: ["duplicates"] });
+    queryClient.invalidateQueries({ queryKey: ["duplicates-stats"] });
   };
 
-  // Group pending chunks by document so the review queue is readable.
   const pendingByDocId = useMemo(() => {
     const map: Record<string, { title: string; chunks: PendingChunkResponse[] }> = {};
     for (const chunk of pendingChunks) {
@@ -86,6 +93,19 @@ export default function DocumentsPage() {
     }
     return map;
   }, [pendingChunks]);
+
+  // Build map: doc_id → count of pending duplicate pairs involving that document
+  const duplicateCountByDocId = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const pair of duplicatesData?.pairs ?? []) {
+      if (pair.status !== "pending") continue;
+      map[pair.doc_id_a] = (map[pair.doc_id_a] ?? 0) + 1;
+      map[pair.doc_id_b] = (map[pair.doc_id_b] ?? 0) + 1;
+    }
+    return map;
+  }, [duplicatesData]);
+
+  const pendingDuplicatesTotal = duplicatesData?.pending ?? 0;
 
   const filtered = documents.filter(
     (d) => !search || d.title.toLowerCase().includes(search.toLowerCase()),
@@ -115,6 +135,9 @@ export default function DocumentsPage() {
           {processingCount > 0 && (
             <span><strong className="text-primary">{processingCount}</strong> <span className="text-muted-foreground">procesando</span></span>
           )}
+          {pendingDuplicatesTotal > 0 && (
+            <span><strong className="text-amber-600">{pendingDuplicatesTotal}</strong> <span className="text-muted-foreground">duplicados por revisar</span></span>
+          )}
         </div>
       )}
 
@@ -126,11 +149,19 @@ export default function DocumentsPage() {
         }}
       />
 
-      {/* Sección de revisión — SIEMPRE visible */}
+      {/* Alerta de duplicados */}
+      <DuplicatesAlert
+        pendingCount={pendingDuplicatesTotal}
+        pairs={duplicatesData?.pairs ?? []}
+        isLoading={duplicatesLoading}
+      />
+
+      {/* Cola de revisión de calidad */}
       <ReviewQueue
         pendingChunks={pendingChunks}
         pendingByDocId={pendingByDocId}
         isLoading={pendingLoading}
+        hasPendingDuplicates={pendingDuplicatesTotal > 0}
         onReviewed={refresh}
       />
 
@@ -182,6 +213,7 @@ export default function DocumentsPage() {
                   key={doc.id}
                   doc={doc}
                   pendingChunkCount={pendingByDocId[doc.id]?.chunks.length ?? 0}
+                  pendingDuplicateCount={duplicateCountByDocId[doc.id] ?? 0}
                   onDeleted={refresh}
                 />
               ))}
@@ -193,68 +225,138 @@ export default function DocumentsPage() {
   );
 }
 
+// ── DuplicatesAlert ───────────────────────────────────────────────────────────
+
+function DuplicatesAlert({
+  pendingCount,
+  pairs,
+  isLoading,
+}: {
+  pendingCount: number;
+  pairs: { doc_id_a: string; doc_id_b: string; doc_title_a: string | null; doc_title_b: string | null; status: string }[];
+  isLoading: boolean;
+}) {
+  const router = useRouter();
+
+  if (isLoading) return null;
+  if (pendingCount === 0) return null;
+
+  // Collect unique affected document names
+  const affectedDocs = useMemo(() => {
+    const seen = new Set<string>();
+    const names: string[] = [];
+    for (const p of pairs) {
+      if (p.status !== "pending") continue;
+      if (p.doc_title_a && !seen.has(p.doc_id_a)) { seen.add(p.doc_id_a); names.push(p.doc_title_a); }
+      if (p.doc_title_b && !seen.has(p.doc_id_b)) { seen.add(p.doc_id_b); names.push(p.doc_title_b); }
+    }
+    return names;
+  }, [pairs]);
+
+  return (
+    <Card className="border-amber-200 bg-amber-50/50">
+      <CardHeader className="pb-3">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex-1">
+            <CardTitle className="text-base flex items-center gap-2 text-amber-900">
+              <GitMerge className="h-4 w-4 shrink-0" />
+              {pendingCount} {pendingCount === 1 ? "par de fragmentos similares" : "pares de fragmentos similares"} — revisión pendiente
+            </CardTitle>
+            <CardDescription className="text-amber-700 text-xs mt-1">
+              El sistema detectó contenido parecido entre documentos distintos. Revisá cada par y decidí si es una coincidencia normal o contenido duplicado que conviene limpiar.
+            </CardDescription>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            className="border-amber-300 text-amber-800 hover:bg-amber-100 hover:text-amber-900 shrink-0"
+            onClick={() => router.push("/admin/duplicates")}
+          >
+            Revisar ahora
+            <ArrowRight className="h-3.5 w-3.5 ml-1.5" />
+          </Button>
+        </div>
+      </CardHeader>
+      {affectedDocs.length > 0 && (
+        <CardContent className="pt-0">
+          <p className="text-xs text-amber-700 font-medium mb-1.5">Documentos involucrados:</p>
+          <div className="flex flex-wrap gap-1.5">
+            {affectedDocs.map((name) => (
+              <span
+                key={name}
+                className="inline-flex items-center gap-1 text-[11px] bg-amber-100 text-amber-800 rounded px-2 py-0.5 border border-amber-200"
+              >
+                <FileText className="h-3 w-3 shrink-0" />
+                {name}
+              </span>
+            ))}
+          </div>
+        </CardContent>
+      )}
+    </Card>
+  );
+}
+
 // ── ReviewQueue ───────────────────────────────────────────────────────────────
 
 function ReviewQueue({
   pendingChunks,
   pendingByDocId,
   isLoading,
+  hasPendingDuplicates,
   onReviewed,
 }: {
   pendingChunks: PendingChunkResponse[];
   pendingByDocId: Record<string, { title: string; chunks: PendingChunkResponse[] }>;
   isLoading: boolean;
+  hasPendingDuplicates: boolean;
   onReviewed: () => void;
 }) {
   const hasPending = pendingChunks.length > 0;
 
-  // Happy path: render nothing. No need to announce the absence of issues.
-  if (!isLoading && !hasPending) return null;
+  if (!isLoading && !hasPending) {
+    // Solo mostrar el "todo bien" si tampoco hay duplicados pendientes
+    if (hasPendingDuplicates) return null;
+    return (
+      <div className="flex items-center gap-2 text-sm text-muted-foreground py-1">
+        <ShieldCheck className="h-4 w-4 text-green-500 shrink-0" />
+        Todo el contenido está verificado — no hay fragmentos pendientes de revisión.
+      </div>
+    );
+  }
+
+  if (isLoading) return null;
 
   return (
     <Card className="border-amber-200 bg-amber-50/50">
       <CardHeader className="pb-3">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <CardTitle className="text-base flex items-center gap-2 text-amber-900">
-              <AlertTriangle className="h-4 w-4 shrink-0" />
-              {isLoading ? "Revisión de contenido" : (
-                <>
-                  {pendingChunks.length} fragmento{pendingChunks.length !== 1 ? "s" : ""} necesitan tu revisión
-                </>
-              )}
-            </CardTitle>
-            <CardDescription className="text-amber-700 text-xs mt-1">
-              La IA verificó el contenido automáticamente. En los casos marcados no pudo hacerlo
-              o encontró texto poco útil — revisá y decidí si incluirlos en las respuestas.
-            </CardDescription>
-          </div>
-        </div>
+        <CardTitle className="text-base flex items-center gap-2 text-amber-900">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          {pendingChunks.length} fragmento{pendingChunks.length !== 1 ? "s" : ""} sin verificar
+        </CardTitle>
+        <CardDescription className="text-amber-700 text-xs mt-1">
+          La IA no pudo verificar estos fragmentos automáticamente. Revisá el texto y decidí si incluirlos en las respuestas.
+        </CardDescription>
       </CardHeader>
       <CardContent>
-        {isLoading ? (
-          <div className="space-y-2">{[1, 2].map((i) => <Skeleton key={i} className="h-24 w-full" />)}</div>
-        ) : (
-          <div className="space-y-4">
-            {Object.entries(pendingByDocId).map(([docId, group]) => (
-              <div key={docId}>
-                {/* Document group header */}
-                <p className="text-xs font-semibold text-amber-800 flex items-center gap-1.5 mb-2">
-                  <FileText className="h-3.5 w-3.5 shrink-0" />
-                  {group.title}
-                  <span className="font-normal text-amber-700">
-                    · {group.chunks.length} fragmento{group.chunks.length !== 1 ? "s" : ""}
-                  </span>
-                </p>
-                <div className="space-y-2 pl-5">
-                  {group.chunks.map((chunk) => (
-                    <PendingChunkCard key={chunk.id} chunk={chunk} onReviewed={onReviewed} />
-                  ))}
-                </div>
+        <div className="space-y-4">
+          {Object.entries(pendingByDocId).map(([docId, group]) => (
+            <div key={docId}>
+              <p className="text-xs font-semibold text-amber-800 flex items-center gap-1.5 mb-2">
+                <FileText className="h-3.5 w-3.5 shrink-0" />
+                {group.title}
+                <span className="font-normal text-amber-700">
+                  · {group.chunks.length} fragmento{group.chunks.length !== 1 ? "s" : ""}
+                </span>
+              </p>
+              <div className="space-y-2 pl-5">
+                {group.chunks.map((chunk) => (
+                  <PendingChunkCard key={chunk.id} chunk={chunk} onReviewed={onReviewed} />
+                ))}
               </div>
-            ))}
-          </div>
-        )}
+            </div>
+          ))}
+        </div>
       </CardContent>
     </Card>
   );
@@ -265,17 +367,21 @@ function ReviewQueue({
 function DocumentRow({
   doc,
   pendingChunkCount,
+  pendingDuplicateCount,
   onDeleted,
 }: {
   doc: DocumentResponse;
   pendingChunkCount: number;
+  pendingDuplicateCount: number;
   onDeleted: () => void;
 }) {
+  const router = useRouter();
   const [confirming, setConfirming] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const docStatus = DOC_STATUS_CONFIG[doc.status];
   const qgBadge = QG_DOC_CONFIG[doc.quality_gate_status];
   const canExpand = doc.status === "ready" && doc.chunk_count > 0;
+  const hasPendingWork = pendingChunkCount > 0 || pendingDuplicateCount > 0;
   const date = new Date(doc.created_at).toLocaleDateString("es-AR", {
     day: "2-digit", month: "short", year: "numeric",
   });
@@ -298,7 +404,7 @@ function DocumentRow({
   });
 
   return (
-    <div className="rounded-lg border overflow-hidden">
+    <div className={`rounded-lg border overflow-hidden ${hasPendingWork ? "border-amber-200" : ""}`}>
       <div
         className={`flex items-center gap-3 p-3 transition-colors ${canExpand ? "hover:bg-accent/30 cursor-pointer" : ""}`}
         onClick={() => canExpand && setExpanded((v) => !v)}
@@ -327,12 +433,21 @@ function DocumentRow({
                 {doc.chunk_count} fragmento{doc.chunk_count !== 1 ? "s" : ""}
               </span>
             )}
-            {/* Inline warning for pending chunks in this document */}
             {pendingChunkCount > 0 && (
               <span className="text-xs text-amber-700 flex items-center gap-1 font-medium">
                 <AlertTriangle className="h-3 w-3" />
-                {pendingChunkCount} requiere{pendingChunkCount !== 1 ? "n" : ""} revisión
+                {pendingChunkCount} sin verificar
               </span>
+            )}
+            {pendingDuplicateCount > 0 && (
+              <button
+                className="text-xs text-amber-700 flex items-center gap-1 font-medium hover:text-amber-900 hover:underline"
+                onClick={(e) => { e.stopPropagation(); router.push("/admin/duplicates"); }}
+                title="Ir a revisar duplicados"
+              >
+                <GitMerge className="h-3 w-3" />
+                {pendingDuplicateCount} {pendingDuplicateCount === 1 ? "duplicado" : "duplicados"} por revisar
+              </button>
             )}
           </div>
         </div>
@@ -345,7 +460,7 @@ function DocumentRow({
           {confirming ? (
             <div className="flex items-center gap-1">
               <Button size="sm" variant="destructive" className="h-7 px-2 text-xs" disabled={deleting} onClick={() => deleteDoc()}>
-                {deleting ? <Loader2 className="h-3 w-3 animate-spin" /> : "Confirmar"}
+                {deleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Confirmar"}
               </Button>
               <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" disabled={deleting} onClick={() => setConfirming(false)}>
                 Cancelar
@@ -376,7 +491,7 @@ function DocumentRow({
                 {chunks.length} fragmento{chunks.length !== 1 ? "s" : ""} · {chunks.filter(c => c.quality_gate_status === "passed").length} verificado{chunks.filter(c => c.quality_gate_status === "passed").length !== 1 ? "s" : ""}
                 {chunks.filter(c => c.quality_gate_status === "pending").length > 0 && (
                   <span className="text-amber-700 font-medium">
-                    {" "}· {chunks.filter(c => c.quality_gate_status === "pending").length} pendiente{chunks.filter(c => c.quality_gate_status === "pending").length !== 1 ? "s" : ""}
+                    {" "}· {chunks.filter(c => c.quality_gate_status === "pending").length} sin verificar
                   </span>
                 )}
                 {chunks.filter(c => c.quality_gate_status === "skipped").length > 0 && (
@@ -443,7 +558,6 @@ function PendingChunkCard({ chunk, onReviewed }: { chunk: PendingChunkResponse; 
 
   return (
     <div className="rounded border bg-background p-4 space-y-3">
-      {/* Header row */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-2 min-w-0">
           <Badge
@@ -457,12 +571,9 @@ function PendingChunkCard({ chunk, onReviewed }: { chunk: PendingChunkResponse; 
           </span>
           <ConfidenceBar value={chunk.quality_gate_confidence} />
         </div>
-
-        {/* Action buttons — prominent */}
         <div className="flex items-center gap-2 shrink-0">
           <Button
-            size="sm"
-            variant="outline"
+            size="sm" variant="outline"
             className="h-8 px-3 text-xs border-green-300 text-green-700 hover:bg-green-50 hover:text-green-900"
             disabled={reviewing}
             onClick={() => review("approve")}
@@ -471,8 +582,7 @@ function PendingChunkCard({ chunk, onReviewed }: { chunk: PendingChunkResponse; 
             Incluir
           </Button>
           <Button
-            size="sm"
-            variant="outline"
+            size="sm" variant="outline"
             className="h-8 px-3 text-xs border-red-200 text-red-600 hover:bg-red-50 hover:text-red-800"
             disabled={reviewing}
             onClick={() => review("reject")}
@@ -482,15 +592,11 @@ function PendingChunkCard({ chunk, onReviewed }: { chunk: PendingChunkResponse; 
           </Button>
         </div>
       </div>
-
-      {/* Reason */}
       {humanMsg && (
         <p className="text-xs text-amber-700 bg-amber-50 rounded px-2.5 py-1.5 border border-amber-100">
           {humanMsg}
         </p>
       )}
-
-      {/* Fragment text */}
       <div>
         <p className="text-xs leading-relaxed text-slate-700 whitespace-pre-wrap break-words">{displayText}</p>
         {isLong && (
@@ -506,7 +612,7 @@ function PendingChunkCard({ chunk, onReviewed }: { chunk: PendingChunkResponse; 
   );
 }
 
-// ── ChunkCard (dentro del documento expandido) ────────────────────────────────
+// ── ChunkCard ─────────────────────────────────────────────────────────────────
 
 function ChunkCard({ chunk, documentId }: { chunk: ChunkResponse; documentId: string }) {
   const queryClient = useQueryClient();
@@ -549,7 +655,6 @@ function ChunkCard({ chunk, documentId }: { chunk: ChunkResponse; documentId: st
 
   return (
     <div className={`rounded border bg-background p-3 space-y-2 ${!isPassed ? "border-amber-200" : ""}`}>
-      {/* Header */}
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted-foreground">
@@ -562,30 +667,23 @@ function ChunkCard({ chunk, documentId }: { chunk: ChunkResponse; documentId: st
           )}
           <ConfidenceBar value={chunk.quality_gate_confidence} />
         </div>
-
         <div className="flex items-center gap-2 shrink-0">
           <Badge variant={qg.variant} className="text-[10px] h-5 px-1.5">{qg.label}</Badge>
-
-          {/* Show Incluir when not yet passed */}
           {!isPassed && (
             <button
               disabled={reviewing}
               onClick={() => review("approve")}
               className="flex items-center gap-1 text-xs text-green-700 hover:text-green-900 disabled:opacity-50 font-medium transition-colors"
-              title="Incluir este fragmento en las respuestas"
             >
               {reviewing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
               Incluir
             </button>
           )}
-
-          {/* Show Excluir when not already excluded */}
           {!isSkipped && (
             <button
               disabled={reviewing}
               onClick={() => review("reject")}
               className="flex items-center gap-1 text-xs text-red-500 hover:text-red-700 disabled:opacity-50 transition-colors"
-              title="Excluir este fragmento de las respuestas"
             >
               {reviewing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <XCircle className="h-3.5 w-3.5" />}
               {isPassed ? "Excluir" : "Rechazar"}
@@ -593,13 +691,9 @@ function ChunkCard({ chunk, documentId }: { chunk: ChunkResponse; documentId: st
           )}
         </div>
       </div>
-
-      {/* Reason (only when not passed) */}
       {!isPassed && humanMsg && (
         <p className="text-[11px] text-amber-700 italic">{humanMsg}</p>
       )}
-
-      {/* Text */}
       <div>
         <p className="text-xs leading-relaxed whitespace-pre-wrap break-words text-slate-700">{displayText}</p>
         {isLong && (
