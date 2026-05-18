@@ -93,12 +93,12 @@ export default function DocumentsPage() {
   const processingCount = documents.filter((d) => ["pending", "processing"].includes(d.status)).length;
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <FileText className="h-6 w-6 text-primary" />
+          <h1 className="text-xl sm:text-2xl font-bold flex items-center gap-2">
+            <FileText className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />
             Documentos
           </h1>
           <p className="text-muted-foreground text-sm mt-0.5">

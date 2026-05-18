@@ -74,7 +74,7 @@ export default function OperatorsPage() {
     .sort((a, b) => (onlineIds.has(b.id) ? 1 : 0) - (onlineIds.has(a.id) ? 1 : 0));
 
   return (
-    <div className="p-6 space-y-6 max-w-3xl">
+    <div className="p-4 sm:p-6 space-y-4 sm:space-y-6 max-w-3xl">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

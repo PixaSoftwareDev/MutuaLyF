@@ -42,7 +42,7 @@ export default function BotsPage() {
   const activeTemplate = templates.find(t => t.is_active);
 
   return (
-    <div className="space-y-6 p-6 max-w-3xl">
+    <div className="space-y-4 sm:space-y-6 p-4 sm:p-6 max-w-3xl">
       <div>
         <h1 className="text-2xl font-bold flex items-center gap-2">
           <Sparkles className="w-6 h-6 text-primary" /> Personalidad del bot

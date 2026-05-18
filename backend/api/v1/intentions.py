@@ -703,13 +703,15 @@ async def _get_cluster_suggestions(cluster_rows: list, tenant_id: str | None = N
         redis = None
 
     custom_cluster_prompt: str | None = None
-    if tenant_id:
-        try:
-            from services.orchestrator import _get_tenant_config
+    try:
+        from services.orchestrator import _get_tenant_config, _get_system_template
+        if tenant_id:
             _cfg = await _get_tenant_config(tenant_id)
             custom_cluster_prompt = _cfg.get("prompt_cluster_label") or None
-        except Exception:
-            pass
+        if not custom_cluster_prompt:
+            custom_cluster_prompt = await _get_system_template("Etiquetador de intenciones")
+    except Exception:
+        pass
 
     suggestions: dict[str, str] = {}
 

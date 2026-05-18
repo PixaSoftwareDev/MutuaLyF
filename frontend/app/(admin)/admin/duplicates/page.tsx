@@ -373,7 +373,7 @@ export default function DuplicatesPage() {
   const pagedPairs = pendingPairs.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
       {/* Page header — always visible */}
       <div className="flex items-center justify-between">
         <div>

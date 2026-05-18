@@ -94,10 +94,11 @@ CREATE TABLE IF NOT EXISTS sectores (
     nombre      VARCHAR(100) NOT NULL UNIQUE,
     descripcion TEXT,
     is_active   BOOLEAN NOT NULL DEFAULT TRUE,
+    is_default  BOOLEAN NOT NULL DEFAULT FALSE,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-INSERT INTO sectores (nombre, descripcion) VALUES
-    ('Consultas Generales', 'Sector por defecto para consultas sin asignación específica')
+INSERT INTO sectores (nombre, descripcion, is_default) VALUES
+    ('Consultas Generales', 'Sector por defecto para consultas sin asignación específica', TRUE)
 ON CONFLICT (nombre) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS operador_sectores (

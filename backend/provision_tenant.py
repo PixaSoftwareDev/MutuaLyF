@@ -108,6 +108,18 @@ async def provision_tenant(
         docs_collection = f"{tenant_id}_docs"
         intents_collection = f"{tenant_id}_intenciones"
 
+        # Guard: stale collections can exist when the PG volume is wiped in dev
+        # but Qdrant is not. Treat existing collection as a hard error (not silent
+        # reuse) so ops are aware of orphaned data. The error surfaces clearly.
+        existing = await qdrant.get_collections()
+        existing_names = {c.name for c in existing.collections}
+        for col in (docs_collection, intents_collection):
+            if col in existing_names:
+                raise RuntimeError(
+                    f"Qdrant collection '{col}' already exists but has no matching PG tenant. "
+                    f"Delete it manually: DELETE http://qdrant:6333/collections/{col}"
+                )
+
         await qdrant.create_collection(
             collection_name=docs_collection,
             vectors_config=VectorParams(size=EMBEDDING_DIM, distance=Distance.COSINE),

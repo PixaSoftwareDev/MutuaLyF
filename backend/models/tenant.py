@@ -26,6 +26,7 @@ class TenantCreate(BaseModel):
     admin_email: EmailStr
     admin_name: str = Field(..., min_length=2, max_length=200)
     admin_password: str = Field(..., min_length=8)
+    personality_id: str = Field(..., description="UUID of the personality template to activate for this tenant")
 
 
 class TenantResponse(BaseModel):

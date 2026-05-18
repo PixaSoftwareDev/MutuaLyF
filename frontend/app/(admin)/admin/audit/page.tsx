@@ -84,10 +84,10 @@ export default function AuditPage() {
   const totalPages = data ? Math.max(1, Math.ceil(data.total / PAGE_SIZE)) : 1;
 
   return (
-    <div className="p-6 max-w-6xl mx-auto space-y-5">
+    <div className="p-4 sm:p-6 max-w-6xl mx-auto space-y-4 sm:space-y-5">
       {/* Header */}
       <div>
-        <h1 className="text-xl font-semibold tracking-tight">Registro de auditoría</h1>
+        <h1 className="text-lg sm:text-xl font-semibold tracking-tight">Registro de auditoría</h1>
         <p className="text-sm text-muted-foreground mt-1">
           Acciones realizadas por usuarios de este tenant
           {kpis.total > 0 && <> · <span className="font-medium text-foreground">{kpis.total}</span> eventos en total</>}
@@ -95,7 +95,7 @@ export default function AuditPage() {
       </div>
 
       {/* KPIs */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
         <Kpi label="Hoy"             value={kpis.today} />
         <Kpi label="Últimas 24h"     value={kpis.last24} />
         <Kpi label="Logins"          value={kpis.logins} />
@@ -121,73 +121,109 @@ export default function AuditPage() {
         </select>
       </div>
 
-      {/* Table */}
+      {/* Table — scroll on mobile, full on desktop */}
       <div className="rounded-md border overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-muted/40">
-              <tr className="text-left text-[11px] uppercase tracking-wider text-muted-foreground">
-                <th className="px-4 py-2 font-medium w-[160px]">Fecha</th>
-                <th className="px-4 py-2 font-medium">Usuario</th>
-                <th className="px-4 py-2 font-medium w-[110px]">Perfil</th>
-                <th className="px-4 py-2 font-medium w-[200px]">Acción</th>
-                <th className="px-4 py-2 font-medium">Recurso</th>
-                <th className="px-4 py-2 font-medium w-[120px]">IP</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {isLoading && (
-                <tr><td colSpan={6} className="py-12 text-center text-muted-foreground">
-                  <Loader2 className="w-5 h-5 animate-spin inline" />
-                </td></tr>
-              )}
-              {isError && (
-                <tr><td colSpan={6} className="py-8 text-center text-destructive">
-                  No se pudo cargar el registro.
-                </td></tr>
-              )}
-              {data && filteredEvents.length === 0 && (
-                <tr><td colSpan={6} className="py-8 text-center text-muted-foreground">
-                  {search ? "Ningún evento coincide con la búsqueda." : "No hay eventos registrados."}
-                </td></tr>
-              )}
-              {filteredEvents.map(ev => {
-                const isCritical = CRITICAL_ACTIONS.has(ev.action);
-                return (
-                  <tr key={ev.id} className={isCritical ? "bg-red-50/60 hover:bg-red-50" : "hover:bg-muted/30"}>
-                    <td className="px-4 py-2.5 align-top whitespace-nowrap font-mono text-xs text-muted-foreground">
-                      {fmtDate(ev.created_at)}
-                    </td>
-                    <td className="px-4 py-2.5 align-top">
-                      <div className="font-medium truncate max-w-[260px]">
-                        {ev.actor_email ?? <span className="text-muted-foreground">—</span>}
-                      </div>
-                    </td>
-                    <td className="px-4 py-2.5 align-top">
-                      <RoleBadge role={ev.actor_role} />
-                    </td>
-                    <td className={`px-4 py-2.5 align-top ${isCritical ? "text-red-700 font-medium" : ""}`}>
+        {isLoading && (
+          <div className="py-12 text-center text-muted-foreground">
+            <Loader2 className="w-5 h-5 animate-spin inline" />
+          </div>
+        )}
+        {isError && (
+          <div className="py-8 text-center text-destructive text-sm">No se pudo cargar el registro.</div>
+        )}
+        {data && filteredEvents.length === 0 && (
+          <div className="py-8 text-center text-muted-foreground text-sm">
+            {search ? "Ningún evento coincide con la búsqueda." : "No hay eventos registrados."}
+          </div>
+        )}
+
+        {/* Mobile cards */}
+        {filteredEvents.length > 0 && (
+          <div className="sm:hidden divide-y">
+            {filteredEvents.map(ev => {
+              const isCritical = CRITICAL_ACTIONS.has(ev.action);
+              return (
+                <div key={ev.id} className={`px-4 py-3 space-y-1.5 ${isCritical ? "bg-red-50/60" : ""}`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-mono text-xs text-muted-foreground">{fmtDate(ev.created_at)}</span>
+                    <RoleBadge role={ev.actor_role} />
+                  </div>
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="text-sm font-medium truncate">{ev.actor_email ?? "—"}</span>
+                    <span className={`text-xs shrink-0 ${isCritical ? "text-red-700 font-medium" : "text-muted-foreground"}`}>
                       {actionLabel(ev.action)}
-                    </td>
-                    <td className="px-4 py-2.5 align-top">
-                      <div className="font-mono text-xs truncate max-w-[280px]">
-                        {ev.resource ?? <span className="text-muted-foreground">—</span>}
-                      </div>
-                      {ev.detail && (
-                        <div className="text-xs text-muted-foreground truncate max-w-[280px]">
-                          {Object.entries(ev.detail).map(([k, v]) => `${k}: ${v}`).join(" · ")}
+                    </span>
+                  </div>
+                  {(ev.resource || ev.detail) && (
+                    <div className="text-xs text-muted-foreground font-mono truncate">
+                      {ev.resource ?? ""}
+                      {ev.detail && <span className="ml-1 not-italic">
+                        {Object.entries(ev.detail).map(([k, v]) => `${k}: ${v}`).join(" · ")}
+                      </span>}
+                    </div>
+                  )}
+                  {ev.ip_address && (
+                    <div className="text-xs text-muted-foreground font-mono">{ev.ip_address}</div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Desktop table */}
+        {filteredEvents.length > 0 && (
+          <div className="hidden sm:block overflow-x-auto">
+            <table className="w-full text-sm min-w-[700px]">
+              <thead className="bg-muted/40">
+                <tr className="text-left text-[11px] uppercase tracking-wider text-muted-foreground">
+                  <th className="px-4 py-2 font-medium w-[145px]">Fecha</th>
+                  <th className="px-4 py-2 font-medium">Usuario</th>
+                  <th className="px-4 py-2 font-medium w-[100px]">Perfil</th>
+                  <th className="px-4 py-2 font-medium w-[180px]">Acción</th>
+                  <th className="px-4 py-2 font-medium">Recurso</th>
+                  <th className="px-4 py-2 font-medium w-[110px]">IP</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {filteredEvents.map(ev => {
+                  const isCritical = CRITICAL_ACTIONS.has(ev.action);
+                  return (
+                    <tr key={ev.id} className={isCritical ? "bg-red-50/60 hover:bg-red-50" : "hover:bg-muted/30"}>
+                      <td className="px-4 py-2.5 align-top whitespace-nowrap font-mono text-xs text-muted-foreground">
+                        {fmtDate(ev.created_at)}
+                      </td>
+                      <td className="px-4 py-2.5 align-top">
+                        <div className="font-medium truncate max-w-[220px]">
+                          {ev.actor_email ?? <span className="text-muted-foreground">—</span>}
                         </div>
-                      )}
-                    </td>
-                    <td className="px-4 py-2.5 align-top font-mono text-xs text-muted-foreground whitespace-nowrap">
-                      {ev.ip_address ?? "—"}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                      </td>
+                      <td className="px-4 py-2.5 align-top">
+                        <RoleBadge role={ev.actor_role} />
+                      </td>
+                      <td className={`px-4 py-2.5 align-top ${isCritical ? "text-red-700 font-medium" : ""}`}>
+                        {actionLabel(ev.action)}
+                      </td>
+                      <td className="px-4 py-2.5 align-top">
+                        <div className="font-mono text-xs truncate max-w-[240px]">
+                          {ev.resource ?? <span className="text-muted-foreground">—</span>}
+                        </div>
+                        {ev.detail && (
+                          <div className="text-xs text-muted-foreground truncate max-w-[240px]">
+                            {Object.entries(ev.detail).map(([k, v]) => `${k}: ${v}`).join(" · ")}
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-4 py-2.5 align-top font-mono text-xs text-muted-foreground whitespace-nowrap">
+                        {ev.ip_address ?? "—"}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* Pagination */}
