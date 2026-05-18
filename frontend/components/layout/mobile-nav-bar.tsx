@@ -8,7 +8,7 @@ export function MobileNavBar() {
   const { openMobileSidebar } = useUIStore();
 
   return (
-    <header className="lg:hidden flex items-center gap-3 h-14 px-4 border-b bg-[#7A2731] text-white shrink-0">
+    <header className="lg:hidden flex items-center gap-3 h-14 px-4 border-b bg-brand text-white shrink-0">
       <button
         onClick={openMobileSidebar}
         className="flex items-center justify-center w-8 h-8 rounded-md text-white/80 hover:text-white hover:bg-white/10 transition-colors"

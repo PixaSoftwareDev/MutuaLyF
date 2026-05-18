@@ -10,7 +10,8 @@
     --card-foreground: 222.2 84% 4.9%;
     --popover: 0 0% 100%;
     --popover-foreground: 222.2 84% 4.9%;
-    --primary: 354 51% 40%;
+    /* Primary = neutral slate. Used for headers, default CTAs, focus rings. */
+    --primary: 222.2 47.4% 11.2%;
     --primary-foreground: 0 0% 100%;
     --secondary: 210 40% 96.1%;
     --secondary-foreground: 222.2 47.4% 11.2%;
@@ -22,8 +23,14 @@
     --destructive-foreground: 210 40% 98%;
     --border: 214.3 31.8% 91.4%;
     --input: 214.3 31.8% 91.4%;
-    --ring: 354 51% 40%;
+    --ring: 222.2 47.4% 11.2%;
     --radius: 0.5rem;
+
+    /* Brand = institutional burgundy. Sidebar, logo, tenant chrome — nada más. */
+    --brand: 352 52% 32%;
+    --brand-foreground: 0 0% 100%;
+    --brand-dark: 353 52% 24%;
+    --brand-light: 351 50% 45%;
   }
 
   .dark {

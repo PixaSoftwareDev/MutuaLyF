@@ -139,7 +139,7 @@ export function Sidebar() {
       <aside
         className={cn(
           // Base
-          "flex flex-col border-r border-white/10 bg-[#7A2731] text-white",
+          "flex flex-col border-r border-white/10 bg-brand text-white",
           // Mobile: fixed overlay drawer
           "fixed inset-y-0 left-0 z-50 lg:static lg:z-auto",
           // Mobile visibility via transform
@@ -151,7 +151,7 @@ export function Sidebar() {
       >
         {/* Brand */}
         <div className={cn(
-          "flex items-center gap-3 h-16 px-4 border-b border-white/10 bg-[#5C1D24] shrink-0",
+          "flex items-center gap-3 h-16 px-4 border-b border-white/10 bg-brand-dark shrink-0",
           collapsed && "lg:justify-center lg:px-2"
         )}>
           <div className="relative w-7 h-7 flex items-center justify-center shrink-0">
@@ -241,7 +241,7 @@ export function Sidebar() {
                           </span>
                           {pendingCount > 0 && (
                             <span className={cn(
-                              "inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-white px-1 text-[10px] font-bold text-[#7A2731]",
+                              "inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-white px-1 text-[10px] font-bold text-brand",
                               collapsed ? "lg:absolute lg:right-1 lg:top-1 lg:h-2 lg:w-2 lg:rounded-full lg:bg-white lg:px-0" : "ml-auto"
                             )}>
                               <span className={cn(collapsed && "lg:hidden")}>
@@ -282,7 +282,7 @@ export function Sidebar() {
         {/* Collapse toggle — desktop only */}
         <button
           onClick={toggleSidebar}
-          className="hidden lg:flex absolute -right-3 top-16 z-10 h-6 w-6 items-center justify-center rounded-full border border-white/20 bg-[#7A2731] text-white shadow-md hover:bg-[#99323D] transition-colors"
+          className="hidden lg:flex absolute -right-3 top-16 z-10 h-6 w-6 items-center justify-center rounded-full border border-white/20 bg-brand text-white shadow-md hover:bg-brand-light transition-colors"
         >
           {collapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronLeft className="h-3 w-3" />}
         </button>
