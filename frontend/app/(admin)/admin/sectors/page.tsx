@@ -2,15 +2,23 @@
 
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Trash2, Edit2, Check, X, Loader2, Star } from "lucide-react";
+import { Plus, Trash2, Edit2, Loader2, Star, MoreVertical } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 import { api, type SectorRow } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/toast";
-import { cn } from "@/lib/utils";
 import { PageShell } from "@/components/layout/page-shell";
 import { PageHeader } from "@/components/layout/page-header";
 
@@ -20,7 +28,7 @@ export default function SectorsPage() {
 
   const [newNombre, setNewNombre]   = useState("");
   const [newDesc, setNewDesc]       = useState("");
-  const [editingId, setEditingId]   = useState<string | null>(null);
+  const [editing, setEditing]       = useState<SectorRow | null>(null);
   const [editNombre, setEditNombre] = useState("");
   const [editDesc, setEditDesc]     = useState("");
 
@@ -38,7 +46,8 @@ export default function SectorsPage() {
 
   const updateM = useMutation({
     mutationFn: ({ id }: { id: string }) => api.sectors.update(id, editNombre.trim(), editDesc.trim() || undefined),
-    onSuccess: () => { inv(); setEditingId(null); toast({ title: "Sector actualizado", variant: "success" }); },
+    onSuccess: () => { inv(); setEditing(null); toast({ title: "Sector actualizado", variant: "success" }); },
+    onError: () => toast({ title: "Error al actualizar", variant: "destructive" }),
   });
 
   const deleteM = useMutation({
@@ -53,7 +62,7 @@ export default function SectorsPage() {
   });
 
   const startEdit = (s: SectorRow) => {
-    setEditingId(s.id);
+    setEditing(s);
     setEditNombre(s.nombre);
     setEditDesc(s.descripcion || "");
   };
@@ -101,12 +110,7 @@ export default function SectorsPage() {
       {/* Lista */}
       <Card>
         <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
-            <h2 className="font-semibold text-sm">Sectores ({activeSectors.length} activos)</h2>
-            <p className="text-xs text-muted-foreground flex items-center gap-1">
-              <Star className="h-3 w-3 text-amber-500 fill-amber-500" /> = sector default del chat
-            </p>
-          </div>
+          <h2 className="text-base font-semibold">Sectores ({activeSectors.length} activos)</h2>
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -118,76 +122,106 @@ export default function SectorsPage() {
               {sectors.map(s => (
                 <div
                   key={s.id}
-                  className={cn(
-                    "flex items-center gap-3 p-3 rounded-lg border transition-colors",
-                    s.is_default && "border-amber-300 bg-amber-50/50"
-                  )}
+                  className="flex items-center gap-3 p-3 rounded-lg border transition-colors"
                 >
-                  {editingId === s.id ? (
-                    <div className="flex-1 flex items-center gap-2">
-                      <Input value={editNombre} onChange={e => setEditNombre(e.target.value)} className="h-8" />
-                      <Input value={editDesc} onChange={e => setEditDesc(e.target.value)} placeholder="Descripción" className="h-8" />
-                      <Button size="icon" className="h-8 w-8" onClick={() => updateM.mutate({ id: s.id })} disabled={!editNombre.trim()}>
-                        <Check className="h-4 w-4" />
-                      </Button>
-                      <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => setEditingId(null)}>
-                        <X className="h-4 w-4" />
-                      </Button>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-sm">{s.nombre}</span>
+                      {s.is_default && (
+                        <Badge className="text-xs bg-amber-200 text-amber-900 border border-amber-400 hover:bg-amber-200">
+                          Default
+                        </Badge>
+                      )}
+                      {!s.is_active && <Badge variant="secondary" className="text-xs">Inactivo</Badge>}
                     </div>
-                  ) : (
-                    <>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium text-sm">{s.nombre}</span>
-                          {s.is_default && (
-                            <Badge className="text-xs bg-amber-100 text-amber-700 border-amber-300 hover:bg-amber-100">
-                              <Star className="h-2.5 w-2.5 mr-1 fill-amber-500 text-amber-500" />
-                              Default
-                            </Badge>
-                          )}
-                          {!s.is_active && <Badge variant="secondary" className="text-xs">Inactivo</Badge>}
-                        </div>
-                        {s.descripcion && <p className="text-xs text-muted-foreground truncate">{s.descripcion}</p>}
-                      </div>
+                    {s.descripcion && <p className="text-xs text-muted-foreground truncate">{s.descripcion}</p>}
+                  </div>
 
-                      <div className="flex items-center gap-3 text-xs text-muted-foreground shrink-0">
-                        <span>{s.operator_count} operadores</span>
-                        <span>{s.open_conversations} conv. abiertas</span>
-                      </div>
+                  <div className="text-xs text-muted-foreground shrink-0">
+                    {s.operator_count} {s.operator_count === 1 ? "operador" : "operadores"}
+                  </div>
 
-                      <div className="flex gap-1 shrink-0">
-                        {!s.is_default && s.is_active && (
-                          <Button
-                            size="icon" variant="ghost" className="h-7 w-7 text-amber-500 hover:text-amber-600 hover:bg-amber-50"
-                            title="Marcar como default"
-                            onClick={() => defaultM.mutate(s.id)}
-                            disabled={defaultM.isPending}
-                          >
-                            <Star className="h-3.5 w-3.5" />
-                          </Button>
-                        )}
-                        <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => startEdit(s)}>
-                          <Edit2 className="h-3.5 w-3.5" />
-                        </Button>
-                        {!s.is_default && (
-                          <Button
-                            size="icon" variant="ghost"
-                            className="h-7 w-7 text-destructive hover:text-destructive"
-                            onClick={() => deleteM.mutate(s.id)}
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" aria-label="Acciones">
+                        <MoreVertical className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-44">
+                      <DropdownMenuItem onSelect={() => startEdit(s)}>
+                        <Edit2 className="h-4 w-4 mr-2" />
+                        Editar
+                      </DropdownMenuItem>
+                      {!s.is_default && s.is_active && (
+                        <DropdownMenuItem
+                          onSelect={() => defaultM.mutate(s.id)}
+                          disabled={defaultM.isPending}
+                        >
+                          <Star className="h-4 w-4 mr-2" />
+                          Marcar como default
+                        </DropdownMenuItem>
+                      )}
+                      {!s.is_default && (
+                        <>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            onSelect={() => deleteM.mutate(s.id)}
                             disabled={deleteM.isPending}
+                            className="text-destructive focus:text-destructive"
                           >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        )}
-                      </div>
-                    </>
-                  )}
+                            <Trash2 className="h-4 w-4 mr-2" />
+                            Desactivar
+                          </DropdownMenuItem>
+                        </>
+                      )}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
               ))}
             </div>
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={!!editing} onOpenChange={(open) => !open && setEditing(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Editar sector</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-nombre">Nombre</Label>
+              <Input
+                id="edit-nombre"
+                value={editNombre}
+                onChange={e => setEditNombre(e.target.value)}
+                autoFocus
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-desc">Descripción</Label>
+              <Input
+                id="edit-desc"
+                value={editDesc}
+                onChange={e => setEditDesc(e.target.value)}
+                placeholder="Opcional"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setEditing(null)}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={() => editing && updateM.mutate({ id: editing.id })}
+              disabled={!editNombre.trim() || updateM.isPending}
+            >
+              {updateM.isPending && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
+              Guardar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </PageShell>
   );
 }

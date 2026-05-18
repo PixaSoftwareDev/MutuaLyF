@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Check, Loader2, Plus, Trash2 } from "lucide-react";
+import { Check, Loader2, Plus, Trash2, MoreVertical } from "lucide-react";
 import { PageShell } from "@/components/layout/page-shell";
 import { PageHeader } from "@/components/layout/page-header";
 import { apiClient } from "@/lib/api";
@@ -11,10 +11,15 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Separator } from "@/components/ui/separator";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from "@/components/ui/dropdown-menu";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 
@@ -187,16 +192,13 @@ function OperatorCard({ operator, sectors, isOnline, onDeleted }: { operator: Op
   };
 
   return (
-    <Card className={cn(isOnline && "border-emerald-300 shadow-sm shadow-emerald-100")}>
+    <Card>
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            {/* Avatar with online indicator */}
+            {/* Avatar — neutral bg, status communicated by the dot only */}
             <div className="relative shrink-0">
-              <div className={cn(
-                "w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold",
-                isOnline ? "bg-emerald-100 text-emerald-700" : "bg-muted text-muted-foreground"
-              )}>
+              <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold bg-muted text-muted-foreground">
                 {operator.name.charAt(0).toUpperCase()}
               </div>
               <span className={cn(
@@ -211,8 +213,8 @@ function OperatorCard({ operator, sectors, isOnline, onDeleted }: { operator: Op
           </div>
           <div className="flex items-center gap-2">
             {isOnline
-              ? <Badge className="text-xs bg-emerald-100 text-emerald-700 border-emerald-200 hover:bg-emerald-100">● En línea</Badge>
-              : <Badge variant="secondary" className="text-xs text-slate-400">○ Desconectado</Badge>
+              ? <Badge className="text-xs bg-emerald-100 text-emerald-700 border-emerald-200 hover:bg-emerald-100">En línea</Badge>
+              : <Badge variant="secondary" className="text-xs">Desconectado</Badge>
             }
             {dirty && (
               <Button size="sm" onClick={() => saveM.mutate()} disabled={saveM.isPending}>
@@ -220,23 +222,28 @@ function OperatorCard({ operator, sectors, isOnline, onDeleted }: { operator: Op
                 Guardar
               </Button>
             )}
-            <Button
-              size="sm" variant="ghost"
-              className="text-destructive hover:text-destructive hover:bg-destructive/10"
-              onClick={() => deleteM.mutate()}
-              disabled={deleteM.isPending}
-              title="Desactivar operador"
-            >
-              {deleteM.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" aria-label="Acciones">
+                  <MoreVertical className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-44">
+                <DropdownMenuItem
+                  onSelect={() => deleteM.mutate()}
+                  disabled={deleteM.isPending}
+                  className="text-destructive focus:text-destructive"
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Desactivar operador
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
       </CardHeader>
-      <Separator />
-      <CardContent className="pt-4">
-        <p className="text-xs text-muted-foreground mb-3">
-          Sectores asignados — el operador solo ve conversaciones de estos sectores:
-        </p>
+      <CardContent>
+        <p className="text-xs text-muted-foreground mb-3">Sectores asignados</p>
         {activeSectors.length === 0 ? (
           <p className="text-xs text-muted-foreground">No hay sectores activos. Creá sectores primero.</p>
         ) : (
@@ -261,7 +268,7 @@ function OperatorCard({ operator, sectors, isOnline, onDeleted }: { operator: Op
           </div>
         )}
         {selected.size === 0 && activeSectors.length > 0 && (
-          <p className="text-xs text-amber-600 mt-2">Sin sectores → solo ve "Consultas Generales"</p>
+          <p className="text-xs text-muted-foreground mt-2">Sin sectores asignados — el operador solo ve "Consultas Generales".</p>
         )}
       </CardContent>
     </Card>

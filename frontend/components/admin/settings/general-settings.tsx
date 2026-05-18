@@ -101,7 +101,7 @@ export function GeneralSettings() {
   const activeTemplate = templates.find(t => t.is_active);
 
   return (
-    <div className="space-y-6 max-w-2xl">
+    <div className="space-y-6">
 
       {/* ── Identidad del bot (read-only para el admin) ── */}
       {botConfig && (botConfig.bot_name || botConfig.bot_description) && (

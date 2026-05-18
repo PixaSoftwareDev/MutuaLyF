@@ -393,13 +393,11 @@ export default function DuplicatesPage() {
         </div>
       )}
 
-      {/* Stats bar */}
-      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <span className="font-medium text-foreground">{data?.pending ?? 0} pendientes</span>
-        <span>·</span>
-        <span>{resolvedCount} resueltos</span>
-        <span>·</span>
-        <span>{data?.total ?? 0} total</span>
+      {/* Stats bar — same shape as documents/intentions */}
+      <div className="flex gap-6 text-sm">
+        <span><strong className="text-foreground">{data?.pending ?? 0}</strong> <span className="text-muted-foreground">pendientes</span></span>
+        <span><strong className="text-foreground">{resolvedCount}</strong> <span className="text-muted-foreground">resueltos</span></span>
+        <span><strong className="text-foreground">{data?.total ?? 0}</strong> <span className="text-muted-foreground">total</span></span>
       </div>
 
       {/* Pairs list */}
@@ -409,16 +407,11 @@ export default function DuplicatesPage() {
           <Skeleton className="h-48 w-full" />
         </div>
       ) : pendingPairs.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-20 text-center gap-4">
-          <div className="p-4 rounded-full bg-green-100">
-            <CheckCircle2 className="h-10 w-10 text-green-600" />
-          </div>
-          <div>
-            <p className="font-medium text-lg">Todo limpio</p>
-            <p className="text-sm text-muted-foreground mt-1">
-              No hay fragmentos duplicados pendientes de revisión.
-            </p>
-          </div>
+        <div className="text-center py-10 space-y-2">
+          <CheckCircle2 className="h-10 w-10 mx-auto text-muted-foreground opacity-30" />
+          <p className="text-muted-foreground text-sm">
+            No hay fragmentos duplicados pendientes de revisión.
+          </p>
         </div>
       ) : (
         <div className="space-y-4">

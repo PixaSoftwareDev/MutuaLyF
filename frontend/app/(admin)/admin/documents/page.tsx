@@ -3,9 +3,9 @@
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  RefreshCw, Clock, Trash2, Loader2,
+  FileText, RefreshCw, Clock, Trash2, Loader2,
   ChevronDown, ChevronRight, Search, CheckCircle2,
-  XCircle, UserCheck, AlertTriangle, ShieldCheck, ChevronUp,
+  XCircle, UserCheck, AlertTriangle, ChevronUp,
 } from "lucide-react";
 import { api, type DocumentResponse, type ChunkResponse, type PendingChunkResponse } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
@@ -118,21 +118,13 @@ export default function DocumentsPage() {
         </div>
       )}
 
-      {/* Uploader */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Subir documentos</CardTitle>
-          <CardDescription>PDF, Word, TXT o HTML · Máximo 200 MB · Se procesan en segundo plano.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <DocumentUploader
-            onUploaded={() => {
-              refresh();
-              toast({ title: "Documento enviado", description: "El procesamiento comenzó en segundo plano.", variant: "success" });
-            }}
-          />
-        </CardContent>
-      </Card>
+      {/* Uploader — el dropzone se explica solo, sin doble título */}
+      <DocumentUploader
+        onUploaded={() => {
+          refresh();
+          toast({ title: "Documento enviado", description: "El procesamiento comenzó en segundo plano.", variant: "success" });
+        }}
+      />
 
       {/* Sección de revisión — SIEMPRE visible */}
       <ReviewQueue
@@ -180,7 +172,7 @@ export default function DocumentsPage() {
             <div className="text-center py-10 space-y-2">
               <FileText className="h-10 w-10 mx-auto text-muted-foreground opacity-30" />
               <p className="text-muted-foreground text-sm">
-                {search ? "No se encontraron documentos con ese nombre." : "No hay documentos todavía. Subí el primero arriba."}
+                {search ? "No se encontraron documentos con ese nombre." : "Todavía no hay documentos."}
               </p>
             </div>
           ) : (
@@ -216,15 +208,8 @@ function ReviewQueue({
 }) {
   const hasPending = pendingChunks.length > 0;
 
-  if (!isLoading && !hasPending) {
-    // Happy path — clean, minimal, reassuring
-    return (
-      <div className="flex items-center gap-2 text-sm text-muted-foreground py-1">
-        <ShieldCheck className="h-4 w-4 text-green-500 shrink-0" />
-        Todo el contenido está verificado — no hay fragmentos pendientes de revisión.
-      </div>
-    );
-  }
+  // Happy path: render nothing. No need to announce the absence of issues.
+  if (!isLoading && !hasPending) return null;
 
   return (
     <Card className="border-amber-200 bg-amber-50/50">

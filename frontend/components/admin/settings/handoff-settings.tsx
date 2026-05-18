@@ -64,13 +64,13 @@ export function HandoffSettings() {
   const setMessage   = (key: string, value: string) => { setMessages({ ...messages, [key]: value }); setDirty(true); };
 
   if (isLoading) return (
-    <div className="space-y-4 max-w-2xl">
+    <div className="space-y-4">
       {[1,2,3].map(i => <Skeleton key={i} className="h-32 rounded-lg" />)}
     </div>
   );
 
   return (
-    <div className="space-y-6 max-w-2xl">
+    <div className="space-y-6">
       <p className="text-sm text-muted-foreground">
         Definí cuándo el bot debe pasar la conversación a un operador humano y los mensajes que ve el afiliado durante esa transición.
       </p>

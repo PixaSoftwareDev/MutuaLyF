@@ -313,15 +313,6 @@ export default function EntitiesPage() {
         </CardContent>
       </Card>
 
-      {/* Info box */}
-      <div className="rounded-lg bg-blue-50 border border-blue-100 p-4 text-sm text-blue-800">
-        <strong>¿Cómo funciona?</strong> Al ingestar un documento, el sistema extrae automáticamente
-        entidades usando GLiNER (modelo local de NER). Cuando alguien hace una consulta que menciona
-        una persona, departamento u otra entidad, el sistema la busca en Neo4j para encontrar
-        exactamente qué fragmentos la mencionan — y los incluye en el contexto aunque no aparezcan
-        primero en la búsqueda semántica.
-      </div>
-
       <EntityDetailDialog
         entity={selected}
         open={detailOpen}

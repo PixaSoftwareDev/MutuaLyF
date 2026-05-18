@@ -547,7 +547,6 @@ function ClusterCard({
 function EmptyState({ text }: { text: string }) {
   return (
     <div className="text-center py-16 text-muted-foreground text-sm max-w-sm mx-auto">
-      <Zap className="h-8 w-8 mx-auto mb-3 opacity-30" />
       {text}
     </div>
   );
