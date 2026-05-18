@@ -107,6 +107,13 @@ async def list_conversations(
         if status_filter:
             where_clauses.append("c.status = :status")
             params["status"] = status_filter
+        else:
+            # Bandeja: solo lo accionable (handoff + atendiendo + cerradas <24h).
+            # Resto va al historial.
+            where_clauses.append(
+                "(c.status IN ('handoff_requested', 'human_attending') "
+                "OR (c.status = 'closed' AND c.closed_at >= NOW() - INTERVAL '24 hours'))"
+            )
 
         if sector_id:
             where_clauses.append("c.sector_id = :sector_id")
@@ -162,6 +169,135 @@ async def list_conversations(
             })
 
     return {"sectors": list(grouped.values()), "total": len(conversations)}
+
+
+# ── Conversations history (paginated, filterable) ─────────────────────────────
+
+@router.get("/operator/conversations/history")
+async def list_conversations_history(
+    status_filter: str | None = None,
+    sector_id:     str | None = None,
+    q:             str | None = None,
+    date_from:     str | None = None,  # ISO date (YYYY-MM-DD)
+    date_to:       str | None = None,
+    page:          int = 1,
+    page_size:     int = 20,
+    tenant_id: str = Depends(get_tenant_id),
+    current_user: CurrentUser = Depends(require_operator),
+):
+    """Historial completo de conversaciones del sector del operador.
+
+    Sin filtros temporales arbitrarios: devuelve TODO (incluyendo bot_active
+    sin actividad y cerradas viejas), con paginación real y filtros.
+    """
+    is_admin = current_user.role in (Role.ADMIN, Role.SUPER_ADMIN)
+    page = max(1, page)
+    page_size = max(1, min(100, page_size))
+
+    async with get_pg_session(tenant_id) as session:
+        # Restrict to operator's sectors (admins see all)
+        if is_admin:
+            sector_result = await session.execute(text(
+                "SELECT id FROM sectores WHERE is_active = TRUE"
+            ))
+        else:
+            sector_result = await session.execute(text("""
+                SELECT s.id
+                FROM sectores s
+                JOIN operador_sectores os ON os.sector_id = s.id
+                WHERE os.operador_id = :uid AND s.is_active = TRUE
+            """), {"uid": current_user.user_id})
+
+        sector_ids = [str(r[0]) for r in sector_result.all()]
+
+        if not sector_ids and not is_admin:
+            return {"items": [], "total": 0, "page": page, "page_size": page_size}
+
+        where_clauses = []
+        params: dict = {}
+
+        if sector_ids:
+            placeholders = ", ".join(f":sid_{i}" for i in range(len(sector_ids)))
+            where_clauses.append(f"c.sector_id::text IN ({placeholders})")
+            for i, sid in enumerate(sector_ids):
+                params[f"sid_{i}"] = sid
+
+        if status_filter:
+            where_clauses.append("c.status = :status")
+            params["status"] = status_filter
+
+        if sector_id:
+            where_clauses.append("c.sector_id = :sector_id")
+            params["sector_id"] = sector_id
+
+        if q:
+            where_clauses.append(
+                "(c.afiliado_nombre ILIKE :q OR c.afiliado_email ILIKE :q)"
+            )
+            params["q"] = f"%{q.strip()}%"
+
+        if date_from:
+            where_clauses.append("c.created_at >= :date_from")
+            params["date_from"] = date_from
+
+        if date_to:
+            # Inclusive end-of-day
+            where_clauses.append("c.created_at < (CAST(:date_to AS date) + INTERVAL '1 day')")
+            params["date_to"] = date_to
+
+        where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+
+        # Total
+        total_result = await session.execute(
+            text(f"SELECT COUNT(*) FROM conversaciones c {where_sql}"),
+            params,
+        )
+        total = int(total_result.scalar() or 0)
+
+        # Page data
+        params["limit"]  = page_size
+        params["offset"] = (page - 1) * page_size
+
+        rows_result = await session.execute(text(f"""
+            SELECT
+                c.id, c.status, c.sector_id,
+                c.afiliado_nombre, c.afiliado_email,
+                c.created_at, c.updated_at, c.closed_at,
+                s.nombre AS sector_nombre,
+                u.name   AS operator_name,
+                (SELECT MAX(created_at) FROM mensajes WHERE conversation_id = c.id) AS last_message_at,
+                (SELECT COUNT(*) FROM mensajes WHERE conversation_id = c.id) AS message_count
+            FROM conversaciones c
+            LEFT JOIN sectores s ON s.id = c.sector_id
+            LEFT JOIN usuarios u ON u.id = c.assigned_operator_id
+            {where_sql}
+            ORDER BY c.updated_at DESC
+            LIMIT :limit OFFSET :offset
+        """), params)
+
+        items = []
+        for r in rows_result.mappings().all():
+            items.append({
+                "id":               str(r["id"]),
+                "status":           r["status"],
+                "sector_id":        str(r["sector_id"]) if r["sector_id"] else None,
+                "sector_nombre":    r["sector_nombre"],
+                "afiliado_nombre":  r["afiliado_nombre"],
+                "afiliado_email":   r["afiliado_email"],
+                "operator_name":    r["operator_name"],
+                "message_count":    int(r["message_count"] or 0),
+                "created_at":       r["created_at"].isoformat() if r["created_at"] else None,
+                "updated_at":       r["updated_at"].isoformat() if r["updated_at"] else None,
+                "closed_at":        r["closed_at"].isoformat() if r["closed_at"] else None,
+                "last_message_at":  r["last_message_at"].isoformat() if r["last_message_at"] else None,
+            })
+
+    return {
+        "items": items,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }
 
 
 # ── Conversation detail ───────────────────────────────────────────────────────

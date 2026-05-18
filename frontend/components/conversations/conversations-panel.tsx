@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   MessageSquare, Loader2, Send, UserCheck, XCircle, User, Bot,
-  Info, ChevronDown, ChevronLeft, Search, Flame, ArrowRightLeft, Eye, Wifi, WifiOff, Circle,
+  Info, ChevronDown, ChevronLeft, Search, Flame, ArrowRightLeft, Eye, Wifi, WifiOff,
 } from "lucide-react";
 import { api, type ConversationRow } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -15,16 +15,16 @@ import { cn } from "@/lib/utils";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const URGENT_MS   = 120_000; // 2 min waiting → urgent
-const CLOSED_LIMIT = 15;
+const URGENT_MS       = 120_000; // 2 min waiting → urgent (amber)
+const VERY_URGENT_MS  = 300_000; // 5 min waiting → very urgent (red)
 const COLLAPSED_KEY = "ia_ops_collapsed_v2";
 
-type SectionKey = "handoff_requested" | "human_attending" | "closed" | "bot_active";
+type SectionKey = "handoff_requested" | "human_attending" | "closed";
 
 const SECTION_DEFS: Array<{ key: SectionKey; label: string; tone: string; defaultOpen: boolean }> = [
-  { key: "handoff_requested", label: "En espera",   tone: "text-amber-600",   defaultOpen: true },
-  { key: "human_attending",   label: "En atención", tone: "text-emerald-600", defaultOpen: true },
-  { key: "closed",            label: "Cerradas",    tone: "text-slate-500",   defaultOpen: false },
+  { key: "handoff_requested", label: "En espera",              tone: "text-amber-600",   defaultOpen: true },
+  { key: "human_attending",   label: "En atención",            tone: "text-emerald-600", defaultOpen: true },
+  { key: "closed",            label: "Cerradas (últimas 24h)", tone: "text-slate-500",   defaultOpen: false },
 ];
 
 export type ConversationsPanelMode = "operator" | "admin-readonly";
@@ -64,7 +64,7 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
   const isCollapsed  = (k: SectionKey) => {
     if (k in collapsed) return collapsed[k];
     const def = SECTION_DEFS.find(s => s.key === k);
-    return def ? !def.defaultOpen : false; // bot_active defaults open
+    return def ? !def.defaultOpen : false;
   };
   const toggleSection = (k: SectionKey) => setCollapsed(p => ({ ...p, [k]: !isCollapsed(k) }));
 
@@ -237,12 +237,6 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
   }, [allConvs, search, sectorFilter]);
 
   const sections = useMemo(() => segmentAndSort(filtered, now), [filtered, now]);
-  // Only show bot_active conversations with activity in the last 30 minutes
-  const botActiveConvs = useMemo(() => filtered.filter(c => {
-    if (c.status !== "bot_active") return false;
-    const lastActivity = c.last_message_at ?? c.created_at;
-    return msSince(lastActivity, now) < 30 * 60 * 1000;
-  }), [filtered, now]);
   const onlineNames = useMemo(
     () => new Set((presenceData?.operators ?? []).map(o => o.name)),
     [presenceData],
@@ -290,25 +284,6 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
 
         {/* Filters + stats */}
         <div className="px-4 pt-3 pb-3 space-y-3">
-          {/* Online operators */}
-          {!readOnly && presenceData && presenceData.operators.length > 0 && (
-            <div className="flex flex-wrap gap-1 items-center">
-              <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">En línea:</span>
-              {presenceData.operators.map(op => (
-                <span key={op.user_id} className="inline-flex items-center gap-1 text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full px-2 py-0.5">
-                  <Circle className="h-1.5 w-1.5 fill-emerald-500 text-emerald-500" />
-                  {op.name}
-                </span>
-              ))}
-            </div>
-          )}
-          {!readOnly && presenceData && presenceData.operators.length === 0 && (
-            <div className="flex items-center gap-1.5">
-              <Circle className="h-2 w-2 fill-slate-300 text-slate-300" />
-              <span className="text-[10px] text-muted-foreground">Sin operadores en línea</span>
-            </div>
-          )}
-
           {/* Stats pills */}
           {!readOnly && (
             <div className="flex gap-2">
@@ -376,7 +351,7 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
                 No tenés sectores asignados. Pedile al administrador que te asigne los sectores que vas a atender.
               </p>
             </div>
-          ) : filtered.filter(c => c.status !== "bot_active").length === 0 && botActiveConvs.length === 0 ? (
+          ) : filtered.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground">
               <MessageSquare className="h-8 w-8 mx-auto mb-2 opacity-20" />
               <p className="text-xs">{search ? "Sin resultados" : "Sin conversaciones activas"}</p>
@@ -418,39 +393,6 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
                 );
               })}
 
-              {/* Bot-active conversations — visible for monitoring */}
-              {botActiveConvs.length > 0 && (
-                <div>
-                  <button
-                    onClick={() => toggleSection("bot_active")}
-                    className="w-full flex items-center gap-1.5 px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors"
-                  >
-                    <ChevronDown className={cn("h-3 w-3 transition-transform", isCollapsed("bot_active") && "-rotate-90")} />
-                    <span className="text-blue-500 flex items-center gap-1">
-                      <Bot className="h-3 w-3" />
-                      Conversaciones activas ({botActiveConvs.length})
-                    </span>
-                    <span className="ml-auto w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
-                  </button>
-                  {!isCollapsed("bot_active") && (
-                    <div className="space-y-1 mb-2">
-                      {botActiveConvs.map(conv => (
-                        <ConvCard
-                          key={conv.id}
-                          conv={conv}
-                          now={now}
-                          selected={selectedId === conv.id}
-                          readOnly={true}
-                          onlineNames={onlineNames}
-                          onSelect={() => setSelectedId(conv.id)}
-                          onAccept={() => {}}
-                          accepting={false}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
             </>
           )}
         </div>
@@ -552,12 +494,10 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
 
             {/* ── Messages ── */}
             <div className="flex-1 overflow-y-auto p-4 space-y-3">
-              {/* Bot phase context (collapsible if long) */}
-              {botMessages.length > 0 && (
-                <BotPhaseContext messages={botMessages} hasOperatorPhase={operatorMessages.length > 0} />
-              )}
+              {/* Bot phase — shown inline, no collapsible box */}
+              {botMessages.map(m => <MessageBubble key={m.id} msg={m} />)}
 
-              {/* Separator */}
+              {/* Separator marking the handoff */}
               {operatorMessages.length > 0 && botMessages.length > 0 && (
                 <div className="flex items-center gap-2 py-1">
                   <div className="flex-1 border-t border-dashed border-border" />
@@ -580,7 +520,7 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
                 <textarea
                   ref={textareaRef}
                   rows={2}
-                  placeholder="Escribí tu respuesta… (Enter para enviar, Shift+Enter para nueva línea)"
+                  placeholder="Escribí tu mensaje…"
                   value={replyText}
                   onChange={e => setReplyText(e.target.value)}
                   onKeyDown={e => {
@@ -622,7 +562,7 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
 
 // ── Status badge ───────────────────────────────────────────────────────────────
 
-function StatusBadge({ status }: { status: string }) {
+export function StatusBadge({ status }: { status: string }) {
   const map: Record<string, { label: string; cls: string }> = {
     bot_active:        { label: "Bot activo",   cls: "bg-slate-100 text-slate-600" },
     handoff_requested: { label: "En espera",    cls: "bg-amber-100 text-amber-700" },
@@ -631,48 +571,6 @@ function StatusBadge({ status }: { status: string }) {
   };
   const s = map[status] ?? { label: status, cls: "bg-muted text-muted-foreground" };
   return <span className={cn("text-xs font-medium px-2 py-0.5 rounded-full", s.cls)}>{s.label}</span>;
-}
-
-// ── Bot phase context block ────────────────────────────────────────────────────
-
-function BotPhaseContext({ messages, hasOperatorPhase }: {
-  messages: { id: string; sender_type: string; content: string; created_at: string }[];
-  hasOperatorPhase: boolean;
-}) {
-  const [expanded, setExpanded] = useState(!hasOperatorPhase);
-  const preview = messages.filter(m => m.sender_type !== "system").slice(-3);
-
-  if (!hasOperatorPhase) {
-    return <>{messages.map(m => <MessageBubble key={m.id} msg={m} />)}</>;
-  }
-
-  return (
-    <div className="rounded-lg border border-dashed border-border/60 bg-muted/20">
-      <button
-        onClick={() => setExpanded(v => !v)}
-        className="w-full flex items-center justify-between px-3 py-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
-      >
-        <span className="flex items-center gap-1.5">
-          <Bot className="h-3.5 w-3.5" />
-          Contexto del bot ({messages.length} mensajes)
-        </span>
-        <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", expanded && "rotate-180")} />
-      </button>
-      {expanded ? (
-        <div className="px-3 pb-3 space-y-2 border-t border-dashed border-border/40 pt-2">
-          {messages.map(m => <MessageBubble key={m.id} msg={m} />)}
-        </div>
-      ) : (
-        <div className="px-3 pb-2 space-y-1 border-t border-dashed border-border/40 pt-2">
-          {preview.map(m => (
-            <p key={m.id} className="text-xs text-muted-foreground truncate">
-              <span className="font-medium">{m.sender_type === "user" ? "Usuario" : "Bot"}:</span> {m.content}
-            </p>
-          ))}
-        </div>
-      )}
-    </div>
-  );
 }
 
 // ── Conversation card ──────────────────────────────────────────────────────────
@@ -684,78 +582,135 @@ function ConvCard({ conv, now, selected, readOnly, onlineNames, onSelect, onAcce
 }) {
   const ms             = msSince(conv.last_message_at ?? conv.created_at, now);
   const ageStr         = formatRelative(ms);
-  const isUrgent       = conv.status === "handoff_requested" && ms > URGENT_MS;
   const yourTurn       = conv.status === "human_attending" && conv.last_message_sender === "user";
   const operatorOnline = conv.operator_name ? onlineNames.has(conv.operator_name) : false;
 
-  const leftBorder =
-    isUrgent                                        ? "border-l-red-500" :
-    conv.status === "handoff_requested"             ? "border-l-amber-400" :
-    yourTurn                                        ? "border-l-orange-400" :
-    conv.status === "human_attending"               ? "border-l-emerald-400" :
-    "border-l-transparent";
+  const isHandoff = conv.status === "handoff_requested";
+
+  // Three-tier urgency for waiting conversations. The whole card paints up
+  // so an operator can spot pressure peripherally without scanning each row.
+  // < 2min: calm amber accent (dot + time)
+  // 2-5min: amber background
+  // 5min+:  red background, pulsing dot — top priority
+  const urgencyLevel: "none" | "warn" | "urgent" | "critical" =
+    !isHandoff           ? "none" :
+    ms > VERY_URGENT_MS  ? "critical" :
+    ms > URGENT_MS       ? "urgent"   :
+    "warn";
+
+  const attending = conv.status === "human_attending";
+
+  const cardBg =
+    urgencyLevel === "critical" ? "bg-red-100/70 hover:bg-red-100"        :
+    urgencyLevel === "urgent"   ? "bg-amber-100/70 hover:bg-amber-100"    :
+    yourTurn                    ? "bg-orange-50/70 hover:bg-orange-50"    :
+    attending                   ? "bg-emerald-50/60 hover:bg-emerald-50"  :
+    "hover:bg-muted/40";
+
+  const dotColor =
+    urgencyLevel === "critical" ? "bg-red-500"     :
+    urgencyLevel === "urgent"   ? "bg-amber-500"   :
+    urgencyLevel === "warn"     ? "bg-amber-400"   :
+    yourTurn                    ? "bg-orange-500"  :
+    attending                   ? "bg-emerald-500" :
+    "bg-transparent";
+
+  const dotPulse = urgencyLevel === "critical" || yourTurn;
+
+  const timeClass =
+    urgencyLevel === "critical" ? "font-semibold text-red-700"     :
+    urgencyLevel === "urgent"   ? "font-semibold text-amber-800"   :
+    urgencyLevel === "warn"     ? "font-medium text-amber-700"     :
+    yourTurn                    ? "font-semibold text-orange-700"  :
+    attending                   ? "font-medium text-emerald-700"   :
+    "text-muted-foreground";
+
+  // Atender button colour mirrors the urgency level so the affordance carries
+  // the same pressure signal as the leading dot.
+  const acceptClass =
+    urgencyLevel === "critical" ? "bg-red-600 hover:bg-red-700"     :
+    urgencyLevel === "urgent"   ? "bg-amber-600 hover:bg-amber-700" :
+    "bg-amber-500 hover:bg-amber-600";
+
+  // Unread count only while operator is actively attending — for "en espera"
+  // every message is unread by definition, so the badge adds no information.
+  const showUnread = conv.unread_count > 0 && conv.status === "human_attending";
 
   return (
     <div
       className={cn(
-        "rounded-lg border-l-2 transition-colors",
-        leftBorder,
-        selected ? "bg-accent ring-1 ring-primary/20" : "hover:bg-muted/50",
-        isUrgent && !selected && "bg-red-50/50",
+        "rounded-lg transition-colors group",
+        selected ? "bg-accent ring-1 ring-primary/20" : cardBg,
       )}
     >
-      <button className="w-full text-left px-3 py-2.5" onClick={onSelect}>
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium truncate">{conv.afiliado_nombre || "Anónimo"}</p>
-            <p className="text-[11px] text-muted-foreground truncate mt-0.5">{conv.sector_nombre || "Sin sector"}</p>
-            {conv.operator_name && (
-              <p className="text-[10px] mt-0.5 flex items-center gap-1">
-                <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", operatorOnline ? "bg-emerald-500" : "bg-slate-300")} />
-                <span className={cn("truncate", operatorOnline ? "text-emerald-600 font-medium" : "text-muted-foreground")}>
-                  {conv.operator_name}
-                </span>
-              </p>
-            )}
-          </div>
-          <div className="shrink-0 flex flex-col items-end gap-1">
-            <span className="text-[10px] text-muted-foreground tabular-nums">{ageStr}</span>
-            {conv.unread_count > 0 && (
-              <span className="bg-primary text-white rounded-full text-[10px] w-4 h-4 flex items-center justify-center font-bold">
-                {conv.unread_count > 9 ? "9+" : conv.unread_count}
-              </span>
-            )}
-            {yourTurn && (
-              <span className="text-[10px] font-semibold text-orange-600 bg-orange-50 border border-orange-200 rounded px-1.5">
-                tu turno
-              </span>
-            )}
-          </div>
-        </div>
-      </button>
+      <div className="flex items-center gap-2.5 px-3 py-2">
+        <span
+          className={cn(
+            "w-2 h-2 rounded-full shrink-0 mt-0.5 self-start",
+            dotColor,
+            dotPulse && "animate-pulse",
+          )}
+          aria-hidden
+        />
 
-      {/* Quick accept button on card — no need to open detail first */}
-      {!readOnly && conv.status === "handoff_requested" && (
-        <div className="px-3 pb-2">
-          <button
-            onClick={e => { e.stopPropagation(); onAccept(); }}
-            disabled={accepting}
-            className="w-full flex items-center justify-center gap-1.5 rounded-md bg-primary/10 hover:bg-primary/20 text-primary text-xs font-medium py-1.5 transition-colors disabled:opacity-50"
-          >
-            {accepting
-              ? <Loader2 className="h-3 w-3 animate-spin" />
-              : <UserCheck className="h-3 w-3" />}
-            Atender
-          </button>
+        <button onClick={onSelect} className="flex-1 min-w-0 text-left">
+          <p className="text-sm font-medium truncate leading-tight">
+            {conv.afiliado_nombre || "Anónimo"}
+          </p>
+          <p className="text-[11px] text-muted-foreground truncate mt-0.5">
+            {conv.sector_nombre || "Sin sector"}
+          </p>
+          {/* Operator name only matters cross-operator (admin view). Hidden
+              in the operator's own inbox where every card is theirs. */}
+          {readOnly && conv.operator_name && (
+            <p className="text-[10px] mt-0.5 flex items-center gap-1">
+              <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", operatorOnline ? "bg-emerald-500" : "bg-slate-300")} />
+              <span className={cn("truncate", operatorOnline ? "text-emerald-600 font-medium" : "text-muted-foreground")}>
+                {conv.operator_name}
+              </span>
+            </p>
+          )}
+        </button>
+
+        <div className="shrink-0 flex flex-col items-end gap-1">
+          <span className={cn("text-[11px] tabular-nums", timeClass)}>
+            {ageStr}
+          </span>
+
+          {showUnread && (
+            <span className="bg-foreground/85 text-background rounded-full text-[10px] min-w-4 h-4 px-1 flex items-center justify-center font-semibold">
+              {conv.unread_count > 9 ? "9+" : conv.unread_count}
+            </span>
+          )}
+
+          {yourTurn && (
+            <span className="text-[10px] font-semibold text-orange-600">tu turno</span>
+          )}
+
+          {!readOnly && isHandoff && (
+            <button
+              onClick={e => { e.stopPropagation(); onAccept(); }}
+              disabled={accepting}
+              className={cn(
+                "inline-flex items-center gap-1 rounded-md text-white text-[11px] font-medium px-2 h-6 transition-colors disabled:opacity-60",
+                acceptClass,
+              )}
+            >
+              {accepting
+                ? <Loader2 className="h-3 w-3 animate-spin" />
+                : <UserCheck className="h-3 w-3" />}
+              Atender
+            </button>
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 }
 
 // ── Message bubble ─────────────────────────────────────────────────────────────
 
-function MessageBubble({ msg }: { msg: { id: string; sender_type: string; content: string; created_at: string } }) {
+export function MessageBubble({ msg }: { msg: { id: string; sender_type: string; content: string; created_at: string } }) {
   const isUser     = msg.sender_type === "user";
   const isSystem   = msg.sender_type === "system";
   const isOperator = msg.sender_type === "operator";
@@ -797,7 +752,7 @@ function MessageBubble({ msg }: { msg: { id: string; sender_type: string; conten
 
 function segmentAndSort(convs: ConversationRow[], now: number): Record<SectionKey, ConversationRow[]> {
   const out: Record<SectionKey, ConversationRow[]> = {
-    handoff_requested: [], human_attending: [], closed: [], bot_active: [],
+    handoff_requested: [], human_attending: [], closed: [],
   };
   for (const c of convs) {
     if (c.status in out) out[c.status as SectionKey].push(c);
@@ -813,7 +768,7 @@ function segmentAndSort(convs: ConversationRow[], now: number): Record<SectionKe
   });
   out.closed.sort((a, b) =>
     msSince(b.last_message_at ?? b.created_at, now) - msSince(a.last_message_at ?? a.created_at, now)
-  ).splice(CLOSED_LIMIT);
+  );
   return out;
 }
 

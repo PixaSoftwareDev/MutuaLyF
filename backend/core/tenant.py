@@ -94,11 +94,17 @@ def _extract_from_jwt(request: Request) -> str | None:
 
     The full signature verification happens in the auth dependency.
     We only decode to read the claim for routing purposes.
+
+    Falls back to `?token=` query param for endpoints that can't send headers
+    (e.g. EventSource/SSE).
     """
     auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
+    if auth_header.startswith("Bearer "):
+        token = auth_header.removeprefix("Bearer ")
+    else:
+        token = request.query_params.get("token")
+    if not token:
         return None
-    token = auth_header.removeprefix("Bearer ")
     try:
         payload = jwt.decode(
             token,

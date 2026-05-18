@@ -185,6 +185,38 @@ export interface ConversationDetail extends ConversationRow {
   messages: Array<{ id: string; sender_type: string; content: string; created_at: string }>;
 }
 
+export interface ConversationHistoryRow {
+  id: string;
+  status: "bot_active" | "handoff_requested" | "human_attending" | "closed";
+  sector_id: string | null;
+  sector_nombre: string | null;
+  afiliado_nombre: string | null;
+  afiliado_email: string | null;
+  operator_name: string | null;
+  message_count: number;
+  created_at: string | null;
+  updated_at: string | null;
+  closed_at: string | null;
+  last_message_at: string | null;
+}
+
+export interface ConversationHistoryFilters {
+  status?: string;
+  sectorId?: string;
+  q?: string;
+  dateFrom?: string;  // YYYY-MM-DD
+  dateTo?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface ConversationHistoryResponse {
+  items: ConversationHistoryRow[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
 export interface SectorRow {
   id: string;
   nombre: string;
@@ -467,6 +499,18 @@ export const api = {
     presence: async () => {
       const { data } = await apiClient.get("/operator/presence");
       return data as { operators: Array<{ user_id: string; name: string }>; count: number };
+    },
+    listHistory: async (filters: ConversationHistoryFilters = {}) => {
+      const params = new URLSearchParams();
+      if (filters.status)    params.set("status_filter", filters.status);
+      if (filters.sectorId)  params.set("sector_id",     filters.sectorId);
+      if (filters.q)         params.set("q",             filters.q);
+      if (filters.dateFrom)  params.set("date_from",     filters.dateFrom);
+      if (filters.dateTo)    params.set("date_to",       filters.dateTo);
+      params.set("page",      String(filters.page      ?? 1));
+      params.set("page_size", String(filters.pageSize  ?? 20));
+      const { data } = await apiClient.get(`/operator/conversations/history?${params}`);
+      return data as ConversationHistoryResponse;
     },
   },
 
