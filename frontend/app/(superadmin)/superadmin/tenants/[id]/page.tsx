@@ -55,11 +55,6 @@ function relTime(iso: string): string {
   return `hace ${Math.floor(h / 24)}d`;
 }
 
-const CAT_ICONS: Record<string, string> = {
-  general: "🤖", ventas: "📊", atencion: "🤝",
-  legal: "⚖️", rrhh: "👥", educacion: "🎓", salud: "🧠", otro: "✨",
-};
-
 const PLAN_COLORS: Record<string, string> = {
   starter:      "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300",
   professional: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
@@ -594,7 +589,7 @@ function BotSelector({ allTemplates, bots, activeBot, activateBotM, deactivateBo
             <>
               <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />
               <span className="font-medium text-green-800">
-                {CAT_ICONS[activeBot.categoria] ?? "🤖"} {activeBot.nombre} activo
+                {activeBot.nombre} activo
               </span>
             </>
           ) : (
@@ -632,7 +627,7 @@ function BotSelector({ allTemplates, bots, activeBot, activateBotM, deactivateBo
                   : "border-border"
               )}
             >
-              <span className="text-2xl shrink-0">{CAT_ICONS[t.categoria] ?? "🤖"}</span>
+              <Bot className={cn("h-5 w-5 shrink-0", isActive ? "text-primary" : "text-muted-foreground")} />
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium truncate">{t.nombre}</p>
                 {t.descripcion && (

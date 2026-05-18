@@ -20,16 +20,25 @@ import { PageHeader } from "@/components/layout/page-header";
 
 // ── Label config ───────────────────────────────────────────────────────────────
 
+// Four semantic families instead of nine colors. Keeps the page readable
+// without turning it into a rainbow.
+const FAMILY = {
+  people:  { color: "text-slate-700", bg: "bg-slate-100" },
+  org:     { color: "text-slate-700", bg: "bg-slate-100" },
+  context: { color: "text-slate-700", bg: "bg-slate-100" },
+  other:   { color: "text-slate-700", bg: "bg-slate-100" },
+} as const;
+
 const LABEL_CONFIG: Record<string, { icon: React.ElementType; color: string; bg: string; label: string }> = {
-  Persona:       { icon: User,      color: "text-blue-600",   bg: "bg-blue-50",   label: "Persona" },
-  Rol:           { icon: Briefcase, color: "text-purple-600", bg: "bg-purple-50", label: "Rol" },
-  Departamento:  { icon: Building2, color: "text-green-600",  bg: "bg-green-50",  label: "Departamento" },
-  Horario:       { icon: Clock,     color: "text-orange-600", bg: "bg-orange-50", label: "Horario" },
-  Dominio:       { icon: Globe,     color: "text-cyan-600",   bg: "bg-cyan-50",   label: "Dominio" },
-  Organizacion:  { icon: Building2, color: "text-indigo-600", bg: "bg-indigo-50", label: "Organización" },
-  Fecha:         { icon: Calendar,  color: "text-rose-600",   bg: "bg-rose-50",   label: "Fecha" },
-  Lugar:         { icon: MapPin,    color: "text-teal-600",   bg: "bg-teal-50",   label: "Lugar" },
-  Entidad:       { icon: Tag,       color: "text-gray-600",   bg: "bg-gray-50",   label: "Entidad" },
+  Persona:       { icon: User,      label: "Persona",       ...FAMILY.people },
+  Rol:           { icon: Briefcase, label: "Rol",           ...FAMILY.people },
+  Departamento:  { icon: Building2, label: "Departamento",  ...FAMILY.org },
+  Organizacion:  { icon: Building2, label: "Organización",  ...FAMILY.org },
+  Horario:       { icon: Clock,     label: "Horario",       ...FAMILY.context },
+  Fecha:         { icon: Calendar,  label: "Fecha",         ...FAMILY.context },
+  Lugar:         { icon: MapPin,    label: "Lugar",         ...FAMILY.context },
+  Dominio:       { icon: Globe,     label: "Dominio",       ...FAMILY.context },
+  Entidad:       { icon: Tag,       label: "Entidad",       ...FAMILY.other },
 };
 
 const ALL_LABELS = Object.keys(LABEL_CONFIG);

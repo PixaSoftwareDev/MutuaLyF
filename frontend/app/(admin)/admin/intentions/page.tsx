@@ -2,7 +2,14 @@
 
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Loader2, RefreshCw, Plus, Search, Play, BrainCircuit, ChevronDown, ChevronUp, Check, X } from "lucide-react";
+import { Loader2, RefreshCw, Plus, Search, Play, BrainCircuit, ChevronDown, ChevronUp, Check, X, MoreHorizontal } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 import { PageShell } from "@/components/layout/page-shell";
 import { PageHeader } from "@/components/layout/page-header";
 import { api } from "@/lib/api";
@@ -144,37 +151,43 @@ export default function IntentionsPage() {
         description="Intenciones detectadas en las consultas de tu organización. Aprobá las correctas para mejorar la clasificación automática."
         actions={
           <>
-            <Button variant="outline" size="sm" onClick={() => queryClient.invalidateQueries({ queryKey: ["intentions"] })}>
-              <RefreshCw className="h-4 w-4 mr-1" />
-              Actualizar
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => clusterMutation.mutate()}
-              disabled={clusterMutation.isPending}
-              title="Ejecutar clustering ahora (normalmente corre automáticamente a las 2AM)"
-            >
-              {clusterMutation.isPending
-                ? <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-                : <Play className="h-4 w-4 mr-1" />}
-              Detectar
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => retrainMutation.mutate()}
-              disabled={retrainMutation.isPending}
-              title="Reentrenar clasificador con los ejemplos aprobados (con rollback automático si baja la precisión)"
-            >
-              {retrainMutation.isPending
-                ? <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-                : <BrainCircuit className="h-4 w-4 mr-1" />}
-              Reentrenar
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" aria-label="Más acciones">
+                  <MoreHorizontal className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuItem
+                  onSelect={() => queryClient.invalidateQueries({ queryKey: ["intentions"] })}
+                >
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                  Actualizar
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onSelect={() => clusterMutation.mutate()}
+                  disabled={clusterMutation.isPending}
+                >
+                  {clusterMutation.isPending
+                    ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    : <Play className="h-4 w-4 mr-2" />}
+                  Detectar grupos nuevos
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onSelect={() => retrainMutation.mutate()}
+                  disabled={retrainMutation.isPending}
+                >
+                  {retrainMutation.isPending
+                    ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    : <BrainCircuit className="h-4 w-4 mr-2" />}
+                  Reentrenar clasificador
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <Button size="sm" onClick={() => setShowCreate(true)}>
               <Plus className="h-4 w-4 mr-1" />
-              Nueva
+              Nueva intención
             </Button>
           </>
         }
@@ -456,7 +469,7 @@ function ClusterCard({
         <div className="flex items-center gap-2">
           <Badge variant="secondary" className="text-xs">{allQueries.length} consultas</Badge>
           {cluster.suggested_label && (
-            <span className="text-xs text-blue-600 font-mono font-medium">✦ {cluster.suggested_label}</span>
+            <span className="text-xs text-blue-600 font-mono font-medium">{cluster.suggested_label}</span>
           )}
         </div>
         <button
