@@ -6,6 +6,8 @@ import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
+import { PageShell } from "@/components/layout/page-shell";
+import { PageHeader } from "@/components/layout/page-header";
 
 const ACTION_LABELS: Record<string, string> = {
   "":                          "Todas las acciones",
@@ -84,15 +86,16 @@ export default function AuditPage() {
   const totalPages = data ? Math.max(1, Math.ceil(data.total / PAGE_SIZE)) : 1;
 
   return (
-    <div className="p-4 sm:p-6 max-w-6xl mx-auto space-y-4 sm:space-y-5">
-      {/* Header */}
-      <div>
-        <h1 className="text-lg sm:text-xl font-semibold tracking-tight">Registro de auditoría</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Acciones realizadas por usuarios de este tenant
-          {kpis.total > 0 && <> · <span className="font-medium text-foreground">{kpis.total}</span> eventos en total</>}
-        </p>
-      </div>
+    <PageShell>
+      <PageHeader
+        title="Registro de auditoría"
+        description={
+          <>
+            Acciones realizadas por usuarios de este tenant
+            {kpis.total > 0 && <> · <span className="font-medium text-foreground">{kpis.total}</span> eventos en total</>}
+          </>
+        }
+      />
 
       {/* KPIs */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
@@ -240,7 +243,7 @@ export default function AuditPage() {
           </div>
         </div>
       )}
-    </div>
+    </PageShell>
   );
 }
 

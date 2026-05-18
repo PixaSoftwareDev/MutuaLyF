@@ -6,8 +6,10 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "@/components/ui/toast";
-import { Bot, CheckCircle2, Loader2, Sparkles, Zap } from "lucide-react";
+import { Bot, CheckCircle2, Loader2, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { PageShell } from "@/components/layout/page-shell";
+import { PageHeader } from "@/components/layout/page-header";
 
 function catLabel(cat: string): string {
   return cat.charAt(0).toUpperCase() + cat.slice(1).replace(/[_-]/g, " ");
@@ -42,15 +44,11 @@ export default function BotsPage() {
   const activeTemplate = templates.find(t => t.is_active);
 
   return (
-    <div className="space-y-4 sm:space-y-6 p-4 sm:p-6 max-w-3xl">
-      <div>
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <Sparkles className="w-6 h-6 text-primary" /> Personalidad del bot
-        </h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Elegí cómo se comunica tu asistente. Solo puede estar activa una personalidad a la vez.
-        </p>
-      </div>
+    <PageShell>
+      <PageHeader
+        title="Personalidad del bot"
+        description="Elegí cómo se comunica tu asistente. Solo puede estar activa una personalidad a la vez."
+      />
 
       {/* Estado actual */}
       <div className={cn(
@@ -161,6 +159,6 @@ export default function BotsPage() {
       <p className="text-xs text-muted-foreground pb-2">
         Las personalidades disponibles dependen de tu plan. Para más opciones, contactá al administrador de la plataforma.
       </p>
-    </div>
+    </PageShell>
   );
 }

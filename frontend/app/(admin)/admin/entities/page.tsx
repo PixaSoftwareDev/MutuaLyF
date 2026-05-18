@@ -15,6 +15,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from "@/components/ui/dialog";
+import { PageShell } from "@/components/layout/page-shell";
+import { PageHeader } from "@/components/layout/page-header";
 
 // ── Label config ───────────────────────────────────────────────────────────────
 
@@ -197,20 +199,17 @@ export default function EntitiesPage() {
   const totalEntities = stats?.reduce((s, x) => s + x.count, 0) ?? 0;
 
   return (
-    <div className="p-4 sm:p-6 max-w-4xl mx-auto space-y-4 sm:space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Entidades</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Personas, departamentos, roles y más extraídos automáticamente de tus documentos
-          </p>
-        </div>
-        <Button variant="outline" size="sm" onClick={() => refetch()} className="gap-2">
-          <RefreshCw className="w-4 h-4" />
-          Actualizar
-        </Button>
-      </div>
+    <PageShell>
+      <PageHeader
+        title="Entidades"
+        description="Personas, departamentos, roles y más extraídos automáticamente de tus documentos."
+        actions={
+          <Button variant="outline" size="sm" onClick={() => refetch()} className="gap-2">
+            <RefreshCw className="w-4 h-4" />
+            Actualizar
+          </Button>
+        }
+      />
 
       {/* Stats pills */}
       <div className="flex flex-wrap gap-2">
@@ -319,6 +318,6 @@ export default function EntitiesPage() {
         open={detailOpen}
         onClose={() => setDetailOpen(false)}
       />
-    </div>
+    </PageShell>
   );
 }

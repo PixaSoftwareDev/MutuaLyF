@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Building2, Plus, Trash2, Edit2, Check, X, Loader2, Star } from "lucide-react";
+import { Plus, Trash2, Edit2, Check, X, Loader2, Star } from "lucide-react";
 import { api, type SectorRow } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,6 +11,8 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
+import { PageShell } from "@/components/layout/page-shell";
+import { PageHeader } from "@/components/layout/page-header";
 
 export default function SectorsPage() {
   const qc = useQueryClient();
@@ -59,16 +61,15 @@ export default function SectorsPage() {
   const activeSectors = sectors.filter(s => s.is_active);
 
   return (
-    <div className="p-4 sm:p-6 space-y-4 sm:space-y-6 max-w-2xl">
-      <div>
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <Building2 className="h-6 w-6 text-primary" />
-          Sectores de atención
-        </h1>
-        <p className="text-muted-foreground text-sm mt-0.5">
-          Gestioná los sectores. El sector <span className="font-medium">default</span> se asigna automáticamente cuando el usuario no elige ninguno.
-        </p>
-      </div>
+    <PageShell>
+      <PageHeader
+        title="Sectores de atención"
+        description={
+          <>
+            Gestioná los sectores. El sector <span className="font-medium">default</span> se asigna automáticamente cuando el usuario no elige ninguno.
+          </>
+        }
+      />
 
       {/* Crear sector */}
       <Card>
@@ -187,6 +188,6 @@ export default function SectorsPage() {
           )}
         </CardContent>
       </Card>
-    </div>
+    </PageShell>
   );
 }

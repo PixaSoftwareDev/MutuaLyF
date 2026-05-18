@@ -2,7 +2,9 @@
 
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Users, Check, Loader2, Plus, Trash2 } from "lucide-react";
+import { Check, Loader2, Plus, Trash2 } from "lucide-react";
+import { PageShell } from "@/components/layout/page-shell";
+import { PageHeader } from "@/components/layout/page-header";
 import { apiClient } from "@/lib/api";
 import { api, type SectorRow } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -74,23 +76,17 @@ export default function OperatorsPage() {
     .sort((a, b) => (onlineIds.has(b.id) ? 1 : 0) - (onlineIds.has(a.id) ? 1 : 0));
 
   return (
-    <div className="p-4 sm:p-6 space-y-4 sm:space-y-6 max-w-3xl">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Users className="h-6 w-6 text-primary" />
-            Operadores
-          </h1>
-          <p className="text-muted-foreground text-sm mt-0.5">
-            Creá operadores y asignales los sectores que pueden atender.
-          </p>
-        </div>
-        <Button size="sm" onClick={() => setShowCreate(true)}>
-          <Plus className="h-4 w-4 mr-1" />
-          Nuevo operador
-        </Button>
-      </div>
+    <PageShell>
+      <PageHeader
+        title="Operadores"
+        description="Creá operadores y asignales los sectores que pueden atender."
+        actions={
+          <Button size="sm" onClick={() => setShowCreate(true)}>
+            <Plus className="h-4 w-4 mr-1" />
+            Nuevo operador
+          </Button>
+        }
+      />
 
       {/* List */}
       {loadingOps || loadingSectors ? (
@@ -143,7 +139,7 @@ export default function OperatorsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </PageShell>
   );
 }
 

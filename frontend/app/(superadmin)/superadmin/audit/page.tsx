@@ -6,6 +6,8 @@ import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ChevronLeft, ChevronRight, Loader2, AlertTriangle } from "lucide-react";
+import { PageShell } from "@/components/layout/page-shell";
+import { PageHeader } from "@/components/layout/page-header";
 
 const ACTION_LABELS: Record<string, string> = {
   "":                          "Todas las acciones",
@@ -108,15 +110,16 @@ export default function GlobalAuditPage() {
   const hasAlertsOnPage = data?.events.some(e => e.action === "auth.brute_force_alert");
 
   return (
-    <div className="p-4 sm:p-6 max-w-7xl mx-auto space-y-4 sm:space-y-5">
-      {/* Header */}
-      <div>
-        <h1 className="text-lg sm:text-xl font-semibold tracking-tight">Auditoría global</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Actividad de todas las organizaciones de la plataforma
-          {kpis.total > 0 && <> · <span className="font-medium text-foreground">{kpis.total}</span> eventos en total</>}
-        </p>
-      </div>
+    <PageShell>
+      <PageHeader
+        title="Auditoría global"
+        description={
+          <>
+            Actividad de todas las organizaciones de la plataforma
+            {kpis.total > 0 && <> · <span className="font-medium text-foreground">{kpis.total}</span> eventos en total</>}
+          </>
+        }
+      />
 
       {/* KPIs */}
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 sm:gap-3">
@@ -294,7 +297,7 @@ export default function GlobalAuditPage() {
           </div>
         </div>
       )}
-    </div>
+    </PageShell>
   );
 }
 

@@ -2,7 +2,9 @@
 
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Zap, Loader2, RefreshCw, Plus, Search, Play, BrainCircuit, ChevronDown, ChevronUp, Check, X } from "lucide-react";
+import { Loader2, RefreshCw, Plus, Search, Play, BrainCircuit, ChevronDown, ChevronUp, Check, X } from "lucide-react";
+import { PageShell } from "@/components/layout/page-shell";
+import { PageHeader } from "@/components/layout/page-header";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -136,54 +138,47 @@ export default function IntentionsPage() {
   });
 
   return (
-    <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
-      {/* Header */}
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Zap className="h-6 w-6 text-primary" />
-            Intenciones
-          </h1>
-          <p className="text-muted-foreground text-sm mt-0.5">
-            Intenciones detectadas en las consultas de tu organización.
-            Aprobá las correctas para mejorar la clasificación automática.
-          </p>
-        </div>
-        <div className="flex gap-2 shrink-0">
-          <Button variant="outline" size="sm" onClick={() => queryClient.invalidateQueries({ queryKey: ["intentions"] })}>
-            <RefreshCw className="h-4 w-4 mr-1" />
-            Actualizar
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => clusterMutation.mutate()}
-            disabled={clusterMutation.isPending}
-            title="Ejecutar clustering ahora (normalmente corre automáticamente a las 2AM)"
-          >
-            {clusterMutation.isPending
-              ? <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-              : <Play className="h-4 w-4 mr-1" />}
-            Detectar
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => retrainMutation.mutate()}
-            disabled={retrainMutation.isPending}
-            title="Reentrenar clasificador con los ejemplos aprobados (con rollback automático si baja la precisión)"
-          >
-            {retrainMutation.isPending
-              ? <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-              : <BrainCircuit className="h-4 w-4 mr-1" />}
-            Reentrenar
-          </Button>
-          <Button size="sm" onClick={() => setShowCreate(true)}>
-            <Plus className="h-4 w-4 mr-1" />
-            Nueva
-          </Button>
-        </div>
-      </div>
+    <PageShell>
+      <PageHeader
+        title="Intenciones"
+        description="Intenciones detectadas en las consultas de tu organización. Aprobá las correctas para mejorar la clasificación automática."
+        actions={
+          <>
+            <Button variant="outline" size="sm" onClick={() => queryClient.invalidateQueries({ queryKey: ["intentions"] })}>
+              <RefreshCw className="h-4 w-4 mr-1" />
+              Actualizar
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => clusterMutation.mutate()}
+              disabled={clusterMutation.isPending}
+              title="Ejecutar clustering ahora (normalmente corre automáticamente a las 2AM)"
+            >
+              {clusterMutation.isPending
+                ? <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                : <Play className="h-4 w-4 mr-1" />}
+              Detectar
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => retrainMutation.mutate()}
+              disabled={retrainMutation.isPending}
+              title="Reentrenar clasificador con los ejemplos aprobados (con rollback automático si baja la precisión)"
+            >
+              {retrainMutation.isPending
+                ? <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                : <BrainCircuit className="h-4 w-4 mr-1" />}
+              Reentrenar
+            </Button>
+            <Button size="sm" onClick={() => setShowCreate(true)}>
+              <Plus className="h-4 w-4 mr-1" />
+              Nueva
+            </Button>
+          </>
+        }
+      />
 
       {/* Stats summary */}
       {data && (
@@ -424,7 +419,7 @@ export default function IntentionsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </PageShell>
   );
 }
 

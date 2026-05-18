@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/toast";
+import { PageShell } from "@/components/layout/page-shell";
+import { PageHeader } from "@/components/layout/page-header";
 
 // ── LCS-based word diff ────────────────────────────────────────────────────────
 
@@ -373,20 +375,17 @@ export default function DuplicatesPage() {
   const pagedPairs = pendingPairs.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   return (
-    <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
-      {/* Page header — always visible */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-semibold">Fragmentos Duplicados</h1>
-          <p className="text-sm text-muted-foreground">
-            Revisá y resolvé pares de fragmentos con contenido similar
-          </p>
-        </div>
-        <Button variant="outline" size="sm" onClick={refresh}>
-          <RefreshCw className="h-4 w-4 mr-1" />
-          Actualizar
-        </Button>
-      </div>
+    <PageShell>
+      <PageHeader
+        title="Fragmentos duplicados"
+        description="Revisá y resolvé pares de fragmentos con contenido similar."
+        actions={
+          <Button variant="outline" size="sm" onClick={refresh}>
+            <RefreshCw className="h-4 w-4 mr-1" />
+            Actualizar
+          </Button>
+        }
+      />
 
       {error && (
         <div className="text-destructive text-sm">
@@ -444,6 +443,6 @@ export default function DuplicatesPage() {
         </div>
       )}
 
-    </div>
+    </PageShell>
   );
 }
