@@ -74,26 +74,66 @@ _CHITCHAT_RE = re.compile(
 
 _MIN_WORDS_FOR_INSUFFICIENT = 4  # queries with fewer words are treated as chitchat
 
+# Frases que el LLM emite (según el template anti-alucinación) cuando no pudo
+# responder con el contexto disponible. Detectarlas es la señal autoritativa
+# de insuficiencia: el propio modelo declara que no tiene la información.
+_BOT_NO_INFO_PATTERNS = (
+    "no encontré esa información",
+    "no encontré información",
+    "no tengo información sobre",
+    "no tengo esa información",
+    "no dispongo de información",
+    "no cuento con información",
+    "no puedo responder con la información disponible",
+    "no figura en los documentos",
+    "consultar directamente con el área",
+    "te sugiero consultar",
+)
 
-def _is_response_insufficient(sources: list, intent_confidence: float | None, user_message: str = "") -> bool:
-    """True only when the bot genuinely couldn't answer a substantive knowledge query.
 
-    Greetings, one-word replies, and chitchat are excluded — the bot
-    correctly responds to those without knowledge-base sources, so they
-    must not penalise the insufficient counter.
+def _bot_signaled_no_info(bot_answer: str) -> bool:
+    if not bot_answer:
+        return False
+    lowered = bot_answer.lower()
+    return any(p in lowered for p in _BOT_NO_INFO_PATTERNS)
+
+
+def _is_response_insufficient(
+    sources: list,
+    intent_confidence: float | None,
+    user_message: str,
+    bot_answer: str,
+) -> bool:
+    """True solo si el bot realmente no pudo responder.
+
+    Señal autoritativa: el propio LLM, siguiendo las reglas anti-alucinación,
+    devolvió una frase del tipo "no encontré esa información". Esa decisión la
+    toma el modelo viendo todo el contexto disponible (sources nuevas + historial
+    conversacional) y por eso es más robusta que mirar solo `sources`.
+
+    Saludos, respuestas cortas y chitchat no cuentan: el bot responde
+    correctamente sin sources en esos casos.
     """
     msg = user_message.strip()
 
-    # Skip short messages and known chitchat patterns
     if len(msg.split()) < _MIN_WORDS_FOR_INSUFFICIENT:
         return False
     if _CHITCHAT_RE.match(msg):
         return False
 
-    if not sources:
+    # Señal fuerte: el bot explícitamente declaró que no encontró la información.
+    if _bot_signaled_no_info(bot_answer):
         return True
-    if intent_confidence is not None and intent_confidence < 0.3:
+
+    # Señal débil de respaldo: confianza muy baja Y sin sources. Ambas a la vez
+    # — cualquiera sola puede ser un follow-up válido resuelto por historial.
+    if (
+        not sources
+        and intent_confidence is not None
+        and intent_confidence < 0.2
+    ):
         return True
+
     return False
 
 
@@ -128,14 +168,22 @@ async def evaluate_handoff(
     user_message: str,
     sources: list,
     intent_confidence: float | None,
+    bot_answer: str = "",
 ) -> HandoffSignal:
     """Evaluate handoff rules after each bot turn. Returns a HandoffSignal."""
     config = await _get_handoff_config(tenant_id)
     signals = await _get_signals(conversation_id)
 
+    async def _reset_insufficient_if_needed() -> None:
+        if signals.get("insufficient_count", 0) > 0:
+            signals["insufficient_count"] = 0
+            await _save_signals(conversation_id, signals)
+
     # ── Rule 3: Frustration signal ─────────────────────────────────────────────
     if _is_frustrated(user_message, config["frustration_phrases"]):
         logger.info("handoff_rule3_frustration conversation_id=%s", conversation_id)
+        # Frustración supera al contador acumulado — limpiarlo para no encadenar ofertas.
+        await _reset_insufficient_if_needed()
         return HandoffSignal(
             trigger=HandoffTrigger.FRUSTRATION,
             auto_activate=False,
@@ -161,7 +209,7 @@ async def evaluate_handoff(
         )
 
     # ── Rule 1: Insufficient responses ────────────────────────────────────────
-    if _is_response_insufficient(sources, intent_confidence, user_message):
+    if _is_response_insufficient(sources, intent_confidence, user_message, bot_answer):
         signals["insufficient_count"] = signals.get("insufficient_count", 0) + 1
         await _save_signals(conversation_id, signals)
         threshold = config["consecutive_insufficient_count"]
@@ -176,10 +224,10 @@ async def evaluate_handoff(
                 offer_message=config["transition_messages"]["handoff_offer"],
             )
     else:
-        # Reset insufficient count on successful response or chitchat (not a real query)
-        if signals.get("insufficient_count", 0) > 0:
-            signals["insufficient_count"] = 0
-            await _save_signals(conversation_id, signals)
+        # Cualquier turno no-insuficiente (respuesta exitosa, chitchat, follow-up
+        # resuelto por historial) resetea el contador. Sin esto, una respuesta
+        # buena entre dos turnos sin sources dispara el cartel amarillo.
+        await _reset_insufficient_if_needed()
 
     return HandoffSignal(trigger=HandoffTrigger.NONE, auto_activate=False, offer_message="")
 
@@ -260,7 +308,7 @@ async def _get_handoff_config(tenant_id: str) -> dict:
     except Exception as exc:
         logger.warning("handoff_config_load_failed tenant=%s error=%s", tenant_id, exc)
         config = {
-            "consecutive_insufficient_count": 2,
+            "consecutive_insufficient_count": 3,
             "frustration_phrases": ["no me ayuda", "quiero hablar con alguien"],
             "transition_messages": {
                 "handoff_offer": "¿Querés que te conecte con un operador?",

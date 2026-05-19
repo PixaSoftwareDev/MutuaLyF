@@ -210,6 +210,7 @@ async def send_message(
         user_message=body.content,
         sources=sources,
         intent_confidence=intent_confidence,
+        bot_answer=bot_answer,
     )
 
     handoff_message = None

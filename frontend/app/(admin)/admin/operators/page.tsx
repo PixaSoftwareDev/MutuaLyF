@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Check, Loader2, Plus, Trash2, MoreVertical } from "lucide-react";
 import { PageShell } from "@/components/layout/page-shell";
@@ -161,9 +161,10 @@ function OperatorCard({ operator, sectors, isOnline, onDeleted }: { operator: Op
   const [selected, setSelected] = useState<Set<string>>(new Set(assignedSectors.map(s => s.id)));
   const [dirty, setDirty]       = useState(false);
 
-  if (assignedSectors.length > 0 && !dirty && selected.size === 0) {
-    setSelected(new Set(assignedSectors.map(s => s.id)));
-  }
+  // Sync selected with server data when it (re)loads. Effect, never during render.
+  useEffect(() => {
+    if (!dirty) setSelected(new Set(assignedSectors.map(s => s.id)));
+  }, [assignedSectors, dirty]);
 
   const saveM = useMutation({
     mutationFn: () => api.sectors.assignOperatorSectors(operator.id, Array.from(selected)),

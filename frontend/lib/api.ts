@@ -24,13 +24,28 @@ apiClient.interceptors.request.use((config) => {
   return config;
 });
 
-// Redirect to /login on 401
+// Redirect to /login on 401 — wipe ALL auth state first to avoid a redirect loop
+// where the middleware still sees ia_role/ia_tenant cookies and bounces back.
 apiClient.interceptors.response.use(
   (res) => res,
   (err: AxiosError) => {
     if (err.response?.status === 401 && typeof window !== "undefined") {
-      localStorage.removeItem("access_token");
-      window.location.href = "/login";
+      // Avoid loops: if already on /login, just reject; don't kick off another redirect.
+      if (!window.location.pathname.startsWith("/login")) {
+        try {
+          // Lazy import to dodge SSR / circular-import issues with the store.
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          require("./store").useAuthStore.getState().clearAuth();
+        } catch {
+          // Fallback: store unavailable — do the cleanup inline so the cookies/localStorage
+          // don't bounce the user back via the middleware.
+          localStorage.removeItem("access_token");
+          localStorage.removeItem("tenant_id");
+          document.cookie = "ia_role=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+          document.cookie = "ia_tenant=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+        }
+        window.location.href = "/login";
+      }
     }
     return Promise.reject(err);
   }

@@ -113,10 +113,15 @@ async def login(
         import asyncio
         from core.audit import record as audit
         from core.database import get_redis_cache
-        redis = get_redis_cache()
-        key = f"{tenant_id}:login_failed:{form.username.lower().strip()}"
-        fails = await redis.incr(key)
-        await redis.expire(key, 600)  # ventana de 10 min
+        # Fail-open on Redis errors: a flaky cache must not turn a bad-password 401 into a 500.
+        fails: int = 0
+        try:
+            redis = get_redis_cache()
+            key = f"{tenant_id}:login_failed:{form.username.lower().strip()}"
+            fails = await redis.incr(key)
+            await redis.expire(key, 600)  # ventana de 10 min
+        except Exception as exc:
+            logger.warning("brute_force_counter_unavailable tenant=%s error=%s", tenant_id, exc)
         detail_extra: dict = {"reason": "invalid_credentials", "attempt": int(fails)}
         action = "auth.brute_force_alert" if fails >= 5 else "auth.login_failed"
         asyncio.ensure_future(audit(

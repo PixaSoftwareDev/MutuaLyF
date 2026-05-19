@@ -45,12 +45,13 @@ _groq_client_loop: asyncio.AbstractEventLoop | None = None
 _openai_http_client: httpx.AsyncClient | None = None
 _openai_http_client_loop: asyncio.AbstractEventLoop | None = None
 
-# Global semaphore: max concurrent Groq requests across queries + quality gate.
-# Prevents quality gate batch from starving user-facing queries.
-# 4 total: 3 for user queries (orchestrator) + 1 reserved for quality gate.
+# Global semaphore: max concurrent LLM requests across queries + quality gate.
+# Sized for LLM_PROVIDER=openai (tier 1+ paid). With Groq free tier, lower to 4.
+# Name kept as _GROQ_* for historical compatibility — the semaphore actually
+# applies to whichever provider complete() ends up calling.
 _GROQ_SEMAPHORE: asyncio.Semaphore | None = None
 _GROQ_SEMAPHORE_LOOP: asyncio.AbstractEventLoop | None = None
-_GROQ_MAX_CONCURRENT = 4
+_GROQ_MAX_CONCURRENT = 10
 _QUALITY_GATE_MAX_CONCURRENT = 1  # Quality gate takes max 1 slot to avoid starving queries
 
 

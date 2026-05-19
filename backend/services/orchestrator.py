@@ -21,6 +21,7 @@ import logging
 import time
 from typing import Any
 
+import httpx
 from groq import APIError, APITimeoutError, RateLimitError
 
 from core.config import settings
@@ -272,9 +273,13 @@ async def handle_query(
             complexity=complexity,
             tenant_id=tenant_id,
         )
-    except (APITimeoutError, RateLimitError, APIError) as exc:
+    except (APITimeoutError, RateLimitError, APIError, httpx.HTTPError) as exc:
+        # APITimeoutError/RateLimitError/APIError come from the `groq` SDK.
+        # httpx.HTTPError covers OpenAI (called via raw httpx in groq_client.complete)
+        # and includes TimeoutException, ConnectError, HTTPStatusError (429/500/etc).
         latency_ms = int(time.monotonic() * 1000) - start_ms
-        logger.error("groq_failed_after_retries tenant_id=%s error=%s latency_ms=%d", tenant_id, exc, latency_ms)
+        logger.error("llm_failed_after_retries tenant_id=%s provider=%s error=%s latency_ms=%d",
+                     tenant_id, settings.llm_provider, exc, latency_ms)
         return {
             "answer": "Lo siento, el servicio de IA no está disponible en este momento. Por favor intentá de nuevo en unos segundos.",
             "sources": sources,

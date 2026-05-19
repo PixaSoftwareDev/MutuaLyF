@@ -113,14 +113,15 @@ async def validate_chunk_semantic_autonomy(chunk: Chunk) -> bool:
 
 async def validate_chunks_batch(
     chunks: list[Chunk],
-    max_concurrent: int = 1,
+    max_concurrent: int = 6,
     custom_prompt: str | None = None,
 ) -> list[QualityResult]:
     """Validate a batch of chunks with bounded concurrency.
 
-    Serialized (max_concurrent=1) by default to avoid competing with user-facing
-    Groq requests that run in the FastAPI process. Quality gate runs in the Celery
-    worker and shares the same Groq API key — staggering calls protects query SLA.
+    Default max_concurrent=6 assumes LLM_PROVIDER=openai (tier 1+ paid: 500 RPM
+    on gpt-4o-mini). Conservative on purpose — ~300 RPM peak from the quality
+    gate leaves headroom for concurrent user queries hitting the same API key.
+    Lower this to 1-2 if you switch back to Groq free tier.
     """
     import asyncio
 
@@ -128,12 +129,7 @@ async def validate_chunks_batch(
 
     async def _gated(chunk: Chunk) -> QualityResult:
         async with semaphore:
-            result = await validate_chunk(chunk, custom_prompt=custom_prompt)
-            # Small delay to avoid hitting Groq token-per-minute limits
-            # when processing large batches. Does not block user queries
-            # (those run in the FastAPI process, not here in the worker).
-            await asyncio.sleep(0.5)
-            return result
+            return await validate_chunk(chunk, custom_prompt=custom_prompt)
 
     results = await asyncio.gather(*[_gated(c) for c in chunks], return_exceptions=True)
 

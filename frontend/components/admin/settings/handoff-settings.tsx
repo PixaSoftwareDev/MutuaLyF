@@ -29,7 +29,7 @@ export function HandoffSettings() {
   });
 
   const [timeout, setTimeout_]   = useState(15);
-  const [threshold, setThreshold] = useState(2);
+  const [threshold, setThreshold] = useState(3);
   const [phrases, setPhrases]     = useState<string[]>([]);
   const [messages, setMessages]   = useState<Record<string, string>>({});
   const [newPhrase, setNewPhrase] = useState("");
@@ -83,13 +83,16 @@ export function HandoffSettings() {
             <Label className="text-sm">Después de respuestas insuficientes consecutivas</Label>
             <div className="flex items-center gap-3">
               <Input
-                type="number" min={1} max={10}
+                type="number" min={2} max={10}
                 value={threshold}
                 onChange={e => { setThreshold(Number(e.target.value)); setDirty(true); }}
                 className="w-20"
               />
-              <span className="text-sm text-muted-foreground">turnos sin respuesta útil → ofrecer pase a operador</span>
+              <span className="text-sm text-muted-foreground">turnos seguidos donde el bot no encontró información → ofrecer pase a operador</span>
             </div>
+            <p className="text-xs text-muted-foreground">
+              Se cuenta solo cuando el bot mismo declara que no tiene la información (no por saludos, repreguntas o follow-ups). Recomendado: 3.
+            </p>
           </div>
           <Separator />
           <div className="space-y-1.5">

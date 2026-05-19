@@ -840,8 +840,10 @@ function segmentAndSort(convs: ConversationRow[], now: number): Record<SectionKe
   for (const c of convs) {
     if (c.status in out) out[c.status as SectionKey].push(c);
   }
+  // Más urgente (más tiempo esperando) arriba: msSince mide "cuánto hace que está esperando",
+  // entonces queremos descendente — b - a, no a - b.
   out.handoff_requested.sort((a, b) =>
-    msSince(a.last_message_at ?? a.created_at, now) - msSince(b.last_message_at ?? b.created_at, now)
+    msSince(b.last_message_at ?? b.created_at, now) - msSince(a.last_message_at ?? a.created_at, now)
   );
   out.human_attending.sort((a, b) => {
     const aW = a.last_message_sender === "user" ? 1 : 0;

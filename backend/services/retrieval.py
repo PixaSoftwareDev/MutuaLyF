@@ -220,17 +220,30 @@ def _rerank(query: str, chunks: list[RetrievedChunk], top_k: int) -> list[Retrie
         return sorted(chunks, key=lambda c: c.score, reverse=True)[:top_k]
 
     try:
+        import math
         import torch
         pairs = [(query, chunk.text) for chunk in chunks]
         with torch.inference_mode():
             raw_scores = reranker.predict(pairs, convert_to_tensor=False, show_progress_bar=False)
         # Materialize as plain Python list and drop any tensor reference.
         scores: list[float] = list(raw_scores) if not hasattr(raw_scores, "tolist") else raw_scores.tolist()
-        scored = sorted(zip(scores, chunks), key=lambda x: x[0], reverse=True)
+        # Normalize cross-encoder logits to [0,1] via sigmoid so the downstream
+        # min_score filter (orchestrator.py) uses comparable values.
+        # Without this, the orchestrator still saw the old Qdrant cosine score
+        # and dropped chunks the reranker had ranked at the top.
+        def _sigmoid(x: float) -> float:
+            try:
+                return 1.0 / (1.0 + math.exp(-x))
+            except OverflowError:
+                return 0.0 if x < 0 else 1.0
+        normalized = [_sigmoid(s) for s in scores]
+        for chunk, norm in zip(chunks, normalized):
+            chunk.score = norm
+        scored = sorted(zip(normalized, chunks), key=lambda x: x[0], reverse=True)
         result = [chunk for _, chunk in scored[:top_k]]
         # Drop intermediates and force GC: empty_cache is a no-op on CPU but
         # gc.collect() releases tokenizer state held by sentence-transformers.
-        del raw_scores, pairs, scored
+        del raw_scores, pairs, scored, normalized
         gc.collect()
         return result
     except Exception as exc:
