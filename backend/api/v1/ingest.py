@@ -82,13 +82,12 @@ async def list_pending_chunks(
     tenant_id: str = Depends(get_tenant_id),
     current_user: CurrentUser = Depends(require_admin),
 ):
-    """Return all chunks with quality_gate_status pending or skipped across all documents.
+    """Return chunks awaiting human review (quality_gate_status == 'pending').
 
-    Used by the admin panel to show a centralized review queue without having
-    to open each document individually.
+    Skipped chunks are excluded — they already have a decision (Groq descartó
+    el contenido). El admin puede revisarlos abriendo el documento si quiere
+    rescatar alguno puntual; no son parte de la cola de "por revisar".
     """
-    from qdrant_client.models import FieldCondition, MatchAny
-
     qdrant = get_qdrant_client()
     collection = f"{tenant_id}_docs"
 
@@ -98,7 +97,7 @@ async def list_pending_chunks(
             must=[
                 FieldCondition(
                     key="quality_gate_status",
-                    match=MatchAny(any=["pending", "skipped"]),
+                    match=MatchValue(value="pending"),
                 )
             ]
         ),
@@ -136,7 +135,7 @@ async def list_pending_chunks(
             }
             for p in results
         ],
-        key=lambda c: (c["quality_gate_status"], c["document_id"], c["chunk_index"]),
+        key=lambda c: (c["document_id"], c["chunk_index"]),
     )
     return chunks
 

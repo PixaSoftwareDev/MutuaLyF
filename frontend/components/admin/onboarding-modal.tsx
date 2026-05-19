@@ -7,11 +7,11 @@ import { useAuthStore } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, Sparkles, Building2, CheckCircle2 } from "lucide-react";
+import { Loader2, Sparkles, CheckCircle2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const ORG_TYPES = ["Mutual", "Empresa privada", "Cooperativa", "ONG", "Organismo público", "Sindicato", "Otra"];
-const SERVES_OPTIONS = ["Afiliados", "Empleados", "Clientes", "Socios", "Ciudadanos", "Estudiantes", "Otro"];
+const ORG_TYPES = ["Empresa privada", "Cooperativa", "Mutual", "ONG", "Organismo público", "Sindicato", "Otra"];
+const SERVES_OPTIONS = ["Clientes", "Empleados", "Afiliados", "Socios", "Ciudadanos", "Estudiantes", "Otro"];
 const TONES = [
   { key: "formal", label: "Formal", desc: "Lenguaje profesional y respetuoso" },
   { key: "amigable", label: "Amigable", desc: "Cercano, cálido, de vos" },
@@ -74,8 +74,8 @@ export function OnboardingModal() {
 
   if (done) {
     return (
-      <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-        <div className="bg-background rounded-xl shadow-2xl max-w-md w-full p-8 text-center space-y-4">
+      <div className="fixed inset-0 z-50 bg-foreground/30 backdrop-blur-[2px] flex items-center justify-center p-4">
+        <div className="bg-background border rounded-xl shadow-lg max-w-md w-full p-8 text-center space-y-4">
           <div className="w-14 h-14 rounded-full bg-emerald-100 flex items-center justify-center mx-auto">
             <CheckCircle2 className="h-7 w-7 text-emerald-600" />
           </div>
@@ -92,34 +92,35 @@ export function OnboardingModal() {
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-background rounded-xl shadow-2xl w-full max-w-lg overflow-hidden">
+    <div className="fixed inset-0 z-50 bg-foreground/30 backdrop-blur-[2px] flex items-center justify-center p-4 overflow-y-auto">
+      <div className="bg-background border rounded-xl shadow-lg w-full max-w-xl overflow-hidden my-8">
 
         {/* Header */}
-        <div className="bg-primary px-6 py-5 text-white">
-          <div className="flex items-center gap-3 mb-3">
-            <Building2 className="h-5 w-5 shrink-0" />
-            <h2 className="font-semibold text-base">Configuración inicial del asistente</h2>
-          </div>
-          {/* Step indicators */}
-          <div className="flex items-center gap-1.5">
-            {STEPS.map((label, i) => (
-              <div key={i} className="flex items-center gap-1.5 flex-1">
-                <div className={cn(
-                  "w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 transition-colors",
-                  i < step ? "bg-white text-primary" :
-                  i === step ? "bg-white/30 text-white ring-2 ring-white" :
-                  "bg-white/15 text-white/50"
-                )}>
-                  {i < step ? "✓" : i + 1}
-                </div>
-                <span className={cn(
-                  "text-[10px] font-medium hidden sm:block transition-colors",
-                  i === step ? "text-white" : "text-white/50"
-                )}>{label}</span>
-                {i < STEPS.length - 1 && <div className="flex-1 h-px bg-white/20 hidden sm:block" />}
-              </div>
-            ))}
+        <div className="px-6 pt-6 pb-5 border-b bg-muted/30">
+          <h2 className="font-semibold text-base leading-tight">Configuración inicial del asistente</h2>
+          <p className="text-xs text-muted-foreground mt-1">Tomá un minuto para personalizar tu bot.</p>
+
+          {/* Step indicator — solo el paso actual + progress bar segmentada */}
+          <div className="mt-4 space-y-2">
+            <div className="flex items-baseline justify-between gap-3">
+              <p className="text-sm font-medium text-foreground">{STEPS[step]}</p>
+              <span className="text-[11px] text-muted-foreground tabular-nums">
+                Paso {step + 1} de {STEPS.length}
+              </span>
+            </div>
+            <div className="flex items-center gap-1">
+              {STEPS.map((_, i) => (
+                <div
+                  key={i}
+                  className={cn(
+                    "h-1 flex-1 rounded-full transition-colors",
+                    i < step  ? "bg-primary" :
+                    i === step ? "bg-primary/60" :
+                                 "bg-border"
+                  )}
+                />
+              ))}
+            </div>
           </div>
         </div>
 
@@ -137,7 +138,7 @@ export function OnboardingModal() {
                 <Input
                   value={form.org_name}
                   onChange={e => set("org_name", e.target.value)}
-                  placeholder="Mutual Bancaria Argentina"
+                  placeholder="Nombre de tu organización"
                   className="h-9"
                   autoFocus
                 />
@@ -190,7 +191,7 @@ export function OnboardingModal() {
                 <Input
                   value={form.main_topics}
                   onChange={e => set("main_topics", e.target.value)}
-                  placeholder="cobertura de salud, prestaciones sociales, trámites administrativos"
+                  placeholder="Ej. vacaciones, beneficios, política de licencias"
                   className="h-9"
                   autoFocus
                 />
@@ -201,7 +202,7 @@ export function OnboardingModal() {
                 <Input
                   value={form.excluded_topics}
                   onChange={e => set("excluded_topics", e.target.value)}
-                  placeholder="política, precios de competidores, temas legales"
+                  placeholder="Ej. política, opiniones personales, asesoramiento legal"
                   className="h-9"
                 />
               </div>
@@ -241,7 +242,7 @@ export function OnboardingModal() {
                 <Input
                   value={form.bot_name}
                   onChange={e => set("bot_name", e.target.value)}
-                  placeholder="Mate, Asistente, Bot RRHH… (dejá vacío para sin nombre)"
+                  placeholder="Ej. Aria, Asistente, Bot Soporte (dejá vacío para sin nombre)"
                   className="h-9"
                 />
               </div>

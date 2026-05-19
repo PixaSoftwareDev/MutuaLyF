@@ -238,10 +238,7 @@ function DuplicatesAlert({
 }) {
   const router = useRouter();
 
-  if (isLoading) return null;
-  if (pendingCount === 0) return null;
-
-  // Collect unique affected document names
+  // Hooks must be called unconditionally (Rules of Hooks) — keep above any return.
   const affectedDocs = useMemo(() => {
     const seen = new Set<string>();
     const names: string[] = [];
@@ -252,6 +249,9 @@ function DuplicatesAlert({
     }
     return names;
   }, [pairs]);
+
+  if (isLoading) return null;
+  if (pendingCount === 0) return null;
 
   return (
     <Card className="border-amber-200 bg-amber-50/50">
@@ -332,10 +332,10 @@ function ReviewQueue({
       <CardHeader className="pb-3">
         <CardTitle className="text-base flex items-center gap-2 text-amber-900">
           <AlertTriangle className="h-4 w-4 shrink-0" />
-          {pendingChunks.length} fragmento{pendingChunks.length !== 1 ? "s" : ""} sin verificar
+          {pendingChunks.length} fragmento{pendingChunks.length !== 1 ? "s" : ""} por revisar
         </CardTitle>
         <CardDescription className="text-amber-700 text-xs mt-1">
-          La IA no pudo verificar estos fragmentos automáticamente. Revisá el texto y decidí si incluirlos en las respuestas.
+          El verificador automático no pudo decidir sobre estos fragmentos. Aprobá los que sean útiles para responder consultas y descartá el resto — desaparecen de la cola al decidir.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -550,7 +550,6 @@ function PendingChunkCard({ chunk, onReviewed }: { chunk: PendingChunkResponse; 
     onError: () => toast({ title: "Error al actualizar", variant: "destructive" }),
   });
 
-  const isPending = chunk.quality_gate_status === "pending";
   const humanMsg = humanReason(chunk.quality_gate_reason);
   const PREVIEW_LENGTH = 250;
   const isLong = chunk.text.length > PREVIEW_LENGTH;
@@ -560,11 +559,8 @@ function PendingChunkCard({ chunk, onReviewed }: { chunk: PendingChunkResponse; 
     <div className="rounded border bg-background p-4 space-y-3">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-2 min-w-0">
-          <Badge
-            variant={isPending ? "warning" : "secondary"}
-            className="text-[10px] h-5 px-2 shrink-0"
-          >
-            {isPending ? "No verificado" : "Excluido"}
+          <Badge variant="warning" className="text-[10px] h-5 px-2 shrink-0">
+            Por verificar
           </Badge>
           <span className="text-xs text-muted-foreground truncate">
             Fragmento {chunk.chunk_index + 1} de {chunk.total_chunks}

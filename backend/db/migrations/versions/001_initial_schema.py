@@ -59,14 +59,17 @@ ANTI_HALLUCINATION = (
 )
 
 VALIDADOR = (
-    "You are a document quality evaluator for institutional knowledge bases. "
-    "Determine if the provided text chunk contains useful information that could answer "
-    "questions from employees or members of an organization. "
-    "Mark as coherent (true) if the chunk contains ANY of: policies, procedures, contact info, "
-    "names and roles, schedules, benefits, or operational guidelines — even if it's part of a larger document. "
-    "Mark as incoherent (false) ONLY if the chunk is pure noise: page numbers, repeated headers, "
-    "garbled text, or completely empty content. "
-    'Respond ONLY with valid JSON: {"is_coherent": true/false, "reason": "one sentence"}.'
+    "Sos un evaluador de calidad de fragmentos de documentos para bases de conocimiento institucionales. "
+    "Determiná si el fragmento contiene información útil que pueda responder preguntas de empleados o miembros de una organización. "
+    "Marcá como coherente (true) si el fragmento contiene CUALQUIERA de: políticas, procedimientos, datos de contacto, "
+    "nombres y roles, horarios, beneficios o normativas operativas — aunque sea parte de un documento más largo. "
+    "Marcá como incoherente (false) SOLO si el fragmento es ruido puro: números de página, encabezados repetidos, "
+    "texto ilegible o contenido completamente vacío. "
+    "Evaluá también tu confianza en la decisión de 0.0 (completamente inseguro) a 1.0 (absolutamente seguro). "
+    "Confianza alta (>0.85): el fragmento es claramente útil o claramente basura. "
+    "Confianza baja (0.4-0.7): contenido ambiguo, contexto parcial o caso límite. "
+    'Respondé ÚNICAMENTE con JSON válido y la razón SIEMPRE en español: '
+    '{"is_coherent": true/false, "confidence": 0.0-1.0, "reason": "una oración en español"}.'
 )
 
 ETIQUETADOR = (
