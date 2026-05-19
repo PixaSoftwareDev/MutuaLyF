@@ -44,6 +44,26 @@ export interface LoginResponse {
   expires_in: number;
 }
 
+export interface MeResponse {
+  id:         string;
+  email:      string;
+  name:       string;
+  role:       string;
+  tenant_id:  string | null;
+  sectors:    Array<{ id: string; nombre: string }>;
+}
+
+export interface TenantBranding {
+  tenant_id:        string;
+  display_name:     string;
+  logo_url:         string | null;
+  primary_color:    string;
+  secondary_color:  string | null;
+  favicon_url:      string | null;
+  bot_name:         string | null;
+  greeting_message: string | null;
+}
+
 export interface SourceChunk {
   chunk_id: string;
   document_id: string;
@@ -317,6 +337,73 @@ export const api = {
       localStorage.removeItem("access_token");
       localStorage.removeItem("tenant_id");
     },
+    me: async (): Promise<MeResponse> => {
+      const { data } = await apiClient.get<MeResponse>("/auth/me");
+      return data;
+    },
+    updateMe: async (name: string): Promise<MeResponse> => {
+      const { data } = await apiClient.patch<MeResponse>("/auth/me", { name });
+      return data;
+    },
+    changePassword: async (currentPassword: string, newPassword: string): Promise<void> => {
+      await apiClient.post("/auth/me/password", {
+        current_password: currentPassword,
+        new_password:     newPassword,
+      });
+    },
+  },
+
+  branding: {
+    /** Public endpoint — no auth required. Used by login and pre-auth pages. */
+    get: async (tenantId: string): Promise<TenantBranding> => {
+      // bypass interceptor headers; this is a public endpoint
+      const url = `${API_URL}/api/v1/public/tenant-branding?tenant_id=${encodeURIComponent(tenantId)}`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`Branding HTTP ${res.status}`);
+      return res.json();
+    },
+
+    /** Admin: load own branding (or other tenant if super-admin). */
+    getAdmin: async (tenantId?: string): Promise<TenantBranding> => {
+      const url = tenantId
+        ? `/admin/branding?tenant_id=${encodeURIComponent(tenantId)}`
+        : "/admin/branding";
+      const { data } = await apiClient.get<TenantBranding>(url);
+      return data;
+    },
+
+    /** Admin: patch branding fields. Send only the fields you want to change. */
+    update: async (
+      patch: Partial<Pick<TenantBranding, "display_name" | "primary_color" | "secondary_color" | "favicon_url">>,
+      tenantId?: string,
+    ): Promise<TenantBranding> => {
+      const url = tenantId
+        ? `/admin/branding?tenant_id=${encodeURIComponent(tenantId)}`
+        : "/admin/branding";
+      const { data } = await apiClient.patch<TenantBranding>(url, patch);
+      return data;
+    },
+
+    /** Admin: upload logo file. Returns the new logo_url. */
+    uploadLogo: async (file: File, tenantId?: string): Promise<{ logo_url: string }> => {
+      const fd = new FormData();
+      fd.append("file", file);
+      const url = tenantId
+        ? `/admin/branding/logo?tenant_id=${encodeURIComponent(tenantId)}`
+        : "/admin/branding/logo";
+      const { data } = await apiClient.post<{ logo_url: string }>(url, fd, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      return data;
+    },
+
+    /** Admin: remove logo. */
+    deleteLogo: async (tenantId?: string): Promise<void> => {
+      const url = tenantId
+        ? `/admin/branding/logo?tenant_id=${encodeURIComponent(tenantId)}`
+        : "/admin/branding/logo";
+      await apiClient.delete(url);
+    },
   },
 
   query: {
@@ -495,7 +582,8 @@ export const api = {
     transfer: async (id: string, sectorId: string, message?: string) => {
       await apiClient.post(`/operator/conversations/${id}/transfer`, { sector_id: sectorId, message });
     },
-    close: async (id: string) => { await apiClient.post(`/operator/conversations/${id}/close`); },
+    release: async (id: string) => { await apiClient.post(`/operator/conversations/${id}/release`); },
+    close:   async (id: string) => { await apiClient.post(`/operator/conversations/${id}/close`); },
     presence: async () => {
       const { data } = await apiClient.get("/operator/presence");
       return data as { operators: Array<{ user_id: string; name: string }>; count: number };

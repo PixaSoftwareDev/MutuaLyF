@@ -3,13 +3,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  MessageSquare, Loader2, Send, UserCheck, XCircle, User, Bot,
+  MessageSquare, Loader2, Send, UserCheck, UserMinus, XCircle, User, Bot,
   Info, ChevronDown, ChevronLeft, Search, Flame, ArrowRightLeft, Eye, Wifi, WifiOff,
 } from "lucide-react";
 import { api, type ConversationRow } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 
@@ -39,6 +40,7 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
   const [sectorFilter, setSectorFilter] = useState<string>("all");
   const [showTransfer, setShowTransfer] = useState(false);
   const [transferSector, setTransferSector] = useState("");
+  const [confirmRelease, setConfirmRelease] = useState(false);
   const [sseConnected, setSseConnected] = useState(false);
   const [now, setNow] = useState<number>(() => Date.now());
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -183,6 +185,17 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
   const closeM = useMutation({
     mutationFn: (id: string) => api.operator.close(id),
     onSuccess: () => { inv(); toast({ title: "Conversación cerrada" }); },
+  });
+
+  const releaseM = useMutation({
+    mutationFn: (id: string) => api.operator.release(id),
+    onSuccess: () => {
+      inv();
+      setSelectedId(null);
+      setConfirmRelease(false);
+      toast({ title: "Conversación devuelta a la cola", variant: "success" });
+    },
+    onError: () => toast({ title: "Error al devolver", variant: "destructive" }),
   });
 
   const replyM = useMutation({
@@ -436,14 +449,6 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <StatusBadge status={detail.status} />
-                {!readOnly && detail.status === "handoff_requested" && (
-                  <Button size="sm" className="h-8" onClick={() => acceptM.mutate(detail.id)} disabled={acceptM.isPending}>
-                    {acceptM.isPending
-                      ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
-                      : <UserCheck className="h-3.5 w-3.5 mr-1.5" />}
-                    Atender
-                  </Button>
-                )}
                 {!readOnly && detail.status === "human_attending" && (
                   <>
                     <Button
@@ -452,6 +457,15 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
                     >
                       <ArrowRightLeft className="h-3.5 w-3.5 mr-1.5" />
                       Transferir
+                    </Button>
+                    <Button
+                      size="sm" variant="outline" className="h-8"
+                      onClick={() => setConfirmRelease(true)}
+                      disabled={releaseM.isPending}
+                      title="Devolver la conversación a la cola para que otro operador la atienda"
+                    >
+                      <UserMinus className="h-3.5 w-3.5 mr-1.5" />
+                      Devolver
                     </Button>
                     <Button
                       size="sm" variant="outline" className="h-8 text-destructive hover:text-destructive"
@@ -541,21 +555,81 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
               </div>
             )}
 
-            {/* Prompt to accept */}
-            {!readOnly && detail.status === "handoff_requested" && (
-              <div className="px-4 py-3 border-t bg-amber-50/60 text-center">
-                <p className="text-xs text-amber-700 mb-2">
-                  Este usuario está esperando atención humana.
-                </p>
-                <Button size="sm" onClick={() => acceptM.mutate(detail.id)} disabled={acceptM.isPending}>
-                  {acceptM.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <UserCheck className="h-3.5 w-3.5 mr-1.5" />}
-                  Atender ahora
-                </Button>
-              </div>
-            )}
+            {/* Prompt to accept — paints up with the same urgency scale as the inbox card */}
+            {!readOnly && detail.status === "handoff_requested" && (() => {
+              const waitMs = msSince(detail.last_message_at ?? detail.created_at, now);
+              const waitStr = formatRelative(waitMs);
+              const level: "warn" | "urgent" | "critical" =
+                waitMs > VERY_URGENT_MS ? "critical" :
+                waitMs > URGENT_MS      ? "urgent"   :
+                "warn";
+
+              const bannerBg =
+                level === "critical" ? "bg-red-50 border-t border-red-200"     :
+                level === "urgent"   ? "bg-amber-100/60 border-t border-amber-200" :
+                "bg-amber-50/60 border-t border-amber-100";
+
+              const messageClass =
+                level === "critical" ? "text-red-700"   :
+                level === "urgent"   ? "text-amber-800" :
+                "text-amber-700";
+
+              const buttonClass =
+                level === "critical" ? "bg-red-600 hover:bg-red-700 text-white"     :
+                level === "urgent"   ? "bg-amber-600 hover:bg-amber-700 text-white" :
+                "bg-amber-500 hover:bg-amber-600 text-white";
+
+              return (
+                <div className={cn("px-4 py-3 text-center", bannerBg)}>
+                  <p className={cn("text-xs mb-2", messageClass)}>
+                    {level === "critical"
+                      ? <>Este usuario lleva <strong>{waitStr}</strong> esperando atención humana.</>
+                      : <>Este usuario está esperando atención humana <span className="opacity-70">· {waitStr}</span></>}
+                  </p>
+                  <button
+                    onClick={() => acceptM.mutate(detail.id)}
+                    disabled={acceptM.isPending}
+                    className={cn(
+                      "inline-flex items-center gap-1.5 rounded-md text-sm font-medium px-3 h-9 transition-colors disabled:opacity-60",
+                      buttonClass,
+                    )}
+                  >
+                    {acceptM.isPending
+                      ? <Loader2 className="h-4 w-4 animate-spin" />
+                      : <UserCheck className="h-4 w-4" />}
+                    Atender ahora
+                  </button>
+                </div>
+              );
+            })()}
           </>
         ) : null}
       </div>
+
+      {/* Release-to-queue confirmation */}
+      <Dialog open={confirmRelease} onOpenChange={(open) => !open && setConfirmRelease(false)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>¿Devolver esta conversación a la cola?</DialogTitle>
+            <DialogDescription>
+              Volverá al estado de espera para que otro operador la atienda.
+              Los mensajes enviados no se borran.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setConfirmRelease(false)}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={() => detail && releaseM.mutate(detail.id)}
+              disabled={releaseM.isPending}
+            >
+              {releaseM.isPending && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
+              Devolver a la cola
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -726,23 +800,32 @@ export function MessageBubble({ msg }: { msg: { id: string; sender_type: string;
   );
 
   return (
-    <div className={cn("flex gap-2 items-end", isUser ? "flex-row-reverse" : "flex-row")}>
+    <div className={cn("flex gap-3 items-end", isUser ? "flex-row-reverse" : "flex-row")}>
       {!isUser && (
         <div className={cn(
-          "w-6 h-6 rounded-full flex items-center justify-center shrink-0",
-          isOperator ? "bg-emerald-100 text-emerald-700" : "bg-primary/10 text-primary",
+          "w-8 h-8 rounded-xl flex items-center justify-center shrink-0 shadow-md",
+          isOperator
+            ? "bg-gradient-to-br from-emerald-400 to-teal-600 shadow-emerald-500/25"
+            : "bg-gradient-to-br from-brand-light to-brand-dark shadow-brand/25",
         )}>
-          {isOperator ? <UserCheck className="h-3.5 w-3.5" /> : <Bot className="h-3.5 w-3.5" />}
+          {isOperator
+            ? <UserCheck className="h-4 w-4 text-white" />
+            : <Bot       className="h-4 w-4 text-white" />}
         </div>
       )}
-      <div className={cn(
-        "max-w-[72%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed",
-        isUser     && "bg-primary text-white rounded-br-sm",
-        isOperator && "bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-bl-sm",
-        !isUser && !isOperator && "bg-muted text-foreground rounded-bl-sm",
-      )}>
-        <p className="whitespace-pre-wrap">{msg.content}</p>
-        <p className={cn("text-[10px] mt-1 opacity-50", isUser ? "text-right" : "text-left")}>{time}</p>
+      <div className="max-w-[72%] flex flex-col">
+        <div className={cn(
+          "rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed",
+          isUser     && "bg-primary text-white rounded-br-sm shadow-md",
+          isOperator && "bg-white border border-emerald-100 text-slate-800 rounded-bl-sm shadow-sm",
+          !isUser && !isOperator && "bg-white border border-slate-100 text-slate-800 rounded-bl-sm shadow-sm",
+        )}>
+          <p className="whitespace-pre-wrap">{msg.content}</p>
+          <p className={cn("text-[10px] mt-1 opacity-50", isUser ? "text-right" : "text-left")}>{time}</p>
+        </div>
+        {isOperator && (
+          <p className="text-[10px] text-emerald-600 mt-1 ml-1 font-medium">Operador</p>
+        )}
       </div>
     </div>
   );

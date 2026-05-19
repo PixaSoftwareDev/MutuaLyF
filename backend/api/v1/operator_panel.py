@@ -475,6 +475,61 @@ async def transfer(
 
 # ── Close conversation ────────────────────────────────────────────────────────
 
+# ── Release back to queue ─────────────────────────────────────────────────────
+
+@router.post("/operator/conversations/{conversation_id}/release")
+async def release_to_queue(
+    conversation_id: str,
+    request: Request,
+    tenant_id: str = Depends(get_tenant_id),
+    current_user: CurrentUser = Depends(require_operator),
+):
+    """Send a conversation back to the handoff queue without closing it.
+
+    Used when the operator accepted by mistake, is going off shift, or
+    realises the case is for another operator but doesn't know which sector.
+    Differs from /transfer in that it keeps the conversation in the same
+    sector — just frees the operator slot so another operator can pick it up.
+    """
+    from services.handoff import _get_handoff_config
+    config = await _get_handoff_config(tenant_id)
+
+    async with get_pg_session(tenant_id) as session:
+        # Only the assigned operator (or admin via the same endpoint) can release.
+        result = await session.execute(text("""
+            UPDATE conversaciones
+            SET status = 'handoff_requested',
+                assigned_operator_id = NULL,
+                updated_at = NOW()
+            WHERE id = :id
+              AND status = 'human_attending'
+              AND assigned_operator_id = :op_id
+            RETURNING id
+        """), {"id": conversation_id, "op_id": current_user.user_id})
+        if not result.fetchone():
+            raise HTTPException(status_code=400, detail="Conversation not assigned to this operator")
+
+        # Reuse the same "connecting to an operator" message the user already
+        # saw when they first entered the queue, to avoid surprise.
+        msg = config["transition_messages"]["handoff_auto"]
+        await session.execute(text("""
+            INSERT INTO mensajes (conversation_id, sender_type, content)
+            VALUES (:cid, 'system', :msg)
+        """), {"cid": conversation_id, "msg": msg})
+
+    logger.info("handoff_released conversation_id=%s operator=%s", conversation_id, current_user.user_id)
+    from core.audit import record as audit
+    asyncio.ensure_future(audit(
+        tenant_id=tenant_id, actor_id=current_user.user_id, actor_email=current_user.email,
+        actor_role=current_user.role.value, action="handoff.released",
+        resource=conversation_id, request=request,
+    ))
+    asyncio.ensure_future(publish(tenant_id, "conversation_updated", {
+        "conversation_id": conversation_id, "status": ConvStatus.HANDOFF_REQUESTED,
+    }))
+    return {"status": ConvStatus.HANDOFF_REQUESTED, "system_message": msg}
+
+
 @router.post("/operator/conversations/{conversation_id}/close")
 async def close_conversation(
     conversation_id: str,
@@ -594,6 +649,42 @@ async def public_chat_token(tenant_id: str = Depends(get_tenant_id)):
         if not row.fetchone():
             raise HTTPException(status_code=404, detail="Tenant not found")
     return {"widget_token": create_widget_token(tenant_id), "tenant_id": tenant_id}
+
+
+@router.get("/public/tenant-branding")
+async def public_tenant_branding(tenant_id: str):
+    """Return public branding info for a tenant (logo, colors, name).
+    Used by /login and other pre-auth pages to render the tenant's identity.
+    Accepts tenant_id as a query param so callers without an X-Tenant-ID header
+    (login page, etc.) can fetch it explicitly.
+    """
+    tid = (tenant_id or "").strip()
+    if not tid:
+        raise HTTPException(status_code=400, detail="tenant_id required")
+
+    async with get_pg_session() as session:
+        row = await session.execute(text("""
+            SELECT id, name, display_name, logo_url, primary_color, secondary_color,
+                   favicon_url, bot_name, greeting_message
+            FROM tenants
+            WHERE id = :tid AND status != 'suspended'
+            LIMIT 1
+        """), {"tid": tid})
+        t = row.mappings().fetchone()
+
+    if not t:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+
+    return {
+        "tenant_id":        t["id"],
+        "display_name":     t["display_name"] or t["name"],
+        "logo_url":         t["logo_url"],
+        "primary_color":    t["primary_color"]   or "#99323D",
+        "secondary_color":  t["secondary_color"],
+        "favicon_url":      t["favicon_url"],
+        "bot_name":         t["bot_name"],
+        "greeting_message": t["greeting_message"],
+    }
 
 
 # ── Sector management (admin only) ────────────────────────────────────────────
