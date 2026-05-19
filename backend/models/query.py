@@ -4,9 +4,15 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
+class ConversationTurn(BaseModel):
+    role: str   # "user" | "bot"
+    content: str = Field(..., max_length=2000)
+
+
 class QueryRequest(BaseModel):
     question: str = Field(..., min_length=1, max_length=2000)
     language: str = Field(default="es", max_length=10)
+    conversation_history: list[ConversationTurn] = Field(default_factory=list, max_length=20)
 
 
 class SourceChunk(BaseModel):

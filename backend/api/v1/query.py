@@ -27,6 +27,7 @@ async def query(
         tenant_id=tenant_id,
         user_id=current_user.user_id,
         language=request.language,
+        conversation_history=[(t.role, t.content) for t in request.conversation_history],
     )
     return QueryResponse(
         answer=result["answer"],
@@ -50,8 +51,9 @@ async def query_widget(
     result = await handle_query(
         question=request.question,
         tenant_id=tenant_id,
-        user_id=None,  # Widget queries are anonymous
+        user_id=None,
         language=request.language,
+        conversation_history=[(t.role, t.content) for t in request.conversation_history],
     )
     return QueryResponse(
         answer=result["answer"],

@@ -114,6 +114,25 @@ class Settings(BaseSettings):
     chunk_size_tokens: int = 512
     chunk_overlap_tokens: int = 64
     semantic_min_tokens: int = 20
+    # Hierarchical chunking (Small-to-Big)
+    child_chunk_size_words: int = 150    # child size sent to Qdrant for embedding
+    child_chunk_overlap_words: int = 15
+    max_parent_words: int = 700          # hard cap per parent section sent to LLM
+    min_parent_words: int = 60           # sections shorter than this merge into previous
+
+    # ── Retrieval ─────────────────────────────────────────────────────────────
+    retrieval_top_k: int = 100           # candidates fetched from Qdrant
+    rerank_top_k: int = 15              # top-k after reranking
+    bm25_limit: int = 20                # BM25 candidates from PostgreSQL
+    rrf_k: int = 60                     # RRF constant (standard value, rarely changed)
+    skipped_chunk_score_penalty: float = 0.85  # score multiplier for quality_gate_status=skipped
+    low_confidence_fallback_chunks: int = 2    # chunks to include when all below min_score
+    max_context_chunks: int = 15        # max chunks sent to LLM in a single query
+
+    # ── Conversation history ───────────────────────────────────────────────────
+    history_recent_turns: int = 6       # last N turns sent as full messages
+    history_summary_chars: int = 120    # chars per turn in the compressed summary block
+    history_message_max_chars: int = 500  # max chars per recent turn message
 
     # ── ML models ─────────────────────────────────────────────────────────────
     embedding_model: str = "intfloat/multilingual-e5-large"
@@ -124,6 +143,8 @@ class Settings(BaseSettings):
 
     # ── Cache ─────────────────────────────────────────────────────────────────
     cache_ttl_seconds: int = 3600
+    semantic_cache_threshold: float = 0.93   # cosine similarity to consider a semantic hit
+    semantic_cache_enabled: bool = True
 
     # ── Intent classifier ─────────────────────────────────────────────────────
     intent_confidence_high: float = 0.95

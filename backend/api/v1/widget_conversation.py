@@ -169,7 +169,7 @@ async def send_message(
         hist_result = await session.execute(text("""
             SELECT sender_type, content FROM mensajes
             WHERE conversation_id = :cid AND sender_type IN ('user', 'bot')
-            ORDER BY created_at DESC LIMIT 10
+            ORDER BY created_at DESC LIMIT 20
         """), {"cid": conversation_id})
         history_rows = list(reversed(hist_result.mappings().fetchall()))
     # Build list of (role, content) tuples, excluding the just-inserted user message

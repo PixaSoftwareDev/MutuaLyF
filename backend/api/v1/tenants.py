@@ -327,7 +327,6 @@ class BotConfigResponse(BaseModel):
     bot_scope: str | None
     min_retrieval_score: float
     greeting_message: str | None
-    prompt_query: str | None
     prompt_quality_gate: str | None
     prompt_cluster_label: str | None
     onboarding_completed: bool
@@ -338,7 +337,6 @@ class BotConfigUpdate(BaseModel):
     bot_scope: str | None = None
     min_retrieval_score: float | None = None
     greeting_message: str | None = None
-    prompt_query: str | None = None
     prompt_quality_gate: str | None = None
     prompt_cluster_label: str | None = None
 
@@ -354,7 +352,7 @@ async def get_bot_config(
 
     async with get_pg_session() as session:
         result = await session.execute(
-            text("SELECT bot_name, bot_description, bot_scope, min_retrieval_score, greeting_message, prompt_query, prompt_quality_gate, prompt_cluster_label, onboarding_completed FROM tenants WHERE id = :tid"),
+            text("SELECT bot_name, bot_description, bot_scope, min_retrieval_score, greeting_message, prompt_quality_gate, prompt_cluster_label, onboarding_completed FROM tenants WHERE id = :tid"),
             {"tid": tenant_id},
         )
         row = result.mappings().fetchone()
@@ -368,7 +366,6 @@ async def get_bot_config(
         bot_scope=row["bot_scope"],
         min_retrieval_score=float(row["min_retrieval_score"]) if row["min_retrieval_score"] is not None else 0.45,
         greeting_message=row["greeting_message"],
-        prompt_query=row["prompt_query"],
         prompt_quality_gate=row["prompt_quality_gate"],
         prompt_cluster_label=row["prompt_cluster_label"],
         onboarding_completed=bool(row["onboarding_completed"]),
@@ -404,9 +401,6 @@ async def update_bot_config(
     if body.greeting_message is not None:
         updates.append("greeting_message = :greeting_message")
         params["greeting_message"] = body.greeting_message or None
-    if body.prompt_query is not None:
-        updates.append("prompt_query = :prompt_query")
-        params["prompt_query"] = body.prompt_query or None
     if body.prompt_quality_gate is not None:
         updates.append("prompt_quality_gate = :prompt_quality_gate")
         params["prompt_quality_gate"] = body.prompt_quality_gate or None

@@ -40,6 +40,31 @@ async def list_documents(
         return [document_response_from_row(dict(row)) for row in rows]
 
 
+@router.get("/documents/{document_id}/status")
+async def document_status(
+    document_id: str,
+    tenant_id: str = Depends(get_tenant_id),
+    current_user: CurrentUser = Depends(require_admin),
+):
+    """Lightweight status poll for a single document. Used by the upload progress bar."""
+    async with get_pg_session(tenant_id) as session:
+        result = await session.execute(
+            text(
+                "SELECT status, chunk_count, quality_gate_status "
+                "FROM documentos WHERE id = :id"
+            ),
+            {"id": document_id},
+        )
+        row = result.mappings().fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Document not found")
+    return {
+        "status": row["status"],
+        "chunk_count": row["chunk_count"],
+        "quality_gate_status": row["quality_gate_status"],
+    }
+
+
 @router.get("/documents/{document_id}/chunks")
 async def list_chunks(
     document_id: str,

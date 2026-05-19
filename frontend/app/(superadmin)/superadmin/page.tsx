@@ -535,13 +535,13 @@ function CreateTenantModal({ open, onClose, onCreated }: { open: boolean; onClos
 
   return (
     <Dialog open={open} onOpenChange={v => !v && onClose()}>
-      <DialogContent className="w-full max-w-md mx-4 sm:mx-auto">
-        <DialogHeader>
+      <DialogContent className="w-full max-w-md mx-4 sm:mx-auto flex flex-col max-h-[90dvh]">
+        <DialogHeader className="shrink-0">
           <DialogTitle className="flex items-center gap-2">
             <Building2 className="h-4 w-4 text-primary" />Nueva organización
           </DialogTitle>
         </DialogHeader>
-        <div className="space-y-3 py-1">
+        <div className="space-y-3 py-1 overflow-y-auto flex-1 min-h-0 pr-1">
           {fields.map(f => (
             <div key={f.key} className="space-y-1">
               <Label className="text-xs font-medium">{f.label}</Label>
@@ -597,7 +597,7 @@ function CreateTenantModal({ open, onClose, onCreated }: { open: boolean; onClos
 
           {error && <div className="rounded-md bg-destructive/10 border border-destructive/20 px-3 py-2"><p className="text-xs text-destructive">{error}</p></div>}
         </div>
-        <DialogFooter className="flex-col sm:flex-row gap-2">
+        <DialogFooter className="flex-col sm:flex-row gap-2 shrink-0 pt-2 border-t">
           <Button variant="outline" className="w-full sm:w-auto" onClick={onClose}>Cancelar</Button>
           <Button className="w-full sm:w-auto" disabled={!canSubmit} onClick={() => { setError(""); createM.mutate(); }}>
             {createM.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}

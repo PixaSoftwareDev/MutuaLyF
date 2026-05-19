@@ -145,6 +145,25 @@ CREATE TABLE IF NOT EXISTS handoff_config (
 );
 INSERT INTO handoff_config DEFAULT VALUES ON CONFLICT DO NOTHING;
 
+-- ── Parent chunks (Small-to-Big RAG) ─────────────────────────────────────────
+-- Children (150 tokens) live in Qdrant for precise semantic search.
+-- Parents (up to 700 tokens, respecting structural boundaries) live here and
+-- are fetched at query time to give the LLM full context.
+-- ts_body enables BM25 keyword search (exact numbers, names, codes) at zero
+-- extra LLM cost, complementing semantic search from Qdrant.
+CREATE TABLE IF NOT EXISTS parent_chunks (
+    id          TEXT        PRIMARY KEY,
+    document_id UUID        NOT NULL REFERENCES documentos(id) ON DELETE CASCADE,
+    text        TEXT        NOT NULL,
+    chunk_index INTEGER     NOT NULL,
+    token_count INTEGER     NOT NULL,
+    metadata    JSONB       NOT NULL DEFAULT '{}',
+    ts_body     tsvector    GENERATED ALWAYS AS (to_tsvector('spanish', text)) STORED,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS ix_parent_chunks_doc ON parent_chunks (document_id);
+CREATE INDEX IF NOT EXISTS ix_parent_chunks_fts ON parent_chunks USING GIN (ts_body);
+
 -- ── Duplicate detection ────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS chunk_duplicate_pairs (

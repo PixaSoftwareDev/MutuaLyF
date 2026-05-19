@@ -108,11 +108,9 @@ async def _run_ingest_pipeline(
     neo4j_driver: AsyncDriver,
 ) -> dict:
     """Core ingestion logic. All async clients are injected — no global lookups."""
-    from services.chunker import extract_text_from_bytes, chunk_document
+    from services.chunker import extract_text_from_bytes, chunk_document_hierarchical
     from services.quality_gate import validate_chunks_batch, QualityStatus
     from services.embeddings import embed_batch
-    from services.nlu import extract_entities
-    from services.neo4j_client import write_entities_for_chunk
 
     loop = asyncio.get_running_loop()
     timings: dict[str, int] = {}
@@ -147,9 +145,10 @@ async def _run_ingest_pipeline(
         await _update_document_status(document_id, tenant_id, "failed")
         return {"chunk_count": 0, "status": "failed", "timings": timings}
 
-    # ── 2. Classify document type + Chunk (CPU-bound) ────────────────────────
+    # ── 2. Classify document type + Hierarchical chunk (CPU-bound) ──────────────
     t = time.monotonic()
     from services.doc_classifier import classify_document
+    from services.chunker import HierarchicalChunk, Chunk as ChunkType
 
     def _classify_and_chunk():
         classification = classify_document(text)
@@ -157,47 +156,81 @@ async def _run_ingest_pipeline(
             "doc_classified document_id=%s type=%s strategy=%s confidence=%.2f",
             document_id, classification.doc_type, classification.chunking_strategy, classification.confidence,
         )
-        return chunk_document(
+        return chunk_document_hierarchical(
             text, document_id, tenant_id,
             {"filename": filename, "mime_type": mime_type, "document_id": document_id},
             classification=classification,
         )
 
-    chunks = await loop.run_in_executor(None, _classify_and_chunk)
+    parents, children = await loop.run_in_executor(None, _classify_and_chunk)
     timings["chunk_ms"] = _ms(t)
 
-    if not chunks:
+    if not children:
         await _update_document_status(document_id, tenant_id, "failed")
         return {"chunk_count": 0, "status": "failed", "timings": timings}
 
-    # ── 3. Quality gate stage 2: filter non-autonomous chunks ─────────────────
+    # ── 3. Quality gate on PARENTS (≈5× fewer Groq calls than gating children) ─
+    # Stage 2 (semantic autonomy) + Stage 1 (Groq coherence) both run on parent
+    # text.  Children whose parent is rejected are dropped before embedding.
     t = time.monotonic()
-    from services.quality_gate import validate_chunk_semantic_autonomy
-    autonomous_checks = await asyncio.gather(*[
-        validate_chunk_semantic_autonomy(c) for c in chunks
-    ])
-    chunks_stage2 = [c for c, ok in zip(chunks, autonomous_checks) if ok]
-    filtered_count = len(chunks) - len(chunks_stage2)
-    if filtered_count > 0:
-        logger.info(
-            "quality_stage2_filtered document_id=%s removed=%d kept=%d",
-            document_id, filtered_count, len(chunks_stage2),
-        )
-    chunks = chunks_stage2 if chunks_stage2 else chunks  # keep original if all filtered
+    from services.quality_gate import validate_chunk_semantic_autonomy, validate_chunks_batch, QualityStatus
 
-    # ── 4+5. Quality gate stage 1 (Groq I/O) + Embeddings (CPU) run concurrently ─
+    # Stage 2: filter parents that are too short to be useful
+    autonomous_checks = await asyncio.gather(*[
+        validate_chunk_semantic_autonomy(p) for p in parents  # type: ignore[arg-type]
+    ])
+    parents_stage2 = [p for p, ok in zip(parents, autonomous_checks) if ok]
+    if not parents_stage2:
+        parents_stage2 = parents  # keep all if everything filtered
+
+    # Stage 1: Groq coherence gate on parent texts
     from services.orchestrator import _get_tenant_config as _get_config, _get_system_template
     _cfg = await _get_config(tenant_id)
     quality_prompt = _cfg.get("prompt_quality_gate") or await _get_system_template("Validador de documentos")
-    quality_task = validate_chunks_batch(chunks, max_concurrent=1, custom_prompt=quality_prompt)
-    embed_task = loop.run_in_executor(None, embed_batch, [c.text for c in chunks], False)
-    quality_results, embeddings = await asyncio.gather(quality_task, embed_task)
-    timings["quality_and_embed_ms"] = _ms(t)
-    quality_map = {r.chunk_id: r for r in quality_results}
 
-    # ── 5. Ensure Qdrant collection exists, build points ─────────────────────
+    # Wrap parents as Chunk-compatible objects for validate_chunks_batch
+    import dataclasses as _dc
+    parent_as_chunks: list[ChunkType] = [
+        ChunkType(
+            id=p.id,
+            document_id=p.document_id,
+            tenant_id=p.tenant_id,
+            text=p.text,
+            token_count=p.token_count,
+            chunk_index=p.chunk_index,
+            total_chunks=len(parents_stage2),
+        )
+        for p in parents_stage2
+    ]
+    quality_results = await validate_chunks_batch(parent_as_chunks, custom_prompt=quality_prompt)
+    timings["quality_ms"] = _ms(t)
+
+    quality_map = {r.chunk_id: r for r in quality_results}
+    passed_parent_ids = {
+        r.chunk_id for r in quality_results
+        if r.status != QualityStatus.SKIPPED
+    }
+
+    # Keep only children whose parent passed quality gate
+    chunks = [c for c in children if c.parent_id in passed_parent_ids]
+    if not chunks:
+        chunks = children  # fallback: keep all if gate wiped everything
+
+    # ── 4. Store parents in PostgreSQL (before Qdrant so children can reference them) ─
+    t = time.monotonic()
+    await _store_parent_chunks(
+        [p for p in parents_stage2 if p.id in passed_parent_ids],
+        tenant_id,
+    )
+    timings["parent_store_ms"] = _ms(t)
+
+    # ── 5. Embed children + ensure Qdrant collection ──────────────────────────
+    t = time.monotonic()
     collection = f"{tenant_id}_docs"
     await _ensure_qdrant_collection(qdrant, collection)
+
+    embeddings = await loop.run_in_executor(None, embed_batch, [c.text for c in chunks], False)
+    timings["embed_ms"] = _ms(t)
 
     valid: list[tuple] = [
         (chunk, emb)
@@ -222,44 +255,20 @@ async def _run_ingest_pipeline(
                 "total_chunks": chunk.total_chunks,
                 "chunk_level": chunk.chunk_level,
                 "parent_id": chunk.parent_id,
-                "quality_gate_status": (quality_map[chunk.id].status.value
-                                        if chunk.id in quality_map else "pending"),
-                "quality_gate_confidence": (round(quality_map[chunk.id].confidence, 3)
-                                            if chunk.id in quality_map else None),
-                "quality_gate_reason": (quality_map[chunk.id].reason
-                                        if chunk.id in quality_map else None),
+                # Quality gate runs on parents; children inherit parent's result.
+                "quality_gate_status": (quality_map[chunk.parent_id].status.value
+                                        if chunk.parent_id and chunk.parent_id in quality_map else "passed"),
+                "quality_gate_confidence": (round(quality_map[chunk.parent_id].confidence, 3)
+                                            if chunk.parent_id and chunk.parent_id in quality_map else None),
+                "quality_gate_reason": (quality_map[chunk.parent_id].reason
+                                        if chunk.parent_id and chunk.parent_id in quality_map else None),
                 **chunk.metadata,
             },
         )
         for chunk, emb in valid
     ]
 
-    # ── 6. Extract entities concurrently (GLiNER — CPU per chunk) ────────────
-    t = time.monotonic()
-    entity_lists = await asyncio.gather(*[
-        loop.run_in_executor(None, extract_entities, chunk.text)
-        for chunk, _ in valid
-    ])
-    timings["nlu_ms"] = _ms(t)
-
-    # ── 7. Write Neo4j entities concurrently across all chunks ────────────────
-    t = time.monotonic()
-    neo4j_tasks = [
-        write_entities_for_chunk(
-            tenant_id=tenant_id,
-            chunk_id=chunk.id,
-            document_id=document_id,
-            entities=entities,
-            driver=neo4j_driver,
-        )
-        for (chunk, _), entities in zip(valid, entity_lists)
-        if entities
-    ]
-    if neo4j_tasks:
-        await asyncio.gather(*neo4j_tasks, return_exceptions=True)
-    timings["neo4j_ms"] = _ms(t)
-
-    # ── 7b. Duplicate detection (non-blocking) ────────────────────────────────
+    # ── 6. Duplicate detection (non-blocking) ────────────────────────────────
     # Only cross-document duplicates are reported. Within-batch comparison is
     # skipped because every batch belongs to a single document — comparing its
     # chunks against each other always yields same-doc pairs, which are never
@@ -317,7 +326,7 @@ async def _run_ingest_pipeline(
             document_id, exc,
         )
 
-    # ── 8. Upsert to Qdrant in batches of 100 ────────────────────────────────
+    # ── 7. Upsert to Qdrant in batches of 100 ────────────────────────────────
     t = time.monotonic()
     for i in range(0, len(points), 100):
         await qdrant.upsert(collection_name=collection, points=points[i:i + 100])
@@ -325,18 +334,9 @@ async def _run_ingest_pipeline(
 
     logger.info("ingest_indexed document_id=%s points=%d", document_id, len(points))
 
-    # ── 9. Enqueue quality gate retries for chunks pending Groq response ──────
-    pending_retry = [
-        c for c, _ in valid
-        if quality_map.get(c.id) and quality_map[c.id].status.value == "pending"
-    ]
-    for chunk in pending_retry:
-        revalidate_chunk_quality.apply_async(args=[chunk.id, tenant_id], countdown=_RETRY_DELAYS[0])
-
-    # ── 10. Finalize — status update FIRST, then metrics (graceful) ──────────
-    # Compute aggregate quality_gate_status for the document.
-    # "skipped" only when EVERY chunk failed — a single bad chunk should not
-    # mark the whole document as unusable.
+    # ── 8. Mark document ready immediately — chunks are searchable now ────────
+    # NLU/Neo4j entity extraction runs as a background task so the user sees
+    # "ready" without waiting for GLiNER CPU inference (which can take minutes).
     passed_count = sum(1 for r in quality_results if r.status.value == "passed")
     pending_count = sum(1 for r in quality_results if r.status.value == "pending")
     if pending_count > 0:
@@ -352,18 +352,28 @@ async def _run_ingest_pipeline(
         document_id, len(points), timings,
     )
 
-    # Status + usage BEFORE anything that can raise (metrics)
     await _update_document_status(
         document_id, tenant_id, "ready",
         chunk_count=len(points),
         quality_gate_status=agg_quality,
     )
     await _log_usage_event(tenant_id, "ingest", len(points))
-
-    # Invalidate the tenant's response cache so newly indexed content is
-    # immediately searchable. Without this, cached "no info" answers persist
-    # for up to TTL seconds after ingestion completes.
     await _invalidate_tenant_cache(tenant_id)
+
+    # ── 9. Enqueue NLU + Neo4j as background task ─────────────────────────────
+    chunk_texts_and_ids = [(chunk.id, chunk.text) for chunk, _ in valid]
+    enrich_document_entities.apply_async(
+        args=[document_id, tenant_id, chunk_texts_and_ids],
+        countdown=0,
+    )
+
+    # ── 10. Enqueue quality gate retries for chunks pending Groq response ──────
+    pending_retry = [
+        c for c, _ in valid
+        if quality_map.get(c.id) and quality_map[c.id].status.value == "pending"
+    ]
+    for chunk in pending_retry:
+        revalidate_chunk_quality.apply_async(args=[chunk.id, tenant_id], countdown=_RETRY_DELAYS[0])
 
     try:
         from core.metrics import INGEST_TOTAL, PIPELINE_DURATION, QUALITY_GATE_TOTAL
@@ -375,6 +385,67 @@ async def _run_ingest_pipeline(
         logger.debug("metrics_unavailable_in_worker error=%s", _metrics_exc)
 
     return {"chunk_count": len(points), "status": "ready", "timings": timings}
+
+
+# ── enrich_document_entities ─────────────────────────────────────────────────
+
+@app.task(
+    bind=True,
+    name="workers.ingest_tasks.enrich_document_entities",
+    queue="ingest",
+    max_retries=2,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+)
+def enrich_document_entities(
+    self: Task,
+    document_id: str,
+    tenant_id: str,
+    chunk_texts_and_ids: list[tuple[str, str]],
+) -> dict:
+    """Run GLiNER NLU + write entities to Neo4j.
+
+    Runs after the document is already marked ready so users can query
+    immediately. Entity enrichment is a best-effort enhancement.
+    """
+    logger.info("nlu_enrich_start document_id=%s chunks=%d", document_id, len(chunk_texts_and_ids))
+    return asyncio.run(_run_entity_enrichment(document_id, tenant_id, chunk_texts_and_ids))
+
+
+async def _run_entity_enrichment(
+    document_id: str,
+    tenant_id: str,
+    chunk_texts_and_ids: list[tuple[str, str]],
+) -> dict:
+    from services.nlu import extract_entities
+    from services.neo4j_client import write_entities_for_chunk
+    from core.database import get_worker_neo4j_driver
+
+    loop = asyncio.get_running_loop()
+
+    entity_lists = await asyncio.gather(*[
+        loop.run_in_executor(None, extract_entities, text)
+        for _, text in chunk_texts_and_ids
+    ])
+
+    async with get_worker_neo4j_driver() as neo4j_driver:
+        neo4j_tasks = [
+            write_entities_for_chunk(
+                tenant_id=tenant_id,
+                chunk_id=chunk_id,
+                document_id=document_id,
+                entities=entities,
+                driver=neo4j_driver,
+            )
+            for (chunk_id, _), entities in zip(chunk_texts_and_ids, entity_lists)
+            if entities
+        ]
+        if neo4j_tasks:
+            await asyncio.gather(*neo4j_tasks, return_exceptions=True)
+
+    entity_count = sum(len(e) for e in entity_lists if e)
+    logger.info("nlu_enrich_done document_id=%s entities=%d", document_id, entity_count)
+    return {"document_id": document_id, "entity_count": entity_count}
 
 
 # ── revalidate_chunk_quality ──────────────────────────────────────────────────
@@ -519,6 +590,45 @@ async def _maybe_resolve_document_quality(
 
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
+
+async def _store_parent_chunks(parents: list, tenant_id: str) -> None:
+    """Persist parent chunks to PostgreSQL.
+
+    Parents are large context blocks (≤700 words).  They are fetched at query
+    time so the LLM receives full section context instead of small fragments.
+    The ts_body tsvector column is auto-generated from the text column and
+    enables BM25 keyword search without any extra work here.
+    """
+    if not parents:
+        return
+    import json as _json
+    from core.database import get_worker_pg_session
+    from sqlalchemy import text as _sa_text
+
+    try:
+        async with get_worker_pg_session(tenant_id) as session:
+            for p in parents:
+                await session.execute(
+                    _sa_text("""
+                        INSERT INTO parent_chunks
+                            (id, document_id, text, chunk_index, token_count, metadata)
+                        VALUES
+                            (:id, :doc_id, :text, :idx, :tokens, :meta::jsonb)
+                        ON CONFLICT (id) DO NOTHING
+                    """),
+                    {
+                        "id":     p.id,
+                        "doc_id": p.document_id,
+                        "text":   p.text,
+                        "idx":    p.chunk_index,
+                        "tokens": p.token_count,
+                        "meta":   _json.dumps(p.metadata),
+                    },
+                )
+        logger.info("parent_chunks_stored tenant_id=%s count=%d", tenant_id, len(parents))
+    except Exception as exc:
+        logger.error("parent_chunks_store_failed tenant_id=%s error=%s", tenant_id, exc)
+
 
 async def _ensure_qdrant_collection(qdrant: AsyncQdrantClient, collection: str) -> None:
     """Create the Qdrant collection if it doesn't exist yet.

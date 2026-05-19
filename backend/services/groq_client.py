@@ -4,26 +4,28 @@ import asyncio
 import logging
 from typing import Any
 
+# Emergency fallbacks — only used when DB templates are unreachable.
+# Kept in sync with migration 006_prompts_v2.py.
+
 DEFAULT_PROMPT_QUALITY_GATE = (
-    "Eres un evaluador de calidad de fragmentos de documentos institucionales. "
-    "Determiná si el fragmento de texto contiene información útil que pueda responder "
-    "preguntas de empleados o miembros de una organización. "
-    "Marcá como coherente (true) si el fragmento contiene CUALQUIERA de: políticas, procedimientos, "
-    "datos de contacto, nombres y roles, horarios, beneficios o normativas operativas — "
-    "aunque sea parte de un documento más largo. "
-    "Marcá como incoherente (false) SOLO si el fragmento es ruido puro: números de página, "
-    "encabezados repetidos, texto ilegible o contenido completamente vacío. "
-    "Evaluá también tu confianza en la decisión de 0.0 (completamente inseguro) a 1.0 (absolutamente seguro). "
-    "Confianza alta (>0.85): el fragmento es claramente útil o claramente basura. "
-    "Confianza baja (0.4-0.7): contenido ambiguo, contexto parcial o caso límite. "
+    "Sos un filtro de ruido para fragmentos de documentos. Tu única tarea es detectar "
+    "si el fragmento tiene información que un lector humano pueda aprovechar. "
+    "No importa el tema — técnico, legal, institucional, operativo, lo que sea. "
+    "APROBÁ (true) si contiene texto coherente con información factual, descriptiva o instructiva, "
+    "nombres, fechas, cifras, contactos, roles, procesos, definiciones, normativas o procedimientos. "
+    "RECHAZÁ (false) SOLO si es ruido puro: solo números de página, solo encabezados/pies repetidos, "
+    "texto ilegible por OCR fallido, contenido vacío, o entradas de índice sin descripción. "
+    "EN CASO DE DUDA: aprobá. "
     'Respondé ÚNICAMENTE con JSON válido: {"is_coherent": true/false, "confidence": 0.0-1.0, "reason": "una oración en español"}.'
 )
 
 DEFAULT_PROMPT_CLUSTER_LABEL = (
-    "Eres un asistente que nombra intenciones de usuario para un chatbot corporativo. "
-    "Dado un grupo de consultas similares, devuelve UN nombre corto (2-5 palabras) en español "
-    "que describa la intención común, en formato snake_case. "
-    'Responde SOLO con el nombre, sin comillas ni explicaciones. Ejemplo: "consulta_vacaciones"'
+    "Tu tarea: generar el nombre de una intención de usuario para un chatbot institucional. "
+    "Analizá el grupo de consultas y generá UN nombre corto en snake_case (2-4 palabras, sin tildes). "
+    "Describí la necesidad específica, no el tema genérico. "
+    "Ejemplos buenos: solicitar_certificado, consulta_horario, tramite_jubilacion. "
+    "Ejemplos malos: consulta, pregunta, informacion, otro. "
+    "Respondé SOLO con el nombre en snake_case, sin comillas ni explicaciones."
 )
 
 import httpx

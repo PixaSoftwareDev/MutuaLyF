@@ -203,6 +203,20 @@ export default function LoginPage() {
               {loading ? "Ingresando..." : "Ingresar"}
             </Button>
 
+            {isSuperAdmin && (
+              <button
+                type="button"
+                onClick={() => {
+                  setEmail("pixs@platform.local");
+                  setPassword("pixs1234!");
+                  setError(null);
+                }}
+                className="w-full text-xs text-violet-600 hover:text-violet-800 transition-colors text-center border border-violet-200 rounded-md py-2 bg-violet-50 hover:bg-violet-100"
+              >
+                Rellenar credenciales de prueba
+              </button>
+            )}
+
             <button
               type="button"
               onClick={() => { setIsSuperAdmin(v => !v); setError(null); }}

@@ -31,10 +31,11 @@ _RERANKER_TIMEOUT_S = settings.reranker_timeout_ms / 1000  # default 5000ms (was
 class RetrievedChunk:
     chunk_id:            str
     document_id:         str
-    text:                str
+    text:                str           # parent text after expansion; child text for legacy flat chunks
     score:               float
     quality_gate_status: str
     metadata:            dict
+    parent_id:           str | None = None  # None for legacy flat chunks
 
     @property
     def doc_type(self) -> str:
@@ -67,8 +68,8 @@ def _load_reranker():
 async def retrieve(
     query: str,
     tenant_id: str,
-    top_k: int = 100,
-    rerank_top_k: int = 15,
+    top_k: int = settings.retrieval_top_k,
+    rerank_top_k: int = settings.rerank_top_k,
 ) -> list[RetrievedChunk]:
     """Embed query, search Qdrant with independent timeout, rerank results.
 
@@ -118,7 +119,7 @@ async def retrieve(
     if not results:
         return []
 
-    # ── 3. Build chunk list — filter skipped quality gate chunks from results ──
+    # ── 3. Build chunk list with parent_id from Qdrant payload ──────────────
     chunks = [
         RetrievedChunk(
             chunk_id=str(point.id),
@@ -127,17 +128,59 @@ async def retrieve(
             score=float(point.score),
             quality_gate_status=point.payload.get("quality_gate_status", "unknown"),
             metadata={k: v for k, v in point.payload.items() if k not in ("text", "document_id")},
+            parent_id=point.payload.get("parent_id"),
         )
         for point in results
     ]
 
     # Skipped chunks participate in search but get a score penalty
-    # (they're less reliable than passed chunks)
     for chunk in chunks:
         if chunk.quality_gate_status == "skipped":
-            chunk.score *= 0.85  # 15% penalty
+            chunk.score *= settings.skipped_chunk_score_penalty
 
-    # ── 4. Rerank with independent timeout ────────────────────────────────────
+    # ── 4. Parent expansion (Small-to-Big) ───────────────────────────────────
+    # Replace each child's short text with its full parent text from PG.
+    # Flat chunks (parent_id=None) pass through unchanged.
+    with tracer.start_as_current_span("retrieval.parent_expand") as span:
+        parent_ids = list({c.parent_id for c in chunks if c.parent_id})
+        span.set_attribute("parents_to_fetch", len(parent_ids))
+
+        if parent_ids:
+            parent_texts = await _fetch_parent_texts(parent_ids, tenant_id)
+
+            # Deduplicate: keep highest-scored child per parent, expand its text.
+            best_per_parent: dict[str, RetrievedChunk] = {}
+            flat_chunks: list[RetrievedChunk] = []
+
+            for c in chunks:
+                if c.parent_id:
+                    prev = best_per_parent.get(c.parent_id)
+                    if prev is None or c.score > prev.score:
+                        best_per_parent[c.parent_id] = c
+                else:
+                    flat_chunks.append(c)
+
+            expanded: list[RetrievedChunk] = []
+            for pid, chunk in best_per_parent.items():
+                if pid in parent_texts:
+                    chunk.text = parent_texts[pid]
+                expanded.append(chunk)
+
+            chunks = flat_chunks + expanded
+            span.set_attribute("after_dedup", len(chunks))
+
+    # ── 5. BM25 keyword search + RRF merge ───────────────────────────────────
+    with tracer.start_as_current_span("retrieval.bm25_rrf") as span:
+        try:
+            bm25_hits = await _bm25_search(query, tenant_id, limit=settings.bm25_limit)
+            span.set_attribute("bm25_hits", len(bm25_hits))
+            if bm25_hits:
+                chunks = _rrf_merge(chunks, bm25_hits)
+                span.set_attribute("after_rrf", len(chunks))
+        except Exception as exc:
+            logger.warning("bm25_search_failed tenant_id=%s error=%s", tenant_id, exc)
+
+    # ── 6. Rerank with independent timeout ───────────────────────────────────
     with tracer.start_as_current_span("retrieval.rerank") as span:
         span.set_attribute("candidates", len(chunks))
         try:
@@ -203,6 +246,118 @@ async def retrieve_by_ids(
         )
         for point in points
     ]
+
+
+async def _fetch_parent_texts(parent_ids: list[str], tenant_id: str) -> dict[str, str]:
+    """Fetch parent chunk texts from PostgreSQL in a single IN query."""
+    from sqlalchemy import text as sa_text
+    from core.database import get_worker_pg_session
+
+    if not parent_ids:
+        return {}
+
+    try:
+        async with get_worker_pg_session(tenant_id) as session:
+            rows = await session.execute(
+                sa_text("SELECT id, text FROM parent_chunks WHERE id = ANY(:ids)"),
+                {"ids": parent_ids},
+            )
+            return {row.id: row.text for row in rows}
+    except Exception as exc:
+        logger.warning("fetch_parent_texts_failed tenant_id=%s error=%s", tenant_id, exc)
+        return {}
+
+
+async def _bm25_search(query: str, tenant_id: str, limit: int = 20) -> list[dict]:
+    """Full-text BM25 search over parent_chunks via PostgreSQL tsvector."""
+    from sqlalchemy import text as sa_text
+    from core.database import get_worker_pg_session
+
+    # Sanitize query for tsquery: keep only word chars and spaces, join with &
+    words = [w for w in query.replace("'", " ").split() if len(w) > 1]
+    if not words:
+        return []
+    tsquery = " & ".join(words)
+
+    try:
+        async with get_worker_pg_session(tenant_id) as session:
+            rows = await session.execute(
+                sa_text("""
+                    SELECT id, document_id, text,
+                           ts_rank_cd(ts_body, query) AS rank
+                    FROM parent_chunks,
+                         to_tsquery('spanish', :tsquery) query
+                    WHERE ts_body @@ query
+                    ORDER BY rank DESC
+                    LIMIT :limit
+                """),
+                {"tsquery": tsquery, "limit": limit},
+            )
+            return [
+                {
+                    "parent_id": row.id,
+                    "document_id": row.document_id,
+                    "text": row.text,
+                    "bm25_rank": float(row.rank),
+                }
+                for row in rows
+            ]
+    except Exception as exc:
+        logger.warning("bm25_search_failed tenant_id=%s error=%s", tenant_id, exc)
+        return []
+
+
+def _rrf_merge(
+    semantic_chunks: list[RetrievedChunk],
+    bm25_hits: list[dict],
+    k: int | None = None,
+) -> list[RetrievedChunk]:
+    if k is None:
+        k = settings.rrf_k
+    """Reciprocal Rank Fusion: merge semantic + BM25 results by rank.
+
+    RRF score = 1/(k + rank_semantic) + 1/(k + rank_bm25).
+    BM25 results that match a semantic chunk boost it; new BM25-only
+    results are added as new RetrievedChunks with their parent text.
+    """
+    # Map parent_id → (rrf_contribution, chunk) for semantic results
+    rrf_scores: dict[str, float] = {}
+    chunk_by_pid: dict[str, RetrievedChunk] = {}
+    # Also index by chunk_id for flat chunks (parent_id=None)
+    chunk_by_cid: dict[str, RetrievedChunk] = {}
+
+    for rank, chunk in enumerate(semantic_chunks):
+        key = chunk.parent_id or chunk.chunk_id
+        score = 1.0 / (k + rank + 1)
+        rrf_scores[key] = rrf_scores.get(key, 0.0) + score
+        chunk_by_pid[key] = chunk
+        chunk_by_cid[chunk.chunk_id] = chunk
+
+    # Add BM25 rank contributions
+    for rank, hit in enumerate(bm25_hits):
+        pid = hit["parent_id"]
+        bm25_score = 1.0 / (k + rank + 1)
+        if pid in rrf_scores:
+            rrf_scores[pid] += bm25_score
+        else:
+            # BM25-only hit — add as new chunk with parent text
+            rrf_scores[pid] = bm25_score
+            chunk_by_pid[pid] = RetrievedChunk(
+                chunk_id=pid,
+                document_id=hit["document_id"],
+                text=hit["text"],
+                score=0.0,
+                quality_gate_status="unknown",
+                metadata={"strategy": "bm25"},
+                parent_id=pid,
+            )
+
+    # Apply RRF scores and return sorted
+    for key, rrf in rrf_scores.items():
+        if key in chunk_by_pid:
+            chunk_by_pid[key].score = rrf
+
+    return sorted(chunk_by_pid.values(), key=lambda c: c.score, reverse=True)
 
 
 def _rerank(query: str, chunks: list[RetrievedChunk], top_k: int) -> list[RetrievedChunk]:

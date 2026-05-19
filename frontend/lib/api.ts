@@ -290,7 +290,6 @@ export interface BotConfig {
   bot_scope: string | null;
   min_retrieval_score: number;
   greeting_message: string | null;
-  prompt_query: string | null;
   prompt_quality_gate: string | null;
   prompt_cluster_label: string | null;
   onboarding_completed: boolean;
@@ -433,13 +432,25 @@ export const api = {
       const { data } = await apiClient.get<DocumentResponse[]>("/documents");
       return data;
     },
-    upload: async (file: File): Promise<DocumentIngestResponse> => {
+    upload: async (
+      file: File,
+      onUploadProgress?: (pct: number) => void,
+    ): Promise<DocumentIngestResponse> => {
       const form = new FormData();
       form.append("file", file);
       const { data } = await apiClient.post<DocumentIngestResponse>("/ingest", form, {
         headers: { "Content-Type": "multipart/form-data" },
-        timeout: 60_000,
+        timeout: 120_000,
+        onUploadProgress: (e) => {
+          if (onUploadProgress && e.total) {
+            onUploadProgress(Math.round((e.loaded / e.total) * 100));
+          }
+        },
       });
+      return data;
+    },
+    status: async (documentId: string): Promise<{ status: string; chunk_count: number; quality_gate_status: string }> => {
+      const { data } = await apiClient.get(`/documents/${documentId}/status`);
       return data;
     },
     chunks: async (documentId: string): Promise<ChunkResponse[]> => {

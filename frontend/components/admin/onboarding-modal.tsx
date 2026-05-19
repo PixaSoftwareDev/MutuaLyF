@@ -187,24 +187,29 @@ export function OnboardingModal() {
                 </div>
               </div>
               <div className="space-y-1">
-                <Label className="text-xs">Temas principales que responde *</Label>
+                <Label className="text-xs">¿Sobre qué temas tiene información el bot? *</Label>
                 <Input
                   value={form.main_topics}
                   onChange={e => set("main_topics", e.target.value)}
-                  placeholder="Ej. vacaciones, beneficios, política de licencias"
+                  placeholder="Ej. horarios de atención, profesionales, normativa, trámites, beneficios"
                   className="h-9"
                   autoFocus
                 />
-                <p className="text-[11px] text-muted-foreground">Separalos con comas</p>
+                <p className="text-[11px] text-muted-foreground">
+                  Listá los temas que cubren tus documentos, separados por comas. Se usa para redactar la descripción del bot — no limita lo que puede responder.
+                </p>
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">Temas que NO debe responder (opcional)</Label>
                 <Input
                   value={form.excluded_topics}
                   onChange={e => set("excluded_topics", e.target.value)}
-                  placeholder="Ej. política, opiniones personales, asesoramiento legal"
+                  placeholder="Ej. política partidaria, opiniones personales, diagnósticos médicos"
                   className="h-9"
                 />
+                <p className="text-[11px] text-muted-foreground">
+                  Si lo dejás vacío, el bot responde sobre todo lo que encuentre en sus documentos.
+                </p>
               </div>
             </>
           )}

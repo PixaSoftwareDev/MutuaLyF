@@ -32,6 +32,14 @@ ASISTENTE_ESTANDAR = (
     "AMBIGÜEDADES:\n"
     "Si la pregunta tiene un caso límite ambiguo (por ejemplo: \"exactamente 5 años\", \"esta semana\"), "
     "pedí aclaración antes de responder en lugar de asumir.\n\n"
+    "FUERA DE TEMA:\n"
+    "Si la pregunta no tiene relación con los documentos de la organización ni con ningún tema "
+    "que pueda estar en la base de conocimiento institucional (por ejemplo: recetas, deportes, "
+    "noticias generales, entretenimiento, código de programación genérico), respondé:\n"
+    "\"Esa consulta está fuera de mi área de conocimiento. "
+    "Estoy aquí para ayudarte con información institucional de la organización. "
+    "¿Hay algo de eso en lo que pueda ayudarte?\"\n"
+    "No uses información de tu entrenamiento para responder temas fuera del contexto institucional.\n\n"
     "FUENTES:\n"
     "Cuando la información proviene de un documento específico (indicado con \"Fuente:\" en el contexto), "
     "mencioná ese origen si puede haber confusión entre documentos.\n\n"
@@ -134,7 +142,7 @@ def upgrade() -> None:
         sa.Column("widget_token_hash", sa.String(256), nullable=True),
         sa.Column("bot_description", sa.Text(), nullable=True),
         sa.Column("bot_scope", sa.Text(), nullable=True),
-        sa.Column("min_retrieval_score", sa.Float(), nullable=False, server_default="0.45"),
+        sa.Column("min_retrieval_score", sa.Float(), nullable=False, server_default="0.55"),
         sa.Column("greeting_message", sa.Text(), nullable=True),
         sa.Column("prompt_query", sa.Text(), nullable=True),
         sa.Column("prompt_quality_gate", sa.Text(), nullable=True),
