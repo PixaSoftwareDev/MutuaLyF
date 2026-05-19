@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Check, Loader2, Plus, Trash2, MoreVertical } from "lucide-react";
+import { Check, Loader2, Plus, Trash2, MoreVertical, Pencil, AlertTriangle } from "lucide-react";
 import { PageShell } from "@/components/layout/page-shell";
 import { PageHeader } from "@/components/layout/page-header";
 import { apiClient } from "@/lib/api";
@@ -13,12 +13,13 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
@@ -148,130 +149,257 @@ export default function OperatorsPage() {
   );
 }
 
-function OperatorCard({ operator, sectors, isOnline, onDeleted }: { operator: OperatorUser; sectors: SectorRow[]; isOnline: boolean; onDeleted: () => void }) {
-  const qc = useQueryClient();
+function OperatorCard({
+  operator, sectors, isOnline, onDeleted,
+}: {
+  operator: OperatorUser;
+  sectors: SectorRow[];
+  isOnline: boolean;
+  onDeleted: () => void;
+}) {
   const activeSectors = sectors.filter(s => s.is_active);
+  const [showEdit, setShowEdit]       = useState(false);
+  const [showDeactivate, setShowDeactivate] = useState(false);
 
-  const { data: assignedSectors = [] } = useQuery({
+  const { data: assignedSectors = [], isLoading: assignedLoading } = useQuery({
     queryKey: ["operator-sectors", operator.id],
     queryFn: () => api.sectors.getOperatorSectors(operator.id),
     staleTime: 30_000,
   });
 
-  const [selected, setSelected] = useState<Set<string>>(new Set(assignedSectors.map(s => s.id)));
-  const [dirty, setDirty]       = useState(false);
+  return (
+    <>
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              {/* Avatar — neutral bg, status communicated by the dot only */}
+              <div className="relative shrink-0">
+                <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold bg-muted text-muted-foreground">
+                  {operator.name.charAt(0).toUpperCase()}
+                </div>
+                <span className={cn(
+                  "absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-white",
+                  isOnline ? "bg-emerald-500" : "bg-slate-300"
+                )} />
+              </div>
+              <div className="min-w-0">
+                <p className="font-semibold text-sm truncate">{operator.name}</p>
+                <p className="text-xs text-muted-foreground truncate">{operator.email}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              {isOnline
+                ? <Badge className="text-xs bg-emerald-100 text-emerald-700 border-emerald-200 hover:bg-emerald-100">En línea</Badge>
+                : <Badge variant="secondary" className="text-xs">Desconectado</Badge>
+              }
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button size="icon" variant="ghost" className="h-8 w-8" aria-label="Acciones">
+                    <MoreVertical className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-44">
+                  <DropdownMenuItem onSelect={() => setShowEdit(true)}>
+                    <Pencil className="h-4 w-4 mr-2" />
+                    Editar sectores
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onSelect={() => setShowDeactivate(true)}
+                    className="text-destructive focus:text-destructive"
+                  >
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Desactivar
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <p className="text-xs text-muted-foreground mb-2">Sectores asignados</p>
+          {assignedLoading ? (
+            <Skeleton className="h-7 w-48 rounded-md" />
+          ) : assignedSectors.length === 0 ? (
+            <p className="text-xs text-muted-foreground italic">
+              Sin sectores asignados — solo recibe consultas de "Consultas Generales".
+            </p>
+          ) : (
+            <div className="flex flex-wrap gap-1.5">
+              {assignedSectors.map(s => (
+                <Badge key={s.id} variant="secondary" className="text-xs font-normal">
+                  {s.nombre}
+                </Badge>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
-  // Sync selected with server data when it (re)loads. Effect, never during render.
+      <EditSectorsDialog
+        open={showEdit}
+        onOpenChange={setShowEdit}
+        operator={operator}
+        activeSectors={activeSectors}
+        initialAssigned={assignedSectors.map(s => s.id)}
+      />
+
+      <DeactivateDialog
+        open={showDeactivate}
+        onOpenChange={setShowDeactivate}
+        operator={operator}
+        onDeactivated={onDeleted}
+      />
+    </>
+  );
+}
+
+// ── Edit sectors modal ───────────────────────────────────────────────────────
+
+function EditSectorsDialog({
+  open, onOpenChange, operator, activeSectors, initialAssigned,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  operator: OperatorUser;
+  activeSectors: SectorRow[];
+  initialAssigned: string[];
+}) {
+  const qc = useQueryClient();
+  const [selected, setSelected] = useState<Set<string>>(new Set(initialAssigned));
+
+  // Re-sync on open (in case assignments changed in background)
   useEffect(() => {
-    if (!dirty) setSelected(new Set(assignedSectors.map(s => s.id)));
-  }, [assignedSectors, dirty]);
+    if (open) setSelected(new Set(initialAssigned));
+  }, [open, initialAssigned]);
+
+  const initialSet = useMemo(() => new Set(initialAssigned), [initialAssigned]);
+  const dirty = useMemo(() => {
+    if (selected.size !== initialSet.size) return true;
+    for (const id of selected) if (!initialSet.has(id)) return true;
+    return false;
+  }, [selected, initialSet]);
 
   const saveM = useMutation({
     mutationFn: () => api.sectors.assignOperatorSectors(operator.id, Array.from(selected)),
     onSuccess: () => {
-      setDirty(false);
       qc.invalidateQueries({ queryKey: ["operator-sectors", operator.id] });
       toast({ title: `Sectores de ${operator.name} actualizados`, variant: "success" });
+      onOpenChange(false);
     },
     onError: () => toast({ title: "Error al guardar", variant: "destructive" }),
   });
 
+  const toggle = (id: string) => {
+    setSelected(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Editar sectores</DialogTitle>
+          <DialogDescription>
+            Elegí las áreas que <span className="font-medium text-foreground">{operator.name}</span> puede atender.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="py-2">
+          {activeSectors.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-6">
+              No hay sectores activos. Creá sectores primero desde la sección "Sectores".
+            </p>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {activeSectors.map(sector => {
+                const isSelected = selected.has(sector.id);
+                return (
+                  <button
+                    key={sector.id}
+                    type="button"
+                    onClick={() => toggle(sector.id)}
+                    className={cn(
+                      "px-3 py-1.5 rounded-lg text-sm border transition-colors",
+                      isSelected
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-background text-muted-foreground border-border hover:border-primary/40 hover:text-foreground",
+                    )}
+                  >
+                    {sector.nombre}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          {selected.size === 0 && activeSectors.length > 0 && (
+            <p className="text-xs text-muted-foreground mt-3">
+              Si no asignás ningún sector, solo va a recibir consultas de "Consultas Generales".
+            </p>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
+          <Button onClick={() => saveM.mutate()} disabled={!dirty || saveM.isPending}>
+            {saveM.isPending
+              ? <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+              : <Check className="h-4 w-4 mr-1" />}
+            Guardar
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ── Deactivate confirm modal ─────────────────────────────────────────────────
+
+function DeactivateDialog({
+  open, onOpenChange, operator, onDeactivated,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  operator: OperatorUser;
+  onDeactivated: () => void;
+}) {
   const deleteM = useMutation({
     mutationFn: () => apiClient.delete(`/admin/operators/${operator.id}`),
     onSuccess: () => {
       toast({ title: `${operator.name} desactivado`, variant: "success" });
-      onDeleted();
+      onDeactivated();
+      onOpenChange(false);
     },
     onError: () => toast({ title: "Error al desactivar", variant: "destructive" }),
   });
 
-  const toggle = (sectorId: string) => {
-    const next = new Set(selected);
-    if (next.has(sectorId)) next.delete(sectorId); else next.add(sectorId);
-    setSelected(next);
-    setDirty(true);
-  };
-
   return (
-    <Card>
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            {/* Avatar — neutral bg, status communicated by the dot only */}
-            <div className="relative shrink-0">
-              <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold bg-muted text-muted-foreground">
-                {operator.name.charAt(0).toUpperCase()}
-              </div>
-              <span className={cn(
-                "absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-white",
-                isOnline ? "bg-emerald-500" : "bg-slate-300"
-              )} />
-            </div>
-            <div>
-              <p className="font-semibold text-sm">{operator.name}</p>
-              <p className="text-xs text-muted-foreground">{operator.email}</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            {isOnline
-              ? <Badge className="text-xs bg-emerald-100 text-emerald-700 border-emerald-200 hover:bg-emerald-100">En línea</Badge>
-              : <Badge variant="secondary" className="text-xs">Desconectado</Badge>
-            }
-            {dirty && (
-              <Button size="sm" onClick={() => saveM.mutate()} disabled={saveM.isPending}>
-                {saveM.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Check className="h-4 w-4 mr-1" />}
-                Guardar
-              </Button>
-            )}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" aria-label="Acciones">
-                  <MoreVertical className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-44">
-                <DropdownMenuItem
-                  onSelect={() => deleteM.mutate()}
-                  disabled={deleteM.isPending}
-                  className="text-destructive focus:text-destructive"
-                >
-                  <Trash2 className="h-4 w-4 mr-2" />
-                  Desactivar operador
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent>
-        <p className="text-xs text-muted-foreground mb-3">Sectores asignados</p>
-        {activeSectors.length === 0 ? (
-          <p className="text-xs text-muted-foreground">No hay sectores activos. Creá sectores primero.</p>
-        ) : (
-          <div className="flex flex-wrap gap-2">
-            {activeSectors.map(sector => {
-              const isSelected = selected.has(sector.id);
-              return (
-                <button
-                  key={sector.id}
-                  onClick={() => toggle(sector.id)}
-                  className={cn(
-                    "px-3 py-1.5 rounded-lg text-sm border transition-colors",
-                    isSelected
-                      ? "bg-primary text-white border-primary"
-                      : "bg-background text-muted-foreground border-border hover:border-primary/40 hover:text-foreground",
-                  )}
-                >
-                  {sector.nombre}
-                </button>
-              );
-            })}
-          </div>
-        )}
-        {selected.size === 0 && activeSectors.length > 0 && (
-          <p className="text-xs text-muted-foreground mt-2">Sin sectores asignados — el operador solo ve "Consultas Generales".</p>
-        )}
-      </CardContent>
-    </Card>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <AlertTriangle className="h-5 w-5 text-amber-500" />
+            Desactivar operador
+          </DialogTitle>
+          <DialogDescription className="pt-2">
+            <span className="font-medium text-foreground">{operator.name}</span> ya no va a recibir
+            conversaciones. Las conversaciones que tenga abiertas vuelven a la cola.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter className="mt-2">
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={deleteM.isPending}>
+            Cancelar
+          </Button>
+          <Button variant="destructive" onClick={() => deleteM.mutate()} disabled={deleteM.isPending}>
+            {deleteM.isPending && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
+            Desactivar
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

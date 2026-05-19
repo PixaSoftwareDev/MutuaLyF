@@ -14,7 +14,11 @@ logger = logging.getLogger(__name__)
 
 _CHANNEL_PREFIX = "events:"
 _PRESENCE_PREFIX = "presence:"
-_PRESENCE_TTL = 35  # seconds — keepalive is 15s so 35s gives 2 missed keepalives before expiry
+# TTL holgado para sobrevivir reconexiones del EventSource (Chrome throttlea
+# pestañas en background y puede reconectar cada ~60s). Con keepalive cada 15s
+# el TTL se refresca seis veces antes de expirar, y si el cliente cae 1 min
+# y vuelve, la presencia no parpadea.
+_PRESENCE_TTL = 90  # seconds
 
 
 def _channel(tenant_id: str) -> str:
@@ -118,8 +122,12 @@ async def subscribe(tenant_id: str, user_id: str | None = None, user_name: str |
     except asyncio.CancelledError:
         pass
     finally:
-        if user_id:
-            await clear_presence(tenant_id, user_id)
+        # OJO: NO llamamos clear_presence acá. Si el cliente reconecta rápido
+        # (caso común con EventSource y pestaña en background), el cleanup del
+        # SSE viejo puede ejecutarse DESPUÉS del set_presence del SSE nuevo y
+        # borrar la key recién creada. Mejor dejar que expire por TTL —
+        # el costo es que un operador que cierra la pestaña aparece online
+        # hasta 90s, que es aceptable.
         try:
             await pubsub.unsubscribe(_channel(tenant_id))
             await pubsub.aclose()
