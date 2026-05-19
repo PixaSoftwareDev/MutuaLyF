@@ -3,18 +3,11 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
-import Image from "next/image";
-import { Loader2, Send, User, Bot, ChevronLeft, UserCheck } from "lucide-react";
+import { Loader2, Send, Bot, ChevronLeft, UserCheck } from "lucide-react";
 import { api, type TenantBranding } from "@/lib/api";
 import { applyBrandingVars } from "@/lib/use-tenant-branding";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
-
-function fullLogoUrl(url: string | null): string | null {
-  if (!url) return null;
-  if (url.startsWith("http")) return url;
-  return `${API_BASE}${url}`;
-}
 
 interface Sector { id: string; nombre: string; descripcion: string | null; is_default: boolean; }
 interface Message { id: string; role: "user" | "bot" | "operator" | "system"; content: string; handoffOffer?: boolean; }
@@ -24,10 +17,10 @@ export default function ChatPage() {
     <Suspense fallback={
       <div className="h-screen flex items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
         <div className="flex flex-col items-center gap-4">
-          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[var(--brand-light)] to-[var(--brand-dark)] flex items-center justify-center shadow-lg shadow-black/30">
+          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-brand-light to-brand-dark flex items-center justify-center shadow-lg shadow-black/30">
             <Bot className="h-7 w-7 text-white" />
           </div>
-          <Loader2 className="h-5 w-5 animate-spin text-[var(--brand-light)]" />
+          <Loader2 className="h-5 w-5 animate-spin text-brand-light" />
         </div>
       </div>
     }>
@@ -41,7 +34,7 @@ export default function ChatPage() {
 function BotBubble({ content }: { content: string }) {
   return (
     <div className="flex gap-3 items-end group">
-      <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-[var(--brand-light)] to-[var(--brand-dark)] flex items-center justify-center shrink-0 shadow-md shadow-black/20">
+      <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-brand-light to-brand-dark flex items-center justify-center shrink-0 shadow-md shadow-black/20">
         <Bot className="h-4 w-4 text-white" />
       </div>
       <div className="max-w-[78%] sm:max-w-[65%]">
@@ -57,7 +50,7 @@ function UserBubble({ content }: { content: string }) {
   return (
     <div className="flex justify-end">
       <div className="max-w-[78%] sm:max-w-[65%]">
-        <div className="bg-gradient-to-br from-[var(--brand-primary)] to-[var(--brand-dark)] text-white rounded-2xl rounded-br-sm px-4 py-3 text-sm leading-relaxed shadow-md shadow-black/15">
+        <div className="bg-gradient-to-br from-brand to-brand-dark text-white rounded-2xl rounded-br-sm px-4 py-3 text-sm leading-relaxed shadow-md shadow-black/15">
           {content}
         </div>
       </div>
@@ -118,14 +111,14 @@ function HandoffOfferBubble({ content, onConfirm, confirmed }: { content: string
 function TypingIndicator() {
   return (
     <div className="flex gap-3 items-end">
-      <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-[var(--brand-light)] to-[var(--brand-dark)] flex items-center justify-center shrink-0 shadow-md shadow-black/20">
+      <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-brand-light to-brand-dark flex items-center justify-center shrink-0 shadow-md shadow-black/20">
         <Bot className="h-4 w-4 text-white" />
       </div>
       <div className="bg-white rounded-2xl rounded-bl-sm px-5 py-4 shadow-sm border border-slate-100">
         <div className="flex gap-1.5 items-center">
-          <span className="w-2 h-2 rounded-full bg-[var(--brand-light)] animate-bounce [animation-delay:0ms]" />
-          <span className="w-2 h-2 rounded-full bg-[var(--brand-light)] animate-bounce [animation-delay:150ms]" />
-          <span className="w-2 h-2 rounded-full bg-[var(--brand-light)] animate-bounce [animation-delay:300ms]" />
+          <span className="w-2 h-2 rounded-full bg-brand-light animate-bounce [animation-delay:0ms]" />
+          <span className="w-2 h-2 rounded-full bg-brand-light animate-bounce [animation-delay:150ms]" />
+          <span className="w-2 h-2 rounded-full bg-brand-light animate-bounce [animation-delay:300ms]" />
         </div>
       </div>
     </div>
@@ -354,7 +347,7 @@ function ChatInner() {
           ? "bg-gradient-to-r from-amber-600 via-amber-500 to-orange-500 shadow-amber-900/30"
           : status === "human_attending"
           ? "bg-gradient-to-r from-emerald-700 via-emerald-600 to-teal-600 shadow-emerald-900/30"
-          : "bg-gradient-to-r from-[var(--brand-dark)] via-[var(--brand-primary)] to-[var(--brand-light)] shadow-black/30"
+          : "bg-gradient-to-r from-brand-dark via-brand to-brand-light shadow-black/30"
       }`}>
         <div className="max-w-3xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
           {/* Left: brand + status */}
@@ -371,19 +364,9 @@ function ChatInner() {
                 <ChevronLeft className="h-5 w-5" />
               </button>
             ) : null}
-            <div className="w-9 h-9 rounded-xl bg-white/20 backdrop-blur-sm border border-white/30 flex items-center justify-center shadow-inner overflow-hidden">
-              {branding?.logo_url ? (
-                <Image
-                  src={fullLogoUrl(branding.logo_url)!}
-                  alt={branding.display_name}
-                  width={36}
-                  height={36}
-                  className="w-full h-full object-contain"
-                  unoptimized
-                />
-              ) : (
-                <Bot className="h-5 w-5 text-white" />
-              )}
+            {/* Avatar del bot — fijo para todos los tenants, no depende del logo del cliente */}
+            <div className="w-9 h-9 rounded-xl bg-white/20 backdrop-blur-sm border border-white/30 flex items-center justify-center shadow-inner">
+              <Bot className="h-5 w-5 text-white" />
             </div>
             <div>
               <p className="text-white font-semibold text-sm leading-none">
@@ -419,7 +402,7 @@ function ChatInner() {
             <div className="flex-1 flex flex-col justify-center items-center gap-8 py-8">
               {/* Hero */}
               <div className="text-center space-y-3">
-                <div className="w-20 h-20 rounded-3xl bg-gradient-to-br from-[var(--brand-light)] to-[var(--brand-dark)] flex items-center justify-center mx-auto shadow-xl shadow-black/20">
+                <div className="w-20 h-20 rounded-3xl bg-gradient-to-br from-brand-light to-brand-dark flex items-center justify-center mx-auto shadow-xl shadow-black/20">
                   <Bot className="h-10 w-10 text-white" />
                 </div>
                 <div>
@@ -445,7 +428,7 @@ function ChatInner() {
                     <button
                       key={s.id}
                       onClick={() => startChat(s)}
-                      className="group relative bg-white hover:bg-gradient-to-br hover:from-[var(--brand-primary)] hover:to-[var(--brand-dark)] border-2 border-[var(--brand-primary)]/30 hover:border-transparent text-[var(--brand-primary)] hover:text-white font-medium text-sm rounded-full px-5 py-2.5 transition-all duration-200 shadow-sm hover:shadow-lg hover:shadow-black/20 active:scale-95"
+                      className="group relative bg-white hover:bg-gradient-to-br hover:from-brand hover:to-brand-dark border-2 border-brand/30 hover:border-transparent text-brand hover:text-white font-medium text-sm rounded-full px-5 py-2.5 transition-all duration-200 shadow-sm hover:shadow-lg hover:shadow-black/20 active:scale-95"
                     >
                       {s.nombre}
                     </button>
@@ -489,7 +472,7 @@ function ChatInner() {
             <div className="flex-1 relative">
               <input
                 ref={inputRef}
-                className="w-full bg-slate-100 hover:bg-slate-50 focus:bg-white border border-transparent focus:border-[var(--brand-primary)] rounded-2xl px-5 py-3 text-sm text-slate-800 placeholder-slate-400 outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/30 transition-all"
+                className="w-full bg-slate-100 hover:bg-slate-50 focus:bg-white border border-transparent focus:border-brand rounded-2xl px-5 py-3 text-sm text-slate-800 placeholder-slate-400 outline-none focus:ring-2 focus:ring-brand/30 transition-all"
                 placeholder={
                   phase === "selecting"
                     ? sectorsLoading || sectors.length === 0
@@ -518,7 +501,7 @@ function ChatInner() {
             <button
               onClick={phase === "chat" ? sendMessage : undefined}
               disabled={phase === "chat" ? (!input.trim() || sending) : true}
-              className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[var(--brand-primary)] to-[var(--brand-dark)] text-white flex items-center justify-center shadow-md shadow-black/20 hover:shadow-lg hover:shadow-black/25 hover:scale-105 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100 disabled:shadow-md transition-all duration-150"
+              className="w-12 h-12 rounded-2xl bg-gradient-to-br from-brand to-brand-dark text-white flex items-center justify-center shadow-md shadow-black/20 hover:shadow-lg hover:shadow-black/25 hover:scale-105 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100 disabled:shadow-md transition-all duration-150"
             >
               {sending
                 ? <Loader2 className="h-4 w-4 animate-spin" />

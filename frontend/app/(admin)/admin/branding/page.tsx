@@ -43,27 +43,23 @@ export default function BrandingPage() {
   // ── Form state (mirrors branding, edited locally) ─────────────────────────
   const [displayName, setDisplayName]   = useState("");
   const [primary, setPrimary]           = useState(DEFAULT_COLOR);
-  const [secondary, setSecondary]       = useState("");
 
   useEffect(() => {
     if (!branding) return;
     setDisplayName(branding.display_name);
     setPrimary(branding.primary_color || DEFAULT_COLOR);
-    setSecondary(branding.secondary_color || "");
   }, [branding]);
 
   const dirty = !!branding && (
     displayName.trim() !== branding.display_name ||
-    primary !== (branding.primary_color || DEFAULT_COLOR) ||
-    (secondary || null) !== (branding.secondary_color || null)
+    primary !== (branding.primary_color || DEFAULT_COLOR)
   );
 
   // ── Mutations ─────────────────────────────────────────────────────────────
   const saveM = useMutation({
     mutationFn: () => api.branding.update({
-      display_name:    displayName.trim() || branding!.display_name,
-      primary_color:   primary,
-      secondary_color: secondary || null,
+      display_name:  displayName.trim() || branding!.display_name,
+      primary_color: primary,
     }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin-branding"] });
@@ -153,24 +149,18 @@ export default function BrandingPage() {
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-base flex items-center gap-2">
-                <Palette className="h-4 w-4" /> Colores
+                <Palette className="h-4 w-4" /> Color institucional
               </CardTitle>
-              <CardDescription>Tu color principal se aplica a botones, headers y acentos</CardDescription>
+              <CardDescription>
+                Se aplica al header del chat, botones, avatares del bot y acentos en todo el panel.
+              </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-5">
+            <CardContent>
               <ColorField
-                label="Color principal"
                 value={primary}
                 onChange={setPrimary}
                 presets={PALETTE_PRESETS}
                 required
-              />
-              <ColorField
-                label="Color secundario (opcional)"
-                value={secondary}
-                onChange={setSecondary}
-                placeholder="vacío = automático"
-                presets={PALETTE_PRESETS}
               />
             </CardContent>
           </Card>
@@ -285,32 +275,29 @@ export default function BrandingPage() {
 // ── Color picker field ───────────────────────────────────────────────────────
 
 function ColorField({
-  label, value, onChange, presets, placeholder, required,
+  value, onChange, presets, required,
 }: {
-  label: string;
   value: string;
   onChange: (v: string) => void;
   presets: string[];
-  placeholder?: string;
   required?: boolean;
 }) {
   const isValid = !value || /^#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{3})$/.test(value);
   return (
-    <div className="space-y-2">
-      <Label className="text-xs">{label}</Label>
+    <div className="space-y-3">
       <div className="flex items-center gap-2">
         <input
           type="color"
           value={value || "#ffffff"}
           onChange={e => onChange(e.target.value)}
           className="w-10 h-9 rounded-md border border-input bg-background cursor-pointer p-0.5"
-          aria-label={`Color picker ${label}`}
+          aria-label="Color picker"
         />
         <input
           type="text"
           value={value}
           onChange={e => onChange(e.target.value)}
-          placeholder={placeholder ?? "#RRGGBB"}
+          placeholder="#RRGGBB"
           className={cn(
             "flex-1 h-9 rounded-md border bg-background px-3 text-sm font-mono uppercase",
             "focus:outline-none focus:ring-1 focus:ring-primary",
@@ -318,15 +305,6 @@ function ColorField({
           )}
           required={required}
         />
-        {!required && value && (
-          <button
-            type="button"
-            onClick={() => onChange("")}
-            className="text-xs text-muted-foreground hover:text-foreground px-2"
-          >
-            Limpiar
-          </button>
-        )}
       </div>
       <div className="flex flex-wrap gap-1.5">
         {presets.map(p => (

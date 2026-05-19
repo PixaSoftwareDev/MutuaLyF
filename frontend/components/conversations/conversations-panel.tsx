@@ -507,7 +507,7 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
             )}
 
             {/* ── Messages ── */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+            <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-muted/30">
               {/* Bot phase — shown inline, no collapsible box */}
               {botMessages.map(m => <MessageBubble key={m.id} msg={m} />)}
 
@@ -803,25 +803,25 @@ export function MessageBubble({ msg }: { msg: { id: string; sender_type: string;
     <div className={cn("flex gap-3 items-end", isUser ? "flex-row-reverse" : "flex-row")}>
       {!isUser && (
         <div className={cn(
-          "w-8 h-8 rounded-xl flex items-center justify-center shrink-0 shadow-md",
+          "w-8 h-8 rounded-xl flex items-center justify-center shrink-0 shadow-sm",
           isOperator
-            ? "bg-gradient-to-br from-emerald-400 to-teal-600 shadow-emerald-500/25"
-            : "bg-gradient-to-br from-brand-light to-brand-dark shadow-brand/25",
+            ? "bg-gradient-to-br from-emerald-400 to-teal-600"
+            : "bg-gradient-to-br from-brand-light to-brand",
         )}>
           {isOperator
             ? <UserCheck className="h-4 w-4 text-white" />
-            : <Bot       className="h-4 w-4 text-white" />}
+            : <Bot       className="h-4 w-4 text-brand-foreground" />}
         </div>
       )}
-      <div className="max-w-[72%] flex flex-col">
+      <div className="max-w-[85%] min-w-[120px] flex flex-col">
         <div className={cn(
-          "rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed",
-          isUser     && "bg-primary text-white rounded-br-sm shadow-md",
-          isOperator && "bg-white border border-emerald-100 text-slate-800 rounded-bl-sm shadow-sm",
-          !isUser && !isOperator && "bg-white border border-slate-100 text-slate-800 rounded-bl-sm shadow-sm",
+          "rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed break-words",
+          isUser     && "bg-brand text-brand-foreground rounded-br-sm shadow-sm",
+          isOperator && "bg-white border border-emerald-200 text-slate-800 rounded-bl-sm shadow-sm",
+          !isUser && !isOperator && "bg-white border border-slate-200 text-slate-800 rounded-bl-sm shadow-sm",
         )}>
-          <p className="whitespace-pre-wrap">{msg.content}</p>
-          <p className={cn("text-[10px] mt-1 opacity-50", isUser ? "text-right" : "text-left")}>{time}</p>
+          <p className="whitespace-pre-wrap break-words">{msg.content}</p>
+          <p className={cn("text-[10px] mt-1 opacity-60", isUser ? "text-right" : "text-left")}>{time}</p>
         </div>
         {isOperator && (
           <p className="text-[10px] text-emerald-600 mt-1 ml-1 font-medium">Operador</p>
