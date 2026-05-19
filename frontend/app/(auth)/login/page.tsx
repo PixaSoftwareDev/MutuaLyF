@@ -1,32 +1,45 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuthStore } from "@/lib/store";
 import { api } from "@/lib/api";
-import { Loader2, AlertTriangle, Shield, Zap } from "lucide-react";
-
-const DEV_USERS = [
-  { name: "Admin Principal", email: "admin@empresa1.com", password: "Admin1234!", tenant: "empresa1", role: "admin" },
-  { name: "Operador Uno",    email: "op@empresa1.com",    password: "Admin1234!", tenant: "empresa1", role: "operator" },
-  { name: "Operador Dos",    email: "op2@empresa1.com",   password: "Admin1234!", tenant: "empresa1", role: "operator" },
-  { name: "pixs (super)",    email: "pixs@gmail.com",     password: "Admin1234!", tenant: "",         role: "super_admin" },
-];
+import { useTenantBranding } from "@/lib/use-tenant-branding";
+import { Loader2, AlertTriangle, Shield, Eye, EyeOff } from "lucide-react";
 
 export default function LoginPage() {
   const router = useRouter();
   const { setAuth } = useAuthStore();
+  const { branding } = useTenantBranding();
 
-  const [email, setEmail]         = useState("");
-  const [password, setPassword]   = useState("");
-  const [tenantId, setTenantId]   = useState("");
+  const [email, setEmail]               = useState("");
+  const [password, setPassword]         = useState("");
+  const [showPwd, setShowPwd]           = useState(false);
+  const [tenantInput, setTenantInput]   = useState("");
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
-  const [error, setError]         = useState<string | null>(null);
-  const [loading, setLoading]     = useState(false);
+  const [error, setError]               = useState<string | null>(null);
+  const [loading, setLoading]           = useState(false);
+
+  // Pre-fill tenant field with whatever the branding resolved (env / URL / storage)
+  useEffect(() => {
+    if (branding.tenant_id && !tenantInput) setTenantInput(branding.tenant_id);
+  }, [branding.tenant_id, tenantInput]);
+
+  // Push favicon if branding has one
+  useEffect(() => {
+    if (!branding.favicon_url || typeof document === "undefined") return;
+    let link = document.querySelector("link[rel~='icon']") as HTMLLinkElement | null;
+    if (!link) {
+      link = document.createElement("link");
+      link.rel = "icon";
+      document.head.appendChild(link);
+    }
+    link.href = branding.favicon_url;
+  }, [branding.favicon_url]);
 
   const doLogin = async (em: string, pw: string, tenant: string, superAdmin: boolean) => {
     setError(null);
@@ -42,9 +55,9 @@ export default function LoginPage() {
       document.cookie = `ia_role=${role}; path=/; SameSite=strict`;
       document.cookie = `ia_tenant=${resolvedTenant}; path=/; SameSite=strict`;
 
-      if (role === "super_admin") router.push("/superadmin");
-      else if (role === "operator") router.push("/operator");
-      else router.push("/admin/documents");
+      if (role === "super_admin")      router.push("/superadmin");
+      else if (role === "operator")    router.push("/operator");
+      else                             router.push("/admin/documents");
     } catch (err: any) {
       const detail = err?.response?.data?.detail;
       setError(typeof detail === "string" ? detail : "Credenciales incorrectas. Verificá email y contraseña.");
@@ -55,74 +68,122 @@ export default function LoginPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    await doLogin(email, password, tenantId, isSuperAdmin);
+    await doLogin(email, password, tenantInput, isSuperAdmin);
   };
 
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 p-4">
-      <Card className="w-full max-w-md shadow-lg">
-        <CardHeader className="space-y-1 pb-4">
-          <div className="flex items-center gap-2 mb-2">
-            <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
-              <span className="text-white text-sm font-bold">IA</span>
-            </div>
-            <span className="font-semibold text-lg">IA Inteligent</span>
-          </div>
-          <CardTitle className="text-2xl font-bold">Iniciar sesión</CardTitle>
-          <CardDescription>
-            {isSuperAdmin
-              ? "Acceso de administrador de plataforma"
-              : "Accedé a tu plataforma de conocimiento institucional"}
-          </CardDescription>
-        </CardHeader>
+  const accent = branding.primary_color;
+  const orgName = isSuperAdmin ? "Consola de plataforma" : branding.display_name;
 
-        <CardContent>
+  return (
+    <div className="min-h-screen flex flex-col lg:flex-row bg-slate-50">
+      {/* ── LEFT: hero / brand ─────────────────────────────────────────────── */}
+      <aside
+        className="hidden lg:flex lg:w-1/2 relative overflow-hidden text-white"
+        style={{
+          background: `linear-gradient(135deg, ${accent} 0%, ${shade(accent, -30)} 100%)`,
+        }}
+      >
+        <div className="absolute inset-0 opacity-10 bg-[radial-gradient(circle_at_top_right,white_0%,transparent_50%)]" />
+        <div className="relative z-10 flex flex-col justify-between p-12 w-full">
+          <div className="flex items-center gap-3">
+            <BrandLogo logoUrl={branding.logo_url} fallbackText={branding.display_name} size="lg" />
+            <span className="font-semibold text-lg">{branding.display_name}</span>
+          </div>
+
+          <div className="space-y-4 max-w-md">
+            <h1 className="text-4xl font-bold leading-tight">
+              Tu conocimiento institucional, a un mensaje de distancia.
+            </h1>
+            <p className="text-white/80 text-base leading-relaxed">
+              Plataforma de atención inteligente para tus afiliados. Documentos,
+              consultas y derivaciones gestionadas en un solo lugar.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 text-xs text-white/60">
+            <Shield className="h-3.5 w-3.5" />
+            <span>Conexión cifrada · Datos aislados por organización</span>
+          </div>
+        </div>
+      </aside>
+
+      {/* ── RIGHT: form ────────────────────────────────────────────────────── */}
+      <main className="flex-1 flex items-center justify-center p-6 sm:p-10">
+        <div className="w-full max-w-sm">
+          {/* Mobile logo */}
+          <div className="lg:hidden flex items-center justify-center gap-2 mb-8">
+            <BrandLogo logoUrl={branding.logo_url} fallbackText={branding.display_name} size="md" accent={accent} />
+            <span className="font-semibold text-lg">{branding.display_name}</span>
+          </div>
+
+          <div className="space-y-1 mb-6">
+            <h2 className="text-2xl font-bold tracking-tight">Iniciar sesión</h2>
+            <p className="text-sm text-muted-foreground">
+              {isSuperAdmin ? "Acceso de plataforma" : `Accedé a ${orgName}`}
+            </p>
+          </div>
+
           <form onSubmit={handleSubmit} className="space-y-4">
-            {/* Tenant field — hidden for super-admin */}
             {!isSuperAdmin && (
-              <div className="space-y-2">
-                <Label htmlFor="tenant">Organización</Label>
+              <div className="space-y-1.5">
+                <Label htmlFor="tenant" className="text-xs font-medium">
+                  Organización
+                </Label>
                 <Input
                   id="tenant"
                   placeholder="mi-empresa"
-                  value={tenantId}
-                  onChange={(e) => setTenantId(e.target.value)}
+                  value={tenantInput}
+                  onChange={(e) => setTenantInput(e.target.value)}
                   required
                   autoComplete="organization"
+                  className="h-10"
                 />
               </div>
             )}
 
             {isSuperAdmin && (
-              <div className="flex items-center gap-2 rounded-md bg-violet-50 border border-violet-200 px-3 py-2">
+              <div className="flex items-center gap-2 rounded-md bg-violet-50 border border-violet-200 px-3 py-2.5">
                 <Shield className="h-4 w-4 text-violet-600 shrink-0" />
                 <span className="text-sm text-violet-700 font-medium">Modo super administrador</span>
               </div>
             )}
 
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
+            <div className="space-y-1.5">
+              <Label htmlFor="email" className="text-xs font-medium">Email</Label>
               <Input
                 id="email"
                 type="email"
-                placeholder={isSuperAdmin ? "pixs@gmail.com" : "admin@empresa.com"}
+                placeholder="tu@email.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
                 autoComplete="email"
+                className="h-10"
               />
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="password">Contraseña</Label>
-              <Input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                autoComplete="current-password"
-              />
+            <div className="space-y-1.5">
+              <Label htmlFor="password" className="text-xs font-medium">Contraseña</Label>
+              <div className="relative">
+                <Input
+                  id="password"
+                  type={showPwd ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  autoComplete="current-password"
+                  className="h-10 pr-9"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPwd(v => !v)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  aria-label={showPwd ? "Ocultar contraseña" : "Mostrar contraseña"}
+                  tabIndex={-1}
+                >
+                  {showPwd ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
             </div>
 
             {error && (
@@ -132,52 +193,87 @@ export default function LoginPage() {
               </div>
             )}
 
-            <Button type="submit" className="w-full" disabled={loading}>
+            <Button
+              type="submit"
+              className="w-full h-10 font-medium"
+              style={{ backgroundColor: accent }}
+              disabled={loading}
+            >
               {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               {loading ? "Ingresando..." : "Ingresar"}
             </Button>
 
             <button
               type="button"
-              onClick={() => { setIsSuperAdmin(v => !v); setError(null); setTenantId(""); }}
-              className="w-full text-xs text-muted-foreground hover:text-foreground transition-colors text-center"
+              onClick={() => { setIsSuperAdmin(v => !v); setError(null); }}
+              className="w-full text-xs text-muted-foreground hover:text-foreground transition-colors text-center pt-1"
             >
-              {isSuperAdmin ? "← Volver a login de organización" : "Soy administrador de la plataforma"}
+              {isSuperAdmin ? "← Volver al login de organización" : "Soy administrador de la plataforma"}
             </button>
           </form>
 
-          {/* Dev quick-fill */}
-          <div className="mt-6 pt-4 border-t border-dashed border-slate-200">
-            <p className="text-[10px] uppercase tracking-wider text-muted-foreground/70 flex items-center gap-1 mb-2">
-              <Zap className="h-3 w-3" /> Acceso rápido · dev
-            </p>
-            <div className="flex flex-wrap gap-1.5">
-              {DEV_USERS.map((u) => {
-                const label =
-                  u.role === "super_admin" ? "super" :
-                  u.role === "admin"       ? "admin" :
-                  u.name.endsWith("Dos")   ? "op 2"  : "op 1";
-                const color =
-                  u.role === "super_admin" ? "border-violet-200 text-violet-700 hover:bg-violet-50" :
-                  u.role === "admin"       ? "border-blue-200 text-blue-700 hover:bg-blue-50" :
-                                             "border-emerald-200 text-emerald-700 hover:bg-emerald-50";
-                return (
-                  <button
-                    key={u.email}
-                    type="button"
-                    disabled={loading}
-                    onClick={() => doLogin(u.email, u.password, u.tenant, u.role === "super_admin")}
-                    title={`${u.name} · ${u.email}`}
-                    className={`text-[11px] px-2 py-0.5 rounded-full border bg-white transition-colors disabled:opacity-50 ${color}`}
-                  >
-                    {label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+          <p className="text-[11px] text-center text-muted-foreground/70 mt-8">
+            ¿Problemas para ingresar? Contactá al administrador de tu organización.
+          </p>
+        </div>
+      </main>
     </div>
   );
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+function BrandLogo({
+  logoUrl, fallbackText, size, accent,
+}: {
+  logoUrl: string | null;
+  fallbackText: string;
+  size: "md" | "lg";
+  accent?: string;
+}) {
+  const px = size === "lg" ? 56 : 36;
+  const initial = (fallbackText.trim()[0] ?? "?").toUpperCase();
+
+  if (logoUrl) {
+    return (
+      <Image
+        src={logoUrl}
+        alt={fallbackText}
+        width={px}
+        height={px}
+        className="object-contain shrink-0"
+        style={{ width: px, height: px }}
+        unoptimized
+      />
+    );
+  }
+
+  return (
+    <div
+      className="rounded-2xl flex items-center justify-center font-bold shrink-0"
+      style={{
+        width: px,
+        height: px,
+        background: accent ?? "rgba(255,255,255,0.15)",
+        color: accent ? "white" : "white",
+        fontSize: size === "lg" ? 24 : 16,
+      }}
+    >
+      {initial}
+    </div>
+  );
+}
+
+/** Darken (negative) or lighten (positive) a hex color by `pct` percent. */
+function shade(hex: string, pct: number): string {
+  const h = hex.replace("#", "");
+  if (h.length !== 6) return hex;
+  const num = parseInt(h, 16);
+  let r = (num >> 16) + Math.round(2.55 * pct);
+  let g = ((num >> 8) & 0xff) + Math.round(2.55 * pct);
+  let b = (num & 0xff) + Math.round(2.55 * pct);
+  r = Math.max(0, Math.min(255, r));
+  g = Math.max(0, Math.min(255, g));
+  b = Math.max(0, Math.min(255, b));
+  return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, "0")}`;
 }

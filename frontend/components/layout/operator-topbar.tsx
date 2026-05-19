@@ -3,10 +3,18 @@
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import Image from "next/image";
-import { LogOut, Inbox, History, MoreVertical } from "lucide-react";
+import { LogOut, Inbox, History, MoreVertical, UserCircle } from "lucide-react";
 import { useAuthStore } from "@/lib/store";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { useTenantBranding } from "@/lib/use-tenant-branding";
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
+function fullLogoUrl(url: string | null): string | null {
+  if (!url) return null;
+  if (url.startsWith("http")) return url;
+  return `${API_URL}${url}`;
+}
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -22,9 +30,11 @@ const NAV_ITEMS: Array<{ href: string; label: string; icon: typeof Inbox }> = [
 ];
 
 export function OperatorTopbar() {
-  const { userEmail, tenantId, clearAuth } = useAuthStore();
+  const { userEmail, clearAuth } = useAuthStore();
   const router = useRouter();
   const pathname = usePathname();
+  const { branding } = useTenantBranding();
+  const brandLogoUrl = fullLogoUrl(branding.logo_url);
 
   const handleLogout = async () => {
     try { await api.auth.logout(); } catch { /* ignore */ }
@@ -33,25 +43,36 @@ export function OperatorTopbar() {
   };
 
   // Display the tenant as a stable, recognizable badge for the worker
-  const tenantDisplay = (tenantId ?? "").toUpperCase();
 
   return (
-    <header className="h-12 bg-brand text-white flex items-center px-3 sm:px-4 gap-3 shrink-0 border-b border-brand-dark/40">
+    <header
+      style={{ background: branding.primary_color }}
+      className="h-14 text-white flex items-center px-3 sm:px-4 gap-3 shrink-0 border-b border-black/20"
+    >
       {/* Brand: logo + tenant name */}
       <div className="flex items-center gap-2 min-w-0">
-        <div className="relative w-7 h-7 flex items-center justify-center shrink-0">
-          <Image
-            src="/Logo.png"
-            alt="MutualBot"
-            width={28}
-            height={28}
-            className="w-full h-full object-cover rounded-sm"
-            priority
-            unoptimized
-          />
+        <div className={cn(
+          "relative w-8 h-8 flex items-center justify-center shrink-0",
+          !brandLogoUrl && "rounded-sm overflow-hidden bg-white/10",
+        )}>
+          {brandLogoUrl ? (
+            <Image
+              src={brandLogoUrl}
+              alt={branding.display_name}
+              width={32}
+              height={32}
+              className="w-full h-full object-contain"
+              priority
+              unoptimized
+            />
+          ) : (
+            <span className="text-white font-bold text-sm">
+              {(branding.display_name.trim()[0] ?? "?").toUpperCase()}
+            </span>
+          )}
         </div>
         <span className="font-semibold text-sm tracking-tight truncate">
-          MutualBot
+          {branding.display_name}
         </span>
       </div>
 
@@ -86,7 +107,7 @@ export function OperatorTopbar() {
       {/* Operator identity */}
       <div className="hidden sm:flex flex-col items-end leading-tight min-w-0">
         <span className="text-xs font-medium text-white truncate max-w-[220px]">{userEmail}</span>
-        <span className="text-[10px] text-white/60">Operador · {tenantDisplay}</span>
+        <span className="text-[10px] text-white/60">Operador · {branding.display_name}</span>
       </div>
 
       {/* Actions */}
@@ -104,10 +125,15 @@ export function OperatorTopbar() {
           <DropdownMenuLabel className="sm:hidden font-normal">
             <div className="flex flex-col gap-0.5">
               <span className="text-xs font-medium truncate">{userEmail}</span>
-              <span className="text-[10px] text-muted-foreground">Operador · {tenantDisplay}</span>
+              <span className="text-[10px] text-muted-foreground">Operador · {branding.display_name}</span>
             </div>
           </DropdownMenuLabel>
           <DropdownMenuSeparator className="sm:hidden" />
+          <DropdownMenuItem onSelect={() => router.push("/operator/cuenta")}>
+            <UserCircle className="h-4 w-4 mr-2" />
+            Mi cuenta
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={handleLogout}>
             <LogOut className="h-4 w-4 mr-2" />
             Cerrar sesión

@@ -6,13 +6,33 @@ import { usePathname, useRouter } from "next/navigation";
 import Image from "next/image";
 import {
   Inbox, FileText, Tags, Settings, LogOut, ChevronLeft, ChevronRight,
-  Shield, Building2, GitMerge, Users, ExternalLink, FlaskConical, ClipboardList, Bot, Network, X,
+  Shield, Building2, GitMerge, Users, ExternalLink, FlaskConical, ClipboardList, Bot, Network, X, Palette,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore, useUIStore } from "@/lib/store";
 import { api, apiClient } from "@/lib/api";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "@/components/ui/toast";
+import { useTenantBranding } from "@/lib/use-tenant-branding";
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
+function fullLogoUrl(url: string | null): string | null {
+  if (!url) return null;
+  if (url.startsWith("http")) return url;
+  return `${API_URL}${url}`;
+}
+function shade(hex: string, pct: number): string {
+  const h = hex.replace("#", "");
+  if (h.length !== 6) return hex;
+  const num = parseInt(h, 16);
+  let r = (num >> 16) + Math.round(2.55 * pct);
+  let g = ((num >> 8) & 0xff) + Math.round(2.55 * pct);
+  let b = (num & 0xff) + Math.round(2.55 * pct);
+  r = Math.max(0, Math.min(255, r));
+  g = Math.max(0, Math.min(255, g));
+  b = Math.max(0, Math.min(255, b));
+  return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, "0")}`;
+}
 
 type NavItem = {
   href: string;
@@ -45,6 +65,8 @@ const navGroups: NavItem[][] = [
   [
     { href: "/admin/settings", label: "Configuración", icon: Settings, adminOnly: true,
       tooltip: "Personalidad, mensaje de saludo y comportamiento del asistente." },
+    { href: "/admin/branding", label: "Branding",      icon: Palette, adminOnly: true,
+      tooltip: "Personalizá el nombre, color y logo de tu organización." },
     { href: "/admin/audit",    label: "Auditoría",     icon: ClipboardList, adminOnly: true,
       tooltip: "Registro de acciones críticas: logins, subidas, cambios de configuración." },
   ],
@@ -64,6 +86,11 @@ export function Sidebar() {
   const queryClient = useQueryClient();
   const { userEmail, userRole, tenantId, clearAuth } = useAuthStore();
   const { sidebarOpen, toggleSidebar, mobileSidebarOpen, closeMobileSidebar } = useUIStore();
+  const { branding } = useTenantBranding();
+  const brandColor     = branding.primary_color;
+  const brandColorDark = shade(brandColor, -15);
+  const brandLogoUrl   = fullLogoUrl(branding.logo_url);
+  const brandName      = branding.display_name;
 
   const isAdmin = userRole === "admin";
   const isSuperAdmin = userRole === "super_admin";
@@ -137,9 +164,10 @@ export function Sidebar() {
       )}
 
       <aside
+        style={{ background: brandColor }}
         className={cn(
           // Base
-          "flex flex-col border-r border-white/10 bg-brand text-white",
+          "flex flex-col border-r border-white/10 text-white",
           // Mobile: fixed overlay drawer
           "fixed inset-y-0 left-0 z-50 lg:static lg:z-auto",
           // Mobile visibility via transform
@@ -150,26 +178,38 @@ export function Sidebar() {
         )}
       >
         {/* Brand */}
-        <div className={cn(
-          "flex items-center gap-3 h-16 px-4 border-b border-white/10 bg-brand-dark shrink-0",
-          collapsed && "lg:justify-center lg:px-2"
-        )}>
-          <div className="relative w-7 h-7 flex items-center justify-center shrink-0">
-            <Image
-              src="/Logo.png"
-              alt="MutualBot"
-              width={28}
-              height={28}
-              className="w-full h-full object-cover rounded-sm"
-              priority
-              unoptimized
-            />
+        <div
+          style={{ background: brandColorDark }}
+          className={cn(
+            "flex items-center gap-3 h-16 px-4 border-b border-white/10 shrink-0",
+            collapsed && "lg:justify-center lg:px-2"
+          )}
+        >
+          <div className={cn(
+            "relative w-7 h-7 flex items-center justify-center shrink-0",
+            !brandLogoUrl && "rounded-sm overflow-hidden bg-white/10",
+          )}>
+            {brandLogoUrl ? (
+              <Image
+                src={brandLogoUrl}
+                alt={brandName}
+                width={28}
+                height={28}
+                className="w-full h-full object-contain"
+                priority
+                unoptimized
+              />
+            ) : (
+              <span className="text-white font-bold text-xs">
+                {(brandName.trim()[0] ?? "?").toUpperCase()}
+              </span>
+            )}
           </div>
           <span className={cn(
-            "font-semibold text-sm tracking-tight text-white flex-1",
+            "font-semibold text-sm tracking-tight text-white flex-1 truncate",
             collapsed && "lg:hidden"
           )}>
-            MutualBot
+            {brandName}
           </span>
           {/* Close button — mobile only */}
           <button
@@ -240,10 +280,12 @@ export function Sidebar() {
                             {item.label}
                           </span>
                           {pendingCount > 0 && (
-                            <span className={cn(
-                              "inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-white px-1 text-[10px] font-bold text-brand",
-                              collapsed ? "lg:absolute lg:right-1 lg:top-1 lg:h-2 lg:w-2 lg:rounded-full lg:bg-white lg:px-0" : "ml-auto"
-                            )}>
+                            <span
+                              style={{ color: brandColor }}
+                              className={cn(
+                                "inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-white px-1 text-[10px] font-bold",
+                                collapsed ? "lg:absolute lg:right-1 lg:top-1 lg:h-2 lg:w-2 lg:rounded-full lg:bg-white lg:px-0" : "ml-auto"
+                              )}>
                               <span className={cn(collapsed && "lg:hidden")}>
                                 {pendingCount > 99 ? "99+" : pendingCount}
                               </span>
@@ -282,7 +324,8 @@ export function Sidebar() {
         {/* Collapse toggle — desktop only */}
         <button
           onClick={toggleSidebar}
-          className="hidden lg:flex absolute -right-3 top-16 z-10 h-6 w-6 items-center justify-center rounded-full border border-white/20 bg-brand text-white shadow-md hover:bg-brand-light transition-colors"
+          style={{ background: brandColor }}
+          className="hidden lg:flex absolute -right-3 top-16 z-10 h-6 w-6 items-center justify-center rounded-full border border-white/20 text-white shadow-md hover:brightness-110 transition-all"
         >
           {collapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronLeft className="h-3 w-3" />}
         </button>

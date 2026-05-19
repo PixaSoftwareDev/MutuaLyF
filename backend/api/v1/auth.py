@@ -6,7 +6,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select, text
 
 from core.database import get_pg_session
@@ -16,6 +16,7 @@ from core.security import (
     create_refresh_token,
     decode_token,
     get_current_user,
+    hash_password,
     verify_password,
     CurrentUser,
 )
@@ -236,3 +237,142 @@ def _tenant_from_subdomain(request: Request, base_domain: str) -> str | None:
         if subdomain and subdomain != "www":
             return subdomain
     return None
+
+
+# ── Account: profile + change password ────────────────────────────────────────
+
+class MeResponse(BaseModel):
+    id:         str
+    email:      str
+    name:       str
+    role:       str
+    tenant_id:  str | None
+    sectors:    list[dict] = []
+
+
+class UpdateMeRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=120)
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(..., min_length=1)
+    new_password:     str = Field(..., min_length=8, max_length=200)
+
+
+async def _load_tenant_user(tenant_id: str, user_id: str) -> dict | None:
+    async with get_pg_session(tenant_id) as session:
+        r = await session.execute(text("""
+            SELECT id, email, name, role, hashed_password
+            FROM usuarios WHERE id = :id AND is_active = TRUE LIMIT 1
+        """), {"id": user_id})
+        row = r.mappings().fetchone()
+        if not row:
+            return None
+        sectors_r = await session.execute(text("""
+            SELECT s.id::text AS id, s.nombre
+            FROM sectores s
+            JOIN operador_sectores os ON os.sector_id = s.id
+            WHERE os.operador_id = :uid AND s.is_active = TRUE
+            ORDER BY s.nombre
+        """), {"uid": user_id})
+        sectors = [dict(s) for s in sectors_r.mappings().all()]
+        return {**dict(row), "sectors": sectors}
+
+
+@router.get("/me", response_model=MeResponse)
+async def get_me(current_user: CurrentUser = Depends(get_current_user)):
+    """Return profile of the currently authenticated user."""
+    # Super-admin → no tenant schema, look in platform_users
+    if current_user.role == Role.SUPER_ADMIN:
+        async with get_pg_session(None) as session:
+            r = await session.execute(text(
+                "SELECT id, email, name FROM platform_users WHERE id = :id LIMIT 1"
+            ), {"id": current_user.user_id})
+            row = r.mappings().fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="User not found")
+        return MeResponse(
+            id=str(row["id"]), email=row["email"], name=row["name"],
+            role="super_admin", tenant_id=None, sectors=[],
+        )
+
+    user = await _load_tenant_user(current_user.tenant_id, current_user.user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return MeResponse(
+        id=str(user["id"]), email=user["email"], name=user["name"],
+        role=user["role"], tenant_id=current_user.tenant_id, sectors=user["sectors"],
+    )
+
+
+@router.patch("/me", response_model=MeResponse)
+async def update_me(
+    body: UpdateMeRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Allow the user to change only their display name. Email/role are admin-only."""
+    new_name = body.name.strip()
+    if not new_name:
+        raise HTTPException(status_code=400, detail="El nombre no puede estar vacío")
+
+    if current_user.role == Role.SUPER_ADMIN:
+        async with get_pg_session(None) as session:
+            await session.execute(text(
+                "UPDATE platform_users SET name = :name WHERE id = :id"
+            ), {"name": new_name, "id": current_user.user_id})
+            await session.commit()
+    else:
+        async with get_pg_session(current_user.tenant_id) as session:
+            await session.execute(text(
+                "UPDATE usuarios SET name = :name, updated_at = NOW() WHERE id = :id"
+            ), {"name": new_name, "id": current_user.user_id})
+            await session.commit()
+
+    return await get_me(current_user)
+
+
+@router.post("/me/password", status_code=status.HTTP_204_NO_CONTENT)
+async def change_password(
+    body: ChangePasswordRequest,
+    request: Request,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Change the current user's password. Requires current_password."""
+    if body.current_password == body.new_password:
+        raise HTTPException(status_code=400, detail="La contraseña nueva debe ser distinta a la actual")
+
+    if current_user.role == Role.SUPER_ADMIN:
+        async with get_pg_session(None) as session:
+            r = await session.execute(text(
+                "SELECT hashed_password FROM platform_users WHERE id = :id LIMIT 1"
+            ), {"id": current_user.user_id})
+            row = r.mappings().fetchone()
+            if not row or not verify_password(body.current_password, row["hashed_password"]):
+                raise HTTPException(status_code=400, detail="La contraseña actual no es correcta")
+            await session.execute(text(
+                "UPDATE platform_users SET hashed_password = :h WHERE id = :id"
+            ), {"h": hash_password(body.new_password), "id": current_user.user_id})
+            await session.commit()
+    else:
+        async with get_pg_session(current_user.tenant_id) as session:
+            r = await session.execute(text(
+                "SELECT hashed_password FROM usuarios WHERE id = :id LIMIT 1"
+            ), {"id": current_user.user_id})
+            row = r.mappings().fetchone()
+            if not row or not verify_password(body.current_password, row["hashed_password"]):
+                raise HTTPException(status_code=400, detail="La contraseña actual no es correcta")
+            await session.execute(text(
+                "UPDATE usuarios SET hashed_password = :h, updated_at = NOW() WHERE id = :id"
+            ), {"h": hash_password(body.new_password), "id": current_user.user_id})
+            await session.commit()
+
+    import asyncio
+    from core.audit import record as audit
+    asyncio.ensure_future(audit(
+        tenant_id=current_user.tenant_id or "__platform__",
+        actor_id=current_user.user_id,
+        actor_email=current_user.email,
+        actor_role=current_user.role.value,
+        action="auth.password_changed",
+        request=request,
+    ))

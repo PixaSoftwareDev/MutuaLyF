@@ -3,11 +3,18 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
-import { Loader2, Send, User, Bot, ChevronLeft, Headphones, UserCheck } from "lucide-react";
-
-const BOT_NAME_FALLBACK = "MutualBot";
+import Image from "next/image";
+import { Loader2, Send, User, Bot, ChevronLeft, UserCheck } from "lucide-react";
+import { api, type TenantBranding } from "@/lib/api";
+import { applyBrandingVars } from "@/lib/use-tenant-branding";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
+
+function fullLogoUrl(url: string | null): string | null {
+  if (!url) return null;
+  if (url.startsWith("http")) return url;
+  return `${API_BASE}${url}`;
+}
 
 interface Sector { id: string; nombre: string; descripcion: string | null; is_default: boolean; }
 interface Message { id: string; role: "user" | "bot" | "operator" | "system"; content: string; handoffOffer?: boolean; }
@@ -15,12 +22,12 @@ interface Message { id: string; role: "user" | "bot" | "operator" | "system"; co
 export default function ChatPage() {
   return (
     <Suspense fallback={
-      <div className="h-screen flex items-center justify-center bg-gradient-to-br from-slate-950 via-[#3D1419] to-slate-950">
+      <div className="h-screen flex items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
         <div className="flex flex-col items-center gap-4">
-          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[#B23B4A] to-[#7A2731] flex items-center justify-center shadow-lg shadow-[#99323D]/50">
+          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[var(--brand-light)] to-[var(--brand-dark)] flex items-center justify-center shadow-lg shadow-black/30">
             <Bot className="h-7 w-7 text-white" />
           </div>
-          <Loader2 className="h-5 w-5 animate-spin text-[#B23B4A]" />
+          <Loader2 className="h-5 w-5 animate-spin text-[var(--brand-light)]" />
         </div>
       </div>
     }>
@@ -34,7 +41,7 @@ export default function ChatPage() {
 function BotBubble({ content }: { content: string }) {
   return (
     <div className="flex gap-3 items-end group">
-      <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-[#B23B4A] to-[#7A2731] flex items-center justify-center shrink-0 shadow-md shadow-[#99323D]/30">
+      <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-[var(--brand-light)] to-[var(--brand-dark)] flex items-center justify-center shrink-0 shadow-md shadow-black/20">
         <Bot className="h-4 w-4 text-white" />
       </div>
       <div className="max-w-[78%] sm:max-w-[65%]">
@@ -50,7 +57,7 @@ function UserBubble({ content }: { content: string }) {
   return (
     <div className="flex justify-end">
       <div className="max-w-[78%] sm:max-w-[65%]">
-        <div className="bg-gradient-to-br from-[#99323D] to-[#7A2731] text-white rounded-2xl rounded-br-sm px-4 py-3 text-sm leading-relaxed shadow-md shadow-[#99323D]/25">
+        <div className="bg-gradient-to-br from-[var(--brand-primary)] to-[var(--brand-dark)] text-white rounded-2xl rounded-br-sm px-4 py-3 text-sm leading-relaxed shadow-md shadow-black/15">
           {content}
         </div>
       </div>
@@ -58,17 +65,17 @@ function UserBubble({ content }: { content: string }) {
   );
 }
 
-function OperatorBubble({ content }: { content: string }) {
+function OperatorBubble({ content, operatorName }: { content: string; operatorName?: string | null }) {
   return (
     <div className="flex gap-3 items-end">
       <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-emerald-400 to-teal-600 flex items-center justify-center shrink-0 shadow-md shadow-emerald-500/30">
-        <Headphones className="h-4 w-4 text-white" />
+        <UserCheck className="h-4 w-4 text-white" />
       </div>
       <div className="max-w-[78%] sm:max-w-[65%]">
         <div className="bg-white text-slate-800 rounded-2xl rounded-bl-sm px-4 py-3 text-sm leading-relaxed shadow-sm border border-emerald-100">
           {content}
         </div>
-        <p className="text-xs text-emerald-600 mt-1 ml-1 font-medium">Operador</p>
+        <p className="text-xs text-emerald-600 mt-1 ml-1 font-medium">{operatorName || "Operador"}</p>
       </div>
     </div>
   );
@@ -111,14 +118,14 @@ function HandoffOfferBubble({ content, onConfirm, confirmed }: { content: string
 function TypingIndicator() {
   return (
     <div className="flex gap-3 items-end">
-      <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-[#B23B4A] to-[#7A2731] flex items-center justify-center shrink-0 shadow-md shadow-[#99323D]/30">
+      <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-[var(--brand-light)] to-[var(--brand-dark)] flex items-center justify-center shrink-0 shadow-md shadow-black/20">
         <Bot className="h-4 w-4 text-white" />
       </div>
       <div className="bg-white rounded-2xl rounded-bl-sm px-5 py-4 shadow-sm border border-slate-100">
         <div className="flex gap-1.5 items-center">
-          <span className="w-2 h-2 rounded-full bg-[#B23B4A] animate-bounce [animation-delay:0ms]" />
-          <span className="w-2 h-2 rounded-full bg-[#B23B4A] animate-bounce [animation-delay:150ms]" />
-          <span className="w-2 h-2 rounded-full bg-[#B23B4A] animate-bounce [animation-delay:300ms]" />
+          <span className="w-2 h-2 rounded-full bg-[var(--brand-light)] animate-bounce [animation-delay:0ms]" />
+          <span className="w-2 h-2 rounded-full bg-[var(--brand-light)] animate-bounce [animation-delay:150ms]" />
+          <span className="w-2 h-2 rounded-full bg-[var(--brand-light)] animate-bounce [animation-delay:300ms]" />
         </div>
       </div>
     </div>
@@ -133,7 +140,8 @@ function ChatInner() {
   const tenantId = params.get("tenant") || "";
 
   const [sectors, setSectors]               = useState<Sector[]>([]);
-  const [greeting, setGreeting]             = useState<string>("¡Hola! 👋 Soy MutualBot, tu asistente virtual. ¿En qué área puedo ayudarte?");
+  const [branding, setBranding]             = useState<TenantBranding | null>(null);
+  const [greeting, setGreeting]             = useState<string>("¡Hola! 👋 Soy tu asistente virtual. ¿En qué área puedo ayudarte?");
   const [sectorsLoading, setSectorsLoading] = useState(true);
   const [selectedSector, setSelectedSector] = useState<Sector | null>(null);
   const [phase, setPhase]                   = useState<"selecting" | "chat">("selecting");
@@ -142,6 +150,7 @@ function ChatInner() {
   const [input, setInput]                   = useState("");
   const [sending, setSending]               = useState(false);
   const [status, setStatus]                 = useState("bot_active");
+  const [operatorName, setOperatorName]     = useState<string | null>(null);
   const [error, setError]                   = useState<string | null>(null);
   const [resolvedToken, setResolvedToken]   = useState(token);
   const [operatorsOnline, setOperatorsOnline] = useState<{ count: number; names: string[] } | null>(null);
@@ -174,6 +183,14 @@ function ChatInner() {
       .then(data => setResolvedToken(data.widget_token))
       .catch(e => { setError(`No se pudo conectar: ${e.message}`); setSectorsLoading(false); });
   }, [token, tenantId]);
+
+  // Load tenant branding (public endpoint) + apply CSS variables
+  useEffect(() => {
+    if (!tenantId) return;
+    api.branding.get(tenantId)
+      .then(b => { setBranding(b); applyBrandingVars(b); })
+      .catch(() => { /* keep generic defaults */ });
+  }, [tenantId]);
 
   useEffect(() => {
     if (!resolvedToken) return;
@@ -208,6 +225,7 @@ function ChatInner() {
         id: m.id, role: m.sender_type as Message["role"], content: m.content,
       })));
       setStatus(data.status);
+      setOperatorName(data.operator_name ?? null);
     } catch { /* ignore */ }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resolvedToken, tenantId]);
@@ -304,7 +322,7 @@ function ChatInner() {
   }
 
   const statusLabel =
-    status === "human_attending"    ? "Operador conectado" :
+    status === "human_attending"    ? (operatorName ? `Atendiéndote: ${operatorName}` : "Operador conectado") :
     status === "handoff_requested"  ? "Esperando operador…" :
     "En línea";
 
@@ -316,7 +334,7 @@ function ChatInner() {
   // ── Error ────────────────────────────────────────────────────────────────────
   if (error) {
     return (
-      <div className="h-screen bg-gradient-to-br from-slate-950 via-[#3D1419] to-slate-950 flex items-center justify-center p-4">
+      <div className="h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 flex items-center justify-center p-4">
         <div className="bg-white/10 backdrop-blur-md border border-white/20 rounded-3xl p-10 max-w-sm w-full text-center space-y-4">
           <div className="text-5xl">⚠️</div>
           <h2 className="text-white font-semibold text-lg">No se pudo conectar</h2>
@@ -336,7 +354,7 @@ function ChatInner() {
           ? "bg-gradient-to-r from-amber-600 via-amber-500 to-orange-500 shadow-amber-900/30"
           : status === "human_attending"
           ? "bg-gradient-to-r from-emerald-700 via-emerald-600 to-teal-600 shadow-emerald-900/30"
-          : "bg-gradient-to-r from-[#7A2731] via-[#99323D] to-[#B23B4A] shadow-[#3D1419]/30"
+          : "bg-gradient-to-r from-[var(--brand-dark)] via-[var(--brand-primary)] to-[var(--brand-light)] shadow-black/30"
       }`}>
         <div className="max-w-3xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
           {/* Left: brand + status */}
@@ -353,12 +371,23 @@ function ChatInner() {
                 <ChevronLeft className="h-5 w-5" />
               </button>
             ) : null}
-            <div className="w-9 h-9 rounded-xl bg-white/20 backdrop-blur-sm border border-white/30 flex items-center justify-center shadow-inner">
-              <Bot className="h-5 w-5 text-white" />
+            <div className="w-9 h-9 rounded-xl bg-white/20 backdrop-blur-sm border border-white/30 flex items-center justify-center shadow-inner overflow-hidden">
+              {branding?.logo_url ? (
+                <Image
+                  src={fullLogoUrl(branding.logo_url)!}
+                  alt={branding.display_name}
+                  width={36}
+                  height={36}
+                  className="w-full h-full object-contain"
+                  unoptimized
+                />
+              ) : (
+                <Bot className="h-5 w-5 text-white" />
+              )}
             </div>
             <div>
               <p className="text-white font-semibold text-sm leading-none">
-                {selectedSector ? selectedSector.nombre : BOT_NAME_FALLBACK}
+                {selectedSector ? selectedSector.nombre : (branding?.bot_name || branding?.display_name || "Asistente")}
               </p>
               <div className="flex items-center gap-1.5 mt-1">
                 <span className={`w-1.5 h-1.5 rounded-full ${statusDot}`} />
@@ -390,7 +419,7 @@ function ChatInner() {
             <div className="flex-1 flex flex-col justify-center items-center gap-8 py-8">
               {/* Hero */}
               <div className="text-center space-y-3">
-                <div className="w-20 h-20 rounded-3xl bg-gradient-to-br from-[#B23B4A] to-[#7A2731] flex items-center justify-center mx-auto shadow-xl shadow-[#99323D]/30">
+                <div className="w-20 h-20 rounded-3xl bg-gradient-to-br from-[var(--brand-light)] to-[var(--brand-dark)] flex items-center justify-center mx-auto shadow-xl shadow-black/20">
                   <Bot className="h-10 w-10 text-white" />
                 </div>
                 <div>
@@ -416,7 +445,7 @@ function ChatInner() {
                     <button
                       key={s.id}
                       onClick={() => startChat(s)}
-                      className="group relative bg-white hover:bg-gradient-to-br hover:from-[#99323D] hover:to-[#7A2731] border-2 border-[#E8C4C9] hover:border-transparent text-[#99323D] hover:text-white font-medium text-sm rounded-full px-5 py-2.5 transition-all duration-200 shadow-sm hover:shadow-lg hover:shadow-[#99323D]/30 active:scale-95"
+                      className="group relative bg-white hover:bg-gradient-to-br hover:from-[var(--brand-primary)] hover:to-[var(--brand-dark)] border-2 border-[var(--brand-primary)]/30 hover:border-transparent text-[var(--brand-primary)] hover:text-white font-medium text-sm rounded-full px-5 py-2.5 transition-all duration-200 shadow-sm hover:shadow-lg hover:shadow-black/20 active:scale-95"
                     >
                       {s.nombre}
                     </button>
@@ -439,7 +468,7 @@ function ChatInner() {
               <div className="flex-1" />
               {messages.map(m => {
                 if (m.role === "user")     return <UserBubble     key={m.id} content={m.content} />;
-                if (m.role === "operator") return <OperatorBubble key={m.id} content={m.content} />;
+                if (m.role === "operator") return <OperatorBubble key={m.id} content={m.content} operatorName={operatorName} />;
                 if (m.role === "system" && m.handoffOffer)
                   return <HandoffOfferBubble key={m.id} content={m.content} onConfirm={confirmHandoff} confirmed={handoffConfirmed} />;
                 if (m.role === "system")   return <SystemBubble   key={m.id} content={m.content} />;
@@ -460,7 +489,7 @@ function ChatInner() {
             <div className="flex-1 relative">
               <input
                 ref={inputRef}
-                className="w-full bg-slate-100 hover:bg-slate-50 focus:bg-white border border-transparent focus:border-[#99323D] rounded-2xl px-5 py-3 text-sm text-slate-800 placeholder-slate-400 outline-none focus:ring-2 focus:ring-[#E8C4C9] transition-all"
+                className="w-full bg-slate-100 hover:bg-slate-50 focus:bg-white border border-transparent focus:border-[var(--brand-primary)] rounded-2xl px-5 py-3 text-sm text-slate-800 placeholder-slate-400 outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/30 transition-all"
                 placeholder={
                   phase === "selecting"
                     ? sectorsLoading || sectors.length === 0
@@ -489,7 +518,7 @@ function ChatInner() {
             <button
               onClick={phase === "chat" ? sendMessage : undefined}
               disabled={phase === "chat" ? (!input.trim() || sending) : true}
-              className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[#99323D] to-[#7A2731] text-white flex items-center justify-center shadow-md shadow-[#99323D]/30 hover:shadow-lg hover:shadow-[#99323D]/40 hover:scale-105 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100 disabled:shadow-md transition-all duration-150"
+              className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[var(--brand-primary)] to-[var(--brand-dark)] text-white flex items-center justify-center shadow-md shadow-black/20 hover:shadow-lg hover:shadow-black/25 hover:scale-105 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100 disabled:shadow-md transition-all duration-150"
             >
               {sending
                 ? <Loader2 className="h-4 w-4 animate-spin" />

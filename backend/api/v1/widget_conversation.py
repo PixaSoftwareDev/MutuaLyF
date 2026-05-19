@@ -251,7 +251,12 @@ async def poll_messages(
     """Return new messages since last_message_id. Widget calls this every 5s."""
     async with get_pg_session(tenant_id) as session:
         conv_result = await session.execute(
-            text("SELECT status, assigned_operator_id FROM conversaciones WHERE id = :id"),
+            text("""
+                SELECT c.status, c.assigned_operator_id, u.name AS operator_name
+                FROM conversaciones c
+                LEFT JOIN usuarios u ON u.id = c.assigned_operator_id
+                WHERE c.id = :id
+            """),
             {"id": conversation_id},
         )
         conv = conv_result.mappings().fetchone()
@@ -297,6 +302,7 @@ async def poll_messages(
     return {
         "conversation_id": conversation_id,
         "status": conv["status"],
+        "operator_name": conv["operator_name"],
         "messages": messages,
     }
 

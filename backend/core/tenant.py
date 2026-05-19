@@ -23,6 +23,7 @@ _TENANT_EXEMPT_PATHS = {
     "/api/v1/auth/refresh",
     "/api/v1/auth/logout",
     "/api/v1/auth/sso/providers",
+    "/api/v1/public/tenant-branding",  # public branding lookup, tenant in query param
     "/docs",
     "/openapi.json",
     "/redoc",
@@ -31,6 +32,7 @@ _TENANT_EXEMPT_PATHS = {
 # Path prefixes exempt from tenant resolution (SSO callbacks carry tenant in state)
 _TENANT_EXEMPT_PREFIXES = (
     "/api/v1/auth/sso/",
+    "/uploads/",  # static assets — public, tenant id is in the path itself
     # NOTE: /api/v1/widget/ is NOT exempt — middleware extracts tenant_id from widget JWT payload
 )
 

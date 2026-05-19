@@ -14,7 +14,7 @@ from core.database import connect_all, disconnect_all
 from core.tenant import TenantMiddleware
 from core.metrics import setup_metrics
 from core.tracing import setup_tracing
-from api.v1 import auth, query, ingest, intentions, tenants, widget_conversation, operator_panel, duplicates, audit_log, system_prompts, entities
+from api.v1 import auth, query, ingest, intentions, tenants, widget_conversation, operator_panel, duplicates, audit_log, system_prompts, entities, branding
 
 # ── Logging — must be first, before any other import that logs ─────────────────
 configure_logging(settings.log_level, settings.is_production)
@@ -113,6 +113,16 @@ app.include_router(duplicates.router, prefix="/api/v1", tags=["duplicates"])
 app.include_router(audit_log.router, prefix="/api/v1", tags=["audit"])
 app.include_router(system_prompts.router, prefix="/api/v1", tags=["system-prompts"])
 app.include_router(entities.router, prefix="/api/v1", tags=["entities"])
+app.include_router(branding.router, prefix="/api/v1", tags=["branding"])
+
+
+# ── Static: tenant uploads (logos, favicons) ──────────────────────────────────
+# Mounted under /uploads so the frontend can reference them via the API origin.
+from pathlib import Path as _Path
+from fastapi.staticfiles import StaticFiles
+_uploads_dir = _Path("/uploads")
+_uploads_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=str(_uploads_dir)), name="uploads")
 
 
 # ── Health ────────────────────────────────────────────────────────────────────
