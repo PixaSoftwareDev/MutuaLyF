@@ -1,0 +1,86 @@
+version: "3.9"
+
+# Overrides de produccion. Uso:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# IMPORTANTE: NO incluye docker-compose.override.yml (que es dev con hot-reload).
+
+services:
+
+  # ── Frontend prod build (no dev) ─────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - NEXT_PUBLIC_API_URL=
+        - NEXT_PUBLIC_DEFAULT_TENANT=mutual
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_API_URL=
+      - NEXT_PUBLIC_DEFAULT_TENANT=mutual
+      - PORT=3000
+      - HOSTNAME=0.0.0.0
+    # Reset dev command/volumes
+    command: []
+    volumes: []
+
+  # ── Nginx con conf de prod (HTTP-only, tenant mutual) ────────────────────
+  nginx:
+    volumes:
+      - ./nginx/nginx.prod.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "80:80"
+
+  # ── Grafana queda en 127.0.0.1:3001 (acceso via SSH tunnel o nginx proxy) ──
+  # No se redeclara aqui porque compose hace merge aditivo de ports y
+  # genera conflicto. Para abrir externamente: nginx proxy /grafana/ -> :3000
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Paneles de administracion
+  # ─────────────────────────────────────────────────────────────────────────
+
+  portainer:
+    image: portainer/portainer-ce:2.21.4
+    container_name: ia_portainer
+    restart: unless-stopped
+    ports:
+      - "0.0.0.0:9000:9000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer_data:/data
+    networks:
+      - internal
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  pgadmin:
+    image: dpage/pgadmin4:8.12
+    container_name: ia_pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD}
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+      PGADMIN_LISTEN_PORT: 80
+    ports:
+      - "0.0.0.0:5050:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    networks:
+      - internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  portainer_data:
+  pgadmin_data:

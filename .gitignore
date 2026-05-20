@@ -112,3 +112,7 @@ temp/node_modules/
 # Los outputs de cada corrida (reports/) y los archivos derivados (reingest/) no.
 reports/
 backend/tests/quality/reingest/
+
+# Panel credentials generated on VPS during deploy (never commit)
+.panel-credentials.txt
+.env.backup_*
