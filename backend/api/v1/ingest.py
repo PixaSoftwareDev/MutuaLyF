@@ -42,7 +42,7 @@ async def list_documents(
 
 @router.get("/documents/{document_id}/status")
 async def document_status(
-    document_id: str,
+    document_id: uuid.UUID,
     tenant_id: str = Depends(get_tenant_id),
     current_user: CurrentUser = Depends(require_admin),
 ):

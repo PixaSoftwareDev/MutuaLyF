@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, timezone, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import text
 
 from core.database import get_pg_session
@@ -19,14 +19,14 @@ router = APIRouter()
 # ── Schemas ───────────────────────────────────────────────────────────────────
 
 class IntentionCreate(BaseModel):
-    label: str
-    description: str | None = None
+    label: str = Field(..., min_length=1, max_length=100)
+    description: str | None = Field(default=None, max_length=500)
     examples: list[str] = []  # raw query strings to embed and add
 
 
 class IntentionUpdate(BaseModel):
-    label: str | None = None
-    description: str | None = None
+    label: str | None = Field(default=None, min_length=1, max_length=100)
+    description: str | None = Field(default=None, max_length=500)
     is_active: bool | None = None
 
 
