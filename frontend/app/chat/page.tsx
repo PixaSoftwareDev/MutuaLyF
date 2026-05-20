@@ -405,12 +405,9 @@ function ChatInner() {
                 <div className="w-20 h-20 rounded-3xl bg-gradient-to-br from-brand-light to-brand-dark flex items-center justify-center mx-auto shadow-xl shadow-black/20">
                   <Bot className="h-10 w-10 text-white" />
                 </div>
-                <div>
-                  <h1 className="text-2xl sm:text-3xl font-bold text-slate-800">¡Hola! 👋</h1>
-                  <p className="text-slate-500 mt-1 text-sm sm:text-base whitespace-pre-line">
-                    {greeting}
-                  </p>
-                </div>
+                <p className="text-slate-600 text-sm sm:text-base whitespace-pre-line max-w-md mx-auto">
+                  {greeting}
+                </p>
               </div>
 
               {/* Sector pills */}
@@ -509,9 +506,6 @@ function ChatInner() {
               }
             </button>
           </div>
-          <p className="text-center text-xs text-slate-400 mt-2">
-            Asistente con inteligencia artificial · Las respuestas pueden no ser perfectas
-          </p>
         </div>
       </div>
 
