@@ -172,26 +172,30 @@ async def cluster_tenant(tenant_id: str) -> dict:
 
 
 def _embed_for_clustering(texts: list[str]) -> "np.ndarray | None":
-    """Embed queries using multilingual-e5-large. Returns (N, 1024) numpy array."""
-    try:
-        from services.embeddings import _load_model
+    """Embed queries via embed_batch (delega a OpenAI o modelo local segun EMBEDDING_PROVIDER).
 
-        model = _load_model()
-        if model is None:
-            logger.error("clustering_embed_model_unavailable")
+    Antes este metodo intentaba cargar el modelo local directamente con _load_model,
+    pero con EMBEDDING_PROVIDER=openai ese metodo devuelve None y rompia el clustering.
+    Ahora usa embed_batch que maneja ambos providers.
+    """
+    try:
+        from services.embeddings import embed_batch
+
+        logger.info("clustering_embedding count=%d", len(texts))
+        vectors = embed_batch(texts, is_query=True)
+
+        # embed_batch puede devolver None individuales si algun embed fallo
+        valid = [v for v in vectors if v is not None]
+        if len(valid) != len(texts):
+            logger.warning(
+                "clustering_embed_partial total=%d valid=%d — falla en OpenAI o rate-limit",
+                len(texts), len(valid),
+            )
+        if not valid:
+            logger.error("clustering_embed_all_failed")
             return None
 
-        prefix = "query: "
-        prefixed = [f"{prefix}{t}" for t in texts]
-
-        logger.info("clustering_embedding count=%d", len(prefixed))
-        vectors = model.encode(
-            prefixed,
-            normalize_embeddings=True,
-            batch_size=64,
-            show_progress_bar=False,
-        )
-        return np.array(vectors, dtype=np.float32)
+        return np.array(valid, dtype=np.float32)
 
     except Exception as exc:
         logger.error("clustering_embed_failed error=%s", exc)
