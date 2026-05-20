@@ -44,16 +44,16 @@ services:
     image: portainer/portainer-ce:2.21.4
     container_name: ia_portainer
     restart: unless-stopped
-    # Admin pre-creado via archivo de hash bcrypt (en /opt/mutualyf/.portainer_admin_password,
-    # gitignoreado). Asi se evita el wizard de 5 minutos que bloquea Portainer si no se
-    # registra a tiempo. Password en .panel-credentials.txt
-    command: --admin-password-file /run/portainer_admin_pass
+    # Wizard de admin se debe completar en <5min de arrancar el container.
+    # Si se vence, hacer: docker stop ia_portainer && docker rm ia_portainer
+    # && docker volume rm mutualyf_portainer_data && deploy.sh --force
+    # (intentamos --admin-password-file pero hay un bug en 2.21.4: el hash
+    # se acepta pero el login falla con "Invalid credentials").
     ports:
       - "0.0.0.0:9000:9000"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - portainer_data:/data
-      - ./.portainer_admin_password:/run/portainer_admin_pass:ro
     networks:
       - internal
     logging:
