@@ -116,3 +116,6 @@ backend/tests/quality/reingest/
 # Panel credentials generated on VPS during deploy (never commit)
 .panel-credentials.txt
 .env.backup_*
+
+# Portainer admin password bcrypt hash (generated on VPS)
+.portainer_admin_password

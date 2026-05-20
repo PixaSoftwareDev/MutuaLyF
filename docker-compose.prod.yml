@@ -44,11 +44,16 @@ services:
     image: portainer/portainer-ce:2.21.4
     container_name: ia_portainer
     restart: unless-stopped
+    # Admin pre-creado via archivo de hash bcrypt (en /opt/mutualyf/.portainer_admin_password,
+    # gitignoreado). Asi se evita el wizard de 5 minutos que bloquea Portainer si no se
+    # registra a tiempo. Password en .panel-credentials.txt
+    command: --admin-password-file /run/portainer_admin_pass
     ports:
       - "0.0.0.0:9000:9000"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - portainer_data:/data
+      - ./.portainer_admin_password:/run/portainer_admin_pass:ro
     networks:
       - internal
     logging:
