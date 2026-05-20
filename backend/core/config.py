@@ -138,6 +138,11 @@ class Settings(BaseSettings):
     embedding_model: str = "intfloat/multilingual-e5-large"
     reranker_model: str = "BAAI/bge-reranker-large"
     reranker_enabled: bool = True
+    # Minimo de candidatos de Qdrant para correr el reranker. Si Qdrant
+    # devuelve menos, skipear (no aporta calidad rankear 1-4 elementos y
+    # gasta ~2s en CPU). Tenants con base chica veran queries mas rapidas;
+    # cuando carguen 5+ docs relevantes el reranker se activa solo.
+    reranker_min_candidates: int = 5
     nlu_model: str = "urchade/gliner_large-v2.1"
     nlu_enabled: bool = True
 

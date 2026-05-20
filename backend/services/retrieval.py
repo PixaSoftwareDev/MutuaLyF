@@ -203,19 +203,30 @@ async def retrieve(
             logger.warning("bm25_search_failed tenant_id=%s error=%s", tenant_id, exc)
 
     # ── 6. Rerank with independent timeout ───────────────────────────────────
+    # Skip si hay pocos candidatos: rerankear 1-4 elementos no agrega calidad
+    # significativa (Qdrant ya los ordeno por similitud) y agrega ~2s en CPU.
+    # Cuando se carguen 5+ docs relevantes el reranker se activa automaticamente.
     with tracer.start_as_current_span("retrieval.rerank") as span:
         span.set_attribute("candidates", len(chunks))
-        try:
-            async with asyncio.timeout(_RERANKER_TIMEOUT_S):
-                reranked = await loop.run_in_executor(None, _rerank, query, chunks, rerank_top_k)
-            span.set_attribute("reranked", len(reranked))
-        except asyncio.TimeoutError:
-            logger.warning(
-                "reranker_timeout tenant_id=%s timeout_s=%.1f fallback=qdrant_scores",
-                tenant_id, _RERANKER_TIMEOUT_S,
+        if len(chunks) < settings.reranker_min_candidates:
+            logger.debug(
+                "rerank_skipped reason=few_candidates count=%d min=%d",
+                len(chunks), settings.reranker_min_candidates,
             )
-            span.set_attribute("timeout", True)
+            span.set_attribute("skipped", "few_candidates")
             reranked = sorted(chunks, key=lambda c: c.score, reverse=True)[:rerank_top_k]
+        else:
+            try:
+                async with asyncio.timeout(_RERANKER_TIMEOUT_S):
+                    reranked = await loop.run_in_executor(None, _rerank, query, chunks, rerank_top_k)
+                span.set_attribute("reranked", len(reranked))
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "reranker_timeout tenant_id=%s timeout_s=%.1f fallback=qdrant_scores",
+                    tenant_id, _RERANKER_TIMEOUT_S,
+                )
+                span.set_attribute("timeout", True)
+                reranked = sorted(chunks, key=lambda c: c.score, reverse=True)[:rerank_top_k]
 
     logger.debug(
         "retrieve_done tenant_id=%s candidates=%d reranked=%d",
