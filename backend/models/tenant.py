@@ -40,5 +40,4 @@ class TenantResponse(BaseModel):
 
 class WidgetTokenResponse(BaseModel):
     widget_token: str
-    expires_in_days: int
     tenant_id: str

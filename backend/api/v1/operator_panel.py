@@ -869,6 +869,25 @@ async def get_operator_sectors(
         return [dict(r) for r in result.mappings().all()]
 
 
+@router.get("/admin/sectors/{sector_id}/operators")
+async def get_sector_operators(
+    sector_id: str,
+    tenant_id: str = Depends(get_tenant_id),
+    current_user: CurrentUser = Depends(require_admin),
+):
+    """Return the operators assigned to a sector. Used by the sector edit modal."""
+    _assert_tenant_access(current_user, tenant_id)
+    async with get_pg_session(tenant_id) as session:
+        result = await session.execute(text("""
+            SELECT u.id, u.name, u.email, u.is_active
+            FROM usuarios u
+            JOIN operador_sectores os ON os.operador_id = u.id
+            WHERE os.sector_id = :sid AND u.role = 'operator' AND u.is_active = true
+            ORDER BY u.name
+        """), {"sid": sector_id})
+        return [dict(r) for r in result.mappings().all()]
+
+
 class CreateOperatorRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=120)
     email: EmailStr

@@ -77,12 +77,18 @@ def create_refresh_token(user_id: str, tenant_id: str) -> str:
 
 
 def create_widget_token(tenant_id: str) -> str:
-    """Long-lived read-only token for the embeddable widget."""
-    return _create_token(
-        {"tenant_id": tenant_id},
-        timedelta(days=settings.jwt_widget_expire_days),
-        TokenScope.WIDGET,
-    )
+    """Non-expiring read-only token for the embeddable widget.
+
+    El widget se embebe en sitios externos del cliente; renovarlo cada N días
+    sería un dolor. La revocación se hace por hash en DB (widget_token_hash):
+    al regenerar, el viejo hash se reemplaza y el token previo deja de validar.
+    """
+    payload = {
+        "tenant_id": tenant_id,
+        "scope": TokenScope.WIDGET.value,
+        "iat": datetime.now(timezone.utc),
+    }
+    return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
 
 # ── JWT validation ─────────────────────────────────────────────────────────────

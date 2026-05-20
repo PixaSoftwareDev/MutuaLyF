@@ -591,7 +591,11 @@ async def generate_widget_token(
     tenant_id: str,
     current_user: CurrentUser = Depends(require_admin_or_super),
 ):
-    """Generate a long-lived widget token (90 days) scoped to this tenant."""
+    """Generate a non-expiring widget token scoped to this tenant.
+
+    Revocación: regenerar reemplaza el hash en DB → el token previo deja
+    de validar al instante (cache de Redis se busta también).
+    """
     if current_user.role.value != "super_admin" and current_user.tenant_id != tenant_id:
         raise HTTPException(status_code=403, detail="Cannot generate token for another tenant")
 
@@ -615,7 +619,6 @@ async def generate_widget_token(
     logger.info("widget_token_generated tenant_id=%s by=%s", tenant_id, current_user.user_id)
     return WidgetTokenResponse(
         widget_token=token,
-        expires_in_days=settings.jwt_widget_expire_days,
         tenant_id=tenant_id,
     )
 
