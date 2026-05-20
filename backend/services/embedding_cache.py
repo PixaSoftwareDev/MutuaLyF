@@ -71,10 +71,3 @@ async def embed_query_cached(text: str) -> list[float] | None:
     return vector
 
 
-def get_cache_stats() -> dict:
-    total = _HIT_COUNT + _MISS_COUNT
-    return {
-        "hits":      _HIT_COUNT,
-        "misses":    _MISS_COUNT,
-        "hit_rate":  round(_HIT_COUNT / total, 3) if total > 0 else 0.0,
-    }

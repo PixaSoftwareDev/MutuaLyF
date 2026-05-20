@@ -63,12 +63,28 @@ def get_session_factory() -> async_sessionmaker[AsyncSession]:
 async def get_pg_session(tenant_id: str | None = None) -> AsyncGenerator[AsyncSession, None]:
     """Yield an AsyncSession. If tenant_id provided, sets search_path for tenant isolation.
 
+    Si tenant_id es None, intenta resolverlo desde el ContextVar `current_tenant_var`
+    (poblado por TenantMiddleware en el request actual). Defense-in-depth: cualquier
+    funcion que cree sesion sin pasar tenant_id explicito hereda el tenant del request.
+
     Resets search_path to public in finally so the pooled connection doesn't leak
     tenant-specific schema state to the next session that reuses it.
+
+    Verifica con SHOW search_path despues del SET que el cambio tomo efecto.
+    Si no, lanza RuntimeError (mejor fallar ruidoso que leakear data entre tenants).
     """
     # __platform__ is the super-admin sentinel — treat as global (no search_path override)
     if tenant_id == "__platform__":
         tenant_id = None
+    elif tenant_id is None:
+        # Defense-in-depth: heredar del request context si no se paso explicito
+        try:
+            from core.tenant import current_tenant_var
+            inherited = current_tenant_var.get()
+            if inherited and inherited != "__platform__":
+                tenant_id = inherited
+        except (ImportError, LookupError):
+            pass
 
     factory = get_session_factory()
     async with factory() as session:
@@ -78,6 +94,18 @@ async def get_pg_session(tenant_id: str | None = None) -> AsyncGenerator[AsyncSe
             # Sanitize tenant_id before using in SQL — only alphanumeric and underscores allowed
             safe_id = _validate_tenant_id(tenant_id)
             await session.execute(text(f"SET search_path TO tenant_{safe_id}, public"))
+            # Defense-in-depth: verificar que el SET tomo efecto. Si por alguna
+            # razon Postgres no lo aplico (configuracion rara, hook, transaction
+            # ya abierta), preferimos fallar ruidoso a leakear data entre tenants.
+            actual = (await session.execute(text("SHOW search_path"))).scalar() or ""
+            if not actual.startswith(f"tenant_{safe_id}"):
+                logger.critical(
+                    "search_path_mismatch tenant_id=%s expected=tenant_%s,public actual=%r",
+                    tenant_id, safe_id, actual,
+                )
+                raise RuntimeError(
+                    f"search_path verification failed: expected tenant_{safe_id}, got {actual!r}"
+                )
         try:
             yield session
             await session.commit()

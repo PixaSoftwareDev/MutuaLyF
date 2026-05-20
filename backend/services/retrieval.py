@@ -20,6 +20,30 @@ from services.embedding_cache import embed_query_cached
 
 logger = logging.getLogger(__name__)
 
+# ─────────────────────────────────────────────────────────────────────────────
+# PyTorch threading config — debe correr ANTES de cualquier op de torch.
+# torch.set_num_interop_threads() solo se puede llamar al inicio. En Docker el
+# default es os.cpu_count()=16 pero el cgroup nos limita a 6 → oversubscription.
+# Auditoria 2026-05-20 confirmo: con 10 threads default, rerank de 10 pares
+# tarda 12s; con 6 threads, 2s. Alineamos al cgroup limit del backend.
+# ─────────────────────────────────────────────────────────────────────────────
+try:
+    import torch as _torch
+    _torch.set_num_threads(6)
+    try:
+        _torch.set_num_interop_threads(1)
+    except RuntimeError:
+        # Solo se puede setear UNA vez, antes de cualquier op.
+        # Si otro modulo ya hizo torch ops, queda con el default.
+        pass
+    logger.info(
+        "torch_threads_configured intra=%d interop=%d",
+        _torch.get_num_threads(),
+        _torch.get_num_interop_threads(),
+    )
+except ImportError:
+    pass
+
 # Per-source timeouts (independent — Qdrant and reranker don't block each other)
 _QDRANT_TIMEOUT_S  = settings.db_timeout_ms / 1000       # default 500ms
 _RERANKER_TIMEOUT_S = settings.reranker_timeout_ms / 1000  # default 5000ms (was 300ms, raised in .env)

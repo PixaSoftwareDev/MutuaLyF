@@ -1,6 +1,7 @@
 """Tenant resolution middleware: extracts and validates tenant_id from every request."""
 
 import logging
+from contextvars import ContextVar
 from typing import Callable
 
 from fastapi import Request, Response, HTTPException, status
@@ -15,23 +16,27 @@ logger = logging.getLogger(__name__)
 TENANT_ID_HEADER = "X-Tenant-ID"
 REQUEST_TENANT_KEY = "tenant_id"
 
-# Paths that don't require tenant resolution (auth, health, observability, SSO)
+# ContextVar para defense-in-depth: si una funcion crea una sesion PG sin
+# pasar tenant_id explicito, get_pg_session puede leer este var del contexto
+# async actual. Lo setea el middleware y se propaga a todo el call stack del
+# request via asyncio Task locals.
+current_tenant_var: ContextVar[str | None] = ContextVar("current_tenant", default=None)
+
+# Paths that don't require tenant resolution (auth, health, observability)
 _TENANT_EXEMPT_PATHS = {
     "/health",
     "/metrics",
     "/api/v1/auth/login",
     "/api/v1/auth/refresh",
     "/api/v1/auth/logout",
-    "/api/v1/auth/sso/providers",
     "/api/v1/public/tenant-branding",  # public branding lookup, tenant in query param
     "/docs",
     "/openapi.json",
     "/redoc",
 }
 
-# Path prefixes exempt from tenant resolution (SSO callbacks carry tenant in state)
+# Path prefixes exempt from tenant resolution
 _TENANT_EXEMPT_PREFIXES = (
-    "/api/v1/auth/sso/",
     "/uploads/",  # static assets — public, tenant id is in the path itself
     # NOTE: /api/v1/widget/ is NOT exempt — middleware extracts tenant_id from widget JWT payload
 )
@@ -63,7 +68,20 @@ class TenantMiddleware(BaseHTTPMiddleware):
         )
 
         if not tenant_id:
-            logger.warning("tenant_resolution_failed path=%s", request.url.path)
+            # Si NO hay credenciales (ni Authorization ni X-Tenant-ID ni cookie),
+            # dejamos pasar para que la dependency de auth devuelva 401 normal.
+            # Asi un cliente sin token recibe 401 "Not authenticated" en vez de
+            # 400 "Tenant could not be resolved" (que es confuso).
+            # Solo retornamos 400 cuando HAY credenciales pero el tenant no se
+            # pudo determinar (JWT sin claim, header malformado, etc).
+            has_auth_header = bool(request.headers.get("Authorization"))
+            has_tenant_header = bool(request.headers.get(TENANT_ID_HEADER))
+            has_refresh_cookie = bool(request.cookies.get("refresh_token"))
+            if not (has_auth_header or has_tenant_header or has_refresh_cookie):
+                logger.debug("tenant_missing_no_credentials path=%s", path)
+                return await call_next(request)
+
+            logger.warning("tenant_resolution_failed path=%s", path)
             return JSONResponse(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 content={"detail": "Tenant could not be resolved"},
@@ -72,12 +90,20 @@ class TenantMiddleware(BaseHTTPMiddleware):
         # __platform__ is the super-admin sentinel — valid, no schema lookup needed
         if tenant_id == "__platform__":
             request.state.tenant_id = tenant_id
-            return await call_next(request)
+            token = current_tenant_var.set(None)
+            try:
+                return await call_next(request)
+            finally:
+                current_tenant_var.reset(token)
 
         # Attach to request state so endpoints can read it
         request.state.tenant_id = tenant_id
-        logger.debug("tenant_resolved tenant_id=%s path=%s", tenant_id, request.url.path)
-        return await call_next(request)
+        token = current_tenant_var.set(tenant_id)
+        logger.debug("tenant_resolved tenant_id=%s path=%s", tenant_id, path)
+        try:
+            return await call_next(request)
+        finally:
+            current_tenant_var.reset(token)
 
 
 def _extract_from_subdomain(request: Request) -> str | None:

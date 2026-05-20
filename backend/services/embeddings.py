@@ -113,7 +113,7 @@ def embed_text(text: str) -> list[float] | None:
     """Embed a single text. Routes to OpenAI or local based on settings.
 
     Local model expects 'query: ' or 'passage: ' prefix; callers add it via
-    embed_query / embed_passage. OpenAI strips these prefixes internally.
+    embed_query. OpenAI strips these prefixes internally.
     """
     if _is_openai():
         result = _embed_openai([text])
@@ -133,11 +133,6 @@ def embed_text(text: str) -> list[float] | None:
 def embed_query(query: str) -> list[float] | None:
     """Embed a user query. Adds the 'query: ' prefix required by e5 (stripped for OpenAI)."""
     return embed_text(f"query: {query}")
-
-
-def embed_passage(passage: str) -> list[float] | None:
-    """Embed a document passage. Adds the 'passage: ' prefix required by e5 (stripped for OpenAI)."""
-    return embed_text(f"passage: {passage}")
 
 
 def embed_batch(texts: list[str], is_query: bool = False) -> list[list[float] | None]:
