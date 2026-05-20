@@ -279,21 +279,21 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
         selectedId ? "hidden sm:flex" : "flex"
       )}>
 
-        {/* Title bar — aligned with sidebar brand (h-16) */}
-        <div className="h-16 px-4 flex items-center justify-between border-b shrink-0">
-          <h1 className="font-semibold text-sm flex items-center gap-2">
-            <MessageSquare className="h-4 w-4 text-primary" />
-            {readOnly ? "Conversaciones" : "Panel Operador"}
-          </h1>
-          {!readOnly && (
+        {/* Title bar — solo en modo operador (admin lo identifica por el sidebar) */}
+        {!readOnly && (
+          <div className="h-16 px-4 flex items-center justify-between border-b shrink-0">
+            <h1 className="font-semibold text-sm flex items-center gap-2">
+              <MessageSquare className="h-4 w-4 text-primary" />
+              Panel Operador
+            </h1>
             <div className="flex items-center gap-1.5" title={sseConnected ? "Tiempo real activo" : "Reconectando..."}>
               {sseConnected
                 ? <Wifi    className="h-3.5 w-3.5 text-emerald-500" />
                 : <WifiOff className="h-3.5 w-3.5 text-muted-foreground animate-pulse" />}
               <span className="text-[10px] text-muted-foreground">{sseConnected ? "En vivo" : "..."}</span>
             </div>
-          )}
-        </div>
+          </div>
+        )}
 
         {/* Filters + stats */}
         <div className="px-4 pt-3 pb-3 space-y-3">

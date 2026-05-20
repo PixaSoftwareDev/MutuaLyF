@@ -280,7 +280,6 @@ export interface HandoffConfig {
 
 export interface WidgetTokenResponse {
   widget_token: string;
-  expires_in_days: number;
   tenant_id: string;
 }
 
@@ -641,6 +640,10 @@ export const api = {
     getOperatorSectors: async (operatorId: string) => {
       const { data } = await apiClient.get(`/admin/operators/${operatorId}/sectors`);
       return data as Array<{ id: string; nombre: string }>;
+    },
+    getSectorOperators: async (sectorId: string) => {
+      const { data } = await apiClient.get(`/admin/sectors/${sectorId}/operators`);
+      return data as Array<{ id: string; name: string; email: string; is_active: boolean }>;
     },
     assignOperatorSectors: async (operatorId: string, sectorIds: string[]) => {
       await apiClient.post(`/admin/operators/${operatorId}/sectors`, { sector_ids: sectorIds });

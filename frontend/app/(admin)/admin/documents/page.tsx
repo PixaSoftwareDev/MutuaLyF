@@ -4,10 +4,10 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  FileText, RefreshCw, Clock, Trash2, Loader2,
+  FileText, Clock, Trash2, Loader2,
   ChevronDown, ChevronRight, Search, CheckCircle2,
   XCircle, UserCheck, AlertTriangle, ShieldCheck, ChevronUp,
-  GitMerge, ArrowRight,
+  GitMerge, ArrowRight, MoreVertical, Edit2,
 } from "lucide-react";
 import { api, type DocumentResponse, type ChunkResponse, type PendingChunkResponse } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
@@ -15,6 +15,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
+} from "@/components/ui/dropdown-menu";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+} from "@/components/ui/dialog";
 import { DocumentUploader } from "@/components/documents/document-uploader";
 import { toast } from "@/components/ui/toast";
 import { PageShell } from "@/components/layout/page-shell";
@@ -61,14 +67,24 @@ export default function DocumentsPage() {
     queryKey: ["documents"],
     queryFn: api.documents.list,
     staleTime: 10_000,
-    refetchInterval: 30_000,
+    // Polling adaptativo: si hay docs procesando, refetch agresivo cada 4s
+    // para ver el cambio de estado casi al toque. Si todo está estable, 30s.
+    refetchInterval: (query) => {
+      const docs = (query.state.data as DocumentResponse[] | undefined) ?? [];
+      const anyProcessing = docs.some(d => d.status === "pending" || d.status === "processing");
+      return anyProcessing ? 4_000 : 30_000;
+    },
   });
 
   const { data: pendingChunks = [], isLoading: pendingLoading } = useQuery({
     queryKey: ["chunks", "pending"],
     queryFn: api.documents.pendingChunks,
     staleTime: 15_000,
-    refetchInterval: 30_000,
+    // Mismo razonamiento: refetch rápido cuando hay docs procesando, porque
+    // pueden aparecer fragmentos nuevos por revisar en cualquier momento.
+    refetchInterval: documents.some(d => d.status === "pending" || d.status === "processing")
+      ? 5_000
+      : 30_000,
   });
 
   const { data: duplicatesData, isLoading: duplicatesLoading } = useQuery({
@@ -111,7 +127,6 @@ export default function DocumentsPage() {
     (d) => !search || d.title.toLowerCase().includes(search.toLowerCase()),
   );
 
-  const readyCount      = documents.filter((d) => d.status === "ready").length;
   const processingCount = documents.filter((d) => ["pending", "processing"].includes(d.status)).length;
 
   return (
@@ -119,27 +134,7 @@ export default function DocumentsPage() {
       <PageHeader
         title="Documentos"
         description="Subí documentos para que la IA los use en sus respuestas."
-        actions={
-          <Button variant="outline" size="sm" onClick={refresh}>
-            <RefreshCw className="h-4 w-4 mr-1" />
-            Actualizar
-          </Button>
-        }
       />
-
-      {/* Stats rápidas */}
-      {documents.length > 0 && (
-        <div className="flex gap-6 text-sm">
-          <span><strong className="text-foreground">{documents.length}</strong> <span className="text-muted-foreground">total</span></span>
-          <span><strong className="text-green-600">{readyCount}</strong> <span className="text-muted-foreground">listos</span></span>
-          {processingCount > 0 && (
-            <span><strong className="text-primary">{processingCount}</strong> <span className="text-muted-foreground">procesando</span></span>
-          )}
-          {pendingDuplicatesTotal > 0 && (
-            <span><strong className="text-amber-600">{pendingDuplicatesTotal}</strong> <span className="text-muted-foreground">duplicados por revisar</span></span>
-          )}
-        </div>
-      )}
 
       {/* Uploader — el dropzone se explica solo, sin doble título */}
       <DocumentUploader
@@ -162,6 +157,7 @@ export default function DocumentsPage() {
         pendingByDocId={pendingByDocId}
         isLoading={pendingLoading}
         hasPendingDuplicates={pendingDuplicatesTotal > 0}
+        hasProcessingDocs={processingCount > 0}
         onReviewed={refresh}
       />
 
@@ -304,19 +300,24 @@ function ReviewQueue({
   pendingByDocId,
   isLoading,
   hasPendingDuplicates,
+  hasProcessingDocs,
   onReviewed,
 }: {
   pendingChunks: PendingChunkResponse[];
   pendingByDocId: Record<string, { title: string; chunks: PendingChunkResponse[] }>;
   isLoading: boolean;
   hasPendingDuplicates: boolean;
+  hasProcessingDocs: boolean;
   onReviewed: () => void;
 }) {
   const hasPending = pendingChunks.length > 0;
 
   if (!isLoading && !hasPending) {
-    // Solo mostrar el "todo bien" si tampoco hay duplicados pendientes
-    if (hasPendingDuplicates) return null;
+    // No mostrar "todo verificado" si:
+    //  - hay duplicados pendientes (ya se ve la alerta de duplicados)
+    //  - hay docs todavía procesando (es engañoso: parece que no hay
+    //    fragmentos pendientes cuando en realidad todavía no se procesaron)
+    if (hasPendingDuplicates || hasProcessingDocs) return null;
     return (
       <div className="flex items-center gap-2 text-sm text-muted-foreground py-1">
         <ShieldCheck className="h-4 w-4 text-green-500 shrink-0" />
@@ -376,8 +377,9 @@ function DocumentRow({
   onDeleted: () => void;
 }) {
   const router = useRouter();
-  const [confirming, setConfirming] = useState(false);
+  const [showDelete, setShowDelete] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [editMode, setEditMode] = useState(false);
   const docStatus = DOC_STATUS_CONFIG[doc.status];
   const qgBadge = QG_DOC_CONFIG[doc.quality_gate_status];
   const canExpand = doc.status === "ready" && doc.chunk_count > 0;
@@ -396,7 +398,7 @@ function DocumentRow({
   const { mutate: deleteDoc, isPending: deleting } = useMutation({
     mutationFn: () => api.documents.delete(doc.id),
     onSuccess: () => {
-      setConfirming(false);
+      setShowDelete(false);
       onDeleted();
       toast({ title: "Documento eliminado", variant: "success" });
     },
@@ -457,24 +459,37 @@ function DocumentRow({
           {qgBadge && <Badge variant={qgBadge.variant}>{qgBadge.label}</Badge>}
           <Badge variant={docStatus.variant}>{docStatus.label}</Badge>
 
-          {confirming ? (
-            <div className="flex items-center gap-1">
-              <Button size="sm" variant="destructive" className="h-7 px-2 text-xs" disabled={deleting} onClick={() => deleteDoc()}>
-                {deleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Confirmar"}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button size="icon" variant="ghost" className="h-8 w-8" aria-label="Acciones del documento">
+                <MoreVertical className="h-4 w-4" />
               </Button>
-              <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" disabled={deleting} onClick={() => setConfirming(false)}>
-                Cancelar
-              </Button>
-            </div>
-          ) : (
-            <Button
-              size="sm" variant="ghost"
-              className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
-              onClick={() => setConfirming(true)}
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-            </Button>
-          )}
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              {canExpand && (
+                <DropdownMenuItem
+                  onSelect={() => {
+                    // Auto-expandir si está colapsado para que se vean los chunks editables
+                    if (!expanded) setExpanded(true);
+                    setEditMode(v => !v);
+                  }}
+                >
+                  {editMode ? (
+                    <><CheckCircle2 className="h-4 w-4 mr-2" /> Salir de edición</>
+                  ) : (
+                    <><Edit2 className="h-4 w-4 mr-2" /> Editar fragmentos</>
+                  )}
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuItem
+                onSelect={() => setShowDelete(true)}
+                className="text-destructive focus:text-destructive"
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Eliminar
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
@@ -487,24 +502,71 @@ function DocumentRow({
             <p className="text-xs text-muted-foreground text-center py-2">Sin fragmentos disponibles</p>
           ) : (
             <>
-              <p className="text-xs text-muted-foreground mb-1">
-                {chunks.length} fragmento{chunks.length !== 1 ? "s" : ""} · {chunks.filter(c => c.quality_gate_status === "passed").length} verificado{chunks.filter(c => c.quality_gate_status === "passed").length !== 1 ? "s" : ""}
-                {chunks.filter(c => c.quality_gate_status === "pending").length > 0 && (
-                  <span className="text-amber-700 font-medium">
-                    {" "}· {chunks.filter(c => c.quality_gate_status === "pending").length} sin verificar
-                  </span>
+              <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
+                <p className="text-xs text-muted-foreground">
+                  {chunks.length} fragmento{chunks.length !== 1 ? "s" : ""} · {chunks.filter(c => c.quality_gate_status === "passed").length} verificado{chunks.filter(c => c.quality_gate_status === "passed").length !== 1 ? "s" : ""}
+                  {chunks.filter(c => c.quality_gate_status === "pending").length > 0 && (
+                    <span className="text-amber-700 font-medium">
+                      {" "}· {chunks.filter(c => c.quality_gate_status === "pending").length} sin verificar
+                    </span>
+                  )}
+                  {chunks.filter(c => c.quality_gate_status === "skipped").length > 0 && (
+                    <span className="text-muted-foreground">
+                      {" "}· {chunks.filter(c => c.quality_gate_status === "skipped").length} excluido{chunks.filter(c => c.quality_gate_status === "skipped").length !== 1 ? "s" : ""}
+                    </span>
+                  )}
+                </p>
+                {editMode && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] text-primary font-medium">Modo edición</span>
+                    <Button
+                      size="sm" variant="outline"
+                      className="h-7 px-2.5 text-xs"
+                      onClick={() => setEditMode(false)}
+                    >
+                      <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
+                      Listo
+                    </Button>
+                  </div>
                 )}
-                {chunks.filter(c => c.quality_gate_status === "skipped").length > 0 && (
-                  <span className="text-muted-foreground">
-                    {" "}· {chunks.filter(c => c.quality_gate_status === "skipped").length} excluido{chunks.filter(c => c.quality_gate_status === "skipped").length !== 1 ? "s" : ""}
-                  </span>
-                )}
-              </p>
-              {chunks.map((chunk) => <ChunkCard key={chunk.id} chunk={chunk} documentId={doc.id} />)}
+              </div>
+              {chunks.map((chunk) => (
+                <ChunkCard
+                  key={chunk.id}
+                  chunk={chunk}
+                  documentId={doc.id}
+                  editable={editMode}
+                />
+              ))}
             </>
           )}
         </div>
       )}
+
+      {/* Modal de confirmación de eliminación */}
+      <Dialog open={showDelete} onOpenChange={setShowDelete}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-amber-500" />
+              Eliminar documento
+            </DialogTitle>
+            <DialogDescription className="pt-2">
+              Vas a eliminar <span className="font-medium text-foreground">{doc.title}</span> y
+              todos sus fragmentos. Esta acción no se puede deshacer.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="mt-2">
+            <Button variant="outline" onClick={() => setShowDelete(false)} disabled={deleting}>
+              Cancelar
+            </Button>
+            <Button variant="destructive" onClick={() => deleteDoc()} disabled={deleting}>
+              {deleting && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
+              Eliminar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -610,7 +672,7 @@ function PendingChunkCard({ chunk, onReviewed }: { chunk: PendingChunkResponse; 
 
 // ── ChunkCard ─────────────────────────────────────────────────────────────────
 
-function ChunkCard({ chunk, documentId }: { chunk: ChunkResponse; documentId: string }) {
+function ChunkCard({ chunk, documentId, editable }: { chunk: ChunkResponse; documentId: string; editable: boolean }) {
   const queryClient = useQueryClient();
   const [showFull, setShowFull] = useState(false);
   const qg = QG_CHUNK_CONFIG[chunk.quality_gate_status];
@@ -665,7 +727,7 @@ function ChunkCard({ chunk, documentId }: { chunk: ChunkResponse; documentId: st
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <Badge variant={qg.variant} className="text-[10px] h-5 px-1.5">{qg.label}</Badge>
-          {!isPassed && (
+          {editable && !isPassed && (
             <button
               disabled={reviewing}
               onClick={() => review("approve")}
@@ -675,7 +737,7 @@ function ChunkCard({ chunk, documentId }: { chunk: ChunkResponse; documentId: st
               Incluir
             </button>
           )}
-          {!isSkipped && (
+          {editable && !isSkipped && (
             <button
               disabled={reviewing}
               onClick={() => review("reject")}

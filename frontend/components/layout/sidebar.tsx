@@ -44,40 +44,60 @@ type NavItem = {
   tooltip?: string;
 };
 
-const navGroups: NavItem[][] = [
-  [
-    { href: "/admin/conversations", label: "Conversaciones", icon: Inbox, adminOnly: true },
-  ],
-  [
-    { href: "/admin/documents",  label: "Documentos", icon: FileText, adminOnly: true },
-    { href: "/admin/intentions", label: "Temas reconocidos", icon: Tags, adminOnly: true,
-      tooltip: "Categorías de consulta que el bot identifica. Validá las que aprendió." },
-    { href: "/admin/entities",   label: "Entidades",  icon: Network, adminOnly: true,
-      tooltip: "Personas, departamentos y más extraídos automáticamente de tus documentos." },
-    { href: "/admin/duplicates", label: "Duplicados", icon: GitMerge, adminOnly: true,
-      badgeKey: "duplicates-pending",
-      tooltip: "Documentos parecidos que conviene unificar para evitar respuestas contradictorias." },
-  ],
-  [
-    { href: "/admin/sectors",   label: "Sectores",   icon: Building2, adminOnly: true },
-    { href: "/admin/operators", label: "Operadores", icon: Users,     adminOnly: true },
-  ],
-  [
-    { href: "/admin/settings", label: "Configuración", icon: Settings, adminOnly: true,
-      tooltip: "Personalidad, mensaje de saludo y comportamiento del asistente." },
-    { href: "/admin/branding", label: "Branding",      icon: Palette, adminOnly: true,
-      tooltip: "Personalizá el nombre, color y logo de tu organización." },
-    { href: "/admin/audit",    label: "Auditoría",     icon: ClipboardList, adminOnly: true,
-      tooltip: "Registro de acciones críticas: logins, subidas, cambios de configuración." },
-  ],
-  [
-    { href: "/superadmin",         label: "Plataforma",     icon: Shield,        superAdminOnly: true,
-      tooltip: "Administración cross-tenant: organizaciones, planes y cuotas." },
-    { href: "/superadmin/prompts", label: "Bots / Prompts", icon: Bot,           superAdminOnly: true,
-      tooltip: "Creá y asignás templates de prompt a los tenants." },
-    { href: "/superadmin/audit",   label: "Auditoría",      icon: ClipboardList, superAdminOnly: true,
-      tooltip: "Registro de actividad de todas las organizaciones." },
-  ],
+type NavGroup = {
+  label?: string;
+  items: NavItem[];
+};
+
+const navGroups: NavGroup[] = [
+  {
+    // Primer grupo sin label — atajo + tarea diaria principal del admin
+    items: [
+      { href: "/admin/conversations", label: "Conversaciones", icon: Inbox, adminOnly: true },
+    ],
+  },
+  {
+    label: "Conocimiento",
+    items: [
+      { href: "/admin/documents",  label: "Documentos", icon: FileText, adminOnly: true },
+      { href: "/admin/intentions", label: "Temas reconocidos", icon: Tags, adminOnly: true,
+        tooltip: "Categorías de consulta que el bot identifica. Validá las que aprendió." },
+      { href: "/admin/entities",   label: "Entidades",  icon: Network, adminOnly: true,
+        tooltip: "Personas, departamentos y más extraídos automáticamente de tus documentos." },
+      { href: "/admin/duplicates", label: "Duplicados", icon: GitMerge, adminOnly: true,
+        badgeKey: "duplicates-pending",
+        tooltip: "Documentos parecidos que conviene unificar para evitar respuestas contradictorias." },
+    ],
+  },
+  {
+    label: "Equipo",
+    items: [
+      { href: "/admin/sectors",   label: "Sectores",   icon: Building2, adminOnly: true },
+      { href: "/admin/operators", label: "Operadores", icon: Users,     adminOnly: true },
+    ],
+  },
+  {
+    label: "Sistema",
+    items: [
+      { href: "/admin/settings", label: "Configuración", icon: Settings, adminOnly: true,
+        tooltip: "Personalidad, mensaje de saludo y comportamiento del asistente." },
+      { href: "/admin/branding", label: "Branding",      icon: Palette, adminOnly: true,
+        tooltip: "Personalizá el nombre, color y logo de tu organización." },
+      { href: "/admin/audit",    label: "Auditoría",     icon: ClipboardList, adminOnly: true,
+        tooltip: "Registro de acciones críticas: logins, subidas, cambios de configuración." },
+    ],
+  },
+  {
+    label: "Plataforma",
+    items: [
+      { href: "/superadmin",         label: "Resumen",        icon: Shield,        superAdminOnly: true,
+        tooltip: "Administración cross-tenant: organizaciones, planes y cuotas." },
+      { href: "/superadmin/prompts", label: "Bots / Prompts", icon: Bot,           superAdminOnly: true,
+        tooltip: "Creá y asignás templates de prompt a los tenants." },
+      { href: "/superadmin/audit",   label: "Auditoría",      icon: ClipboardList, superAdminOnly: true,
+        tooltip: "Registro de actividad de todas las organizaciones." },
+    ],
+  },
 ];
 
 export function Sidebar() {
@@ -226,15 +246,31 @@ export function Sidebar() {
           {(() => {
             let visibleGroupCount = 0;
             return navGroups.map((group, groupIdx) => {
-              const visibleItems = group.filter(isVisible);
+              const visibleItems = group.items.filter(isVisible);
               const showChatTester = groupIdx === 0 && isAdmin;
               if (visibleItems.length === 0 && !showChatTester) return null;
-              const needsDivider = visibleGroupCount > 0;
+              const isFirstVisible = visibleGroupCount === 0;
               visibleGroupCount++;
 
               return (
                 <React.Fragment key={groupIdx}>
-                  {needsDivider && <div className="h-px bg-white/10 my-3 mx-1" />}
+                  {/* Section label — solo si el grupo lo tiene Y no está colapsado */}
+                  {group.label && !collapsed && (
+                    <div className={cn(
+                      "px-2.5 text-[10px] font-semibold uppercase tracking-wider text-white/40",
+                      isFirstVisible ? "mb-1.5" : "mt-5 mb-1.5"
+                    )}>
+                      {group.label}
+                    </div>
+                  )}
+                  {/* Separador discreto cuando el grupo no tiene label pero hay un grupo arriba */}
+                  {!group.label && !isFirstVisible && (
+                    <div className="h-px bg-white/10 my-3 mx-1" />
+                  )}
+                  {/* Si está colapsado, igual quiero separar grupos visualmente */}
+                  {collapsed && group.label && !isFirstVisible && (
+                    <div className="h-px bg-white/10 my-3 mx-1 hidden lg:block" />
+                  )}
                   <div className="space-y-1">
                     {showChatTester && (
                       <button

@@ -13,13 +13,13 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "@/components/ui/toast";
 
-const MESSAGE_KEYS: Array<{ key: string; label: string; description: string }> = [
-  { key: "handoff_offer",           label: "Ofrecimiento de pase a operador",  description: "Cuando el bot detecta que no puede ayudar." },
-  { key: "handoff_auto",            label: "Pase a operador automático",       description: "Cuando el afiliado pide hablar con un humano de forma explícita." },
-  { key: "human_assigned",          label: "Operador conectado",               description: "Cuando un operador acepta la conversación." },
-  { key: "sector_transferred",      label: "Derivado a otro sector",           description: "Cuando se transfiere la conversación a otra área." },
-  { key: "operator_inactive_alert", label: "Aviso de espera prolongada",       description: "Cuando el afiliado lleva mucho tiempo sin respuesta del operador." },
-  { key: "conversation_closed",     label: "Conversación cerrada",             description: "Al cerrar la conversación." },
+const MESSAGE_KEYS: Array<{ key: string; label: string }> = [
+  { key: "handoff_offer",           label: "Bot no puede ayudar" },
+  { key: "handoff_auto",            label: "Pide operador explícitamente" },
+  { key: "human_assigned",          label: "Operador conectado" },
+  { key: "sector_transferred",      label: "Derivado a otro sector" },
+  { key: "operator_inactive_alert", label: "Espera prolongada" },
+  { key: "conversation_closed",     label: "Conversación cerrada" },
 ];
 
 export function HandoffSettings() {
@@ -71,41 +71,30 @@ export function HandoffSettings() {
 
   return (
     <div className="space-y-6">
-      <p className="text-sm text-muted-foreground">
-        Definí cuándo el bot debe pasar la conversación a un operador humano y los mensajes que ve el afiliado durante esa transición.
-      </p>
-
       {/* Reglas de activación */}
       <Card>
-        <CardHeader className="pb-3"><h2 className="font-semibold text-sm">Cuándo derivar a un operador</h2></CardHeader>
+        <CardHeader className="pb-3"><h2 className="font-semibold text-sm">Cuándo derivar</h2></CardHeader>
         <CardContent className="space-y-4">
-          <div className="space-y-1.5">
-            <Label className="text-sm">Después de respuestas insuficientes consecutivas</Label>
-            <div className="flex items-center gap-3">
-              <Input
-                type="number" min={2} max={10}
-                value={threshold}
-                onChange={e => { setThreshold(Number(e.target.value)); setDirty(true); }}
-                className="w-20"
-              />
-              <span className="text-sm text-muted-foreground">turnos seguidos donde el bot no encontró información → ofrecer pase a operador</span>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Se cuenta solo cuando el bot mismo declara que no tiene la información (no por saludos, repreguntas o follow-ups). Recomendado: 3.
-            </p>
+          <div className="flex flex-wrap items-center gap-3">
+            <Label className="text-sm whitespace-nowrap">Tras</Label>
+            <Input
+              type="number" min={2} max={10}
+              value={threshold}
+              onChange={e => { setThreshold(Number(e.target.value)); setDirty(true); }}
+              className="w-20"
+            />
+            <span className="text-sm text-muted-foreground">respuestas insuficientes consecutivas del bot</span>
           </div>
           <Separator />
-          <div className="space-y-1.5">
-            <Label className="text-sm">Tiempo máximo de espera del afiliado</Label>
-            <div className="flex items-center gap-3">
-              <Input
-                type="number" min={1} max={120}
-                value={timeout}
-                onChange={e => { setTimeout_(Number(e.target.value)); setDirty(true); }}
-                className="w-20"
-              />
-              <span className="text-sm text-muted-foreground">minutos sin atención → avisar al afiliado</span>
-            </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <Label className="text-sm whitespace-nowrap">Tras</Label>
+            <Input
+              type="number" min={1} max={120}
+              value={timeout}
+              onChange={e => { setTimeout_(Number(e.target.value)); setDirty(true); }}
+              className="w-20"
+            />
+            <span className="text-sm text-muted-foreground">minutos sin atención del operador → avisar al usuario</span>
           </div>
         </CardContent>
       </Card>
@@ -114,9 +103,6 @@ export function HandoffSettings() {
       <Card>
         <CardHeader className="pb-3">
           <h2 className="font-semibold text-sm">Frases que disparan el pase inmediato</h2>
-          <p className="text-xs text-muted-foreground">
-            Si el afiliado escribe alguna de estas frases, el bot ofrece hablar con un operador en ese mismo momento.
-          </p>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="flex flex-wrap gap-1.5">
@@ -144,23 +130,20 @@ export function HandoffSettings() {
         </CardContent>
       </Card>
 
-      {/* Mensajes de transición */}
+      {/* Mensajes de transición — formato compacto: label + input lado a lado */}
       <Card>
         <CardHeader className="pb-3">
-          <h2 className="font-semibold text-sm">Mensajes que ve el afiliado</h2>
-          <p className="text-xs text-muted-foreground">
-            Estos textos aparecen en el chat del afiliado durante la transición del bot al operador humano.
-          </p>
+          <h2 className="font-semibold text-sm">Mensajes durante la transición</h2>
         </CardHeader>
-        <CardContent className="space-y-4">
-          {MESSAGE_KEYS.map(({ key, label, description }) => (
-            <div key={key} className="space-y-1.5">
-              <Label className="text-sm font-medium">{label}</Label>
-              <p className="text-xs text-muted-foreground">{description}</p>
+        <CardContent className="space-y-2.5">
+          {MESSAGE_KEYS.map(({ key, label }) => (
+            <div key={key} className="grid grid-cols-1 sm:grid-cols-[200px,1fr] items-center gap-2">
+              <Label className="text-xs text-muted-foreground">{label}</Label>
               <Input
                 value={messages[key] || ""}
                 onChange={e => setMessage(key, e.target.value)}
-                placeholder={`Mensaje de ${label.toLowerCase()}...`}
+                placeholder="—"
+                className="h-9 text-sm"
               />
             </div>
           ))}
@@ -170,7 +153,7 @@ export function HandoffSettings() {
       {dirty && (
         <Button className="w-full" onClick={() => updateM.mutate()} disabled={updateM.isPending}>
           {updateM.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Save className="h-4 w-4 mr-1" />}
-          Guardar todos los cambios
+          Guardar cambios
         </Button>
       )}
     </div>
