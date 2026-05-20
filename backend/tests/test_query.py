@@ -1,7 +1,7 @@
 """Tests for the query endpoint and orchestrator."""
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 from services.groq_client import classify_complexity, QueryComplexity, _model_for_complexity
 from core.config import settings

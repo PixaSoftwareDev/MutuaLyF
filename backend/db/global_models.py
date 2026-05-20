@@ -4,15 +4,11 @@ import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import (
-    BigInteger,
     Boolean,
     DateTime,
-    Enum,
     Index,
     Integer,
     String,
-    Text,
-    UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column

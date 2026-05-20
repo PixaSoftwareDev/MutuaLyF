@@ -326,7 +326,7 @@ async def handle_query(
         )
 
     # ── Step 6: Choose model based on complexity ───────────────────────────────
-    from services.groq_client import QueryComplexity, classify_complexity, complete
+    from services.groq_client import classify_complexity, complete
 
     complexity = classify_complexity(normalized_question, len(entity_names))
 
@@ -534,7 +534,6 @@ def _enrich_query_with_history(
 
     # Collect keywords from the last user question + last bot answer
     keyword_tokens: list[str] = []
-    role_map = {"user": "user", "bot": "bot"}
 
     last_user = next(
         (content for role, content in reversed(history) if role == "user"),

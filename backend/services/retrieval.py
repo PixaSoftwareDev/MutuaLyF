@@ -11,13 +11,11 @@ import asyncio
 import logging
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Any
 
 from qdrant_client.models import ScoredPoint
 
 from core.config import settings
 from core.database import get_qdrant_client
-from services.embeddings import embed_query
 from services.embedding_cache import embed_query_cached
 
 logger = logging.getLogger(__name__)

@@ -8,7 +8,6 @@ Schedule: daily at 02:00 UTC (configured in celery_app.py beat_schedule).
 
 import asyncio
 import logging
-import time
 
 from workers.celery_app import app
 
@@ -23,7 +22,6 @@ logger = logging.getLogger(__name__)
 )
 def run_hdbscan_clustering() -> dict:
     """Nightly orchestrator: runs clustering for every active tenant."""
-    t0 = time.monotonic()
     logger.info("clustering_nightly_start")
     return asyncio.run(_run_all_tenants())
 
@@ -83,7 +81,6 @@ def cluster_single_tenant(tenant_id: str) -> dict:
 def _emit_metrics(summary: dict) -> None:
     """Emit Prometheus counters for clustering results."""
     try:
-        from core.metrics import QUERIES_TOTAL
         tenant_id = summary.get("tenant_id", "unknown")
         if summary.get("candidates_surfaced", 0) > 0:
             logger.info(

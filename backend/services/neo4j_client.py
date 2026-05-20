@@ -12,12 +12,6 @@ from collections import defaultdict
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
-from tenacity import (
-    retry,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_fixed,
-)
 
 from neo4j import AsyncDriver
 

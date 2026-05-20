@@ -12,7 +12,6 @@ import logging
 
 from core.config import settings
 from core.database import get_qdrant_client
-from services.embeddings import embed_query
 
 logger = logging.getLogger(__name__)
 

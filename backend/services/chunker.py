@@ -25,7 +25,7 @@ from typing import Literal
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from core.config import settings
-from services.doc_classifier import ClassificationResult, DocType
+from services.doc_classifier import ClassificationResult
 
 logger = logging.getLogger(__name__)
 

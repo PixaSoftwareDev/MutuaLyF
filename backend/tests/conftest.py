@@ -3,7 +3,6 @@
 import os
 import pytest
 from fastapi.testclient import TestClient
-from unittest.mock import AsyncMock, MagicMock, patch
 
 # Load test env before any app import
 os.environ.setdefault("ENV_FILE", ".env.test")
@@ -21,7 +20,6 @@ else:
     })
 
 from main import app
-from core.config import settings
 
 
 @pytest.fixture

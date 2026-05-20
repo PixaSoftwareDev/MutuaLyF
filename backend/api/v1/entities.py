@@ -9,10 +9,10 @@ Endpoints:
 import logging
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
-from core.security import get_current_user, require_admin
+from core.security import require_admin
 from core.tenant import get_tenant_id
 from services.neo4j_client import _neo4j_session, _circuit_is_open
 

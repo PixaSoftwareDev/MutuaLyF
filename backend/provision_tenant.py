@@ -11,7 +11,6 @@ Usage:
 import argparse
 import asyncio
 import logging
-import os
 import smtplib
 import sys
 from email.mime.text import MIMEText
@@ -26,7 +25,7 @@ from qdrant_client import AsyncQdrantClient
 from qdrant_client.models import Distance, VectorParams
 
 from core.config import settings
-from core.security import hash_password, create_access_token, Role
+from core.security import hash_password
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")

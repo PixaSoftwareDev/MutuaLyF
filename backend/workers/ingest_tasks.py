@@ -24,7 +24,6 @@ import asyncio
 import logging
 import os
 import time
-import uuid
 from pathlib import Path
 
 from celery import Task
@@ -33,7 +32,6 @@ from qdrant_client import AsyncQdrantClient
 from qdrant_client.models import PointStruct
 
 from workers.celery_app import app
-from core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -148,7 +146,7 @@ async def _run_ingest_pipeline(
     # ── 2. Classify document type + Hierarchical chunk (CPU-bound) ──────────────
     t = time.monotonic()
     from services.doc_classifier import classify_document
-    from services.chunker import HierarchicalChunk, Chunk as ChunkType
+    from services.chunker import Chunk as ChunkType
 
     def _classify_and_chunk():
         classification = classify_document(text)
@@ -173,7 +171,7 @@ async def _run_ingest_pipeline(
     # Stage 2 (semantic autonomy) + Stage 1 (Groq coherence) both run on parent
     # text.  Children whose parent is rejected are dropped before embedding.
     t = time.monotonic()
-    from services.quality_gate import validate_chunk_semantic_autonomy, validate_chunks_batch, QualityStatus
+    from services.quality_gate import validate_chunk_semantic_autonomy
 
     # Stage 2: filter parents that are too short to be useful
     autonomous_checks = await asyncio.gather(*[
@@ -189,7 +187,6 @@ async def _run_ingest_pipeline(
     quality_prompt = _cfg.get("prompt_quality_gate") or await _get_system_template("Validador de documentos")
 
     # Wrap parents as Chunk-compatible objects for validate_chunks_batch
-    import dataclasses as _dc
     parent_as_chunks: list[ChunkType] = [
         ChunkType(
             id=p.id,

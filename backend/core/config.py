@@ -1,7 +1,7 @@
 """Application settings loaded from environment variables via pydantic-settings."""
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field, field_validator
+from pydantic import field_validator
 
 
 class Settings(BaseSettings):
@@ -163,30 +163,10 @@ class Settings(BaseSettings):
     # ── Rate limiting ─────────────────────────────────────────────────────────
     rate_limit_requests_per_minute: int = 60
 
-    # ── SSO / OAuth 2.0 ───────────────────────────────────────────────────────
-    # Google Workspace
-    google_client_id: str = ""
-    google_client_secret: str = ""
-
-    # Microsoft Azure AD
-    azure_client_id: str = ""
-    azure_client_secret: str = ""
-    azure_tenant_id: str = "common"  # 'common' = any Azure AD tenant
-
-    # Public base URL — used to build OAuth redirect_uri
-    # In dev: http://localhost:8000 | In prod: https://api.tudominio.com
-    public_api_url: str = "http://localhost:8000"
-
-    # Frontend URL — where the backend redirects after successful SSO
-    public_frontend_url: str = "http://localhost:3000"
-
-    @property
-    def google_enabled(self) -> bool:
-        return bool(self.google_client_id and self.google_client_secret)
-
-    @property
-    def azure_enabled(self) -> bool:
-        return bool(self.azure_client_id and self.azure_client_secret)
+    # SSO / OAuth 2.0 (Google Workspace + Azure AD) eliminado en limpieza
+    # de dead code (Sprint 1, 2026-05-20). El router auth_sso.py nunca estuvo
+    # montado en main.py. Para re-habilitar: ver historial git en commit
+    # anterior a la limpieza.
 
     @field_validator("groq_model_fast", "groq_model_reasoning")
     @classmethod

@@ -5,10 +5,9 @@ All endpoints require role=super_admin except /widget-token (admin).
 
 import hashlib
 import logging
-from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import text
 
 import time
@@ -17,8 +16,7 @@ from core.config import settings
 from core.database import get_pg_session
 from core.prometheus import get_system_metrics
 from core.security import CurrentUser, create_widget_token, require_super_admin, require_admin, require_admin_or_super
-from core.tenant import get_tenant_id
-from models.tenant import TenantCreate, TenantResponse, TenantPlan, TenantStatus, WidgetTokenResponse
+from models.tenant import TenantCreate, TenantPlan, TenantStatus, WidgetTokenResponse
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -127,7 +125,6 @@ async def get_tenant(
     # Document count from tenant schema
     doc_count = 0
     try:
-        safe_id = tenant_id.replace("-", "_")
         async with get_pg_session(tenant_id) as session:
             res = await session.execute(text("SELECT COUNT(*) FROM documentos WHERE status = 'ready'"))
             doc_count = res.scalar() or 0
@@ -626,9 +623,9 @@ async def generate_widget_token(
 # ── Create / replace admin for an existing tenant (super_admin only) ──────────
 
 class AdminCreate(BaseModel):
-    email: str
-    name: str
-    password: str
+    email: EmailStr
+    name: str = Field(..., min_length=1, max_length=120)
+    password: str = Field(..., min_length=8, max_length=200)
 
 
 @router.post("/{tenant_id}/admin", status_code=201)

@@ -14,7 +14,7 @@ from pydantic import BaseModel
 from sqlalchemy import text
 
 from core.database import get_pg_session, get_qdrant_client
-from core.security import get_current_user, require_admin
+from core.security import require_admin
 from core.tenant import get_tenant_id
 
 logger = logging.getLogger(__name__)

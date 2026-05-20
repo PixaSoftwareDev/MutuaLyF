@@ -1,10 +1,10 @@
 """Tests for the ingestion pipeline services."""
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 from services.chunker import chunk_document, extract_text_from_bytes, Chunk
-from services.quality_gate import validate_chunk, validate_chunks_batch, QualityStatus, QualityResult
+from services.quality_gate import validate_chunk, validate_chunks_batch, QualityStatus
 
 
 # ── Chunker tests ──────────────────────────────────────────────────────────────

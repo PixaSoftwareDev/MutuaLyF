@@ -15,7 +15,6 @@ These stay 'unassigned' and are re-evaluated on the next nightly run.
 
 import logging
 import uuid
-from datetime import datetime, timezone, timedelta
 
 import numpy as np
 

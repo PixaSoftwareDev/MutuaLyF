@@ -13,7 +13,6 @@ This is a best-effort cache — misses fall back to computing the embedding.
 import hashlib
 import json
 import logging
-import time
 
 logger = logging.getLogger(__name__)
 

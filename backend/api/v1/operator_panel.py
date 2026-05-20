@@ -6,15 +6,14 @@ Admins see all sectors and can transfer conversations between them.
 
 import asyncio
 import logging
-from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import text
 
 from core.database import get_pg_session
-from core.security import CurrentUser, Role, get_current_user, require_admin, require_operator, get_widget_user, create_widget_token
+from core.security import CurrentUser, Role, require_admin, require_operator, get_widget_user, create_widget_token
 from core.tenant import get_tenant_id
 from services.handoff import ConvStatus, invalidate_config_cache
 from services.events import publish
@@ -46,8 +45,8 @@ class TransferRequest(BaseModel):
 
 
 class SectorCreate(BaseModel):
-    nombre: str
-    descripcion: str | None = None
+    nombre: str = Field(..., min_length=1, max_length=100)
+    descripcion: str | None = Field(default=None, max_length=500)
 
 
 class HandoffConfigUpdate(BaseModel):
@@ -871,9 +870,9 @@ async def get_operator_sectors(
 
 
 class CreateOperatorRequest(BaseModel):
-    name: str
-    email: str
-    password: str
+    name: str = Field(..., min_length=1, max_length=120)
+    email: EmailStr
+    password: str = Field(..., min_length=8, max_length=200)
 
 
 @router.post("/admin/operators", status_code=201)

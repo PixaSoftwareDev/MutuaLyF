@@ -15,7 +15,6 @@ Third-party loggers that are silenced to WARNING:
 
 import logging
 import sys
-import uuid
 from typing import Any
 
 import structlog

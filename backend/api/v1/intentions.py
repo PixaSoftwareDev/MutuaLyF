@@ -2,7 +2,6 @@
 
 import logging
 import uuid
-from datetime import datetime, timezone, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
@@ -280,7 +279,7 @@ async def create_intention(
 
 
 class ClusterApproveBody(BaseModel):
-    label: str
+    label: str = Field(..., min_length=1, max_length=100)
 
 
 @router.post("/intentions/cluster/{cluster_id}/approve", status_code=status.HTTP_201_CREATED)

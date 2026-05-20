@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 from sqlalchemy.pool import NullPool
-from sqlalchemy import event, text
+from sqlalchemy import text
 
 from core.config import settings
 

@@ -171,7 +171,6 @@ async def _evaluate_accuracy(tenant_id: str) -> float:
         except Exception:
             return 1.0  # No collection yet — skip evaluation
 
-        from core.config import settings
         import asyncio
         loop = asyncio.get_running_loop()
 
@@ -304,8 +303,7 @@ async def _rollback_version(tenant_id: str, new_version_id: str) -> None:
 
 async def _prune_old_versions(tenant_id: str, current_version_id: str) -> None:
     """Remove Qdrant points from versions older than current — keeps collection lean."""
-    from core.database import get_worker_qdrant_client, get_worker_pg_session
-    from qdrant_client.models import Filter, FieldCondition, MatchAny
+    from core.database import get_worker_pg_session
     from sqlalchemy import text
 
     # Get the current and previous version IDs to keep

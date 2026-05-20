@@ -2,7 +2,6 @@
 
 import pytest
 from jose import jwt
-from datetime import timedelta
 
 from core.security import (
     Role,
@@ -13,7 +12,6 @@ from core.security import (
     decode_token,
     hash_password,
     verify_password,
-    _create_token,
 )
 from core.config import settings
 
@@ -88,7 +86,6 @@ class TestConfigValidation:
     def test_forbidden_groq_model_id_raises(self):
         """The settings validator must reject forbidden model IDs."""
         from pydantic import ValidationError
-        import os
 
         # Temporarily patch env to inject forbidden model ID
         with pytest.raises((ValidationError, ValueError)):

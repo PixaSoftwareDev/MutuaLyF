@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 from unittest.mock import patch
 
 from main import app
-from core.tenant import _extract_from_subdomain, _extract_from_header
+from core.tenant import _extract_from_header
 from core.database import _validate_tenant_id
 from core.security import create_access_token, Role
 
@@ -35,9 +35,7 @@ class TestTenantValidation:
 
 class TestTenantExtraction:
     def test_extract_from_header(self):
-        from starlette.testclient import TestClient
         from starlette.requests import Request
-        from starlette.datastructures import Headers
 
         # Simulate a request with the header
         scope = {
@@ -95,7 +93,7 @@ class TestTenantMiddleware:
 
     def test_api_with_tenant_header_passes_middleware(self):
         """Requests with X-Tenant-ID header pass the middleware (tenant resolved)."""
-        from unittest.mock import patch, AsyncMock
+        from unittest.mock import AsyncMock
         token = create_access_token("u1", "tenant_a", Role.ADMIN)
 
         mock_result = {

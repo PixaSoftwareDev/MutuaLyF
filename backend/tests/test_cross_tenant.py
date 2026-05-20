@@ -6,7 +6,7 @@ Run these whenever tenant resolution, middleware, or database code is modified.
 
 import pytest
 from fastapi.testclient import TestClient
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 from main import app
 from core.security import create_access_token, Role
@@ -29,7 +29,6 @@ class TestTokenCrossContamination:
         The middleware prefers JWT over header. The orchestrator then runs under
         tenant_a — not tenant_b. This is the cross-tenant protection.
         """
-        from unittest.mock import patch, AsyncMock
         token_a = create_access_token("user-a", "tenant_a", Role.ADMIN)
 
         captured_tenant_id = []
@@ -56,7 +55,6 @@ class TestTokenCrossContamination:
     def test_widget_token_cannot_access_other_tenant(self):
         """Widget token scoped to tenant_a is used under tenant_a regardless of header."""
         from core.security import create_widget_token
-        from unittest.mock import patch, AsyncMock
         widget_token = create_widget_token("tenant_a")
 
         captured_tenant_id = []
