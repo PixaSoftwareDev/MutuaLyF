@@ -18,6 +18,29 @@ const TONES = [
   { key: "tecnico",  label: "Técnico",  desc: "Preciso, directo, sin rodeos" },
 ];
 
+const FALLBACKS = [
+  {
+    key: "suggest_contact",
+    label: "Sugiere consultar a la organización",
+    desc: "El bot indica que el usuario contacte directamente a la organización.",
+  },
+  {
+    key: "offer_handoff",
+    label: "Ofrece derivar a un humano",
+    desc: "El bot ofrece traspasar la conversación a un operador en vivo.",
+  },
+  {
+    key: "request_contact",
+    label: "Pide email o teléfono",
+    desc: "El bot pide datos de contacto y avisa que la organización va a responder.",
+  },
+  {
+    key: "suggest_business_hours",
+    label: "Sugiere horario de atención",
+    desc: "El bot sugiere comunicarse durante el horario habitual de atención.",
+  },
+] as const;
+
 const STEPS = ["Organización", "Audiencia y temas", "Tono y nombre", "Revisá y confirmá"] as const;
 
 const empty = {
@@ -30,6 +53,7 @@ const empty = {
   excluded_topics: "",
   tone: "",
   bot_name: "",
+  fallback_behavior: "suggest_contact", // default historico
 };
 
 /** Cuenta items separados por coma (no vacíos). */
@@ -62,13 +86,14 @@ export function OnboardingModal() {
 
   const generateM = useMutation({
     mutationFn: () => api.tenants.onboardingGenerate(tenantId!, {
-      org_name:        form.org_name.trim(),
-      org_type:        effectiveOrgType,
-      serves:          effectiveServes,
-      main_topics:     form.main_topics.trim(),
-      excluded_topics: form.excluded_topics.trim(),
-      tone:            form.tone,
-      bot_name:        form.bot_name.trim(),
+      org_name:          form.org_name.trim(),
+      org_type:          effectiveOrgType,
+      serves:            effectiveServes,
+      main_topics:       form.main_topics.trim(),
+      excluded_topics:   form.excluded_topics.trim(),
+      tone:              form.tone,
+      bot_name:          form.bot_name.trim(),
+      fallback_behavior: form.fallback_behavior as any,
     }),
     onSuccess: (data) => {
       setGeneratedDesc(data.bot_description);
@@ -107,8 +132,8 @@ export function OnboardingModal() {
     form.serves !== ""
       && (form.serves !== "Otro" || form.serves_custom.trim().length > 0)
       && topicsCount >= 3,
-    // Step 2: tono
-    form.tone !== "",
+    // Step 2: tono + fallback_behavior (siempre tiene default)
+    form.tone !== "" && form.fallback_behavior !== "",
     // Step 3: descripción >= 20 chars
     editedDesc.trim().length >= 20,
   ];
@@ -315,6 +340,28 @@ export function OnboardingModal() {
                   placeholder="Ej. Aria, Soporte, Asistente (dejá vacío para sin nombre)"
                   className="h-9"
                 />
+              </div>
+              <div className="space-y-1 pt-2 border-t">
+                <Label className="text-xs">¿Qué hace cuando no encuentra la respuesta? *</Label>
+                <div className="grid grid-cols-2 gap-2 pt-0.5">
+                  {FALLBACKS.map(f => (
+                    <button
+                      key={f.key} type="button"
+                      onClick={() => set("fallback_behavior", f.key)}
+                      className={cn(
+                        "flex flex-col gap-1 rounded-lg border p-2.5 text-left transition-colors",
+                        form.fallback_behavior === f.key
+                          ? "border-primary bg-primary/5 ring-1 ring-primary"
+                          : "border-border hover:border-primary/40"
+                      )}
+                    >
+                      <span className={cn("text-xs font-semibold", form.fallback_behavior === f.key ? "text-primary" : "")}>
+                        {f.label}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground leading-tight">{f.desc}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
             </>
           )}

@@ -495,6 +495,10 @@ class OnboardingGenerateRequest(BaseModel):
     excluded_topics: str = ""
     tone: str
     bot_name: str = ""
+    # Fallback: que hace el bot cuando no encuentra la respuesta en sus docs.
+    # Valores aceptados: "suggest_contact" (default historico) | "offer_handoff" |
+    # "request_contact" | "suggest_business_hours". String libre por compat backwards.
+    fallback_behavior: str = "suggest_contact"
 
 
 class OnboardingGenerateResponse(BaseModel):
@@ -533,11 +537,22 @@ async def onboarding_generate(
     excluded_line = f"No responde sobre: {body.excluded_topics}." if body.excluded_topics.strip() else ""
     bot_name_line = f"El asistente se llama '{body.bot_name}'." if body.bot_name.strip() else "El asistente no tiene nombre propio."
 
+    # Mapeo de fallback_behavior a instruccion concreta para el bot.
+    # Va a quedar reflejado en el bot_description para que el LLM siga esa pauta
+    # cuando no encuentra la respuesta en los docs.
+    _fallback_map = {
+        "suggest_contact":        "Cuando no encuentra la respuesta en sus documentos, sugiere consultar directamente con la organización.",
+        "offer_handoff":          "Cuando no encuentra la respuesta en sus documentos, ofrece derivar la consulta a un operador humano.",
+        "request_contact":        "Cuando no encuentra la respuesta en sus documentos, pide al usuario su email o teléfono e indica que la organización lo contactará.",
+        "suggest_business_hours": "Cuando no encuentra la respuesta en sus documentos, sugiere comunicarse durante el horario de atención de la organización.",
+    }
+    fallback_line = _fallback_map.get(body.fallback_behavior, _fallback_map["suggest_contact"])
+
     prompt = f"""Generá una descripción concisa (4-6 oraciones) de un asistente virtual, \
 optimizada para ser leída por un modelo de lenguaje como parte de su system prompt. \
 La descripción debe ser en español, en tercera persona, sin saludos ni listas, \
 y debe incluir: quién es la organización, a quién atiende el bot, \
-qué temas cubre y qué tono usa.
+qué temas cubre, qué tono usa y cómo se comporta cuando no encuentra la respuesta.
 
 Datos de la organización:
 - Nombre: {body.org_name}
@@ -547,6 +562,7 @@ Datos de la organización:
 - {excluded_line}
 - Tono: {body.tone}
 - {bot_name_line}
+- Comportamiento ante consultas fuera del alcance: {fallback_line}
 
 Respondé únicamente con el texto de la descripción, sin título ni formato extra."""
 

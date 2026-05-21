@@ -302,6 +302,8 @@ export interface OnboardingGenerateRequest {
   excluded_topics: string;
   tone: string;
   bot_name: string;
+  /** Qué hace el bot cuando no encuentra la respuesta en sus docs. */
+  fallback_behavior?: "suggest_contact" | "offer_handoff" | "request_contact" | "suggest_business_hours";
 }
 
 export interface ChunkDuplicatePair {
