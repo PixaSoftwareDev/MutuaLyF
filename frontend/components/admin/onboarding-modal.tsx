@@ -352,9 +352,6 @@ export function OnboardingModal() {
           <h2 className="text-lg font-semibold leading-none tracking-tight">
             Configuración inicial del asistente
           </h2>
-          <p className="text-sm text-muted-foreground mt-1.5">
-            Tomá unos minutos para personalizar tu bot.
-          </p>
           <div className="mt-4 space-y-2">
             <div className="flex items-baseline justify-between gap-3">
               <p className="text-sm font-medium text-foreground">{STEPS[step]}</p>
@@ -386,17 +383,17 @@ export function OnboardingModal() {
                 Contanos sobre tu organización para que el bot sepa quién es y cómo comunicarse.
               </p>
               <div className="space-y-1">
-                <Label className="text-xs">Nombre de la organización *</Label>
+                <Label className="text-xs">Nombre de la organización</Label>
                 <Input
                   value={orgName}
                   onChange={e => setOrgName(e.target.value)}
-                  placeholder="Ej. Mutual Norte, Acme Industries, Fundación Sur"
+                  placeholder="Ej. Mutual Norte"
                   className="h-9"
                   autoFocus
                 />
               </div>
               <div className="space-y-1">
-                <Label className="text-xs">Tipo de organización *</Label>
+                <Label className="text-xs">Tipo de organización</Label>
                 <div className="flex flex-wrap gap-2 pt-0.5">
                   {ORG_TYPES.map(t => (
                     <button
@@ -421,7 +418,7 @@ export function OnboardingModal() {
                 )}
               </div>
               <div className="space-y-1">
-                <Label className="text-xs">Tono del asistente *</Label>
+                <Label className="text-xs">Tono del asistente</Label>
                 <div className="grid grid-cols-3 gap-2 pt-0.5">
                   {TONES.map(t => (
                     <button
@@ -451,7 +448,7 @@ export function OnboardingModal() {
                 <Input
                   value={botName}
                   onChange={e => setBotName(e.target.value)}
-                  placeholder="Ej. Aria, Soporte, Asistente... (dejá vacío para omitir)"
+                  placeholder="Ej. Aria"
                   className="h-9"
                 />
               </div>
@@ -558,7 +555,7 @@ export function OnboardingModal() {
                   {/* Pregunta 1: Audiencia */}
                   <div className="space-y-1">
                     <Label className="text-xs flex items-center gap-1.5">
-                      1. ¿Quiénes van a usar el bot? *
+                      1. ¿Quiénes van a usar el bot?
                     </Label>
                     <Input
                       value={audience}
@@ -599,7 +596,7 @@ export function OnboardingModal() {
 
                   {/* Pregunta 4: Fallback */}
                   <div className="space-y-1">
-                    <Label className="text-xs">4. Si el bot no sabe algo, ¿qué hace? *</Label>
+                    <Label className="text-xs">4. Si el bot no sabe algo, ¿qué hace?</Label>
                     <div className="grid grid-cols-2 gap-2 pt-0.5">
                       {FALLBACKS.map(f => (
                         <button
