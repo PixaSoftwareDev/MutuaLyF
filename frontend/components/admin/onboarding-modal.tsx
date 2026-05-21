@@ -41,26 +41,9 @@ const TONES = [
 ];
 
 const FALLBACKS = [
-  {
-    key: "suggest_contact",
-    label: "Sugerir contacto",
-    desc: "Indica que consulten directamente con la organización.",
-  },
-  {
-    key: "offer_handoff",
-    label: "Derivar a humano",
-    desc: "Ofrece pasar la conversación a un operador.",
-  },
-  {
-    key: "request_contact",
-    label: "Pedir contacto",
-    desc: "Solicita email o teléfono y la organización responde.",
-  },
-  {
-    key: "suggest_business_hours",
-    label: "Horario de atención",
-    desc: "Sugiere comunicarse en horario habitual.",
-  },
+  { key: "suggest_contact",        label: "Sugerir contacto",    desc: "Que consulten a la organización" },
+  { key: "request_contact",        label: "Pedir contacto",      desc: "Pide email o teléfono" },
+  { key: "suggest_business_hours", label: "Horario de atención", desc: "Sugiere horario habitual" },
 ] as const;
 
 type FallbackKey = typeof FALLBACKS[number]["key"];
@@ -548,56 +531,54 @@ export function OnboardingModal() {
             <>
               {!followupM.isPending && !generateM.isPending && followupQuestion === null && (
                 <>
-                  <p className="text-sm text-muted-foreground">
-                    Estas 5 respuestas le dan al bot las pautas mínimas para responder bien. La primera es obligatoria, el resto son opcionales pero recomendadas.
+                  <p className="text-xs text-muted-foreground">
+                    Solo la primera es obligatoria.
                   </p>
 
                   {/* Pregunta 1: Audiencia */}
                   <div className="space-y-1">
-                    <Label className="text-xs flex items-center gap-1.5">
-                      1. ¿Quiénes van a usar el bot?
-                    </Label>
+                    <Label className="text-xs">1. ¿Quiénes lo van a usar?</Label>
                     <Input
                       value={audience}
                       onChange={e => setAudience(e.target.value)}
-                      placeholder="Ej. clientes, empleados, afiliados, ciudadanos..."
+                      placeholder="Ej. clientes"
                       className="h-9"
                     />
                   </div>
 
                   {/* Pregunta 2: Preguntas típicas */}
                   <div className="space-y-1">
-                    <Label className="text-xs flex items-center gap-1.5">
-                      2. ¿2 o 3 preguntas típicas o esperadas?
+                    <Label className="text-xs">
+                      2. ¿Qué le suelen preguntar?{" "}
                       <span className="text-muted-foreground font-normal">(opcional)</span>
                     </Label>
                     <Textarea
                       value={typicalQuestions}
                       onChange={e => setTypicalQuestions(e.target.value)}
-                      placeholder="No importa si no tenés histórico. Dame ejemplos imaginarios o reales separados por punto:&#10;¿Cómo recupero mi clave? ¿Cuáles son los horarios? ¿Cómo cancelo mi suscripción?"
-                      rows={3}
+                      placeholder="Ej. ¿Cómo recupero mi clave?"
+                      rows={2}
                       className="text-sm resize-none"
                     />
                   </div>
 
                   {/* Pregunta 3: Temas excluidos */}
                   <div className="space-y-1">
-                    <Label className="text-xs flex items-center gap-1.5">
-                      3. ¿Hay algún tema que el bot NO debería responder?
+                    <Label className="text-xs">
+                      3. ¿Algún tema que NO debe tocar?{" "}
                       <span className="text-muted-foreground font-normal">(opcional)</span>
                     </Label>
                     <Input
                       value={excludedTopics}
                       onChange={e => setExcludedTopics(e.target.value)}
-                      placeholder="Ej. precios, datos personales, decisiones legales..."
+                      placeholder="Ej. precios"
                       className="h-9"
                     />
                   </div>
 
                   {/* Pregunta 4: Fallback */}
                   <div className="space-y-1">
-                    <Label className="text-xs">4. Si el bot no sabe algo, ¿qué hace?</Label>
-                    <div className="grid grid-cols-2 gap-2 pt-0.5">
+                    <Label className="text-xs">4. Si no sabe algo</Label>
+                    <div className="grid grid-cols-3 gap-2 pt-0.5">
                       {FALLBACKS.map(f => (
                         <button
                           key={f.key} type="button"
@@ -622,24 +603,18 @@ export function OnboardingModal() {
 
                   {/* Pregunta 5: Notas */}
                   <div className="space-y-1">
-                    <Label className="text-xs flex items-center gap-1.5">
-                      5. ¿Algo más importante sobre cómo debe comportarse?
+                    <Label className="text-xs">
+                      5. ¿Algo más a tener en cuenta?{" "}
                       <span className="text-muted-foreground font-normal">(opcional)</span>
                     </Label>
                     <Textarea
                       value={additionalNotes}
                       onChange={e => setAdditionalNotes(e.target.value)}
-                      placeholder="Ej. siempre saluda al iniciar, identifica al usuario antes de dar info sensible, menciona los horarios al despedirse..."
+                      placeholder="Ej. siempre saluda al iniciar"
                       rows={2}
                       className="text-sm resize-none"
                     />
                   </div>
-
-                  {!canSubmitFixed && (
-                    <p className="text-[11px] text-amber-600">
-                      Completá al menos la pregunta 1 (audiencia) para continuar.
-                    </p>
-                  )}
                 </>
               )}
 
