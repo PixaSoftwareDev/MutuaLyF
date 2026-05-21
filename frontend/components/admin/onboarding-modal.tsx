@@ -9,8 +9,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  Loader2, Sparkles, CheckCircle2, AlertCircle,
-  Send, MessageSquare, Upload, FileText, X, HelpCircle,
+  Loader2, CheckCircle2, AlertCircle,
+  Upload, FileText, X, HelpCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -677,15 +677,12 @@ export function OnboardingModal() {
           {/* ── Step 3: Revisión ── */}
           {step === 3 && (
             <>
-              <p className="text-sm text-muted-foreground">
-                Esta descripción guía al bot en cada conversación. Editala si algo no refleja bien tu organización.
+              <p className="text-xs text-muted-foreground">
+                Editá si algo no refleja a tu organización.
               </p>
               <div className="space-y-1">
                 <div className="flex items-center justify-between">
-                  <Label className="text-xs flex items-center gap-1.5">
-                    <Sparkles className="h-3.5 w-3.5 text-amber-500" />
-                    Descripción generada por IA
-                  </Label>
+                  <Label className="text-xs">Descripción del bot</Label>
                   <button
                     type="button"
                     disabled={regenerateM.isPending}
@@ -705,20 +702,11 @@ export function OnboardingModal() {
                   rows={6}
                   className="resize-none leading-relaxed"
                 />
-                <p className="text-[11px] text-muted-foreground">
-                  También podés ajustarla después desde Configuración → Bot.
-                </p>
               </div>
 
               {/* Test inline */}
               <div className="pt-3 mt-1 border-t space-y-2">
-                <div className="flex items-center gap-1.5">
-                  <MessageSquare className="h-3.5 w-3.5 text-primary" />
-                  <Label className="text-xs">Probá una pregunta</Label>
-                </div>
-                <p className="text-[11px] text-muted-foreground -mt-1">
-                  Simula cómo responde el bot con esta descripción. Para datos específicos el bot va a indicar que necesita más documentos.
-                </p>
+                <Label className="text-xs">Probá una pregunta</Label>
                 <div className="flex gap-2">
                   <Input
                     value={testInput}
@@ -730,7 +718,7 @@ export function OnboardingModal() {
                         testQueryM.mutate();
                       }
                     }}
-                    placeholder="Ej. ¿cómo me contacto?, ¿cómo te llamás?"
+                    placeholder="Ej. ¿cómo me contacto?"
                     className="h-9 text-sm"
                   />
                   <Button
@@ -740,7 +728,7 @@ export function OnboardingModal() {
                   >
                     {testQueryM.isPending
                       ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      : <Send className="h-3.5 w-3.5" />}
+                      : "Probar"}
                   </Button>
                 </div>
 
