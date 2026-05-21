@@ -92,11 +92,10 @@ export default function LoginPage() {
 
           <div className="space-y-4 max-w-md">
             <h1 className="text-4xl font-bold leading-tight">
-              Tu conocimiento institucional, a un mensaje de distancia.
+              Tu conocimiento, listo para responder.
             </h1>
             <p className="text-white/80 text-base leading-relaxed">
-              Plataforma de atención inteligente para tus afiliados. Documentos,
-              consultas y derivaciones gestionadas en un solo lugar.
+              Documentos, consultas y conversaciones en un solo lugar.
             </p>
           </div>
 
