@@ -294,16 +294,31 @@ export interface BotConfig {
   onboarding_completed: boolean;
 }
 
+/** 5 respuestas curadas del wizard hibrido. */
+export interface OnboardingFixedAnswers {
+  audience:          string;
+  typical_questions: string;
+  excluded_topics:   string;
+  fallback:          "suggest_contact" | "offer_handoff" | "request_contact" | "suggest_business_hours";
+  additional_notes:  string;
+}
+
 export interface OnboardingGenerateRequest {
+  org_name:          string;
+  org_type:          string;
+  tone:              string;
+  bot_name:          string;
+  answers:           OnboardingFixedAnswers;
+  followup_question: string;
+  followup_answer:   string;
+}
+
+export interface OnboardingFollowupRequest {
   org_name: string;
   org_type: string;
-  serves: string;
-  main_topics: string;
-  excluded_topics: string;
-  tone: string;
+  tone:     string;
   bot_name: string;
-  /** Qué hace el bot cuando no encuentra la respuesta en sus docs. */
-  fallback_behavior?: "suggest_contact" | "offer_handoff" | "request_contact" | "suggest_business_hours";
+  answers:  OnboardingFixedAnswers;
 }
 
 export interface ChunkDuplicatePair {
@@ -594,18 +609,11 @@ export const api = {
       const { data } = await apiClient.post(`/tenants/${tenantId}/onboarding/test-query`, payload);
       return data;
     },
-    onboardingChat: async (
+    onboardingFollowup: async (
       tenantId: string,
-      payload: {
-        org_name: string;
-        org_type: string;
-        tone: string;
-        bot_name: string;
-        conversation: Array<{ role: string; content: string }>;
-        force_generate?: boolean;
-      },
-    ): Promise<{ next_question?: string | null; is_done: boolean; bot_description?: string | null }> => {
-      const { data } = await apiClient.post(`/tenants/${tenantId}/onboarding/chat`, payload);
+      payload: OnboardingFollowupRequest,
+    ): Promise<{ question: string | null }> => {
+      const { data } = await apiClient.post(`/tenants/${tenantId}/onboarding/followup`, payload);
       return data;
     },
   },

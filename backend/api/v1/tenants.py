@@ -487,19 +487,31 @@ async def update_bot_config(
 
 
 # ── Onboarding (admin — first-login setup) ────────────────────────────────────
+# Flujo hibrido: 5 preguntas curadas + 1 followup adaptativo opcional.
+# - Las 5 fijas garantizan cobertura minima de los aspectos esenciales del bot.
+# - La 6ta (followup) es generada por IA y profundiza UN aspecto si vale la pena.
+# - La descripcion final se arma con TODO + los docs cargados.
+
+class OnboardingFixedAnswers(BaseModel):
+    """5 respuestas del wizard curado. Cubren los 5 elementos minimos que
+    necesita el system prompt del bot."""
+    audience:           str = Field(default="", max_length=500)
+    typical_questions:  str = Field(default="", max_length=1000)
+    excluded_topics:    str = Field(default="", max_length=500)
+    fallback:           str = Field(default="suggest_contact")
+    additional_notes:   str = Field(default="", max_length=500)
+
 
 class OnboardingGenerateRequest(BaseModel):
-    org_name: str
-    org_type: str
-    serves: str
-    main_topics: str
-    excluded_topics: str = ""
-    tone: str
-    bot_name: str = ""
-    # Fallback: que hace el bot cuando no encuentra la respuesta en sus docs.
-    # Valores aceptados: "suggest_contact" (default historico) | "offer_handoff" |
-    # "request_contact" | "suggest_business_hours". String libre por compat backwards.
-    fallback_behavior: str = "suggest_contact"
+    """Pide la generacion final del bot_description. Toma respuestas curadas
+    + opcional followup + lee documentos cargados del tenant."""
+    org_name:           str = Field(..., min_length=1, max_length=200)
+    org_type:           str = Field(..., min_length=1, max_length=100)
+    tone:               str = Field(..., min_length=1, max_length=50)
+    bot_name:           str = Field(default="", max_length=100)
+    answers:            OnboardingFixedAnswers
+    followup_question:  str = Field(default="", max_length=500)
+    followup_answer:    str = Field(default="", max_length=1000)
 
 
 class OnboardingGenerateResponse(BaseModel):
@@ -513,9 +525,7 @@ class OnboardingCompleteRequest(BaseModel):
 
 class OnboardingTestQueryRequest(BaseModel):
     """Permite probar interactivamente como respondera el bot con un bot_description
-    tentativo durante el wizard, sin persistir nada. NO usa RAG — solo evalua
-    como el LLM interpreta el bot_description + la pregunta. Util para validar
-    tono, alcance y fallback antes de confirmar."""
+    tentativo durante el wizard, sin persistir nada."""
     question: str = Field(..., min_length=1, max_length=500)
     bot_description: str = Field(..., min_length=20, max_length=2000)
 
@@ -524,42 +534,81 @@ class OnboardingTestQueryResponse(BaseModel):
     answer: str
 
 
-# ── Onboarding chat (adaptive AI conversation) ────────────────────────────────
-
-class OnboardingChatMessage(BaseModel):
-    role: str  # "assistant" | "user"
-    content: str
-
-
-class OnboardingChatRequest(BaseModel):
-    org_name: str
-    org_type: str
-    tone: str
-    bot_name: str = ""
-    conversation: list[OnboardingChatMessage] = []
-    force_generate: bool = False
+class OnboardingFollowupRequest(BaseModel):
+    """Pide a la IA si vale la pena profundizar en UN aspecto despues de las
+    5 preguntas curadas. La IA puede devolver una pregunta o null si ya hay
+    suficiente contexto."""
+    org_name:  str = Field(..., min_length=1, max_length=200)
+    org_type:  str = Field(..., min_length=1, max_length=100)
+    tone:      str = Field(..., min_length=1, max_length=50)
+    bot_name:  str = Field(default="", max_length=100)
+    answers:   OnboardingFixedAnswers
 
 
-class OnboardingChatResponse(BaseModel):
-    next_question: str | None = None
-    is_done: bool = False
-    bot_description: str | None = None
+class OnboardingFollowupResponse(BaseModel):
+    """question=null significa que la IA decidio que no hay nada para profundizar."""
+    question: str | None = None
 
 
-@router.post("/{tenant_id}/onboarding/chat", response_model=OnboardingChatResponse)
-async def onboarding_chat(
+# Mapeo de fallback_behavior → instruccion concreta que entra al bot_description.
+_FALLBACK_INSTRUCTIONS: dict[str, str] = {
+    "suggest_contact":        "Cuando no encuentra la respuesta en sus documentos, sugiere consultar directamente con la organización.",
+    "offer_handoff":          "Cuando no encuentra la respuesta en sus documentos, ofrece derivar la consulta a un operador humano.",
+    "request_contact":        "Cuando no encuentra la respuesta en sus documentos, pide al usuario su email o teléfono e indica que la organización lo contactará.",
+    "suggest_business_hours": "Cuando no encuentra la respuesta en sus documentos, sugiere comunicarse durante el horario de atención de la organización.",
+}
+
+
+async def _read_doc_previews(tenant_id: str) -> str:
+    """Devuelve string formateado con preview de los 3 docs ready mas recientes.
+    Vacio si no hay docs o falla la lectura."""
+    try:
+        async with get_pg_session(tenant_id) as session:
+            result = await session.execute(text("""
+                SELECT d.title,
+                    (SELECT LEFT(p.text, 400) FROM parent_chunks p
+                     WHERE p.document_id = d.id ORDER BY p.chunk_index ASC LIMIT 1) AS preview
+                FROM documentos d WHERE d.status = 'ready'
+                ORDER BY d.created_at DESC LIMIT 3
+            """))
+            rows = [r for r in result.mappings().all() if r["preview"]]
+        if not rows:
+            return ""
+        return "\n\nDocumentos ya cargados (fragmentos reales):\n" + "\n---\n".join(
+            f"📄 {r['title']}:\n{r['preview']}" for r in rows
+        )
+    except Exception as exc:
+        logger.warning("onboarding_doc_preview_failed tenant_id=%s err=%s", tenant_id, exc)
+        return ""
+
+
+def _format_answers_block(answers: OnboardingFixedAnswers) -> str:
+    """Convierte las 5 respuestas curadas en un bloque legible para el prompt."""
+    fallback_text = _FALLBACK_INSTRUCTIONS.get(
+        answers.fallback, _FALLBACK_INSTRUCTIONS["suggest_contact"]
+    )
+    return (
+        f"- Audiencia: {answers.audience.strip() or '(sin especificar)'}\n"
+        f"- Preguntas típicas que recibirá: {answers.typical_questions.strip() or '(no especificadas)'}\n"
+        f"- Temas que NO debe responder: {answers.excluded_topics.strip() or '(ninguno indicado)'}\n"
+        f"- Comportamiento ante consultas fuera del alcance: {fallback_text}\n"
+        f"- Notas adicionales del admin: {answers.additional_notes.strip() or '(ninguna)'}"
+    )
+
+
+@router.post("/{tenant_id}/onboarding/followup", response_model=OnboardingFollowupResponse)
+async def onboarding_followup(
     tenant_id: str,
-    body: OnboardingChatRequest,
+    body: OnboardingFollowupRequest,
     current_user: CurrentUser = Depends(require_admin),
 ):
-    """Conversational AI onboarding: asks targeted questions and generates bot_description.
-
-    Stateless — caller sends full conversation history each time.
-    Returns next_question, or is_done=True + bot_description after ≤5 exchanges
-    or when force_generate=True.
+    """Decide si vale la pena hacer UNA pregunta de profundizacion al admin,
+    despues de las 5 preguntas curadas. Lee respuestas + docs cargados, y:
+    - Si hay algo ambiguo o no cubierto → devuelve la pregunta
+    - Si las respuestas + docs ya alcanzan → devuelve question=null
     """
     if current_user.tenant_id != tenant_id:
-        raise HTTPException(status_code=403, detail="Cannot chat for another tenant")
+        raise HTTPException(status_code=403, detail="Cannot ask for another tenant")
 
     async with get_pg_session() as session:
         result = await session.execute(
@@ -572,162 +621,83 @@ async def onboarding_chat(
     if row["onboarding_completed"]:
         raise HTTPException(status_code=409, detail="Onboarding already completed")
 
-    MAX_EXCHANGES = 5
-    user_turns = [m for m in body.conversation if m.role == "user"]
-    # Cuando se llega al limite o se pide generar, NO se le permite al LLM seguir
-    # preguntando — directamente le pedimos la descripcion via un prompt dedicado.
-    force_done = len(user_turns) >= MAX_EXCHANGES or body.force_generate
-
-    # Read doc previews to ground the AI in real content
-    doc_context = ""
-    try:
-        async with get_pg_session(tenant_id) as session:
-            doc_result = await session.execute(text("""
-                SELECT d.title,
-                    (SELECT LEFT(p.text, 400) FROM parent_chunks p
-                     WHERE p.document_id = d.id ORDER BY p.chunk_index ASC LIMIT 1) AS preview
-                FROM documentos d WHERE d.status = 'ready'
-                ORDER BY d.created_at DESC LIMIT 3
-            """))
-            doc_rows = [r for r in doc_result.mappings().all() if r["preview"]]
-        if doc_rows:
-            doc_context = "\n\nDocumentos ya cargados (fragmentos reales):\n" + "\n---\n".join(
-                f"📄 {r['title']}:\n{r['preview']}" for r in doc_rows
-            )
-    except Exception as exc:
-        logger.warning("onboarding_chat_doc_ctx_failed tenant_id=%s err=%s", tenant_id, exc)
-
+    doc_context = await _read_doc_previews(tenant_id)
     bot_name_str = f"El asistente se llama '{body.bot_name}'." if body.bot_name.strip() else ""
-    conv_text = ""
-    if body.conversation:
-        # Filtramos respuestas "skip" para no contaminar el contexto del LLM
-        meaningful_conv = [
-            m for m in body.conversation
-            if not (m.role == "user" and m.content.strip() in ("[skip]", "[Sin información adicional]"))
-        ]
-        if meaningful_conv:
-            conv_text = "\n\nConversación hasta ahora:\n" + "\n".join(
-                f"{'IA' if m.role == 'assistant' else 'Admin'}: {m.content}"
-                for m in meaningful_conv
-            )
+    answers_block = _format_answers_block(body.answers)
 
-    from services.groq_client import complete, QueryComplexity
-    import json as _json
-    import re as _re
-
-    # ── CASO 1: forzar generacion (limite alcanzado o force_generate=True) ──
-    if force_done:
-        gen_prompt = f"""Sos un especialista en configuración de asistentes virtuales. \
-Generá la descripción final de un bot, optimizada para ser leída como system prompt de un LLM.
+    prompt = f"""Sos un especialista en configurar asistentes virtuales. \
+Tu única tarea ahora es decidir si hay UN aspecto importante que valga la pena \
+profundizar para mejorar la configuración del bot.
 
 Contexto:
 - Organización: {body.org_name} ({body.org_type})
-- Tono: {body.tone}
-{f"- {bot_name_str}" if bot_name_str else ""}{doc_context}{conv_text}
+- Tono elegido: {body.tone}
+{f"- {bot_name_str}" if bot_name_str else ""}
 
-Reglas de la descripción:
-- 4-6 oraciones en tercera persona, español neutro
-- Incluye: quién es la organización, a quién atiende, qué temas cubre (basado en los documentos), \
-qué tono usa, y qué hace cuando no encuentra la respuesta (sugerir contactar a la organización).
-- Sin saludos, sin listas, sin markdown.
-- Si la conversación no aporta detalles, basate en el tipo de organización y los documentos cargados.
+Respuestas del admin (ya respondidas, NO repreguntes esto):
+{answers_block}
+{doc_context}
 
-Respondé SOLO con el texto de la descripción, sin JSON ni formato extra."""
+REGLAS:
+1. Mirá si las respuestas son MUY vagas, ambiguas, o si hay algo en los docs que el admin no mencionó.
+2. Si todo está bien cubierto → respondé exactamente "null" (sin comillas, sin texto extra).
+3. Si vale la pena profundizar → hacé UNA sola pregunta corta (max 20 palabras), en español cotidiano.
+4. La pregunta debe ayudar a precisar el bot, no a abrir nuevos temas.
 
-        try:
-            raw = await complete(
-                messages=[{"role": "user", "content": gen_prompt}],
-                complexity=QueryComplexity.SIMPLE,
-                temperature=0.35,
-                max_tokens=400,
-            )
-        except Exception as exc:
-            logger.error("onboarding_chat_gen_failed tenant_id=%s err=%s", tenant_id, exc)
-            raise HTTPException(status_code=502, detail="No se pudo generar la descripción. Intentá de nuevo.")
+PROHIBIDO usar jerga: "alcance funcional", "operativa", "stakeholders", "protocolos", \
+"métricas", "particularidades operacionales", "casos de uso".
 
-        desc = raw.strip()
-        # Quitar comillas externas si quedaron, y eventuales fences md
-        md_match = _re.search(r"```(?:\w+)?\s*([\s\S]*?)```", desc)
-        if md_match:
-            desc = md_match.group(1).strip()
-        desc = desc.strip('"\'`')
-        if len(desc) < 20:
-            desc = (
-                f"Asistente virtual de {body.org_name} ({body.org_type}). "
-                "Responde consultas en base a los documentos institucionales cargados. "
-                "Si no encuentra la información, sugiere contactar directamente con la organización."
-            )
-        return OnboardingChatResponse(is_done=True, bot_description=desc)
+EJEMPLOS BUENOS de profundización:
+✅ "Mencionaste que atendés socios. ¿Hay diferencia entre socios nuevos y antiguos?"
+✅ "¿El tema sensible que excluiste también incluye consultas sobre precios?"
+✅ "Vi que los docs mencionan horarios. ¿Querés que el bot los diga al saludar?"
 
-    # ── CASO 2: pedir una pregunta SIMPLE (no se llego al limite) ──
-    questions_already_asked = len([m for m in body.conversation if m.role == "assistant"])
-    progress_hint = (
-        f"Esta es la pregunta {questions_already_asked + 1} de {MAX_EXCHANGES}. "
-        f"Te quedan {MAX_EXCHANGES - questions_already_asked} preguntas para conocer la organización."
-    )
+EJEMPLOS MALOS (NO los hagas):
+❌ "¿Cuál es la operativa institucional?"
+❌ "¿Qué protocolos diferenciales aplican?"
 
-    question_prompt = f"""Sos un asistente que ayuda a configurar un bot virtual para una organización. \
-Tu tarea es hacer UNA pregunta SIMPLE y DIRECTA al administrador. {progress_hint}
+Respondé SOLO con la pregunta en texto plano, o exactamente "null". Sin JSON, sin comillas, sin markdown."""
 
-Contexto que ya tenés:
-- Organización: {body.org_name} ({body.org_type})
-- Tono: {body.tone}
-{f"- {bot_name_str}" if bot_name_str else ""}{doc_context}{conv_text}
-
-REGLAS ESTRICTAS para tu pregunta:
-1. Lenguaje COTIDIANO, como hablarías a alguien que no es técnico.
-2. UNA SOLA pregunta corta. Máximo 20 palabras.
-3. Apuntá a información PRÁCTICA: qué hace el bot, qué no responde, a quién atiende.
-4. NO uses jerga técnica, ni términos como "alcance funcional", "operativa", "particularidades", \
-"protocolos", "casos de uso", "stakeholders", "métricas".
-5. NO repitas preguntas similares a las que ya hiciste en la conversación.
-6. Si los documentos ya cubren cierto tema, NO preguntes sobre ese tema.
-
-EJEMPLOS BUENOS de preguntas:
-✅ "¿Cuáles son las 2 o 3 consultas más comunes que recibís?"
-✅ "¿Hay algún tema que NO querés que el bot responda?"
-✅ "¿Si el bot no sabe una respuesta, querés que derive a un humano o sugiera contactar?"
-✅ "¿Quiénes van a usar el bot principalmente — clientes, empleados, socios?"
-✅ "¿Tienen horarios de atención específicos que el bot deba mencionar?"
-
-EJEMPLOS MALOS (NO hagas estas):
-❌ "¿Cuál es el alcance funcional del bot dentro de la operativa institucional?"
-❌ "¿Qué particularidades operacionales relevantes deberían considerarse?"
-❌ "¿Existen protocolos diferenciales por segmento de stakeholder?"
-
-Respondé SOLO con la pregunta en texto plano, sin comillas, sin JSON, sin markdown."""
+    from services.groq_client import complete, QueryComplexity
+    import re as _re
 
     try:
         raw = await complete(
-            messages=[{"role": "user", "content": question_prompt}],
+            messages=[{"role": "user", "content": prompt}],
             complexity=QueryComplexity.SIMPLE,
-            temperature=0.4,
-            max_tokens=120,
+            temperature=0.3,
+            max_tokens=100,
         )
     except Exception as exc:
-        logger.error("onboarding_chat_llm_failed tenant_id=%s err=%s", tenant_id, exc)
-        raise HTTPException(status_code=502, detail="No se pudo procesar. Intentá de nuevo.")
+        logger.error("onboarding_followup_failed tenant_id=%s err=%s", tenant_id, exc)
+        # No bloquear el onboarding si la IA falla — devolver null (skip natural).
+        return OnboardingFollowupResponse(question=None)
 
-    # Limpiar la pregunta: quitar markdown, comillas externas, JSON si vino accidentalmente
+    # Limpiar respuesta
     question = raw.strip()
     md_match = _re.search(r"```(?:\w+)?\s*([\s\S]*?)```", question)
     if md_match:
         question = md_match.group(1).strip()
-    # Si vino JSON por error, extraer el campo content
-    if question.startswith("{"):
-        try:
-            parsed = _json.loads(question)
-            question = (parsed.get("content") or parsed.get("question") or "").strip()
-        except Exception:
-            pass
     question = question.strip('"\'`').strip()
-    if not question:
-        question = "¿Cuáles son las consultas más frecuentes que recibís de tus usuarios?"
-    # Truncar si vino muy largo
-    if len(question) > 300:
-        question = question[:300].rsplit(" ", 1)[0] + "?"
 
-    return OnboardingChatResponse(next_question=question, is_done=False)
+    # "null" en cualquier forma → no preguntar
+    if not question or question.lower() in ("null", "none", "nada", "no", "n/a"):
+        return OnboardingFollowupResponse(question=None)
+
+    # Validacion: rechazar si tiene jerga prohibida (el LLM ignoro las reglas)
+    FORBIDDEN = ("alcance funcional", "stakeholder", "operativa institucional",
+                 "protocolos diferenciales", "métricas", "casos de uso", "particularidades")
+    if any(j in question.lower() for j in FORBIDDEN):
+        logger.info("onboarding_followup_rejected_jargon tenant_id=%s q=%r", tenant_id, question[:80])
+        return OnboardingFollowupResponse(question=None)
+
+    # Truncar si vino muy larga
+    if len(question) > 300:
+        question = question[:300].rsplit(" ", 1)[0]
+        if not question.endswith("?"):
+            question += "?"
+
+    return OnboardingFollowupResponse(question=question)
 
 
 @router.post("/{tenant_id}/onboarding/generate", response_model=OnboardingGenerateResponse)
@@ -736,8 +706,13 @@ async def onboarding_generate(
     body: OnboardingGenerateRequest,
     current_user: CurrentUser = Depends(require_admin),
 ):
-    """Call Groq to generate a rich bot_description from structured org data.
-    Only callable by the tenant's own admin. Does not persist anything yet.
+    """Genera el bot_description final a partir de:
+    - Las 5 respuestas curadas del admin (audience, typical_questions, excluded, fallback, notes)
+    - Opcional: pregunta+respuesta del followup adaptativo
+    - Contenido real de documentos cargados en el tenant (top 3)
+
+    El LLM combina todo y emite una descripcion concisa optimizada como system prompt.
+    No persiste — el admin la confirma despues via /onboarding/complete.
     """
     if current_user.tenant_id != tenant_id:
         raise HTTPException(status_code=403, detail="Cannot generate for another tenant")
@@ -748,100 +723,90 @@ async def onboarding_generate(
             {"tid": tenant_id},
         )
         row = result.mappings().fetchone()
-
     if row is None:
         raise HTTPException(status_code=404, detail="Tenant not found")
     if row["onboarding_completed"]:
         raise HTTPException(status_code=409, detail="Onboarding already completed")
 
-    excluded_line = f"No responde sobre: {body.excluded_topics}." if body.excluded_topics.strip() else ""
-    bot_name_line = f"El asistente se llama '{body.bot_name}'." if body.bot_name.strip() else "El asistente no tiene nombre propio."
+    bot_name_line = (
+        f"El asistente se llama '{body.bot_name}'."
+        if body.bot_name.strip()
+        else "El asistente no tiene nombre propio."
+    )
 
-    # Mapeo de fallback_behavior a instruccion concreta para el bot.
-    # Va a quedar reflejado en el bot_description para que el LLM siga esa pauta
-    # cuando no encuentra la respuesta en los docs.
-    _fallback_map = {
-        "suggest_contact":        "Cuando no encuentra la respuesta en sus documentos, sugiere consultar directamente con la organización.",
-        "offer_handoff":          "Cuando no encuentra la respuesta en sus documentos, ofrece derivar la consulta a un operador humano.",
-        "request_contact":        "Cuando no encuentra la respuesta en sus documentos, pide al usuario su email o teléfono e indica que la organización lo contactará.",
-        "suggest_business_hours": "Cuando no encuentra la respuesta en sus documentos, sugiere comunicarse durante el horario de atención de la organización.",
-    }
-    fallback_line = _fallback_map.get(body.fallback_behavior, _fallback_map["suggest_contact"])
+    answers_block = _format_answers_block(body.answers)
+    doc_context = await _read_doc_previews(tenant_id)
+    if doc_context:
+        doc_context += (
+            "\n\nIMPORTANTE: si el contenido REAL de los documentos cubre temas distintos a "
+            "los listados por el admin, privilegiá el contenido real para describir qué sabe "
+            "responder el bot. Los documentos son la fuente de verdad sobre el alcance."
+        )
 
-    # ── Fase 5: leer documentos ya cargados para anclar la descripcion al contenido real ──
-    # Si el admin subio docs durante el onboarding, los usamos como verdad-de-base.
-    # El bot_description generado va a reflejar lo que los docs REALMENTE dicen,
-    # no solo lo que el admin imagino en main_topics. Asi se evita el mismatch
-    # "admin dice X / docs dicen Y" que confunde al bot en producción.
-    doc_context = ""
-    try:
-        async with get_pg_session(tenant_id) as session:
-            # Traemos los 3 docs mas recientes ready y un preview de su primer chunk.
-            # parent_chunks.text tiene el contenido real extraido — es lo que el bot
-            # vera durante RAG. Limitamos a 400 chars/doc para que el prompt total
-            # no exceda los tokens disponibles.
-            doc_result = await session.execute(text("""
-                SELECT
-                    d.title,
-                    (
-                        SELECT LEFT(p.text, 400)
-                        FROM parent_chunks p
-                        WHERE p.document_id = d.id
-                        ORDER BY p.chunk_index ASC
-                        LIMIT 1
-                    ) AS preview
-                FROM documentos d
-                WHERE d.status = 'ready'
-                ORDER BY d.created_at DESC
-                LIMIT 3
-            """))
-            doc_rows = doc_result.mappings().all()
-        # Filtramos docs sin chunks (extraccion fallida, raros) para no enviar previews vacios.
-        doc_rows = [r for r in doc_rows if r["preview"]]
-        if doc_rows:
-            doc_context = "\n\nContenido REAL de documentos ya cargados:\n" + "\n---\n".join(
-                f"📄 {r['title']}:\n{r['preview']}"
-                for r in doc_rows
-            ) + ("""
-
-IMPORTANTE: si el contenido REAL de los documentos cubre temas distintos a los \
-"Temas principales" listados por el admin, privilegiá el contenido real para describir \
-qué sabe responder el bot. Los documentos son la fuente de verdad sobre el alcance real.""")
-    except Exception as exc:
-        # Si falla la lectura de docs, seguimos sin contexto — no bloqueamos el onboarding.
-        logger.warning("onboarding_doc_context_failed tenant_id=%s error=%s", tenant_id, exc)
+    followup_block = ""
+    if body.followup_question.strip() and body.followup_answer.strip():
+        followup_block = (
+            f"\n\nPregunta de profundización (adaptativa):\n"
+            f"- IA preguntó: {body.followup_question.strip()}\n"
+            f"- Admin respondió: {body.followup_answer.strip()}"
+        )
 
     prompt = f"""Generá una descripción concisa (4-6 oraciones) de un asistente virtual, \
 optimizada para ser leída por un modelo de lenguaje como parte de su system prompt. \
-La descripción debe ser en español, en tercera persona, sin saludos ni listas, \
-y debe incluir: quién es la organización, a quién atiende el bot, \
-qué temas cubre, qué tono usa y cómo se comporta cuando no encuentra la respuesta.
+Español neutro, tercera persona, sin saludos, sin listas, sin markdown.
 
-Datos de la organización:
-- Nombre: {body.org_name}
+Debe incluir explícitamente:
+1. Quién es la organización (nombre + tipo)
+2. A quién atiende el bot (audiencia)
+3. Qué temas puede responder (basado en docs cargados + típicas mencionadas por el admin)
+4. Qué temas NO debe responder (si los hay)
+5. Qué tono usa
+6. Qué hace cuando no encuentra la respuesta
+
+Datos:
+- Nombre de la organización: {body.org_name}
 - Tipo: {body.org_type}
-- Atiende a: {body.serves}
-- Temas principales: {body.main_topics}
-- {excluded_line}
-- Tono: {body.tone}
+- Tono elegido: {body.tone}
 - {bot_name_line}
-- Comportamiento ante consultas fuera del alcance: {fallback_line}{doc_context}
 
-Respondé únicamente con el texto de la descripción, sin título ni formato extra."""
+Respuestas del admin:
+{answers_block}{followup_block}{doc_context}
+
+Respondé ÚNICAMENTE con el texto de la descripción, sin título, sin comillas, sin formato extra."""
 
     from services.groq_client import complete, QueryComplexity
+    import re as _re
+
     try:
-        result_text = await complete(
+        raw = await complete(
             messages=[{"role": "user", "content": prompt}],
             complexity=QueryComplexity.SIMPLE,
-            temperature=0.4,
-            max_tokens=300,
+            temperature=0.35,
+            max_tokens=400,
         )
     except Exception as exc:
         logger.error("onboarding_generate_failed tenant_id=%s error=%s", tenant_id, exc)
         raise HTTPException(status_code=502, detail="No se pudo generar la descripción. Intentá de nuevo.")
 
-    return OnboardingGenerateResponse(bot_description=result_text.strip())
+    # Limpiar: quitar fences markdown, comillas externas
+    desc = raw.strip()
+    md_match = _re.search(r"```(?:\w+)?\s*([\s\S]*?)```", desc)
+    if md_match:
+        desc = md_match.group(1).strip()
+    desc = desc.strip('"\'`')
+
+    # Fallback defensivo si vino algo demasiado corto
+    if len(desc) < 30:
+        fallback_text = _FALLBACK_INSTRUCTIONS.get(
+            body.answers.fallback, _FALLBACK_INSTRUCTIONS["suggest_contact"]
+        )
+        desc = (
+            f"Asistente virtual de {body.org_name} ({body.org_type}). "
+            f"Responde consultas en base a los documentos institucionales cargados, "
+            f"en tono {body.tone}. {fallback_text}"
+        )
+
+    return OnboardingGenerateResponse(bot_description=desc)
 
 
 @router.post("/{tenant_id}/onboarding/test-query", response_model=OnboardingTestQueryResponse)

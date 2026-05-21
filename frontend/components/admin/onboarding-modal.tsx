@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { api, type OnboardingFixedAnswers } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,9 +10,11 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Loader2, Sparkles, CheckCircle2, AlertCircle,
-  Send, MessageSquare, Upload, FileText, X,
+  Send, MessageSquare, Upload, FileText, X, HelpCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+
+// ── Constantes ──────────────────────────────────────────────────────────────
 
 const MAX_ONBOARDING_DOCS = 3;
 const ACCEPTED_DOC_TYPES = ".pdf,.docx,.txt,.html";
@@ -23,9 +25,9 @@ interface UploadedDoc {
   doc_id?: string;
   status: DocStatus;
   error?: string;
+  /** Mensaje informativo (ej. "ya estaba cargado" cuando se detecta duplicado). */
+  note?: string;
 }
-
-type ChatMessage = { role: "assistant" | "user"; content: string };
 
 const ORG_TYPES = [
   "Empresa privada", "Cooperativa", "Mutual", "ONG",
@@ -33,58 +35,74 @@ const ORG_TYPES = [
 ];
 
 const TONES = [
-  {
-    key: "formal",
-    label: "Formal",
-    example: "De acuerdo, podemos asistirle con esa consulta.",
-  },
-  {
-    key: "amigable",
-    label: "Amigable",
-    example: "¡Claro! Te cuento cómo funciona...",
-  },
-  {
-    key: "tecnico",
-    label: "Técnico",
-    example: "El proceso requiere validación en dos etapas.",
-  },
+  { key: "formal",   label: "Formal",   example: "De acuerdo, podemos asistirle con esa consulta." },
+  { key: "amigable", label: "Amigable", example: "¡Claro! Te cuento cómo funciona..." },
+  { key: "tecnico",  label: "Técnico",  example: "El proceso requiere validación en dos etapas." },
 ];
 
+const FALLBACKS = [
+  {
+    key: "suggest_contact",
+    label: "Sugerir contacto",
+    desc: "Indica que consulten directamente con la organización.",
+  },
+  {
+    key: "offer_handoff",
+    label: "Derivar a humano",
+    desc: "Ofrece pasar la conversación a un operador.",
+  },
+  {
+    key: "request_contact",
+    label: "Pedir contacto",
+    desc: "Solicita email o teléfono y la organización responde.",
+  },
+  {
+    key: "suggest_business_hours",
+    label: "Horario de atención",
+    desc: "Sugiere comunicarse en horario habitual.",
+  },
+] as const;
+
+type FallbackKey = typeof FALLBACKS[number]["key"];
+
 const STEPS = ["Organización", "Documentos", "Preguntas", "Revisión"] as const;
-const MAX_EXCHANGES = 5;
+
+// ── Componente ──────────────────────────────────────────────────────────────
 
 export function OnboardingModal() {
   const { tenantId } = useAuthStore();
   const qc = useQueryClient();
 
-  // ── Navigation ──
+  // Navegación
   const [step, setStep] = useState(0);
   const [done, setDone] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
-  // ── Step 0: Identity ──
+  // Step 0 — Identidad
   const [orgName, setOrgName] = useState("");
   const [orgType, setOrgType] = useState("");
   const [orgTypeCustom, setOrgTypeCustom] = useState("");
   const [tone, setTone] = useState("");
   const [botName, setBotName] = useState("");
 
-  // ── Step 1: Documents ──
+  // Step 1 — Documentos
   const [uploadedDocs, setUploadedDocs] = useState<UploadedDoc[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // ── Step 2: AI Conversation ──
-  const [chatConversation, setChatConversation] = useState<ChatMessage[]>([]);
-  const [currentQuestion, setCurrentQuestion] = useState<string | null>(null);
-  const [chatInput, setChatInput] = useState("");
-  const [chatLoading, setChatLoading] = useState(false);
-  const [chatError, setChatError] = useState<string | null>(null);
-  const [chatInitialized, setChatInitialized] = useState(false);
-  const chatBottomRef = useRef<HTMLDivElement>(null);
+  // Step 2 — 5 preguntas curadas + followup adaptativo
+  const [audience, setAudience]                 = useState("");
+  const [typicalQuestions, setTypicalQuestions] = useState("");
+  const [excludedTopics, setExcludedTopics]     = useState("");
+  const [fallback, setFallback]                 = useState<FallbackKey>("suggest_contact");
+  const [additionalNotes, setAdditionalNotes]   = useState("");
+  /** Pregunta de profundización adaptativa (null = aún no pedida, "" = la IA decidió no preguntar). */
+  const [followupQuestion, setFollowupQuestion] = useState<string | null>(null);
+  const [followupAnswer, setFollowupAnswer]     = useState("");
+  const [followupSkipped, setFollowupSkipped]   = useState(false);
 
-  // ── Step 3: Review ──
+  // Step 3 — Revisión
   const [editedDesc, setEditedDesc] = useState("");
-  const [testInput, setTestInput] = useState("");
+  const [testInput, setTestInput]   = useState("");
   const [testHistory, setTestHistory] = useState<Array<{ q: string; a: string }>>([]);
 
   const effectiveOrgType = useMemo(
@@ -92,7 +110,15 @@ export function OnboardingModal() {
     [orgType, orgTypeCustom],
   );
 
-  // ── Doc polling ──
+  const answersPayload: OnboardingFixedAnswers = useMemo(() => ({
+    audience:          audience.trim(),
+    typical_questions: typicalQuestions.trim(),
+    excluded_topics:   excludedTopics.trim(),
+    fallback,
+    additional_notes:  additionalNotes.trim(),
+  }), [audience, typicalQuestions, excludedTopics, fallback, additionalNotes]);
+
+  // ── Polling de docs en "processing" ──
   useEffect(() => {
     const targets = uploadedDocs
       .filter(d => d.status === "processing" && d.doc_id)
@@ -105,13 +131,11 @@ export function OnboardingModal() {
           const st = await api.documents.status(docId);
           if (cancelled) return;
           if (st.status === "ready" || st.status === "error") {
-            setUploadedDocs(docs =>
-              docs.map(d =>
-                d.doc_id === docId
-                  ? { ...d, status: st.status === "ready" ? "ready" : "error" }
-                  : d,
-              ),
-            );
+            setUploadedDocs(docs => docs.map(d =>
+              d.doc_id === docId
+                ? { ...d, status: st.status === "ready" ? "ready" : "error" }
+                : d
+            ));
           }
         } catch { /* keep polling */ }
       }
@@ -119,38 +143,47 @@ export function OnboardingModal() {
     return () => { cancelled = true; clearInterval(interval); };
   }, [uploadedDocs]);
 
+  // ── Upload de docs ──
   const handleFilesSelected = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
     const slots = MAX_ONBOARDING_DOCS - uploadedDocs.length;
     const toUpload = Array.from(files).slice(0, slots);
+
     for (const file of toUpload) {
       setUploadedDocs(docs => [...docs, { filename: file.name, status: "uploading" }]);
+
       try {
         const resp = await api.documents.upload(file);
-        setUploadedDocs(docs =>
-          docs.map(d =>
-            d.filename === file.name && d.status === "uploading"
-              ? {
-                  ...d,
-                  doc_id: (resp as any).document_id || (resp as any).doc_id,
-                  status: "processing",
-                }
-              : d,
-          ),
-        );
+        setUploadedDocs(docs => docs.map(d =>
+          d.filename === file.name && d.status === "uploading"
+            ? { ...d, doc_id: (resp as any).document_id || (resp as any).doc_id, status: "processing" }
+            : d
+        ));
       } catch (err: any) {
-        const detail = err?.response?.data?.detail || "Error al subir";
-        setUploadedDocs(docs =>
-          docs.map(d =>
+        const status = err?.response?.status;
+        const detail = err?.response?.data?.detail;
+
+        // 409 = duplicate. El archivo YA esta cargado, lo marcamos ready con nota.
+        if (status === 409 && detail && typeof detail === "object" && detail.duplicate_of?.id) {
+          setUploadedDocs(docs => docs.map(d =>
             d.filename === file.name && d.status === "uploading"
-              ? {
-                  ...d,
-                  status: "error",
-                  error: typeof detail === "string" ? detail : "Error al subir",
-                }
-              : d,
-          ),
-        );
+              ? { ...d, doc_id: detail.duplicate_of.id, status: "ready", note: "ya estaba cargado" }
+              : d
+          ));
+          continue;
+        }
+
+        const errorMsg =
+          typeof detail === "string" ? detail :
+          typeof detail?.detail === "string" ? detail.detail :
+          status === 413 ? "Archivo demasiado grande" :
+          status === 415 ? "Tipo de archivo no soportado" :
+          "Error al subir";
+        setUploadedDocs(docs => docs.map(d =>
+          d.filename === file.name && d.status === "uploading"
+            ? { ...d, status: "error", error: errorMsg }
+            : d
+        ));
       }
     }
     if (fileInputRef.current) fileInputRef.current.value = "";
@@ -159,102 +192,60 @@ export function OnboardingModal() {
   const removeDoc = (filename: string) =>
     setUploadedDocs(docs => docs.filter(d => d.filename !== filename));
 
-  // ── AI Chat ──
-  const callChat = useCallback(
-    async (conv: ChatMessage[], forceGenerate = false) => {
-      setChatLoading(true);
-      setChatError(null);
-      try {
-        const res = await api.tenants.onboardingChat(tenantId!, {
-          org_name: orgName,
-          org_type: effectiveOrgType,
-          tone,
-          bot_name: botName,
-          conversation: conv,
-          force_generate: forceGenerate,
-        });
-        if (res.is_done && res.bot_description) {
-          setEditedDesc(res.bot_description);
-          setStep(3);
-        } else if (res.next_question) {
-          setCurrentQuestion(res.next_question);
-        }
-      } catch (err: any) {
-        const detail =
-          err?.response?.data?.detail ||
-          "No se pudo conectar con la IA. Intentá de nuevo.";
-        setChatError(typeof detail === "string" ? detail : "Error al procesar.");
-      } finally {
-        setChatLoading(false);
+  // ── Mutations ──
+
+  const followupM = useMutation({
+    mutationFn: () => api.tenants.onboardingFollowup(tenantId!, {
+      org_name: orgName.trim(),
+      org_type: effectiveOrgType,
+      tone,
+      bot_name: botName.trim(),
+      answers: answersPayload,
+    }),
+    onSuccess: (data) => {
+      // null = la IA decidió que no hay nada para profundizar — saltamos a generar
+      if (!data.question) {
+        setFollowupQuestion("");
+        generateM.mutate();
+      } else {
+        setFollowupQuestion(data.question);
       }
     },
-    [tenantId, orgName, effectiveOrgType, tone, botName],
-  );
+    onError: () => {
+      // Si falla el followup, no bloqueamos — vamos directo a generar
+      setFollowupQuestion("");
+      generateM.mutate();
+    },
+  });
 
-  // Scroll chat to bottom when new content arrives
-  useEffect(() => {
-    chatBottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [chatConversation, currentQuestion, chatLoading]);
+  const generateM = useMutation({
+    mutationFn: () => api.tenants.onboardingGenerate(tenantId!, {
+      org_name: orgName.trim(),
+      org_type: effectiveOrgType,
+      tone,
+      bot_name: botName.trim(),
+      answers: answersPayload,
+      followup_question: followupQuestion && !followupSkipped ? followupQuestion : "",
+      followup_answer:   !followupSkipped ? followupAnswer.trim() : "",
+    }),
+    onSuccess: (data) => {
+      setEditedDesc(data.bot_description);
+      setSubmitError(null);
+      setTestHistory([]);
+      setStep(3);
+    },
+    onError: (err: any) => {
+      const detail = err?.response?.data?.detail || "No se pudo generar la descripción.";
+      setSubmitError(typeof detail === "string" ? detail : "Error al generar.");
+    },
+  });
 
-  // Initialize chat when entering step 2
-  useEffect(() => {
-    if (step === 2 && !chatInitialized) {
-      setChatInitialized(true);
-      callChat([]);
-    }
-  }, [step, chatInitialized, callChat]);
-
-  const completedExchanges = Math.floor(chatConversation.length / 2);
-
-  const submitAnswer = async () => {
-    if (!chatInput.trim() || chatLoading || !currentQuestion) return;
-    const answer = chatInput.trim();
-    setChatInput("");
-    const newConv: ChatMessage[] = [
-      ...chatConversation,
-      { role: "assistant", content: currentQuestion },
-      { role: "user", content: answer },
-    ];
-    setChatConversation(newConv);
-    setCurrentQuestion(null);
-    await callChat(newConv);
-  };
-
-  const skipQuestion = async () => {
-    if (!currentQuestion || chatLoading) return;
-    // Marcamos la pregunta como skipeada (con un token que el backend filtra del contexto)
-    // pero igual cuenta como user_turn para llegar al limite y forzar generacion.
-    const newConv: ChatMessage[] = [
-      ...chatConversation,
-      { role: "assistant", content: currentQuestion },
-      { role: "user", content: "[skip]" },
-    ];
-    setChatConversation(newConv);
-    setCurrentQuestion(null);
-    // Si esta es la quinta o mas pregunta skipeada, fuerza generacion para no entrar en loop.
-    const userTurnsAfterSkip = newConv.filter(m => m.role === "user").length;
-    await callChat(newConv, userTurnsAfterSkip >= MAX_EXCHANGES);
-  };
-
-  const goBackFromStep2 = () => {
-    // Reset chat state so docs uploaded now are picked up in a fresh conversation
-    setChatInitialized(false);
-    setChatConversation([]);
-    setCurrentQuestion(null);
-    setChatError(null);
-    setChatInput("");
-    setStep(1);
-    setSubmitError(null);
-  };
-
-  // ── Test query ──
   const testQueryM = useMutation({
-    mutationFn: () =>
-      api.tenants.onboardingTestQuery(tenantId!, {
-        question: testInput.trim(),
-        bot_description: editedDesc.trim(),
-      }),
-    onSuccess: data => {
+    mutationFn: () => api.tenants.onboardingTestQuery(tenantId!, {
+      question: testInput.trim(),
+      bot_description: editedDesc.trim(),
+    }),
+    onSuccess: (data) => {
       setTestHistory(h => [...h, { q: testInput.trim(), a: data.answer }]);
       setTestInput("");
     },
@@ -264,35 +255,28 @@ export function OnboardingModal() {
     },
   });
 
-  // ── Regenerate description from step 3 ──
   const regenerateM = useMutation({
-    mutationFn: () =>
-      api.tenants.onboardingChat(tenantId!, {
-        org_name: orgName,
-        org_type: effectiveOrgType,
-        tone,
-        bot_name: botName,
-        conversation: chatConversation,
-        force_generate: true,
-      }),
-    onSuccess: data => {
-      if (data.bot_description) {
-        setEditedDesc(data.bot_description);
-        setTestHistory([]);
-      }
+    mutationFn: () => api.tenants.onboardingGenerate(tenantId!, {
+      org_name: orgName.trim(),
+      org_type: effectiveOrgType,
+      tone,
+      bot_name: botName.trim(),
+      answers: answersPayload,
+      followup_question: followupQuestion && !followupSkipped ? followupQuestion : "",
+      followup_answer:   !followupSkipped ? followupAnswer.trim() : "",
+    }),
+    onSuccess: (data) => {
+      setEditedDesc(data.bot_description);
+      setTestHistory([]);
     },
-    onError: () => {
-      setSubmitError("No se pudo regenerar. Intentá de nuevo.");
-    },
+    onError: () => setSubmitError("No se pudo regenerar."),
   });
 
-  // ── Complete onboarding ──
   const completeM = useMutation({
-    mutationFn: () =>
-      api.tenants.onboardingComplete(tenantId!, {
-        bot_name: botName.trim(),
-        bot_description: editedDesc.trim(),
-      }),
+    mutationFn: () => api.tenants.onboardingComplete(tenantId!, {
+      bot_name: botName.trim(),
+      bot_description: editedDesc.trim(),
+    }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["bot-config", tenantId] });
       setDone(true);
@@ -303,12 +287,40 @@ export function OnboardingModal() {
     },
   });
 
-  // ── Validation ──
+  // ── Acciones step 2 ──
+
+  /** El admin termino las 5 preguntas. Pedimos al backend si hay followup. */
+  const submitFixedAnswers = () => {
+    setSubmitError(null);
+    setFollowupQuestion(null);
+    setFollowupAnswer("");
+    setFollowupSkipped(false);
+    followupM.mutate();
+  };
+
+  /** Admin responde la pregunta de followup → generar */
+  const submitFollowup = () => {
+    if (!followupAnswer.trim()) return;
+    setSubmitError(null);
+    generateM.mutate();
+  };
+
+  /** Admin saltea el followup → generar sin esa info */
+  const skipFollowup = () => {
+    setFollowupSkipped(true);
+    setSubmitError(null);
+    generateM.mutate();
+  };
+
+  // ── Validaciones ──
   const canNext0 =
     orgName.trim().length > 0 &&
     orgType !== "" &&
     (orgType !== "Otra" || orgTypeCustom.trim().length > 0) &&
     tone !== "";
+
+  // Step 2: la única respuesta obligatoria es "audiencia" — el resto son opcionales
+  const canSubmitFixed = audience.trim().length > 0 && fallback !== ("" as any);
 
   // ── Done screen ──
   if (done) {
@@ -330,6 +342,7 @@ export function OnboardingModal() {
     );
   }
 
+  // ── Render ──
   return (
     <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
       <div className="bg-background border rounded-lg shadow-lg w-full max-w-xl overflow-hidden my-8">
@@ -340,9 +353,7 @@ export function OnboardingModal() {
             Configuración inicial del asistente
           </h2>
           <p className="text-sm text-muted-foreground mt-1.5">
-            {step === 2
-              ? "La IA te hace preguntas para entender mejor tu organización."
-              : "Tomá unos minutos para personalizar tu bot."}
+            Tomá unos minutos para personalizar tu bot.
           </p>
           <div className="mt-4 space-y-2">
             <div className="flex items-baseline justify-between gap-3">
@@ -357,7 +368,7 @@ export function OnboardingModal() {
                   key={i}
                   className={cn(
                     "h-1 flex-1 rounded-full transition-colors",
-                    i < step ? "bg-primary" : i === step ? "bg-primary/60" : "bg-border",
+                    i < step ? "bg-primary" : i === step ? "bg-primary/60" : "bg-border"
                   )}
                 />
               ))}
@@ -366,15 +377,14 @@ export function OnboardingModal() {
         </div>
 
         {/* Body */}
-        <div className="px-6 py-5 space-y-4 min-h-[300px]">
+        <div className="px-6 py-5 space-y-4 min-h-[300px] max-h-[70vh] overflow-y-auto">
 
-          {/* ── Step 0: Identity ── */}
+          {/* ── Step 0: Identidad ── */}
           {step === 0 && (
             <>
               <p className="text-sm text-muted-foreground">
                 Contanos sobre tu organización para que el bot sepa quién es y cómo comunicarse.
               </p>
-
               <div className="space-y-1">
                 <Label className="text-xs">Nombre de la organización *</Label>
                 <Input
@@ -385,24 +395,20 @@ export function OnboardingModal() {
                   autoFocus
                 />
               </div>
-
               <div className="space-y-1">
                 <Label className="text-xs">Tipo de organización *</Label>
                 <div className="flex flex-wrap gap-2 pt-0.5">
                   {ORG_TYPES.map(t => (
                     <button
-                      key={t}
-                      type="button"
+                      key={t} type="button"
                       onClick={() => setOrgType(t)}
                       className={cn(
                         "px-3 py-1.5 rounded-md border text-xs font-medium transition-colors",
                         orgType === t
                           ? "border-primary bg-primary/10 text-primary"
-                          : "border-border hover:border-primary/40",
+                          : "border-border hover:border-primary/40"
                       )}
-                    >
-                      {t}
-                    </button>
+                    >{t}</button>
                   ))}
                 </div>
                 {orgType === "Otra" && (
@@ -414,20 +420,18 @@ export function OnboardingModal() {
                   />
                 )}
               </div>
-
               <div className="space-y-1">
                 <Label className="text-xs">Tono del asistente *</Label>
                 <div className="grid grid-cols-3 gap-2 pt-0.5">
                   {TONES.map(t => (
                     <button
-                      key={t.key}
-                      type="button"
+                      key={t.key} type="button"
                       onClick={() => setTone(t.key)}
                       className={cn(
                         "flex flex-col gap-1.5 rounded-lg border p-3 text-left transition-colors",
                         tone === t.key
                           ? "border-primary bg-primary/5 ring-1 ring-primary"
-                          : "border-border hover:border-primary/40",
+                          : "border-border hover:border-primary/40"
                       )}
                     >
                       <span className={cn("text-xs font-semibold", tone === t.key ? "text-primary" : "")}>
@@ -440,11 +444,9 @@ export function OnboardingModal() {
                   ))}
                 </div>
               </div>
-
               <div className="space-y-1">
                 <Label className="text-xs">
-                  Nombre del asistente{" "}
-                  <span className="text-muted-foreground font-normal">(opcional)</span>
+                  Nombre del asistente <span className="text-muted-foreground font-normal">(opcional)</span>
                 </Label>
                 <Input
                   value={botName}
@@ -456,16 +458,13 @@ export function OnboardingModal() {
             </>
           )}
 
-          {/* ── Step 1: Documents ── */}
+          {/* ── Step 1: Documentos ── */}
           {step === 1 && (
             <>
               <div className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3">
-                <p className="text-sm font-medium text-foreground">
-                  Este es el paso más importante
-                </p>
+                <p className="text-sm font-medium text-foreground">Este es el paso más importante</p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  El bot va a basar sus respuestas en tus documentos. La IA también los va a usar
-                  para hacerte preguntas más precisas en el siguiente paso.
+                  El bot va a basar sus respuestas en tus documentos. La IA también los va a leer para entender mejor tu organización.
                 </p>
               </div>
 
@@ -486,9 +485,7 @@ export function OnboardingModal() {
                   >
                     <Upload className="h-5 w-5" />
                     Clickeá para seleccionar archivos
-                    <span className="text-[11px]">
-                      PDF, DOCX, TXT, HTML · máx {MAX_ONBOARDING_DOCS} archivos
-                    </span>
+                    <span className="text-[11px]">PDF, DOCX, TXT, HTML · máx {MAX_ONBOARDING_DOCS} archivos</span>
                   </button>
                 </div>
               )}
@@ -496,10 +493,7 @@ export function OnboardingModal() {
               {uploadedDocs.length > 0 && (
                 <div className="space-y-1.5">
                   {uploadedDocs.map(d => (
-                    <div
-                      key={d.filename}
-                      className="flex items-center gap-2 text-xs bg-muted/40 rounded-md px-2.5 py-1.5"
-                    >
+                    <div key={d.filename} className="flex items-center gap-2 text-xs bg-muted/40 rounded-md px-2.5 py-1.5">
                       <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                       <span className="truncate flex-1">{d.filename}</span>
                       {d.status === "uploading" && (
@@ -512,23 +506,24 @@ export function OnboardingModal() {
                           <Loader2 className="h-3 w-3 animate-spin" /> procesando…
                         </span>
                       )}
-                      {d.status === "ready" && (
-                        <span className="text-[10px] text-emerald-600 font-medium shrink-0">
-                          listo
+                      {d.status === "ready" && !d.note && (
+                        <span className="text-[10px] text-emerald-600 font-medium shrink-0">listo</span>
+                      )}
+                      {d.status === "ready" && d.note && (
+                        <span className="text-[10px] text-amber-600 font-medium shrink-0" title={d.note}>
+                          {d.note}
                         </span>
                       )}
                       {d.status === "error" && (
-                        <span
-                          className="text-[10px] text-destructive shrink-0"
-                          title={d.error || ""}
-                        >
-                          error
+                        <span className="text-[10px] text-destructive shrink-0 max-w-[200px] truncate" title={d.error || ""}>
+                          {d.error || "error"}
                         </span>
                       )}
                       <button
                         type="button"
                         onClick={() => removeDoc(d.filename)}
                         className="text-muted-foreground hover:text-destructive shrink-0"
+                        aria-label="Quitar"
                       >
                         <X className="h-3.5 w-3.5" />
                       </button>
@@ -539,7 +534,7 @@ export function OnboardingModal() {
 
               {uploadedDocs.some(d => d.status === "processing") && (
                 <p className="text-[11px] text-muted-foreground">
-                  Los documentos se seguirán procesando mientras respondés las preguntas de configuración.
+                  Los documentos se seguirán procesando mientras respondés las preguntas.
                 </p>
               )}
 
@@ -551,164 +546,168 @@ export function OnboardingModal() {
             </>
           )}
 
-          {/* ── Step 2: AI Conversation ── */}
+          {/* ── Step 2: 5 preguntas curadas + followup ── */}
           {step === 2 && (
-            <div className="space-y-3">
+            <>
+              {!followupM.isPending && !generateM.isPending && followupQuestion === null && (
+                <>
+                  <p className="text-sm text-muted-foreground">
+                    Estas 5 respuestas le dan al bot las pautas mínimas para responder bien. La primera es obligatoria, el resto son opcionales pero recomendadas.
+                  </p>
 
-              {/* Completed Q&A history */}
-              {chatConversation.length > 0 && (
-                <div className="space-y-2 max-h-48 overflow-y-auto pr-0.5">
-                  {Array.from(
-                    { length: Math.floor(chatConversation.length / 2) },
-                    (_, i) => ({
-                      q: chatConversation[i * 2].content,
-                      a: chatConversation[i * 2 + 1]?.content,
-                    }),
-                  ).map((pair, i) => (
-                    <div key={i} className="text-xs space-y-1">
-                      <div className="bg-primary/5 border border-primary/10 rounded-md px-2.5 py-2">
-                        <span className="text-[10px] text-primary font-medium block mb-0.5">
-                          Pregunta {i + 1}
-                        </span>
-                        <span className="text-foreground">{pair.q}</span>
-                      </div>
-                      {pair.a && pair.a !== "[Sin información adicional]" && (
-                        <div className="pl-3 text-muted-foreground">
-                          <span className="font-medium text-foreground/70">Vos:</span> {pair.a}
-                        </div>
-                      )}
-                      {pair.a === "[Sin información adicional]" && (
-                        <div className="pl-3 text-muted-foreground/50 italic text-[10px]">
-                          Saltada
-                        </div>
-                      )}
+                  {/* Pregunta 1: Audiencia */}
+                  <div className="space-y-1">
+                    <Label className="text-xs flex items-center gap-1.5">
+                      1. ¿Quiénes van a usar el bot? *
+                    </Label>
+                    <Input
+                      value={audience}
+                      onChange={e => setAudience(e.target.value)}
+                      placeholder="Ej. clientes, empleados, afiliados, ciudadanos..."
+                      className="h-9"
+                    />
+                  </div>
+
+                  {/* Pregunta 2: Preguntas típicas */}
+                  <div className="space-y-1">
+                    <Label className="text-xs flex items-center gap-1.5">
+                      2. ¿2 o 3 preguntas típicas o esperadas?
+                      <span className="text-muted-foreground font-normal">(opcional)</span>
+                    </Label>
+                    <Textarea
+                      value={typicalQuestions}
+                      onChange={e => setTypicalQuestions(e.target.value)}
+                      placeholder="No importa si no tenés histórico. Dame ejemplos imaginarios o reales separados por punto:&#10;¿Cómo recupero mi clave? ¿Cuáles son los horarios? ¿Cómo cancelo mi suscripción?"
+                      rows={3}
+                      className="text-sm resize-none"
+                    />
+                  </div>
+
+                  {/* Pregunta 3: Temas excluidos */}
+                  <div className="space-y-1">
+                    <Label className="text-xs flex items-center gap-1.5">
+                      3. ¿Hay algún tema que el bot NO debería responder?
+                      <span className="text-muted-foreground font-normal">(opcional)</span>
+                    </Label>
+                    <Input
+                      value={excludedTopics}
+                      onChange={e => setExcludedTopics(e.target.value)}
+                      placeholder="Ej. precios, datos personales, decisiones legales..."
+                      className="h-9"
+                    />
+                  </div>
+
+                  {/* Pregunta 4: Fallback */}
+                  <div className="space-y-1">
+                    <Label className="text-xs">4. Si el bot no sabe algo, ¿qué hace? *</Label>
+                    <div className="grid grid-cols-2 gap-2 pt-0.5">
+                      {FALLBACKS.map(f => (
+                        <button
+                          key={f.key} type="button"
+                          onClick={() => setFallback(f.key)}
+                          className={cn(
+                            "flex flex-col gap-0.5 rounded-lg border p-2.5 text-left transition-colors",
+                            fallback === f.key
+                              ? "border-primary bg-primary/5 ring-1 ring-primary"
+                              : "border-border hover:border-primary/40"
+                          )}
+                        >
+                          <span className={cn("text-xs font-semibold", fallback === f.key ? "text-primary" : "")}>
+                            {f.label}
+                          </span>
+                          <span className="text-[10px] text-muted-foreground leading-tight">
+                            {f.desc}
+                          </span>
+                        </button>
+                      ))}
                     </div>
-                  ))}
-                  <div ref={chatBottomRef} />
-                </div>
+                  </div>
+
+                  {/* Pregunta 5: Notas */}
+                  <div className="space-y-1">
+                    <Label className="text-xs flex items-center gap-1.5">
+                      5. ¿Algo más importante sobre cómo debe comportarse?
+                      <span className="text-muted-foreground font-normal">(opcional)</span>
+                    </Label>
+                    <Textarea
+                      value={additionalNotes}
+                      onChange={e => setAdditionalNotes(e.target.value)}
+                      placeholder="Ej. siempre saluda al iniciar, identifica al usuario antes de dar info sensible, menciona los horarios al despedirse..."
+                      rows={2}
+                      className="text-sm resize-none"
+                    />
+                  </div>
+
+                  {!canSubmitFixed && (
+                    <p className="text-[11px] text-amber-600">
+                      Completá al menos la pregunta 1 (audiencia) para continuar.
+                    </p>
+                  )}
+                </>
               )}
 
-              {/* Loading */}
-              {chatLoading && (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground py-3">
+              {/* Loading: pidiendo followup o generando */}
+              {(followupM.isPending || generateM.isPending) && (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground py-8 justify-center">
                   <Loader2 className="h-4 w-4 animate-spin shrink-0" />
-                  {completedExchanges === 0
-                    ? "Analizando tu organización..."
-                    : "Procesando tu respuesta..."}
+                  {followupM.isPending && "Analizando tus respuestas..."}
+                  {generateM.isPending && "Generando la descripción del bot..."}
                 </div>
               )}
 
-              {/* Current question */}
-              {currentQuestion && !chatLoading && (
-                <div className="bg-primary/5 border border-primary/20 rounded-lg px-3.5 py-3">
-                  <span className="text-[10px] text-primary font-medium block mb-1">
-                    Pregunta {completedExchanges + 1} de hasta {MAX_EXCHANGES}
-                  </span>
-                  <p className="text-sm text-foreground">{currentQuestion}</p>
-                </div>
-              )}
+              {/* Followup pregunta (si la IA decidió hacerla) */}
+              {followupQuestion && !followupM.isPending && !generateM.isPending && (
+                <div className="space-y-3">
+                  <div className="rounded-lg border border-primary/20 bg-primary/5 px-3.5 py-3">
+                    <span className="text-[10px] text-primary font-medium flex items-center gap-1 mb-1">
+                      <HelpCircle className="h-3 w-3" /> Una pregunta extra
+                    </span>
+                    <p className="text-sm text-foreground">{followupQuestion}</p>
+                  </div>
 
-              {/* Answer input */}
-              {currentQuestion && !chatLoading && (
-                <div className="space-y-2">
                   <Textarea
-                    value={chatInput}
-                    onChange={e => setChatInput(e.target.value)}
-                    onKeyDown={e => {
-                      if (e.key === "Enter" && !e.shiftKey) {
-                        e.preventDefault();
-                        submitAnswer();
-                      }
-                    }}
-                    placeholder="Escribí tu respuesta... (Enter para enviar, Shift+Enter para nueva línea)"
+                    value={followupAnswer}
+                    onChange={e => setFollowupAnswer(e.target.value)}
+                    placeholder="Tu respuesta... (o saltala con el botón si no aplica)"
                     rows={3}
                     className="resize-none text-sm"
                     autoFocus
                   />
+
                   <div className="flex items-center justify-between">
                     <button
                       type="button"
-                      onClick={skipQuestion}
+                      onClick={skipFollowup}
                       className="text-xs text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
                     >
-                      Saltar esta pregunta
+                      Saltar y generar descripción
                     </button>
-                    <div className="flex items-center gap-2">
-                      {completedExchanges >= 1 && (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="text-xs h-7 px-2.5"
-                          disabled={chatLoading}
-                          onClick={() => {
-                            // Generar inmediatamente: marcamos esta pregunta como
-                            // contestada con "[skip]" (que el backend filtra) y
-                            // pedimos force_generate=true para que el backend salte
-                            // al prompt de generacion.
-                            const conv: ChatMessage[] = [
-                              ...chatConversation,
-                              { role: "assistant", content: currentQuestion },
-                              { role: "user", content: "[skip]" },
-                            ];
-                            setChatConversation(conv);
-                            setCurrentQuestion(null);
-                            callChat(conv, true);
-                          }}
-                        >
-                          Generar ahora
-                        </Button>
-                      )}
-                      <Button
-                        size="sm"
-                        disabled={!chatInput.trim() || chatLoading}
-                        onClick={submitAnswer}
-                      >
-                        Responder
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Skip all — shown only before first answer and after first question loads */}
-              {currentQuestion && !chatLoading && completedExchanges === 0 && (
-                <div className="text-center pt-1">
-                  <button
-                    type="button"
-                    onClick={() => callChat([], true)}
-                    className="text-[11px] text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
-                  >
-                    Saltar todas las preguntas y generar descripción
-                  </button>
-                </div>
-              )}
-
-              {/* Error */}
-              {chatError && (
-                <div className="text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-md p-2.5 flex items-start gap-2">
-                  <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                  <div className="flex-1">
-                    {chatError}
-                    <button
-                      type="button"
-                      onClick={() => callChat(chatConversation)}
-                      className="ml-2 underline"
+                    <Button
+                      size="sm"
+                      disabled={!followupAnswer.trim()}
+                      onClick={submitFollowup}
                     >
-                      Reintentar
-                    </button>
+                      Responder y generar
+                    </Button>
                   </div>
                 </div>
               )}
-            </div>
+
+              {submitError && (
+                <div className="flex items-start gap-2 text-xs text-destructive bg-destructive/10 border border-destructive/30 rounded-md p-2.5">
+                  <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  <span>{submitError}</span>
+                </div>
+              )}
+            </>
           )}
 
-          {/* ── Step 3: Review ── */}
+          {/* ── Step 3: Revisión ── */}
           {step === 3 && (
             <>
               <p className="text-sm text-muted-foreground">
                 Esta descripción guía al bot en cada conversación. Editala si algo no refleja bien tu organización.
               </p>
-
               <div className="space-y-1">
                 <div className="flex items-center justify-between">
                   <Label className="text-xs flex items-center gap-1.5">
@@ -746,7 +745,7 @@ export function OnboardingModal() {
                   <Label className="text-xs">Probá una pregunta</Label>
                 </div>
                 <p className="text-[11px] text-muted-foreground -mt-1">
-                  Simula cómo responde el bot con esta descripción. Para preguntas sobre datos reales, el bot va a indicar que necesita documentos.
+                  Simula cómo responde el bot con esta descripción. Para datos específicos el bot va a indicar que necesita más documentos.
                 </p>
                 <div className="flex gap-2">
                   <Input
@@ -759,23 +758,17 @@ export function OnboardingModal() {
                         testQueryM.mutate();
                       }
                     }}
-                    placeholder="Ej. ¿Cómo me puedo comunicar con ustedes?, ¿Cómo te llamás?"
+                    placeholder="Ej. ¿cómo me contacto?, ¿cómo te llamás?"
                     className="h-9 text-sm"
                   />
                   <Button
                     size="sm"
-                    disabled={
-                      !testInput.trim() ||
-                      testQueryM.isPending ||
-                      editedDesc.trim().length < 20
-                    }
+                    disabled={!testInput.trim() || testQueryM.isPending || editedDesc.trim().length < 20}
                     onClick={() => { setSubmitError(null); testQueryM.mutate(); }}
                   >
-                    {testQueryM.isPending ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <Send className="h-3.5 w-3.5" />
-                    )}
+                    {testQueryM.isPending
+                      ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      : <Send className="h-3.5 w-3.5" />}
                   </Button>
                 </div>
 
@@ -809,60 +802,57 @@ export function OnboardingModal() {
 
         {/* Footer */}
         <div className="px-6 py-4 border-t flex items-center justify-between gap-3">
-          {/* Back button */}
+          {/* Back */}
           {step === 1 && (
+            <Button variant="ghost" size="sm" onClick={() => { setStep(0); setSubmitError(null); }}>
+              Atrás
+            </Button>
+          )}
+          {step === 2 && !followupQuestion && (
             <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => { setStep(0); setSubmitError(null); }}
+              variant="ghost" size="sm"
+              disabled={followupM.isPending || generateM.isPending}
+              onClick={() => { setStep(1); setSubmitError(null); }}
             >
               Atrás
             </Button>
           )}
-          {step === 2 && (
+          {step === 2 && followupQuestion && (
             <Button
-              variant="ghost"
-              size="sm"
-              disabled={chatLoading}
-              onClick={goBackFromStep2}
+              variant="ghost" size="sm"
+              disabled={generateM.isPending}
+              onClick={() => { setFollowupQuestion(null); setFollowupAnswer(""); setSubmitError(null); }}
             >
               Atrás
             </Button>
           )}
           {step !== 1 && step !== 2 && <div />}
 
-          {/* Forward button */}
+          {/* Forward */}
           {step === 0 && (
             <Button size="sm" disabled={!canNext0} onClick={() => setStep(1)}>
               Siguiente
             </Button>
           )}
-
           {step === 1 && (
             <Button size="sm" onClick={() => setStep(2)}>
               {uploadedDocs.length > 0 ? "Continuar" : "Continuar sin documentos"}
             </Button>
           )}
-
-          {step === 2 && (
-            /* Step 2 advances automatically — no forward button */
-            <div />
+          {step === 2 && !followupQuestion && !followupM.isPending && !generateM.isPending && (
+            <Button size="sm" disabled={!canSubmitFixed} onClick={submitFixedAnswers}>
+              Continuar
+            </Button>
           )}
-
           {step === 3 && (
             <Button
               size="sm"
               disabled={editedDesc.trim().length < 20 || completeM.isPending}
               onClick={() => { setSubmitError(null); completeM.mutate(); }}
             >
-              {completeM.isPending ? (
-                <>
-                  <Loader2 className="h-3.5 w-3.5 animate-spin mr-2" />
-                  Guardando…
-                </>
-              ) : (
-                "Activar el bot"
-              )}
+              {completeM.isPending
+                ? <><Loader2 className="h-3.5 w-3.5 animate-spin mr-2" />Guardando…</>
+                : "Activar el bot"}
             </Button>
           )}
         </div>
