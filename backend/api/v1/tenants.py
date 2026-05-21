@@ -274,6 +274,7 @@ async def reset_tenant_onboarding(
         """), {"id": tenant_id})
 
     async with get_pg_session(tenant_id) as session:
+        await session.execute(text("DELETE FROM conversaciones"))
         await session.execute(text("DELETE FROM sectores"))
 
     redis = get_redis_cache()
