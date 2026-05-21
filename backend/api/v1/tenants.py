@@ -246,6 +246,49 @@ async def update_tenant(
     return {"id": tenant_id, "status": "updated", "fields": list(updates.keys())}
 
 
+# ── Reset tenant onboarding ───────────────────────────────────────────────────
+
+@router.post("/{tenant_id}/reset-onboarding")
+async def reset_tenant_onboarding(
+    tenant_id: str,
+    current_user: CurrentUser = Depends(require_super_admin),
+):
+    """Reset a tenant to onboarding state: clears bot config, sectors, and cache."""
+    async with get_pg_session(None) as session:
+        result = await session.execute(
+            text("SELECT id FROM tenants WHERE id = :id"),
+            {"id": tenant_id},
+        )
+        if not result.fetchone():
+            raise HTTPException(status_code=404, detail="Tenant not found")
+
+        await session.execute(text("""
+            UPDATE tenants
+            SET onboarding_completed = false,
+                bot_name = null,
+                bot_description = null,
+                bot_scope = null,
+                greeting_message = null,
+                updated_at = NOW()
+            WHERE id = :id
+        """), {"id": tenant_id})
+
+    async with get_pg_session(tenant_id) as session:
+        await session.execute(text("DELETE FROM sectores"))
+
+    redis = get_redis_cache()
+    try:
+        await redis.delete(
+            f"{tenant_id}:bot_config",
+            f"{tenant_id}:active_template",
+        )
+    except Exception:
+        pass
+
+    logger.info("tenant_onboarding_reset id=%s by=%s", tenant_id, current_user.user_id)
+    return {"id": tenant_id, "reset": True}
+
+
 # ── Suspend tenant ────────────────────────────────────────────────────────────
 
 @router.post("/{tenant_id}/suspend")

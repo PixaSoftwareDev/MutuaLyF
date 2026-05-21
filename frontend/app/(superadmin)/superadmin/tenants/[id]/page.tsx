@@ -73,8 +73,9 @@ export default function TenantDetailPage() {
   const router   = useRouter();
   const qc       = useQueryClient();
 
-  const [showCreateAdmin, setShowCreateAdmin] = useState(false);
-  const [editPlan, setEditPlan]               = useState(false);
+  const [showCreateAdmin, setShowCreateAdmin]   = useState(false);
+  const [editPlan, setEditPlan]                 = useState(false);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
 
   const inv = () => qc.invalidateQueries({ queryKey: ["tenant-metrics", tenantId] });
   const invBots = () => qc.invalidateQueries({ queryKey: ["tenant-bots", tenantId] });
@@ -128,6 +129,11 @@ export default function TenantDetailPage() {
 
   const suspendM  = useMutation({ mutationFn: () => apiClient.post(`/tenants/${tenantId}/suspend`),  onSuccess: () => { inv(); qc.invalidateQueries({ queryKey: ["tenants"] }); toast({ title: "Tenant suspendido" }); }, onError: () => toast({ title: "Error", variant: "destructive" }) });
   const activateM = useMutation({ mutationFn: () => apiClient.post(`/tenants/${tenantId}/activate`), onSuccess: () => { inv(); qc.invalidateQueries({ queryKey: ["tenants"] }); toast({ title: "Tenant reactivado", variant: "success" }); }, onError: () => toast({ title: "Error", variant: "destructive" }) });
+  const resetM    = useMutation({
+    mutationFn: () => apiClient.post(`/tenants/${tenantId}/reset-onboarding`),
+    onSuccess: () => { inv(); setShowResetConfirm(false); toast({ title: "Onboarding reseteado", description: "El tenant arrancará desde el asistente de configuración.", variant: "success" }); },
+    onError: () => toast({ title: "Error al resetear", variant: "destructive" }),
+  });
   const planM     = useMutation({
     mutationFn: (plan: string) => apiClient.patch(`/tenants/${tenantId}`, { plan }),
     onSuccess: () => { inv(); qc.invalidateQueries({ queryKey: ["tenants"] }); setEditPlan(false); toast({ title: "Plan actualizado", variant: "success" }); },
@@ -232,6 +238,15 @@ export default function TenantDetailPage() {
                   Activar
                 </Button>
               )}
+
+              <Button
+                size="sm" variant="outline"
+                className="h-8 gap-1.5 text-xs text-rose-600 border-rose-200 hover:bg-rose-50"
+                onClick={() => setShowResetConfirm(true)}
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                Resetear onboarding
+              </Button>
             </div>
           </div>
 
@@ -427,6 +442,37 @@ export default function TenantDetailPage() {
           onClose={() => setShowCreateAdmin(false)}
           onCreated={inv}
         />
+      )}
+
+      {showResetConfirm && (
+        <Dialog open onOpenChange={v => !v && setShowResetConfirm(false)}>
+          <DialogContent className="w-full max-w-sm mx-4 sm:mx-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-rose-600">
+                <AlertTriangle className="h-4 w-4" />
+                Resetear onboarding
+              </DialogTitle>
+              <p className="text-sm text-muted-foreground pt-1">
+                Esto va a borrar la configuración del bot y los sectores de{" "}
+                <span className="font-medium text-foreground">{t.name}</span>.
+                El tenant tendrá que volver a completar el asistente de configuración.
+              </p>
+            </DialogHeader>
+            <DialogFooter className="flex-col sm:flex-row gap-2">
+              <Button variant="outline" className="w-full sm:w-auto" onClick={() => setShowResetConfirm(false)}>
+                Cancelar
+              </Button>
+              <Button
+                variant="destructive" className="w-full sm:w-auto"
+                disabled={resetM.isPending}
+                onClick={() => resetM.mutate()}
+              >
+                {resetM.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+                Sí, resetear
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       )}
     </div>
   );

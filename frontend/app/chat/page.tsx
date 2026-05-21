@@ -487,6 +487,7 @@ function ChatInner() {
                     const val = input.trim();
                     if (val && sectors.length > 0) {
                       const def = sectors.find(s => s.is_default) || sectors[0];
+                      setInput("");
                       startChat(def, val);
                     }
                   } else {
