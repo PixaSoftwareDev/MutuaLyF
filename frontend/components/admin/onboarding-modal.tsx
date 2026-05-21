@@ -12,6 +12,18 @@ import { cn } from "@/lib/utils";
 
 const ORG_TYPES = ["Empresa privada", "Cooperativa", "Mutual", "ONG", "Organismo público", "Sindicato", "Otra"];
 const SERVES_OPTIONS = ["Clientes", "Empleados", "Afiliados", "Socios", "Ciudadanos", "Estudiantes", "Otro"];
+
+/** Sugerencias de excluded_topics segun org_type. Son ejemplos editables — el admin
+ *  puede borrarlos o ajustarlos. No se aplican si el admin ya escribio algo manualmente. */
+const SUGGESTED_EXCLUDED: Record<string, string> = {
+  "Empresa privada":     "salarios individuales, decisiones internas, conflictos personales",
+  "Cooperativa":         "datos personales de socios, decisiones internas, conflictos en curso",
+  "Mutual":              "datos personales de socios, prestaciones individuales, casos confidenciales",
+  "ONG":                 "datos personales de beneficiarios, posiciones políticas, financiamiento detallado",
+  "Organismo público":   "opiniones partidarias, casos personales, datos protegidos por privacidad",
+  "Sindicato":           "negociaciones en curso, datos personales de afiliados, posiciones políticas",
+  "Otra":                "datos personales, decisiones internas, conflictos en curso",
+};
 const TONES = [
   { key: "formal",   label: "Formal",   desc: "Usted, sin contracciones, profesional" },
   { key: "amigable", label: "Amigable", desc: "Vos, cercano, contracciones permitidas" },
@@ -71,8 +83,28 @@ export function OnboardingModal() {
   const [editedDesc, setEditedDesc] = useState("");
   const [done, setDone] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  /** Cuando el admin escribe algo en excluded_topics, dejamos de auto-sugerir.
+   *  Asi no le pisamos lo que estaba escribiendo si despues cambia de org_type. */
+  const [excludedTouchedByUser, setExcludedTouchedByUser] = useState(false);
 
   const set = (k: keyof typeof empty, v: string) => setForm(f => ({ ...f, [k]: v }));
+
+  /** Setter especial para org_type: si el admin no edito excluded_topics, lo auto-sugiere. */
+  const setOrgType = (t: string) => {
+    setForm(f => ({
+      ...f,
+      org_type: t,
+      excluded_topics: excludedTouchedByUser
+        ? f.excluded_topics
+        : (SUGGESTED_EXCLUDED[t] ?? f.excluded_topics),
+    }));
+  };
+
+  /** Setter para excluded_topics que marca el campo como editado manualmente. */
+  const setExcludedTopics = (v: string) => {
+    setExcludedTouchedByUser(true);
+    set("excluded_topics", v);
+  };
 
   // Resuelve el valor final de org_type / serves (custom o predefinido)
   const effectiveOrgType = form.org_type === "Otra"
@@ -216,7 +248,7 @@ export function OnboardingModal() {
                   {ORG_TYPES.map(t => (
                     <button
                       key={t} type="button"
-                      onClick={() => set("org_type", t)}
+                      onClick={() => setOrgType(t)}
                       className={cn(
                         "px-3 py-1.5 rounded-md border text-xs font-medium transition-colors",
                         form.org_type === t
@@ -293,12 +325,14 @@ export function OnboardingModal() {
                 <Label className="text-xs">Temas que NO debe responder (opcional)</Label>
                 <Input
                   value={form.excluded_topics}
-                  onChange={e => set("excluded_topics", e.target.value)}
+                  onChange={e => setExcludedTopics(e.target.value)}
                   placeholder="Ej. datos personales, decisiones internas, conflictos en curso"
                   className="h-9"
                 />
                 <p className="text-[11px] text-muted-foreground">
-                  Lista lo que el bot debe evitar incluso si lo encuentra en los documentos.
+                  {excludedTouchedByUser
+                    ? "Lista lo que el bot debe evitar incluso si lo encuentra en los documentos."
+                    : "💡 Sugerido según el tipo de organización — editá lo que no aplique."}
                 </p>
               </div>
             </>
