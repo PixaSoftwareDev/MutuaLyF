@@ -222,14 +222,18 @@ export function OnboardingModal() {
 
   const skipQuestion = async () => {
     if (!currentQuestion || chatLoading) return;
+    // Marcamos la pregunta como skipeada (con un token que el backend filtra del contexto)
+    // pero igual cuenta como user_turn para llegar al limite y forzar generacion.
     const newConv: ChatMessage[] = [
       ...chatConversation,
       { role: "assistant", content: currentQuestion },
-      { role: "user", content: "[Sin información adicional]" },
+      { role: "user", content: "[skip]" },
     ];
     setChatConversation(newConv);
     setCurrentQuestion(null);
-    await callChat(newConv);
+    // Si esta es la quinta o mas pregunta skipeada, fuerza generacion para no entrar en loop.
+    const userTurnsAfterSkip = newConv.filter(m => m.role === "user").length;
+    await callChat(newConv, userTurnsAfterSkip >= MAX_EXCHANGES);
   };
 
   const goBackFromStep2 = () => {
@@ -630,17 +634,21 @@ export function OnboardingModal() {
                       Saltar esta pregunta
                     </button>
                     <div className="flex items-center gap-2">
-                      {completedExchanges >= 2 && (
+                      {completedExchanges >= 1 && (
                         <Button
                           size="sm"
                           variant="ghost"
                           className="text-xs h-7 px-2.5"
                           disabled={chatLoading}
                           onClick={() => {
+                            // Generar inmediatamente: marcamos esta pregunta como
+                            // contestada con "[skip]" (que el backend filtra) y
+                            // pedimos force_generate=true para que el backend salte
+                            // al prompt de generacion.
                             const conv: ChatMessage[] = [
                               ...chatConversation,
                               { role: "assistant", content: currentQuestion },
-                              { role: "user", content: "[Sin información adicional]" },
+                              { role: "user", content: "[skip]" },
                             ];
                             setChatConversation(conv);
                             setCurrentQuestion(null);

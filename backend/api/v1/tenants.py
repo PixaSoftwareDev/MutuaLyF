@@ -574,6 +574,8 @@ async def onboarding_chat(
 
     MAX_EXCHANGES = 5
     user_turns = [m for m in body.conversation if m.role == "user"]
+    # Cuando se llega al limite o se pide generar, NO se le permite al LLM seguir
+    # preguntando — directamente le pedimos la descripcion via un prompt dedicado.
     force_done = len(user_turns) >= MAX_EXCHANGES or body.force_generate
 
     # Read doc previews to ground the AI in real content
@@ -598,92 +600,134 @@ async def onboarding_chat(
     bot_name_str = f"El asistente se llama '{body.bot_name}'." if body.bot_name.strip() else ""
     conv_text = ""
     if body.conversation:
-        conv_text = "\n\nConversación hasta ahora:\n" + "\n".join(
-            f"{'IA' if m.role == 'assistant' else 'Admin'}: {m.content}"
-            for m in body.conversation
-        )
-
-    if force_done:
-        action_str = (
-            "Ya tenés suficiente información (o se solicitó generar ahora). "
-            "Generá la descripción final del bot."
-        )
-    else:
-        action_str = (
-            "Si necesitás más información, hacé una pregunta específica. "
-            "Si ya tenés suficiente contexto, generá la descripción directamente."
-        )
-
-    prompt = f"""Sos un especialista en configuración de asistentes virtuales. \
-Tu tarea: hacer preguntas precisas a un administrador para entender su organización \
-y luego generar la descripción del bot que se usará como system prompt.
-
-Contexto disponible:
-- Organización: {body.org_name} ({body.org_type})
-- Tono configurado: {body.tone}
-{f"- {bot_name_str}" if bot_name_str else ""}{doc_context}{conv_text}
-
-Reglas para preguntas:
-1. Una sola pregunta a la vez, concreta y específica al tipo de organización.
-2. Preguntá sobre: qué trámites o procesos maneja el bot, qué temas NO debe responder, \
-a quién atiende específicamente, particularidades operacionales importantes.
-3. Basate en el tipo de organización y los documentos cargados para hacer preguntas relevantes.
-4. Evitá preguntas genéricas ("¿sobre qué temas responde?"). Sé específico.
-
-Reglas para la descripción (cuando generás):
-- 4-6 oraciones en tercera persona, español neutro
-- Incluye: quién es la organización, a quién atiende, qué temas cubre, tono, \
-comportamiento cuando no encuentra la respuesta
-- Optimizada para ser leída como system prompt de un LLM
-- Sin saludos, sin listas, sin markdown
-
-{action_str}
-
-Respondé SOLO con JSON válido, sin texto extra ni markdown:
-- Si preguntás: {{"action": "question", "content": "tu pregunta aquí"}}
-- Si generás: {{"action": "done", "bot_description": "descripción completa aquí"}}"""
+        # Filtramos respuestas "skip" para no contaminar el contexto del LLM
+        meaningful_conv = [
+            m for m in body.conversation
+            if not (m.role == "user" and m.content.strip() in ("[skip]", "[Sin información adicional]"))
+        ]
+        if meaningful_conv:
+            conv_text = "\n\nConversación hasta ahora:\n" + "\n".join(
+                f"{'IA' if m.role == 'assistant' else 'Admin'}: {m.content}"
+                for m in meaningful_conv
+            )
 
     from services.groq_client import complete, QueryComplexity
     import json as _json
     import re as _re
 
+    # ── CASO 1: forzar generacion (limite alcanzado o force_generate=True) ──
+    if force_done:
+        gen_prompt = f"""Sos un especialista en configuración de asistentes virtuales. \
+Generá la descripción final de un bot, optimizada para ser leída como system prompt de un LLM.
+
+Contexto:
+- Organización: {body.org_name} ({body.org_type})
+- Tono: {body.tone}
+{f"- {bot_name_str}" if bot_name_str else ""}{doc_context}{conv_text}
+
+Reglas de la descripción:
+- 4-6 oraciones en tercera persona, español neutro
+- Incluye: quién es la organización, a quién atiende, qué temas cubre (basado en los documentos), \
+qué tono usa, y qué hace cuando no encuentra la respuesta (sugerir contactar a la organización).
+- Sin saludos, sin listas, sin markdown.
+- Si la conversación no aporta detalles, basate en el tipo de organización y los documentos cargados.
+
+Respondé SOLO con el texto de la descripción, sin JSON ni formato extra."""
+
+        try:
+            raw = await complete(
+                messages=[{"role": "user", "content": gen_prompt}],
+                complexity=QueryComplexity.SIMPLE,
+                temperature=0.35,
+                max_tokens=400,
+            )
+        except Exception as exc:
+            logger.error("onboarding_chat_gen_failed tenant_id=%s err=%s", tenant_id, exc)
+            raise HTTPException(status_code=502, detail="No se pudo generar la descripción. Intentá de nuevo.")
+
+        desc = raw.strip()
+        # Quitar comillas externas si quedaron, y eventuales fences md
+        md_match = _re.search(r"```(?:\w+)?\s*([\s\S]*?)```", desc)
+        if md_match:
+            desc = md_match.group(1).strip()
+        desc = desc.strip('"\'`')
+        if len(desc) < 20:
+            desc = (
+                f"Asistente virtual de {body.org_name} ({body.org_type}). "
+                "Responde consultas en base a los documentos institucionales cargados. "
+                "Si no encuentra la información, sugiere contactar directamente con la organización."
+            )
+        return OnboardingChatResponse(is_done=True, bot_description=desc)
+
+    # ── CASO 2: pedir una pregunta SIMPLE (no se llego al limite) ──
+    questions_already_asked = len([m for m in body.conversation if m.role == "assistant"])
+    progress_hint = (
+        f"Esta es la pregunta {questions_already_asked + 1} de {MAX_EXCHANGES}. "
+        f"Te quedan {MAX_EXCHANGES - questions_already_asked} preguntas para conocer la organización."
+    )
+
+    question_prompt = f"""Sos un asistente que ayuda a configurar un bot virtual para una organización. \
+Tu tarea es hacer UNA pregunta SIMPLE y DIRECTA al administrador. {progress_hint}
+
+Contexto que ya tenés:
+- Organización: {body.org_name} ({body.org_type})
+- Tono: {body.tone}
+{f"- {bot_name_str}" if bot_name_str else ""}{doc_context}{conv_text}
+
+REGLAS ESTRICTAS para tu pregunta:
+1. Lenguaje COTIDIANO, como hablarías a alguien que no es técnico.
+2. UNA SOLA pregunta corta. Máximo 20 palabras.
+3. Apuntá a información PRÁCTICA: qué hace el bot, qué no responde, a quién atiende.
+4. NO uses jerga técnica, ni términos como "alcance funcional", "operativa", "particularidades", \
+"protocolos", "casos de uso", "stakeholders", "métricas".
+5. NO repitas preguntas similares a las que ya hiciste en la conversación.
+6. Si los documentos ya cubren cierto tema, NO preguntes sobre ese tema.
+
+EJEMPLOS BUENOS de preguntas:
+✅ "¿Cuáles son las 2 o 3 consultas más comunes que recibís?"
+✅ "¿Hay algún tema que NO querés que el bot responda?"
+✅ "¿Si el bot no sabe una respuesta, querés que derive a un humano o sugiera contactar?"
+✅ "¿Quiénes van a usar el bot principalmente — clientes, empleados, socios?"
+✅ "¿Tienen horarios de atención específicos que el bot deba mencionar?"
+
+EJEMPLOS MALOS (NO hagas estas):
+❌ "¿Cuál es el alcance funcional del bot dentro de la operativa institucional?"
+❌ "¿Qué particularidades operacionales relevantes deberían considerarse?"
+❌ "¿Existen protocolos diferenciales por segmento de stakeholder?"
+
+Respondé SOLO con la pregunta en texto plano, sin comillas, sin JSON, sin markdown."""
+
     try:
         raw = await complete(
-            messages=[{"role": "user", "content": prompt}],
+            messages=[{"role": "user", "content": question_prompt}],
             complexity=QueryComplexity.SIMPLE,
-            temperature=0.35,
-            max_tokens=500,
+            temperature=0.4,
+            max_tokens=120,
         )
     except Exception as exc:
         logger.error("onboarding_chat_llm_failed tenant_id=%s err=%s", tenant_id, exc)
         raise HTTPException(status_code=502, detail="No se pudo procesar. Intentá de nuevo.")
 
-    # Robustly extract JSON from possible markdown wrapping
-    clean = raw.strip()
-    md_match = _re.search(r"```(?:json)?\s*([\s\S]*?)```", clean)
+    # Limpiar la pregunta: quitar markdown, comillas externas, JSON si vino accidentalmente
+    question = raw.strip()
+    md_match = _re.search(r"```(?:\w+)?\s*([\s\S]*?)```", question)
     if md_match:
-        clean = md_match.group(1).strip()
-    brace_match = _re.search(r"\{[\s\S]*\}", clean)
-    if brace_match:
-        clean = brace_match.group(0)
+        question = md_match.group(1).strip()
+    # Si vino JSON por error, extraer el campo content
+    if question.startswith("{"):
+        try:
+            parsed = _json.loads(question)
+            question = (parsed.get("content") or parsed.get("question") or "").strip()
+        except Exception:
+            pass
+    question = question.strip('"\'`').strip()
+    if not question:
+        question = "¿Cuáles son las consultas más frecuentes que recibís de tus usuarios?"
+    # Truncar si vino muy largo
+    if len(question) > 300:
+        question = question[:300].rsplit(" ", 1)[0] + "?"
 
-    try:
-        parsed = _json.loads(clean)
-        if parsed.get("action") == "done":
-            desc = (parsed.get("bot_description") or "").strip()
-            if len(desc) < 20:
-                raise ValueError("description too short")
-            return OnboardingChatResponse(is_done=True, bot_description=desc)
-        content = (parsed.get("content") or "").strip()
-        if not content:
-            raise ValueError("empty question")
-        return OnboardingChatResponse(next_question=content, is_done=False)
-    except Exception:
-        fallback = raw.strip()[:500]
-        return OnboardingChatResponse(
-            next_question=fallback or "¿Qué trámites o consultas frecuentes maneja tu organización?",
-            is_done=False,
-        )
+    return OnboardingChatResponse(next_question=question, is_done=False)
 
 
 @router.post("/{tenant_id}/onboarding/generate", response_model=OnboardingGenerateResponse)
