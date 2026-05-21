@@ -7,24 +7,19 @@ import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { toast } from "@/components/ui/toast";
-
-const SCORE_PRESETS = [
-  { key: "amplio",      label: "Amplio",      value: 0.50 },
-  { key: "equilibrado", label: "Equilibrado", value: 0.70 },
-  { key: "preciso",     label: "Preciso",     value: 0.77 },
-  { key: "estricto",    label: "Estricto",    value: 0.85 },
-] as const;
 
 export function GeneralSettings() {
   const qc = useQueryClient();
   const { tenantId } = useAuthStore();
   const [widgetToken, setWidgetToken] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [botName, setBotName] = useState("");
   const [greetingMessage, setGreetingMessage] = useState("");
-  const [minScore, setMinScore] = useState(0.77);
 
   const { data: botConfig } = useQuery({
     queryKey: ["bot-config", tenantId],
@@ -40,23 +35,33 @@ export function GeneralSettings() {
 
   useEffect(() => {
     if (botConfig) {
+      setBotName(botConfig.bot_name ?? "");
       setGreetingMessage(botConfig.greeting_message ?? "");
-      const stored = botConfig.min_retrieval_score;
-      const nearest = SCORE_PRESETS.reduce((a, b) =>
-        Math.abs(b.value - stored) < Math.abs(a.value - stored) ? b : a
-      );
-      setMinScore(nearest.value);
     }
   }, [botConfig]);
 
-  const botConfigMutation = useMutation({
+  // Dirty flags por sección — guardado independiente
+  const identityDirty = botConfig != null && (botName.trim() !== (botConfig.bot_name ?? ""));
+  const greetingDirty = botConfig != null && (greetingMessage !== (botConfig.greeting_message ?? ""));
+
+  const saveIdentityM = useMutation({
     mutationFn: () => api.tenants.updateBotConfig(tenantId!, {
-      min_retrieval_score: minScore,
+      bot_name: botName.trim() || null,
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["bot-config", tenantId] });
+      toast({ title: "Nombre actualizado", variant: "success" });
+    },
+    onError: () => toast({ title: "Error al guardar", variant: "destructive" }),
+  });
+
+  const saveGreetingM = useMutation({
+    mutationFn: () => api.tenants.updateBotConfig(tenantId!, {
       greeting_message: greetingMessage || null,
     }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["bot-config", tenantId] });
-      toast({ title: "Configuración guardada", variant: "success" });
+      toast({ title: "Mensaje de saludo actualizado", variant: "success" });
     },
     onError: () => toast({ title: "Error al guardar", variant: "destructive" }),
   });
@@ -97,63 +102,75 @@ export function GeneralSettings() {
   return (
     <div className="space-y-6">
 
-      {/* ── Comportamiento ── */}
+      {/* ── Identidad del bot ── */}
       <Card>
         <CardHeader className="pb-3">
-          <h2 className="font-semibold text-sm">Comportamiento</h2>
+          <h2 className="font-semibold text-sm">Identidad del bot</h2>
         </CardHeader>
-        <CardContent className="space-y-5">
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium">Mensaje de saludo</label>
-            <Textarea
-              value={greetingMessage}
-              onChange={e => setGreetingMessage(e.target.value)}
-              placeholder="¡Hola! Soy tu asistente virtual. ¿En qué puedo ayudarte?"
-              rows={2}
-              className="text-sm resize-none"
+        <CardContent className="space-y-4">
+          <div className="space-y-1.5 max-w-md">
+            <Label htmlFor="bot-name" className="text-xs">Nombre del bot</Label>
+            <Input
+              id="bot-name"
+              value={botName}
+              onChange={e => setBotName(e.target.value)}
+              maxLength={80}
+              placeholder="Ej. Aria, Asistente, Bot Soporte"
             />
           </div>
 
-          <div className="space-y-2">
-            <label className="text-xs font-medium">Umbral mínimo de relevancia</label>
-            <div className="grid grid-cols-4 gap-2">
-              {SCORE_PRESETS.map((preset) => {
-                const active = minScore === preset.value;
-                return (
-                  <button
-                    key={preset.key}
-                    type="button"
-                    onClick={() => setMinScore(preset.value)}
-                    className={cn(
-                      "flex flex-col gap-0.5 rounded-md border px-2 py-2 text-center transition-colors",
-                      active
-                        ? "border-primary bg-primary/5 ring-1 ring-primary"
-                        : "border-border hover:border-primary/40 hover:bg-muted/50"
-                    )}
-                  >
-                    <span className={cn("text-xs font-semibold", active ? "text-primary" : "")}>{preset.label}</span>
-                    <span className={cn("text-[10px] font-mono", active ? "text-primary/80" : "text-muted-foreground")}>
-                      {Math.round(preset.value * 100)}%
-                    </span>
-                  </button>
-                );
-              })}
+          {botConfig?.bot_description && (
+            <div className="space-y-1.5">
+              <Label className="text-xs">Descripción</Label>
+              <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap rounded-md border bg-muted/30 px-3 py-2">
+                {botConfig.bot_description}
+              </p>
+              <p className="text-[11px] text-muted-foreground/80">
+                La descripción la gestiona el equipo de soporte.
+              </p>
             </div>
-            <p className="text-[11px] text-muted-foreground">
-              Define qué tan estricto es el bot al exigir relevancia del contexto antes de responder.
-            </p>
-          </div>
+          )}
 
-          <Button
-            size="sm"
-            onClick={() => botConfigMutation.mutate()}
-            disabled={botConfigMutation.isPending}
-          >
-            {botConfigMutation.isPending
-              ? <Loader2 className="h-4 w-4 animate-spin mr-1" />
-              : <Save className="h-4 w-4 mr-1" />}
-            Guardar
-          </Button>
+          {identityDirty && (
+            <Button
+              size="sm"
+              onClick={() => saveIdentityM.mutate()}
+              disabled={saveIdentityM.isPending}
+            >
+              {saveIdentityM.isPending
+                ? <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                : <Save className="h-4 w-4 mr-1" />}
+              Guardar
+            </Button>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ── Mensaje de saludo ── */}
+      <Card>
+        <CardHeader className="pb-3">
+          <h2 className="font-semibold text-sm">Mensaje de saludo</h2>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <Textarea
+            value={greetingMessage}
+            onChange={e => setGreetingMessage(e.target.value)}
+            placeholder="¡Hola! Soy tu asistente virtual. ¿En qué puedo ayudarte?"
+            rows={2}
+            className="text-sm resize-none"
+          />
+          {greetingDirty && (
+            <Button
+              size="sm"
+              onClick={() => saveGreetingM.mutate()}
+              disabled={saveGreetingM.isPending}
+            >
+              {saveGreetingM.isPending
+                ? <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                : <Save className="h-4 w-4 mr-1" />}
+              Guardar
+            </Button>
+          )}
         </CardContent>
       </Card>
 
@@ -244,23 +261,6 @@ export function GeneralSettings() {
           </CardContent>
         )}
       </Card>
-
-      {/* ── Identidad (read-only, contexto) ── */}
-      {botConfig && (botConfig.bot_name || botConfig.bot_description) && (
-        <Card>
-          <CardHeader className="pb-3">
-            <h2 className="font-semibold text-sm">Identidad del bot</h2>
-          </CardHeader>
-          <CardContent className="space-y-2 text-sm">
-            {botConfig.bot_name && (
-              <p><span className="text-muted-foreground">Nombre:</span> <span className="font-medium">{botConfig.bot_name}</span></p>
-            )}
-            {botConfig.bot_description && (
-              <p className="text-muted-foreground leading-relaxed whitespace-pre-wrap">{botConfig.bot_description}</p>
-            )}
-          </CardContent>
-        </Card>
-      )}
 
     </div>
   );

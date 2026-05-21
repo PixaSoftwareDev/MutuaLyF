@@ -2,13 +2,12 @@
 
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Loader2, RefreshCw, Plus, Search, Play, BrainCircuit, ChevronDown, ChevronUp, Check, X, MoreHorizontal } from "lucide-react";
+import { Loader2, Plus, Search, Play, BrainCircuit, ChevronDown, ChevronUp, Check, X, MoreHorizontal } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { PageShell } from "@/components/layout/page-shell";
 import { PageHeader } from "@/components/layout/page-header";
@@ -147,8 +146,8 @@ export default function IntentionsPage() {
   return (
     <PageShell>
       <PageHeader
-        title="Intenciones"
-        description="Intenciones detectadas en las consultas de tu organización. Aprobá las correctas para mejorar la clasificación automática."
+        title="Temas reconocidos"
+        description="Los temas que el bot identifica en las consultas. Aprobá los que correspondan a tu organización."
         actions={
           <>
             <DropdownMenu>
@@ -159,20 +158,13 @@ export default function IntentionsPage() {
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56">
                 <DropdownMenuItem
-                  onSelect={() => queryClient.invalidateQueries({ queryKey: ["intentions"] })}
-                >
-                  <RefreshCw className="h-4 w-4 mr-2" />
-                  Actualizar
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
                   onSelect={() => clusterMutation.mutate()}
                   disabled={clusterMutation.isPending}
                 >
                   {clusterMutation.isPending
                     ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                     : <Play className="h-4 w-4 mr-2" />}
-                  Detectar grupos nuevos
+                  Detectar temas nuevos
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onSelect={() => retrainMutation.mutate()}
@@ -187,37 +179,11 @@ export default function IntentionsPage() {
             </DropdownMenu>
             <Button size="sm" onClick={() => setShowCreate(true)}>
               <Plus className="h-4 w-4 mr-1" />
-              Nueva intención
+              Nuevo tema
             </Button>
           </>
         }
       />
-
-      {/* Stats summary */}
-      {data && (
-        <div className="flex gap-6 text-sm">
-          <div>
-            <span className="font-semibold text-foreground">{data.total}</span>
-            <span className="text-muted-foreground ml-1">intenciones</span>
-          </div>
-          <div>
-            <span className="font-semibold text-foreground">{active.length}</span>
-            <span className="text-muted-foreground ml-1">activas</span>
-          </div>
-          {data.pending_total > 0 && (
-            <div>
-              <span className="font-semibold text-amber-600">{data.pending_total}</span>
-              <span className="text-muted-foreground ml-1">pendientes de revisión</span>
-            </div>
-          )}
-          {(data.clusters_total ?? 0) > 0 && (
-            <div>
-              <span className="font-semibold text-blue-600">{data.clusters_total}</span>
-              <span className="text-muted-foreground ml-1">clusters descubiertos</span>
-            </div>
-          )}
-        </div>
-      )}
 
       {isLoading ? (
         <div className="space-y-3">
@@ -234,27 +200,21 @@ export default function IntentionsPage() {
         <Tabs defaultValue={clusters.length > 0 ? "clusters" : pending.length > 0 ? "pending" : "active"}>
           <TabsList>
             <TabsTrigger value="active">
-              Activas
-              {active.length > 0 && (
-                <Badge variant="secondary" className="ml-1.5 text-xs px-1.5">{active.length}</Badge>
-              )}
+              Activos
+              {active.length > 0 && <TabCount count={active.length} />}
             </TabsTrigger>
             <TabsTrigger value="clusters">
-              Descubiertas
-              {clusters.length > 0 && (
-                <Badge className="ml-1.5 text-xs px-1.5 bg-blue-500 hover:bg-blue-500">{clusters.length}</Badge>
-              )}
+              Sugeridos
+              {clusters.length > 0 && <TabCount count={clusters.length} />}
             </TabsTrigger>
             <TabsTrigger value="pending">
               Pendientes
-              {pending.length > 0 && (
-                <Badge className="ml-1.5 text-xs px-1.5 bg-amber-500 hover:bg-amber-500">{pending.length}</Badge>
-              )}
+              {pending.length > 0 && <TabCount count={pending.length} />}
             </TabsTrigger>
             {inactive.length > 0 && (
               <TabsTrigger value="inactive">
-                Inactivas
-                <Badge variant="secondary" className="ml-1.5 text-xs px-1.5">{inactive.length}</Badge>
+                Inactivos
+                <TabCount count={inactive.length} />
               </TabsTrigger>
             )}
           </TabsList>
@@ -265,7 +225,7 @@ export default function IntentionsPage() {
               <div className="relative max-w-xs">
                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="Buscar intención..."
+                  placeholder="Buscar tema..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   className="pl-8"
@@ -273,7 +233,7 @@ export default function IntentionsPage() {
               </div>
             )}
             {active.length === 0 ? (
-              <EmptyState text="No hay intenciones activas todavía. Creá una manualmente o aprobá las pendientes." />
+              <EmptyState text="No hay temas activos. Creá uno o aprobá los pendientes." />
             ) : (
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 {active.map((intent) => (
@@ -282,11 +242,8 @@ export default function IntentionsPage() {
                     id={intent.id}
                     label={intent.label}
                     description={intent.description}
-                    exampleCount={intent.example_count}
-                    autoLearnedCount={intent.auto_learned_count}
                     isActive={intent.is_active}
                     queries7d={intent.queries_7d}
-                    avgConfidence7d={intent.avg_confidence_7d}
                     onToggleActive={(id, current) => toggleMutation.mutate({ id, isActive: current })}
                     onDelete={(id) => deleteMutation.mutate(id)}
                   />
@@ -298,61 +255,48 @@ export default function IntentionsPage() {
           {/* Pendientes */}
           <TabsContent value="pending" className="mt-4 space-y-3">
             {pending.length === 0 ? (
-              <EmptyState text="No hay intenciones pendientes de revisión. El sistema las genera automáticamente cuando detecta patrones repetidos en las consultas." />
+              <EmptyState text="No hay temas pendientes." />
             ) : (
-              <>
-                <p className="text-xs text-muted-foreground">
-                  El sistema detectó estos grupos de consultas similares. Aprobá los que correspondan a intenciones reales de tu organización.
-                </p>
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                   {pending.map((intent) => (
                     <IntentionCard
                       key={intent.id}
                       id={intent.id}
                       label={intent.label}
                       description={null}
-                      exampleCount={0}
-                      autoLearnedCount={0}
                       isActive={false}
                       isPending
                       pendingQueryCount={intent.query_count}
-                      pendingAvgConfidence={intent.avg_confidence}
                       onApprove={(id) => approveMutation.mutate(id)}
                       onReject={(id) => rejectMutation.mutate(id)}
                     />
                   ))}
-                </div>
-              </>
+              </div>
             )}
           </TabsContent>
 
-          {/* Clusters descubiertos por HDBSCAN */}
+          {/* Grupos sugeridos (clusters descubiertos automáticamente) */}
           <TabsContent value="clusters" className="mt-4 space-y-3">
             {clusters.length === 0 ? (
-              <EmptyState text="No hay clusters descubiertos todavía. Hacé clic en 'Detectar' para correr el análisis sobre las consultas acumuladas." />
+              <EmptyState text="Sin grupos sugeridos. Usá 'Detectar temas nuevos' para que el sistema agrupe consultas similares." />
             ) : (
-              <>
-                <p className="text-xs text-muted-foreground">
-                  HDBSCAN detectó estos grupos de consultas similares. Poné un nombre a cada uno para convertirlo en una intención activa.
-                </p>
-                <div className="space-y-3">
-                  {clusters.map((cluster) => (
-                    <ClusterCard
-                      key={cluster.id}
-                      cluster={cluster}
-                      label={clusterLabel[cluster.cluster_id] ?? ""}
-                      onLabelChange={(v) => setClusterLabel((prev) => ({ ...prev, [cluster.cluster_id]: v }))}
-                      onApprove={() => {
-                        const label = (clusterLabel[cluster.cluster_id] ?? cluster.suggested_label ?? "").trim();
-                        if (label) approveClusterMutation.mutate({ clusterId: cluster.cluster_id, label });
-                      }}
-                      onDismiss={() => dismissClusterMutation.mutate(cluster.cluster_id)}
-                      isApproving={approveClusterMutation.isPending}
-                      isDismissing={dismissClusterMutation.isPending}
-                    />
-                  ))}
-                </div>
-              </>
+              <div className="space-y-3">
+                {clusters.map((cluster) => (
+                  <ClusterCard
+                    key={cluster.id}
+                    cluster={cluster}
+                    label={clusterLabel[cluster.cluster_id] ?? ""}
+                    onLabelChange={(v) => setClusterLabel((prev) => ({ ...prev, [cluster.cluster_id]: v }))}
+                    onApprove={() => {
+                      const label = (clusterLabel[cluster.cluster_id] ?? cluster.suggested_label ?? "").trim();
+                      if (label) approveClusterMutation.mutate({ clusterId: cluster.cluster_id, label });
+                    }}
+                    onDismiss={() => dismissClusterMutation.mutate(cluster.cluster_id)}
+                    isApproving={approveClusterMutation.isPending}
+                    isDismissing={dismissClusterMutation.isPending}
+                  />
+                ))}
+              </div>
             )}
           </TabsContent>
 
@@ -366,8 +310,6 @@ export default function IntentionsPage() {
                     id={intent.id}
                     label={intent.label}
                     description={intent.description}
-                    exampleCount={intent.example_count}
-                    autoLearnedCount={intent.auto_learned_count}
                     isActive={false}
                     queries7d={intent.queries_7d}
                     onToggleActive={(id, current) => toggleMutation.mutate({ id, isActive: current })}
@@ -380,40 +322,41 @@ export default function IntentionsPage() {
         </Tabs>
       )}
 
-      {/* Modal crear intención */}
+      {/* Modal crear tema */}
       <Dialog open={showCreate} onOpenChange={setShowCreate}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Nueva intención</DialogTitle>
+            <DialogTitle>Nuevo tema</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-1.5">
-              <label className="text-sm font-medium">Nombre *</label>
+              <label className="text-sm font-medium">Nombre</label>
               <Input
-                placeholder="ej: consulta_vacaciones"
+                placeholder="Ej. vacaciones"
                 value={newLabel}
                 onChange={(e) => setNewLabel(e.target.value)}
+                autoFocus
               />
             </div>
             <div className="space-y-1.5">
-              <label className="text-sm font-medium">Descripción (opcional)</label>
+              <label className="text-sm font-medium">Descripción</label>
               <Input
-                placeholder="ej: Preguntas sobre política de licencias y vacaciones"
+                placeholder="Opcional — para qué se usa este tema"
                 value={newDescription}
                 onChange={(e) => setNewDescription(e.target.value)}
               />
             </div>
             <div className="space-y-1.5">
-              <label className="text-sm font-medium">Ejemplos de consultas (uno por línea, opcional)</label>
+              <label className="text-sm font-medium">
+                Ejemplos
+                <span className="text-xs text-muted-foreground font-normal ml-1.5">uno por línea</span>
+              </label>
               <textarea
-                className="w-full min-h-[100px] rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
-                placeholder={"¿Cuántos días de vacaciones tengo?\n¿Cómo solicito una licencia?\n¿Quién aprueba las vacaciones?"}
+                className="w-full min-h-[72px] rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
+                placeholder="¿Cuántos días de vacaciones tengo?"
                 value={newExamples}
                 onChange={(e) => setNewExamples(e.target.value)}
               />
-              <p className="text-xs text-muted-foreground">
-                Los ejemplos se usan para que el clasificador reconozca esta intención automáticamente.
-              </p>
             </div>
           </div>
           <DialogFooter>
@@ -424,10 +367,8 @@ export default function IntentionsPage() {
               onClick={() => createMutation.mutate()}
               disabled={!newLabel.trim() || createMutation.isPending}
             >
-              {createMutation.isPending ? (
-                <Loader2 className="h-4 w-4 animate-spin mr-2" />
-              ) : null}
-              Crear intención
+              {createMutation.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+              Crear
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -469,7 +410,7 @@ function ClusterCard({
         <div className="flex items-center gap-2">
           <Badge variant="secondary" className="text-xs">{allQueries.length} consultas</Badge>
           {cluster.suggested_label && (
-            <span className="text-xs text-blue-600 font-mono font-medium">{cluster.suggested_label}</span>
+            <span className="text-xs text-muted-foreground">Sugerido: <span className="font-medium text-foreground">{cluster.suggested_label}</span></span>
           )}
         </div>
         <button
@@ -513,21 +454,12 @@ function ClusterCard({
       {/* Actions */}
       <div className="px-4 py-3 border-t bg-muted/10 space-y-2">
         <Input
-          placeholder={cluster.suggested_label || "Nombre de la intención..."}
+          placeholder={cluster.suggested_label || "Nombre del tema..."}
           value={label}
           onChange={(e) => onLabelChange(e.target.value)}
-          className="h-8 text-sm font-mono"
+          className="h-8 text-sm"
         />
-        <div className="flex gap-2">
-          <Button
-            size="sm"
-            className="flex-1 h-8 text-xs gap-1"
-            disabled={!effectiveLabel || isApproving || allQueries.length === 0}
-            onClick={onApprove}
-          >
-            {isApproving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
-            Convertir{label.trim() ? "" : cluster.suggested_label ? ` "${cluster.suggested_label}"` : ""}
-          </Button>
+        <div className="flex justify-end gap-2">
           <Button
             size="sm"
             variant="outline"
@@ -537,6 +469,15 @@ function ClusterCard({
           >
             <X className="h-3.5 w-3.5" />
             Descartar
+          </Button>
+          <Button
+            size="sm"
+            className="h-8 text-xs gap-1"
+            disabled={!effectiveLabel || isApproving || allQueries.length === 0}
+            onClick={onApprove}
+          >
+            {isApproving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+            Aprobar
           </Button>
         </div>
       </div>
@@ -549,5 +490,15 @@ function EmptyState({ text }: { text: string }) {
     <div className="text-center py-16 text-muted-foreground text-sm max-w-sm mx-auto">
       {text}
     </div>
+  );
+}
+
+/** Contador chico al lado del título de cada tab. Toma el color del branding
+ *  del tenant para que todas las pestañas tengan el mismo lenguaje visual. */
+function TabCount({ count }: { count: number }) {
+  return (
+    <span className="ml-1.5 inline-flex items-center justify-center min-w-5 h-5 px-1.5 rounded-full bg-brand text-brand-foreground text-[10px] font-semibold tabular-nums">
+      {count}
+    </span>
   );
 }

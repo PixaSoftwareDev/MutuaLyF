@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, ChevronLeft, ChevronRight, Loader2, RefreshCw } from "lucide-react";
+import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import { api, type ChunkDuplicatePair } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -76,22 +76,15 @@ function DiffView({ textA, textB }: { textA: string; textB: string }) {
   const renderTokens = (tokens: DiffToken[]) => (
     <p className="text-sm leading-relaxed">
       {tokens.map((tok, idx) => {
-        if (tok.type === "common") {
-          return (
-            <span key={idx} className="text-muted-foreground">
-              {tok.word}{" "}
-            </span>
-          );
-        }
-        if (tok.type === "only_a") {
-          return (
-            <span key={idx} className="bg-green-100 text-green-800 rounded px-0.5">
-              {tok.word}{" "}
-            </span>
-          );
-        }
+        // Lo común queda en texto normal. Lo distinto se highlight-ea en amber
+        // (mismo color para A y B — no hay "bueno/malo", solo "esto no está
+        // en el otro lado"). El cerebro lee: lo marcado es la diferencia.
+        const isDiff = tok.type !== "common";
         return (
-          <span key={idx} className="bg-red-100 text-red-800 rounded px-0.5">
+          <span
+            key={idx}
+            className={isDiff ? "bg-amber-100 text-amber-900 rounded px-0.5" : ""}
+          >
             {tok.word}{" "}
           </span>
         );
@@ -121,32 +114,23 @@ function DiffView({ textA, textB }: { textA: string; textB: string }) {
 
 type MatchKind = "identical" | "semantic" | "similar";
 
-function classifyMatch(pair: ChunkDuplicatePair): { kind: MatchKind; label: string; dot: string } {
+function classifyMatch(pair: ChunkDuplicatePair): { kind: MatchKind; label: string } {
   const cosine = pair.cosine_score ?? 0;
   const jaccard = pair.jaccard_score ?? 0;
-  if (jaccard >= 0.7)  return { kind: "identical", label: "Texto casi idéntico", dot: "bg-rose-500" };
-  if (cosine  >= 0.92) return { kind: "semantic",  label: "Mismo significado",   dot: "bg-violet-500" };
-  return                      { kind: "similar",   label: "Contenido similar",   dot: "bg-amber-500" };
+  if (jaccard >= 0.7)  return { kind: "identical", label: "Texto casi idéntico" };
+  if (cosine  >= 0.92) return { kind: "semantic",  label: "Mismo significado"   };
+  return                      { kind: "similar",   label: "Contenido similar"   };
 }
 
 function MatchSummary({ pair }: { pair: ChunkDuplicatePair }) {
   const { label } = classifyMatch(pair);
-  const cosinePct  = pair.cosine_score  !== null ? Math.round(pair.cosine_score  * 100) : null;
-  const jaccardPct = pair.jaccard_score !== null ? Math.round(pair.jaccard_score * 100) : null;
-  // Only surface the text score when it adds signal (≥ 30%) — below that it is noise.
-  const showJaccard = jaccardPct !== null && jaccardPct >= 30;
+  const cosinePct = pair.cosine_score !== null ? Math.round(pair.cosine_score * 100) : null;
 
   return (
     <div className="flex items-center gap-2 text-sm">
       <span className="font-medium text-foreground">{label}</span>
       {cosinePct !== null && (
         <span className="text-muted-foreground tabular-nums">{cosinePct}%</span>
-      )}
-      {showJaccard && (
-        <>
-          <span className="text-muted-foreground/40">·</span>
-          <span className="text-xs text-muted-foreground tabular-nums">texto {jaccardPct}%</span>
-        </>
       )}
     </div>
   );
@@ -191,39 +175,31 @@ function PairCard({
             )}
           </div>
 
-          <div className="flex items-center gap-1 shrink-0">
+          <div className="flex items-center gap-1.5 shrink-0">
             <Button
-              size="sm"
-              variant="outline"
-              disabled={resolving}
-              onClick={() => onResolve("keep_a")}
-              className="h-8 text-xs gap-1"
-            >
-              {resolving ? <Loader2 className="h-3 w-3 animate-spin" /> : (
-                <>
-                  <span className="h-1.5 w-1.5 rounded-full bg-primary/70" />
-                  Mantener A
-                </>
-              )}
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={resolving}
-              onClick={() => onResolve("keep_b")}
-              className="h-8 text-xs gap-1"
-            >
-              <span className="h-1.5 w-1.5 rounded-full bg-primary/70" />
-              Mantener B
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
+              size="sm" variant="outline"
               disabled={resolving}
               onClick={() => onResolve("keep_both")}
-              className="h-8 text-xs text-muted-foreground hover:text-foreground"
+              className="h-8 text-xs"
             >
               Mantener ambos
+            </Button>
+            <Button
+              size="sm" variant="outline"
+              disabled={resolving}
+              onClick={() => onResolve("keep_a")}
+              className="h-8 text-xs"
+            >
+              {resolving && <Loader2 className="h-3 w-3 animate-spin mr-1" />}
+              Mantener A
+            </Button>
+            <Button
+              size="sm" variant="outline"
+              disabled={resolving}
+              onClick={() => onResolve("keep_b")}
+              className="h-8 text-xs"
+            >
+              Mantener B
             </Button>
           </div>
         </div>
@@ -344,18 +320,13 @@ export default function DuplicatesPage() {
       setResolvingId(null);
       queryClient.invalidateQueries({ queryKey: ["duplicates"] });
       queryClient.invalidateQueries({ queryKey: ["duplicates-stats"] });
-      toast({ title: "Par resuelto", description: "El fragmento ha sido procesado correctamente.", variant: "success" });
+      toast({ title: "Par resuelto", variant: "success" });
     },
     onError: () => {
       setResolvingId(null);
-      toast({ title: "Error al resolver", description: "No se pudo procesar la acción. Intentá de nuevo.", variant: "destructive" });
+      toast({ title: "Error al resolver", description: "Intentá de nuevo.", variant: "destructive" });
     },
   });
-
-  const refresh = () => {
-    queryClient.invalidateQueries({ queryKey: ["duplicates"] });
-    queryClient.invalidateQueries({ queryKey: ["duplicates-stats"] });
-  };
 
   const allPairs = data?.pairs ?? [];
   const visiblePairs = allPairs.filter((p) => !hiddenIds.has(p.id));
@@ -363,7 +334,6 @@ export default function DuplicatesPage() {
     () => visiblePairs.filter((p) => p.status === "pending"),
     [visiblePairs]
   );
-  const resolvedCount = (data?.total ?? 0) - (data?.pending ?? 0) + hiddenIds.size;
 
   const totalPages = Math.max(1, Math.ceil(pendingPairs.length / PAGE_SIZE));
 
@@ -378,27 +348,14 @@ export default function DuplicatesPage() {
     <PageShell>
       <PageHeader
         title="Fragmentos duplicados"
-        description="Revisá y resolvé pares de fragmentos con contenido similar."
-        actions={
-          <Button variant="outline" size="sm" onClick={refresh}>
-            <RefreshCw className="h-4 w-4 mr-1" />
-            Actualizar
-          </Button>
-        }
+        description="Pares de fragmentos con contenido similar entre documentos. Decidí cuál conservar."
       />
 
       {error && (
         <div className="text-destructive text-sm">
-          Error al cargar duplicados. Intentá refrescar la página.
+          Error al cargar duplicados.
         </div>
       )}
-
-      {/* Stats bar — same shape as documents/intentions */}
-      <div className="flex gap-6 text-sm">
-        <span><strong className="text-foreground">{data?.pending ?? 0}</strong> <span className="text-muted-foreground">pendientes</span></span>
-        <span><strong className="text-foreground">{resolvedCount}</strong> <span className="text-muted-foreground">resueltos</span></span>
-        <span><strong className="text-foreground">{data?.total ?? 0}</strong> <span className="text-muted-foreground">total</span></span>
-      </div>
 
       {/* Pairs list */}
       {isLoading ? (
@@ -407,12 +364,9 @@ export default function DuplicatesPage() {
           <Skeleton className="h-48 w-full" />
         </div>
       ) : pendingPairs.length === 0 ? (
-        <div className="text-center py-10 space-y-2">
-          <CheckCircle2 className="h-10 w-10 mx-auto text-muted-foreground opacity-30" />
-          <p className="text-muted-foreground text-sm">
-            No hay fragmentos duplicados pendientes de revisión.
-          </p>
-        </div>
+        <p className="text-sm text-muted-foreground text-center py-10">
+          No hay duplicados pendientes de revisión.
+        </p>
       ) : (
         <div className="space-y-4">
           {pagedPairs.map((pair) => (

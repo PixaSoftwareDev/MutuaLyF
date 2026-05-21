@@ -60,13 +60,13 @@ const navGroups: NavGroup[] = [
     label: "Conocimiento",
     items: [
       { href: "/admin/documents",  label: "Documentos", icon: FileText, adminOnly: true },
+      { href: "/admin/duplicates", label: "Duplicados", icon: GitMerge, adminOnly: true,
+        badgeKey: "duplicates-pending",
+        tooltip: "Documentos parecidos que conviene unificar para evitar respuestas contradictorias." },
       { href: "/admin/intentions", label: "Temas reconocidos", icon: Tags, adminOnly: true,
         tooltip: "Categorías de consulta que el bot identifica. Validá las que aprendió." },
       { href: "/admin/entities",   label: "Entidades",  icon: Network, adminOnly: true,
         tooltip: "Personas, departamentos y más extraídos automáticamente de tus documentos." },
-      { href: "/admin/duplicates", label: "Duplicados", icon: GitMerge, adminOnly: true,
-        badgeKey: "duplicates-pending",
-        tooltip: "Documentos parecidos que conviene unificar para evitar respuestas contradictorias." },
     ],
   },
   {

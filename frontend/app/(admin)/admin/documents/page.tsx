@@ -7,7 +7,7 @@ import {
   FileText, Clock, Trash2, Loader2,
   ChevronDown, ChevronRight, Search, CheckCircle2,
   XCircle, UserCheck, AlertTriangle, ShieldCheck, ChevronUp,
-  GitMerge, ArrowRight, MoreVertical, Edit2,
+  ArrowRight, MoreVertical, Edit2,
 } from "lucide-react";
 import { api, type DocumentResponse, type ChunkResponse, type PendingChunkResponse } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
@@ -25,6 +25,7 @@ import { DocumentUploader } from "@/components/documents/document-uploader";
 import { toast } from "@/components/ui/toast";
 import { PageShell } from "@/components/layout/page-shell";
 import { PageHeader } from "@/components/layout/page-header";
+import { cn } from "@/lib/utils";
 
 // ── Config maps ───────────────────────────────────────────────────────────────
 
@@ -250,46 +251,52 @@ function DuplicatesAlert({
   if (pendingCount === 0) return null;
 
   return (
-    <Card className="border-amber-200 bg-amber-50/50">
-      <CardHeader className="pb-3">
+    <div className="relative rounded-lg border border-amber-200 bg-amber-50/40 overflow-hidden">
+      {/* Banda lateral para impacto visual */}
+      <div className="absolute left-0 top-0 bottom-0 w-1 bg-amber-400" />
+
+      <div className="pl-5 pr-4 py-3.5">
         <div className="flex items-start justify-between gap-4">
-          <div className="flex-1">
-            <CardTitle className="text-base flex items-center gap-2 text-amber-900">
-              <GitMerge className="h-4 w-4 shrink-0" />
-              {pendingCount} {pendingCount === 1 ? "par de fragmentos similares" : "pares de fragmentos similares"} — revisión pendiente
-            </CardTitle>
-            <CardDescription className="text-amber-700 text-xs mt-1">
-              El sistema detectó contenido parecido entre documentos distintos. Revisá cada par y decidí si es una coincidencia normal o contenido duplicado que conviene limpiar.
-            </CardDescription>
+          {/* Número grande + texto */}
+          <div className="flex items-baseline gap-2.5 min-w-0">
+            <span className="text-2xl font-bold text-amber-900 leading-none tabular-nums">
+              {pendingCount}
+            </span>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-amber-900 leading-tight">
+                {pendingCount === 1 ? "par de fragmentos similares" : "pares de fragmentos similares"}
+              </p>
+              <p className="text-[11px] text-amber-700/90 mt-0.5">
+                Revisá si son duplicados reales o coincidencias.
+              </p>
+            </div>
           </div>
+
           <Button
             size="sm"
             variant="outline"
-            className="border-amber-300 text-amber-800 hover:bg-amber-100 hover:text-amber-900 shrink-0"
+            className="border-amber-300 bg-white text-amber-800 hover:bg-amber-50 hover:text-amber-900 shrink-0"
             onClick={() => router.push("/admin/duplicates")}
           >
-            Revisar ahora
+            Revisar
             <ArrowRight className="h-3.5 w-3.5 ml-1.5" />
           </Button>
         </div>
-      </CardHeader>
-      {affectedDocs.length > 0 && (
-        <CardContent className="pt-0">
-          <p className="text-xs text-amber-700 font-medium mb-1.5">Documentos involucrados:</p>
-          <div className="flex flex-wrap gap-1.5">
+
+        {affectedDocs.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mt-3">
             {affectedDocs.map((name) => (
               <span
                 key={name}
-                className="inline-flex items-center gap-1 text-[11px] bg-amber-100 text-amber-800 rounded px-2 py-0.5 border border-amber-200"
+                className="inline-flex items-center text-[11px] bg-white text-amber-900 rounded-md px-2 py-1 border border-amber-200/80 font-medium"
               >
-                <FileText className="h-3 w-3 shrink-0" />
                 {name}
               </span>
             ))}
           </div>
-        </CardContent>
-      )}
-    </Card>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -406,9 +413,21 @@ function DocumentRow({
   });
 
   return (
-    <div className={`rounded-lg border overflow-hidden ${hasPendingWork ? "border-amber-200" : ""}`}>
+    <div className={cn(
+      "relative rounded-lg border overflow-hidden transition-colors",
+      hasPendingWork && "border-amber-200/80 bg-amber-50/20"
+    )}>
+      {/* Banda lateral cuando hay trabajo pendiente — mismo lenguaje que la alerta de duplicados */}
+      {hasPendingWork && (
+        <div className="absolute left-0 top-0 bottom-0 w-1 bg-amber-400" />
+      )}
+
       <div
-        className={`flex items-center gap-3 p-3 transition-colors ${canExpand ? "hover:bg-accent/30 cursor-pointer" : ""}`}
+        className={cn(
+          "flex items-center gap-3 p-3 transition-colors",
+          hasPendingWork && "pl-4",
+          canExpand && "hover:bg-accent/30 cursor-pointer"
+        )}
         onClick={() => canExpand && setExpanded((v) => !v)}
       >
         {/* Expand indicator / status icon */}
@@ -425,7 +444,7 @@ function DocumentRow({
         {/* Title + meta */}
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium truncate">{doc.title}</p>
-          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+          <div className="flex items-center gap-2 mt-1 flex-wrap">
             <span className="text-xs text-muted-foreground flex items-center gap-1">
               <Clock className="h-2.5 w-2.5" />
               {date}
@@ -436,18 +455,16 @@ function DocumentRow({
               </span>
             )}
             {pendingChunkCount > 0 && (
-              <span className="text-xs text-amber-700 flex items-center gap-1 font-medium">
-                <AlertTriangle className="h-3 w-3" />
+              <span className="inline-flex items-center text-[11px] bg-amber-100 text-amber-900 rounded-md px-2 py-0.5 font-medium border border-amber-200/80">
                 {pendingChunkCount} sin verificar
               </span>
             )}
             {pendingDuplicateCount > 0 && (
               <button
-                className="text-xs text-amber-700 flex items-center gap-1 font-medium hover:text-amber-900 hover:underline"
+                className="inline-flex items-center text-[11px] bg-amber-100 text-amber-900 rounded-md px-2 py-0.5 font-medium border border-amber-200/80 hover:bg-amber-200/60 transition-colors"
                 onClick={(e) => { e.stopPropagation(); router.push("/admin/duplicates"); }}
                 title="Ir a revisar duplicados"
               >
-                <GitMerge className="h-3 w-3" />
                 {pendingDuplicateCount} {pendingDuplicateCount === 1 ? "duplicado" : "duplicados"} por revisar
               </button>
             )}

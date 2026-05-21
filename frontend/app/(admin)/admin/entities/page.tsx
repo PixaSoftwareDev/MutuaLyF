@@ -1,16 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   User, Building2, Briefcase, Clock, Globe, Calendar,
-  MapPin, Tag, Search, X, ChevronRight, FileText, RefreshCw, Loader2,
+  MapPin, Tag, Search, X, ChevronRight, FileText, ChevronDown,
 } from "lucide-react";
-import { api, type EntitySummary, type EntityStats, type EntityDetail } from "@/lib/api";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+import { api, type EntitySummary, type EntityStats } from "@/lib/api";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
@@ -20,51 +21,52 @@ import { PageHeader } from "@/components/layout/page-header";
 
 // ── Label config ───────────────────────────────────────────────────────────────
 
-// Four semantic families instead of nine colors. Keeps the page readable
-// without turning it into a rainbow.
-const FAMILY = {
-  people:  { color: "text-slate-700", bg: "bg-slate-100" },
-  org:     { color: "text-slate-700", bg: "bg-slate-100" },
-  context: { color: "text-slate-700", bg: "bg-slate-100" },
-  other:   { color: "text-slate-700", bg: "bg-slate-100" },
-} as const;
-
-const LABEL_CONFIG: Record<string, { icon: React.ElementType; color: string; bg: string; label: string }> = {
-  Persona:       { icon: User,      label: "Persona",       ...FAMILY.people },
-  Rol:           { icon: Briefcase, label: "Rol",           ...FAMILY.people },
-  Departamento:  { icon: Building2, label: "Departamento",  ...FAMILY.org },
-  Organizacion:  { icon: Building2, label: "Organización",  ...FAMILY.org },
-  Horario:       { icon: Clock,     label: "Horario",       ...FAMILY.context },
-  Fecha:         { icon: Calendar,  label: "Fecha",         ...FAMILY.context },
-  Lugar:         { icon: MapPin,    label: "Lugar",         ...FAMILY.context },
-  Dominio:       { icon: Globe,     label: "Dominio",       ...FAMILY.context },
-  Entidad:       { icon: Tag,       label: "Entidad",       ...FAMILY.other },
+const LABEL_CONFIG: Record<string, { icon: React.ElementType; label: string }> = {
+  Persona:       { icon: User,      label: "Persona"       },
+  Rol:           { icon: Briefcase, label: "Rol"           },
+  Departamento:  { icon: Building2, label: "Departamento"  },
+  Organizacion:  { icon: Building2, label: "Organización"  },
+  Horario:       { icon: Clock,     label: "Horario"       },
+  Fecha:         { icon: Calendar,  label: "Fecha"         },
+  Lugar:         { icon: MapPin,    label: "Lugar"         },
+  Dominio:       { icon: Globe,     label: "Dominio"       },
+  Entidad:       { icon: Tag,       label: "Entidad"       },
 };
-
-const ALL_LABELS = Object.keys(LABEL_CONFIG);
 
 function getLabelConfig(label: string) {
   return LABEL_CONFIG[label] ?? LABEL_CONFIG["Entidad"];
 }
 
-// ── Stat pill ──────────────────────────────────────────────────────────────────
+// ── Filter chip ────────────────────────────────────────────────────────────────
 
-function StatPill({ stat, active, onClick }: { stat: EntityStats; active: boolean; onClick: () => void }) {
-  const cfg = getLabelConfig(stat.label);
-  const Icon = cfg.icon;
+function FilterChip({
+  label, count, active, onClick, icon: Icon,
+}: {
+  label: string;
+  count: number;
+  active: boolean;
+  onClick: () => void;
+  icon?: React.ElementType;
+}) {
   return (
     <button
       onClick={onClick}
-      className={`flex items-center gap-2 px-4 py-2 rounded-full border text-sm font-medium transition-all ${
+      className={cn(
+        "inline-flex items-center gap-1.5 h-8 px-3 rounded-md border text-xs font-medium transition-colors",
         active
-          ? `${cfg.bg} ${cfg.color} border-current`
-          : "bg-white border-gray-200 text-gray-600 hover:border-gray-300"
-      }`}
+          ? "bg-brand text-brand-foreground border-brand"
+          : "bg-background border-border text-muted-foreground hover:text-foreground hover:border-foreground/30"
+      )}
     >
-      <Icon className="w-4 h-4" />
-      {cfg.label}
-      <span className={`ml-1 px-1.5 py-0.5 rounded-full text-xs font-bold ${active ? cfg.color : "text-gray-500"} bg-white/60`}>
-        {stat.count}
+      {Icon && <Icon className="h-3.5 w-3.5" />}
+      {label}
+      <span
+        className={cn(
+          "ml-0.5 inline-flex items-center justify-center min-w-4 h-4 px-1 rounded text-[10px] font-semibold tabular-nums",
+          active ? "bg-brand-foreground/20" : "bg-muted text-foreground/70"
+        )}
+      >
+        {count}
       </span>
     </button>
   );
@@ -78,19 +80,17 @@ function EntityRow({ entity, onClick }: { entity: EntitySummary; onClick: () => 
   return (
     <button
       onClick={onClick}
-      className="w-full flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-gray-50 border border-transparent hover:border-gray-200 transition-all text-left group"
+      className="w-full flex items-center gap-3 px-3 py-2.5 rounded-md hover:bg-muted/50 transition-colors text-left group"
     >
-      <div className={`p-2 rounded-lg ${cfg.bg}`}>
-        <Icon className={`w-4 h-4 ${cfg.color}`} />
-      </div>
+      <Icon className="h-4 w-4 text-muted-foreground shrink-0" />
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-gray-900 truncate">{entity.nombre}</p>
-        <p className="text-xs text-gray-500">{cfg.label}</p>
+        <p className="text-sm font-medium truncate">{entity.nombre}</p>
+        <p className="text-xs text-muted-foreground">{cfg.label}</p>
       </div>
-      <Badge variant="secondary" className="text-xs shrink-0">
+      <Badge variant="secondary" className="text-xs shrink-0 font-normal">
         {entity.mention_count} {entity.mention_count === 1 ? "mención" : "menciones"}
       </Badge>
-      <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-gray-600 shrink-0" />
+      <ChevronRight className="h-4 w-4 text-muted-foreground/60 group-hover:text-foreground shrink-0" />
     </button>
   );
 }
@@ -114,7 +114,6 @@ function EntityDetailDialog({
 
   if (!entity) return null;
   const cfg = getLabelConfig(entity.label);
-  const Icon = cfg.icon;
 
   // Group chunks by document
   const byDoc: Record<string, { filename: string | null; chunks: string[] }> = {};
@@ -129,44 +128,35 @@ function EntityDetailDialog({
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <div className="flex items-center gap-3 mb-1">
-            <div className={`p-2 rounded-lg ${cfg.bg}`}>
-              <Icon className={`w-5 h-5 ${cfg.color}`} />
-            </div>
-            <div>
-              <DialogTitle className="text-lg">{entity.nombre}</DialogTitle>
-              <DialogDescription>{cfg.label} · {entity.mention_count} menciones</DialogDescription>
-            </div>
-          </div>
+          <DialogTitle>{entity.nombre}</DialogTitle>
+          <DialogDescription>
+            {cfg.label} · {entity.mention_count} {entity.mention_count === 1 ? "mención" : "menciones"}
+          </DialogDescription>
         </DialogHeader>
 
-        <div className="mt-2 space-y-3">
-          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
-            Aparece en estos documentos
-          </p>
+        <div className="mt-2 space-y-2">
+          <p className="text-xs font-medium text-muted-foreground">Aparece en</p>
 
           {isLoading && (
             <div className="space-y-2">
-              {[1, 2].map(i => <Skeleton key={i} className="h-16 w-full rounded-lg" />)}
+              {[1, 2].map(i => <Skeleton key={i} className="h-14 w-full rounded-md" />)}
             </div>
           )}
 
           {!isLoading && data && Object.entries(byDoc).length === 0 && (
-            <p className="text-sm text-gray-500 py-4 text-center">Sin resultados</p>
+            <p className="text-sm text-muted-foreground py-4 text-center">Sin resultados</p>
           )}
 
           {!isLoading && data && Object.entries(byDoc).map(([docId, info]) => (
-            <div key={docId} className="rounded-lg border border-gray-100 p-3">
-              <div className="flex items-start gap-2">
-                <FileText className="w-4 h-4 text-gray-400 mt-0.5 shrink-0" />
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-gray-800 truncate">
-                    {info.filename ?? docId.slice(0, 8) + "…"}
-                  </p>
-                  <p className="text-xs text-gray-500 mt-0.5">
-                    {info.chunks.length} {info.chunks.length === 1 ? "fragmento" : "fragmentos"} con esta entidad
-                  </p>
-                </div>
+            <div key={docId} className="flex items-start gap-2.5 rounded-md border bg-card px-3 py-2.5">
+              <FileText className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+              <div className="min-w-0">
+                <p className="text-sm font-medium truncate">
+                  {info.filename ?? docId.slice(0, 8) + "…"}
+                </p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {info.chunks.length} {info.chunks.length === 1 ? "fragmento" : "fragmentos"}
+                </p>
               </div>
             </div>
           ))}
@@ -178,11 +168,20 @@ function EntityDetailDialog({
 
 // ── Page ───────────────────────────────────────────────────────────────────────
 
+const PAGE_SIZE = 30;
+
 export default function EntitiesPage() {
   const [activeLabel, setActiveLabel] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<EntitySummary | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+
+  // Resetear "ventana visible" al cambiar filtro o búsqueda — sino el usuario
+  // entra a "Personas" y ve la pagina anterior con las entidades de "Roles".
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+  }, [activeLabel, search]);
 
   const { data: stats, isLoading: statsLoading } = useQuery({
     queryKey: ["entity-stats"],
@@ -190,7 +189,7 @@ export default function EntitiesPage() {
     staleTime: 60_000,
   });
 
-  const { data: entities, isLoading: listLoading, refetch } = useQuery({
+  const { data: entities, isLoading: listLoading } = useQuery({
     queryKey: ["entities", activeLabel, search],
     queryFn: () => api.entities.list({
       label: activeLabel ?? undefined,
@@ -211,104 +210,106 @@ export default function EntitiesPage() {
     <PageShell>
       <PageHeader
         title="Entidades"
-        description="Personas, departamentos, roles y más extraídos automáticamente de tus documentos."
-        actions={
-          <Button variant="outline" size="sm" onClick={() => refetch()} className="gap-2">
-            <RefreshCw className="w-4 h-4" />
-            Actualizar
-          </Button>
-        }
+        description="Personas, áreas y conceptos extraídos automáticamente de tus documentos."
       />
 
-      {/* Stats pills */}
-      <div className="flex flex-wrap gap-2">
-        <button
+      {/* Filtros */}
+      <div className="flex flex-wrap gap-1.5">
+        <FilterChip
+          label="Todas"
+          count={statsLoading ? 0 : totalEntities}
+          active={activeLabel === null}
           onClick={() => setActiveLabel(null)}
-          className={`flex items-center gap-2 px-4 py-2 rounded-full border text-sm font-medium transition-all ${
-            activeLabel === null
-              ? "bg-gray-900 text-white border-gray-900"
-              : "bg-white border-gray-200 text-gray-600 hover:border-gray-300"
-          }`}
-        >
-          Todas
-          <span className="ml-1 px-1.5 py-0.5 rounded-full text-xs font-bold bg-white/20">
-            {statsLoading ? "…" : totalEntities}
-          </span>
-        </button>
-
-        {statsLoading && [1, 2, 3].map(i => (
-          <Skeleton key={i} className="h-9 w-28 rounded-full" />
-        ))}
-
-        {stats?.map(s => (
-          <StatPill
-            key={s.label}
-            stat={s}
-            active={activeLabel === s.label}
-            onClick={() => setActiveLabel(prev => prev === s.label ? null : s.label)}
-          />
-        ))}
-      </div>
-
-      {/* Search */}
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-        <Input
-          placeholder="Buscar entidad por nombre…"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          className="pl-9 pr-9"
         />
-        {search && (
-          <button
-            onClick={() => setSearch("")}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        )}
+        {statsLoading && [1, 2, 3].map(i => (
+          <Skeleton key={i} className="h-8 w-24 rounded-md" />
+        ))}
+        {stats?.map((s: EntityStats) => {
+          const cfg = getLabelConfig(s.label);
+          return (
+            <FilterChip
+              key={s.label}
+              label={cfg.label}
+              count={s.count}
+              icon={cfg.icon}
+              active={activeLabel === s.label}
+              onClick={() => setActiveLabel(prev => prev === s.label ? null : s.label)}
+            />
+          );
+        })}
       </div>
 
-      {/* Entity list */}
+      {/* Lista de entidades */}
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">
-            {listLoading ? "Cargando…" : `${entities?.length ?? 0} entidades`}
-          </CardTitle>
-          {activeLabel && (
-            <CardDescription>
-              Filtrando por: <strong>{getLabelConfig(activeLabel).label}</strong>
-            </CardDescription>
-          )}
+          <div className="flex items-center justify-between gap-4">
+            <CardTitle className="text-base">
+              Entidades ({listLoading ? "…" : entities?.length ?? 0})
+            </CardTitle>
+            <div className="relative max-w-xs">
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Buscar..."
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                className="pl-8 pr-8 h-8 text-sm"
+              />
+              {search && (
+                <button
+                  onClick={() => setSearch("")}
+                  className="absolute right-2.5 top-2.5 text-muted-foreground hover:text-foreground"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+          </div>
         </CardHeader>
         <CardContent className="p-2">
           {listLoading && (
-            <div className="space-y-1 p-2">
-              {[1, 2, 3, 4, 5].map(i => <Skeleton key={i} className="h-14 w-full rounded-lg" />)}
+            <div className="space-y-1 p-1">
+              {[1, 2, 3, 4, 5].map(i => <Skeleton key={i} className="h-12 w-full rounded-md" />)}
             </div>
           )}
 
           {!listLoading && (!entities || entities.length === 0) && (
-            <div className="py-12 text-center text-gray-500">
-              <Tag className="w-8 h-8 mx-auto mb-2 text-gray-300" />
-              <p className="text-sm">
-                {search
-                  ? `Sin resultados para "${search}"`
-                  : "No hay entidades extraídas todavía. Ingresá documentos para empezar."}
-              </p>
-            </div>
+            <p className="text-sm text-muted-foreground text-center py-8">
+              {search
+                ? `Sin resultados para "${search}".`
+                : "Todavía no hay entidades. Ingresá documentos para empezar."}
+            </p>
           )}
 
           {!listLoading && entities && entities.length > 0 && (
-            <div className="space-y-0.5">
-              {entities.map(e => (
-                <EntityRow
-                  key={`${e.label}-${e.nombre}`}
-                  entity={e}
-                  onClick={() => openDetail(e)}
-                />
-              ))}
-            </div>
+            <>
+              <div className="space-y-0.5">
+                {entities.slice(0, visibleCount).map(e => (
+                  <EntityRow
+                    key={`${e.label}-${e.nombre}`}
+                    entity={e}
+                    onClick={() => openDetail(e)}
+                  />
+                ))}
+              </div>
+
+              {entities.length > visibleCount && (
+                <div className="flex items-center justify-between gap-3 px-2 pt-3 mt-2 border-t">
+                  <p className="text-xs text-muted-foreground">
+                    Mostrando <span className="font-medium text-foreground">{visibleCount}</span> de{" "}
+                    <span className="font-medium text-foreground">{entities.length}</span>
+                  </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8"
+                    onClick={() => setVisibleCount(c => c + PAGE_SIZE)}
+                  >
+                    <ChevronDown className="h-3.5 w-3.5 mr-1.5" />
+                    Cargar {Math.min(PAGE_SIZE, entities.length - visibleCount)} más
+                  </Button>
+                </div>
+              )}
+            </>
           )}
         </CardContent>
       </Card>
