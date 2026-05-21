@@ -210,7 +210,7 @@ function OperatorCard({
                     className="text-destructive focus:text-destructive"
                   >
                     <Trash2 className="h-4 w-4 mr-2" />
-                    Desactivar
+                    Eliminar
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -370,11 +370,11 @@ function DeactivateDialog({
   const deleteM = useMutation({
     mutationFn: () => apiClient.delete(`/admin/operators/${operator.id}`),
     onSuccess: () => {
-      toast({ title: `${operator.name} desactivado`, variant: "success" });
+      toast({ title: `${operator.name} eliminado`, variant: "success" });
       onDeactivated();
       onOpenChange(false);
     },
-    onError: () => toast({ title: "Error al desactivar", variant: "destructive" }),
+    onError: () => toast({ title: "Error al eliminar", variant: "destructive" }),
   });
 
   return (
@@ -383,7 +383,7 @@ function DeactivateDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <AlertTriangle className="h-5 w-5 text-amber-500" />
-            Desactivar operador
+            Eliminar operador
           </DialogTitle>
           <DialogDescription className="pt-2">
             <span className="font-medium text-foreground">{operator.name}</span> ya no va a recibir
@@ -396,7 +396,7 @@ function DeactivateDialog({
           </Button>
           <Button variant="destructive" onClick={() => deleteM.mutate()} disabled={deleteM.isPending}>
             {deleteM.isPending && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
-            Desactivar
+            Eliminar
           </Button>
         </DialogFooter>
       </DialogContent>
