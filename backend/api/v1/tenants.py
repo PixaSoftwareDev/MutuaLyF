@@ -330,6 +330,7 @@ class BotConfigResponse(BaseModel):
 
 
 class BotConfigUpdate(BaseModel):
+    bot_name: str | None = None
     bot_description: str | None = None
     bot_scope: str | None = None
     min_retrieval_score: float | None = None
@@ -386,6 +387,9 @@ async def update_bot_config(
     updates: list[str] = []
     params: dict = {"tid": tenant_id}
 
+    if body.bot_name is not None:
+        updates.append("bot_name = :bot_name")
+        params["bot_name"] = body.bot_name.strip() or None
     if body.bot_description is not None:
         updates.append("bot_description = :bot_description")
         params["bot_description"] = body.bot_description or None
