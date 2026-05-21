@@ -97,7 +97,7 @@ export default function SuperAdminPage() {
 
       {/* ── Top bar ───────────────────────────────────────────────────────── */}
       <div className="shrink-0 bg-background border-b px-4 sm:px-6">
-        <div className="max-w-5xl mx-auto flex items-center justify-between gap-3 h-14">
+        <div className="max-w-7xl mx-auto flex items-center justify-between gap-3 h-14">
           <div className="flex items-center gap-2 min-w-0">
             <Shield className="h-5 w-5 text-primary shrink-0" />
             <h1 className="font-semibold text-base sm:text-lg">Plataforma</h1>
@@ -116,7 +116,7 @@ export default function SuperAdminPage() {
         </div>
 
         {/* Tabs */}
-        <div className="max-w-5xl mx-auto flex gap-0 -mb-px">
+        <div className="max-w-7xl mx-auto flex gap-0 -mb-px">
           {([
             { id: "orgs",    label: "Organizaciones", icon: Building2 },
             { id: "sistema", label: "Sistema",         icon: Activity  },
@@ -140,7 +140,7 @@ export default function SuperAdminPage() {
 
       {/* ── Scrollable body ───────────────────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 py-4 space-y-4">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 space-y-4">
 
           {/* ── Health strip (always visible) ─────────────────────────── */}
           <div className={cn(

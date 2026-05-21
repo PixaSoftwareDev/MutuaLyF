@@ -160,7 +160,7 @@ export default function TenantDetailPage() {
       <TopBar onBack={() => router.push("/superadmin")} onRefresh={inv} label={t.name} loading={false} />
 
       <div className="flex-1 overflow-y-auto">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 py-4 space-y-4 pb-10">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 space-y-4 pb-10">
 
           {/* ── Identity ─────────────────────────────────────────────── */}
           <div className="rounded-xl border bg-card shadow-sm px-5 py-4">
@@ -483,7 +483,7 @@ export default function TenantDetailPage() {
 function TopBar({ onBack, onRefresh, label, loading }: { onBack: () => void; onRefresh: () => void; label: string; loading: boolean }) {
   return (
     <div className="shrink-0 bg-background border-b px-4 sm:px-6 py-3">
-      <div className="max-w-5xl mx-auto flex items-center justify-between gap-3">
+      <div className="max-w-7xl mx-auto flex items-center justify-between gap-3">
         <div className="flex items-center gap-2 min-w-0">
           <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={onBack}>
             <ArrowLeft className="h-4 w-4" />
@@ -574,7 +574,7 @@ function LoadingState() {
     <div className="h-full flex flex-col overflow-hidden bg-muted/20">
       <div className="shrink-0 bg-background border-b px-4 sm:px-6 py-3 h-14" />
       <div className="flex-1 overflow-y-auto">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 py-4 space-y-4">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 space-y-4">
           <Skeleton className="h-32 w-full rounded-xl" />
           <div className="grid grid-cols-3 gap-2.5">
             {[1,2,3,4,5,6].map(i => <Skeleton key={i} className="h-16 rounded-lg" />)}
