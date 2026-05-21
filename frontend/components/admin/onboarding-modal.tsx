@@ -1,21 +1,21 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, Sparkles, CheckCircle2 } from "lucide-react";
+import { Loader2, Sparkles, CheckCircle2, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const ORG_TYPES = ["Empresa privada", "Cooperativa", "Mutual", "ONG", "Organismo público", "Sindicato", "Otra"];
 const SERVES_OPTIONS = ["Clientes", "Empleados", "Afiliados", "Socios", "Ciudadanos", "Estudiantes", "Otro"];
 const TONES = [
-  { key: "formal", label: "Formal", desc: "Lenguaje profesional y respetuoso" },
-  { key: "amigable", label: "Amigable", desc: "Cercano, cálido, de vos" },
-  { key: "tecnico", label: "Técnico", desc: "Preciso, directo, sin rodeos" },
+  { key: "formal",   label: "Formal",   desc: "Usted, sin contracciones, profesional" },
+  { key: "amigable", label: "Amigable", desc: "Vos, cercano, contracciones permitidas" },
+  { key: "tecnico",  label: "Técnico",  desc: "Preciso, directo, sin rodeos" },
 ];
 
 const STEPS = ["Organización", "Audiencia y temas", "Tono y nombre", "Revisá y confirmá"] as const;
@@ -23,12 +23,19 @@ const STEPS = ["Organización", "Audiencia y temas", "Tono y nombre", "Revisá y
 const empty = {
   org_name: "",
   org_type: "",
+  org_type_custom: "",   // texto libre cuando org_type === "Otra"
   serves: "",
+  serves_custom: "",     // texto libre cuando serves === "Otro"
   main_topics: "",
   excluded_topics: "",
   tone: "",
   bot_name: "",
 };
+
+/** Cuenta items separados por coma (no vacíos). */
+function countTopics(value: string): number {
+  return value.split(",").map(t => t.trim()).filter(Boolean).length;
+}
 
 export function OnboardingModal() {
   const { tenantId } = useAuthStore();
@@ -39,38 +46,73 @@ export function OnboardingModal() {
   const [generatedDesc, setGeneratedDesc] = useState("");
   const [editedDesc, setEditedDesc] = useState("");
   const [done, setDone] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const set = (k: keyof typeof empty, v: string) => setForm(f => ({ ...f, [k]: v }));
 
+  // Resuelve el valor final de org_type / serves (custom o predefinido)
+  const effectiveOrgType = form.org_type === "Otra"
+    ? form.org_type_custom.trim()
+    : form.org_type;
+  const effectiveServes = form.serves === "Otro"
+    ? form.serves_custom.trim()
+    : form.serves;
+
+  const topicsCount = useMemo(() => countTopics(form.main_topics), [form.main_topics]);
+
   const generateM = useMutation({
     mutationFn: () => api.tenants.onboardingGenerate(tenantId!, {
-      ...form,
-      excluded_topics: form.excluded_topics,
+      org_name:        form.org_name.trim(),
+      org_type:        effectiveOrgType,
+      serves:          effectiveServes,
+      main_topics:     form.main_topics.trim(),
+      excluded_topics: form.excluded_topics.trim(),
+      tone:            form.tone,
+      bot_name:        form.bot_name.trim(),
     }),
     onSuccess: (data) => {
       setGeneratedDesc(data.bot_description);
       setEditedDesc(data.bot_description);
+      setSubmitError(null);
       setStep(3);
+    },
+    onError: (err: any) => {
+      const detail = err?.response?.data?.detail || "No se pudo generar la descripción. Intentá de nuevo.";
+      setSubmitError(typeof detail === "string" ? detail : "Error al generar.");
     },
   });
 
   const completeM = useMutation({
     mutationFn: () => api.tenants.onboardingComplete(tenantId!, {
-      bot_name: form.bot_name.trim(),
+      bot_name:        form.bot_name.trim(),
       bot_description: editedDesc.trim(),
     }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["bot-config", tenantId] });
       setDone(true);
     },
+    onError: (err: any) => {
+      const detail = err?.response?.data?.detail || "No se pudo guardar.";
+      setSubmitError(typeof detail === "string" ? detail : "Error al guardar.");
+    },
   });
 
-  const canNext = [
-    form.org_name.trim() && form.org_type,
-    form.serves && form.main_topics.trim(),
-    form.tone,
+  // ── Validación por paso ──
+  const canNextPerStep = [
+    // Step 0: nombre + tipo (si "Otra", también texto libre)
+    form.org_name.trim().length > 0
+      && form.org_type !== ""
+      && (form.org_type !== "Otra" || form.org_type_custom.trim().length > 0),
+    // Step 1: audiencia (si "Otro", custom) + main_topics ≥ 3 items
+    form.serves !== ""
+      && (form.serves !== "Otro" || form.serves_custom.trim().length > 0)
+      && topicsCount >= 3,
+    // Step 2: tono
+    form.tone !== "",
+    // Step 3: descripción >= 20 chars
     editedDesc.trim().length >= 20,
-  ][step];
+  ];
+  const canNext = canNextPerStep[step];
 
   if (done) {
     return (
@@ -100,7 +142,7 @@ export function OnboardingModal() {
           <h2 className="font-semibold text-base leading-tight">Configuración inicial del asistente</h2>
           <p className="text-xs text-muted-foreground mt-1">Tomá un minuto para personalizar tu bot.</p>
 
-          {/* Step indicator — solo el paso actual + progress bar segmentada */}
+          {/* Step indicator */}
           <div className="mt-4 space-y-2">
             <div className="flex items-baseline justify-between gap-3">
               <p className="text-sm font-medium text-foreground">{STEPS[step]}</p>
@@ -138,7 +180,7 @@ export function OnboardingModal() {
                 <Input
                   value={form.org_name}
                   onChange={e => set("org_name", e.target.value)}
-                  placeholder="Nombre de tu organización"
+                  placeholder="Ej. Acme Industries, Banco Norte, Fundación Sur"
                   className="h-9"
                   autoFocus
                 />
@@ -159,6 +201,14 @@ export function OnboardingModal() {
                     >{t}</button>
                   ))}
                 </div>
+                {form.org_type === "Otra" && (
+                  <Input
+                    value={form.org_type_custom}
+                    onChange={e => set("org_type_custom", e.target.value)}
+                    placeholder="Ej. Universidad, Clínica, Estudio jurídico..."
+                    className="h-9 mt-2"
+                  />
+                )}
               </div>
             </>
           )}
@@ -185,30 +235,45 @@ export function OnboardingModal() {
                     >{s}</button>
                   ))}
                 </div>
+                {form.serves === "Otro" && (
+                  <Input
+                    value={form.serves_custom}
+                    onChange={e => set("serves_custom", e.target.value)}
+                    placeholder="Ej. Pacientes, Proveedores, Inversores..."
+                    className="h-9 mt-2"
+                  />
+                )}
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">¿Sobre qué temas tiene información el bot? *</Label>
                 <Input
                   value={form.main_topics}
                   onChange={e => set("main_topics", e.target.value)}
-                  placeholder="Ej. horarios de atención, profesionales, normativa, trámites, beneficios"
+                  placeholder="Ej. recursos humanos, ventas, soporte técnico, facturación, contactos"
                   className="h-9"
-                  autoFocus
                 />
-                <p className="text-[11px] text-muted-foreground">
-                  Listá los temas que cubren tus documentos, separados por comas. Se usa para redactar la descripción del bot — no limita lo que puede responder.
-                </p>
+                <div className="flex items-center justify-between text-[11px]">
+                  <p className="text-muted-foreground">
+                    Listá al menos 3 temas separados por comas. Reflejá lo que cubren tus documentos.
+                  </p>
+                  <span className={cn(
+                    "tabular-nums font-medium shrink-0 ml-2",
+                    topicsCount >= 3 ? "text-emerald-600" : "text-muted-foreground"
+                  )}>
+                    {topicsCount}/3
+                  </span>
+                </div>
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">Temas que NO debe responder (opcional)</Label>
                 <Input
                   value={form.excluded_topics}
                   onChange={e => set("excluded_topics", e.target.value)}
-                  placeholder="Ej. política partidaria, opiniones personales, diagnósticos médicos"
+                  placeholder="Ej. datos personales, decisiones internas, conflictos en curso"
                   className="h-9"
                 />
                 <p className="text-[11px] text-muted-foreground">
-                  Si lo dejás vacío, el bot responde sobre todo lo que encuentre en sus documentos.
+                  Lista lo que el bot debe evitar incluso si lo encuentra en los documentos.
                 </p>
               </div>
             </>
@@ -247,7 +312,7 @@ export function OnboardingModal() {
                 <Input
                   value={form.bot_name}
                   onChange={e => set("bot_name", e.target.value)}
-                  placeholder="Ej. Aria, Asistente, Bot Soporte (dejá vacío para sin nombre)"
+                  placeholder="Ej. Aria, Soporte, Asistente (dejá vacío para sin nombre)"
                   className="h-9"
                 />
               </div>
@@ -272,17 +337,25 @@ export function OnboardingModal() {
                   className="w-full text-sm border rounded-md px-3 py-2 bg-background resize-none focus:outline-none focus:ring-1 focus:ring-ring font-mono leading-relaxed"
                 />
                 <p className="text-[11px] text-muted-foreground">
-                  Una vez que confirmés, solo el equipo de soporte puede modificar esto.
+                  Una vez que confirmés, podés volver a editarla desde Configuración → Bot.
                 </p>
               </div>
             </>
+          )}
+
+          {/* Error inline */}
+          {submitError && (
+            <div className="flex items-start gap-2 text-xs text-destructive bg-destructive/10 border border-destructive/30 rounded-md p-2.5">
+              <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+              <span>{submitError}</span>
+            </div>
           )}
         </div>
 
         {/* Footer */}
         <div className="px-6 py-4 border-t flex items-center justify-between gap-3">
           {step > 0 && step < 3 ? (
-            <Button variant="ghost" size="sm" onClick={() => setStep(s => s - 1)}>
+            <Button variant="ghost" size="sm" onClick={() => { setStep(s => s - 1); setSubmitError(null); }}>
               Atrás
             </Button>
           ) : <div />}
@@ -301,7 +374,7 @@ export function OnboardingModal() {
             <Button
               size="sm"
               disabled={!canNext || generateM.isPending}
-              onClick={() => generateM.mutate()}
+              onClick={() => { setSubmitError(null); generateM.mutate(); }}
             >
               {generateM.isPending
                 ? <><Loader2 className="h-3.5 w-3.5 animate-spin mr-2" />Generando…</>
@@ -311,13 +384,13 @@ export function OnboardingModal() {
 
           {step === 3 && (
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" onClick={() => setStep(2)}>
+              <Button variant="outline" size="sm" onClick={() => { setStep(2); setSubmitError(null); }}>
                 Atrás
               </Button>
               <Button
                 size="sm"
                 disabled={!canNext || completeM.isPending}
-                onClick={() => completeM.mutate()}
+                onClick={() => { setSubmitError(null); completeM.mutate(); }}
               >
                 {completeM.isPending
                   ? <><Loader2 className="h-3.5 w-3.5 animate-spin mr-2" />Guardando…</>
