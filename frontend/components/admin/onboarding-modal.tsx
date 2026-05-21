@@ -7,7 +7,7 @@ import { useAuthStore } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, Sparkles, CheckCircle2, AlertCircle } from "lucide-react";
+import { Loader2, Sparkles, CheckCircle2, AlertCircle, Send, MessageSquare } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const ORG_TYPES = ["Empresa privada", "Cooperativa", "Mutual", "ONG", "Organismo público", "Sindicato", "Otra"];
@@ -87,6 +87,12 @@ export function OnboardingModal() {
    *  Asi no le pisamos lo que estaba escribiendo si despues cambia de org_type. */
   const [excludedTouchedByUser, setExcludedTouchedByUser] = useState(false);
 
+  // ── Test inline (Fase 4) ────────────────────────────────────────────────────
+  /** Pregunta que el admin esta tipeando en el bloque "Probar el bot". */
+  const [testInput, setTestInput] = useState("");
+  /** Historial de pruebas (Q/A) en orden cronologico — se resetea si editan la descripcion. */
+  const [testHistory, setTestHistory] = useState<Array<{ q: string; a: string }>>([]);
+
   const set = (k: keyof typeof empty, v: string) => setForm(f => ({ ...f, [k]: v }));
 
   /** Setter especial para org_type: si el admin no edito excluded_topics, lo auto-sugiere. */
@@ -136,6 +142,21 @@ export function OnboardingModal() {
     onError: (err: any) => {
       const detail = err?.response?.data?.detail || "No se pudo generar la descripción. Intentá de nuevo.";
       setSubmitError(typeof detail === "string" ? detail : "Error al generar.");
+    },
+  });
+
+  const testQueryM = useMutation({
+    mutationFn: () => api.tenants.onboardingTestQuery(tenantId!, {
+      question:        testInput.trim(),
+      bot_description: editedDesc.trim(),
+    }),
+    onSuccess: (data) => {
+      setTestHistory(h => [...h, { q: testInput.trim(), a: data.answer }]);
+      setTestInput("");
+    },
+    onError: (err: any) => {
+      const detail = err?.response?.data?.detail || "No se pudo probar la pregunta.";
+      setSubmitError(typeof detail === "string" ? detail : "Error al probar.");
     },
   });
 
@@ -404,7 +425,7 @@ export function OnboardingModal() {
           {step === 3 && (
             <>
               <p className="text-sm text-muted-foreground">
-                Esta es la descripción que el sistema usa en cada consulta. Podés editarla antes de confirmar.
+                Esta es la descripción que el sistema usa en cada consulta. Podés editarla y probarla antes de confirmar.
               </p>
               <div className="space-y-1">
                 <Label className="text-xs flex items-center gap-1.5">
@@ -413,13 +434,69 @@ export function OnboardingModal() {
                 </Label>
                 <textarea
                   value={editedDesc}
-                  onChange={e => setEditedDesc(e.target.value)}
+                  onChange={e => {
+                    setEditedDesc(e.target.value);
+                    // Si cambian la descripcion, las pruebas viejas dejan de ser representativas.
+                    if (testHistory.length > 0) setTestHistory([]);
+                  }}
                   rows={6}
                   className="w-full text-sm border rounded-md px-3 py-2 bg-background resize-none focus:outline-none focus:ring-1 focus:ring-ring font-mono leading-relaxed"
                 />
                 <p className="text-[11px] text-muted-foreground">
                   Una vez que confirmés, podés volver a editarla desde Configuración → Bot.
                 </p>
+              </div>
+
+              {/* ── Test inline (Fase 4) ──────────────────────────────────────── */}
+              <div className="pt-3 mt-3 border-t space-y-2">
+                <div className="flex items-center gap-1.5">
+                  <MessageSquare className="h-3.5 w-3.5 text-primary" />
+                  <Label className="text-xs">Probá una pregunta de ejemplo</Label>
+                </div>
+                <p className="text-[11px] text-muted-foreground -mt-1">
+                  Simulamos cómo respondería el bot con esta descripción. <strong>Sin documentos cargados todavía</strong>, así que para preguntas factuales el bot va a indicar que necesita los docs.
+                </p>
+                <div className="flex gap-2">
+                  <Input
+                    value={testInput}
+                    onChange={e => setTestInput(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === "Enter" && testInput.trim() && !testQueryM.isPending) {
+                        e.preventDefault();
+                        setSubmitError(null);
+                        testQueryM.mutate();
+                      }
+                    }}
+                    placeholder="Ej. ¿qué horarios tienen?, ¿cómo te llamás?, ¿dónde están?"
+                    className="h-9 text-sm"
+                  />
+                  <Button
+                    size="sm"
+                    disabled={!testInput.trim() || testQueryM.isPending || editedDesc.trim().length < 20}
+                    onClick={() => { setSubmitError(null); testQueryM.mutate(); }}
+                  >
+                    {testQueryM.isPending
+                      ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      : <Send className="h-3.5 w-3.5" />}
+                  </Button>
+                </div>
+
+                {testHistory.length > 0 && (
+                  <div className="space-y-2 mt-3 max-h-56 overflow-y-auto pr-1">
+                    {testHistory.map((t, i) => (
+                      <div key={i} className="text-xs space-y-1">
+                        <div className="flex items-start gap-2">
+                          <span className="font-semibold text-muted-foreground shrink-0">Vos:</span>
+                          <span>{t.q}</span>
+                        </div>
+                        <div className="flex items-start gap-2 bg-primary/5 rounded-md px-2 py-1.5 border border-primary/10">
+                          <span className="font-semibold text-primary shrink-0">Bot:</span>
+                          <span className="text-foreground leading-relaxed">{t.a}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </>
           )}

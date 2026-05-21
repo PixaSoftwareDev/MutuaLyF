@@ -510,6 +510,19 @@ class OnboardingCompleteRequest(BaseModel):
     bot_description: str
 
 
+class OnboardingTestQueryRequest(BaseModel):
+    """Permite probar interactivamente como respondera el bot con un bot_description
+    tentativo durante el wizard, sin persistir nada. NO usa RAG — solo evalua
+    como el LLM interpreta el bot_description + la pregunta. Util para validar
+    tono, alcance y fallback antes de confirmar."""
+    question: str = Field(..., min_length=1, max_length=500)
+    bot_description: str = Field(..., min_length=20, max_length=2000)
+
+
+class OnboardingTestQueryResponse(BaseModel):
+    answer: str
+
+
 @router.post("/{tenant_id}/onboarding/generate", response_model=OnboardingGenerateResponse)
 async def onboarding_generate(
     tenant_id: str,
@@ -579,6 +592,55 @@ Respondé únicamente con el texto de la descripción, sin título ni formato ex
         raise HTTPException(status_code=502, detail="No se pudo generar la descripción. Intentá de nuevo.")
 
     return OnboardingGenerateResponse(bot_description=result_text.strip())
+
+
+@router.post("/{tenant_id}/onboarding/test-query", response_model=OnboardingTestQueryResponse)
+async def onboarding_test_query(
+    tenant_id: str,
+    body: OnboardingTestQueryRequest,
+    current_user: CurrentUser = Depends(require_admin),
+):
+    """Test interactivo del bot durante el wizard.
+
+    Le manda al LLM (Groq fast) el bot_description tentativo + la pregunta del admin
+    y devuelve la respuesta. Sirve para validar tono, scope y fallback antes de
+    confirmar el onboarding.
+
+    Importante: NO usa RAG (no consulta documentos del tenant). Lo que prueba es
+    como el LLM interpretara el bot_description, no como respondera con docs reales.
+    """
+    if current_user.tenant_id != tenant_id:
+        raise HTTPException(status_code=403, detail="Cannot test for another tenant")
+
+    system_prompt = f"""Sos un asistente virtual con la siguiente descripcion oficial:
+
+{body.bot_description}
+
+REGLAS DE RESPUESTA:
+1. Respondé en el tono que la descripcion indica.
+2. Si la pregunta esta dentro del alcance descripto, intenta responder lo mejor posible.
+3. Si la pregunta esta FUERA del alcance descripto (tema excluido o no cubierto), aplica
+   el comportamiento de fallback que tu descripcion menciona.
+4. Esta es una prueba durante la configuracion inicial — todavia no tenes documentos
+   cargados, asi que para preguntas factuales especificas, indica honestamente que
+   necesitarias consultar los documentos cargados de la organizacion."""
+
+    from services.groq_client import complete, QueryComplexity
+    try:
+        answer = await complete(
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user",   "content": body.question},
+            ],
+            complexity=QueryComplexity.SIMPLE,
+            temperature=0.3,
+            max_tokens=250,
+        )
+    except Exception as exc:
+        logger.error("onboarding_test_query_failed tenant_id=%s error=%s", tenant_id, exc)
+        raise HTTPException(status_code=502, detail="No se pudo generar la respuesta de prueba. Intentá de nuevo.")
+
+    return OnboardingTestQueryResponse(answer=answer.strip())
 
 
 @router.post("/{tenant_id}/onboarding/complete", status_code=204)

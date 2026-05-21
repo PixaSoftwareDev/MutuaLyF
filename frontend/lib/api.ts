@@ -590,6 +590,10 @@ export const api = {
     onboardingComplete: async (tenantId: string, payload: { bot_name: string; bot_description: string }): Promise<void> => {
       await apiClient.post(`/tenants/${tenantId}/onboarding/complete`, payload);
     },
+    onboardingTestQuery: async (tenantId: string, payload: { question: string; bot_description: string }): Promise<{ answer: string }> => {
+      const { data } = await apiClient.post(`/tenants/${tenantId}/onboarding/test-query`, payload);
+      return data;
+    },
   },
 
   operator: {
