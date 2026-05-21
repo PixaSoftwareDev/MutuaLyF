@@ -7,6 +7,7 @@ import { useAuthStore } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Loader2, Sparkles, CheckCircle2, AlertCircle, Send, MessageSquare, Upload, FileText, X, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -274,12 +275,12 @@ export function OnboardingModal() {
 
   if (done) {
     return (
-      <div className="fixed inset-0 z-50 bg-foreground/30 backdrop-blur-[2px] flex items-center justify-center p-4">
-        <div className="bg-background border rounded-xl shadow-lg max-w-md w-full p-8 text-center space-y-4">
+      <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="bg-background border rounded-lg shadow-lg max-w-md w-full p-8 text-center space-y-4">
           <div className="w-14 h-14 rounded-full bg-emerald-100 flex items-center justify-center mx-auto">
             <CheckCircle2 className="h-7 w-7 text-emerald-600" />
           </div>
-          <h2 className="text-xl font-bold">¡Todo listo!</h2>
+          <h2 className="text-lg font-semibold tracking-tight">¡Todo listo!</h2>
           <p className="text-sm text-muted-foreground">
             Tu asistente ya tiene contexto sobre la organización. Podés empezar subiendo documentos.
           </p>
@@ -292,13 +293,13 @@ export function OnboardingModal() {
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-foreground/30 backdrop-blur-[2px] flex items-center justify-center p-4 overflow-y-auto">
-      <div className="bg-background border rounded-xl shadow-lg w-full max-w-xl overflow-hidden my-8">
+    <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+      <div className="bg-background border rounded-lg shadow-lg w-full max-w-xl overflow-hidden my-8">
 
         {/* Header */}
         <div className="px-6 pt-6 pb-5 border-b bg-muted/30">
-          <h2 className="font-semibold text-base leading-tight">Configuración inicial del asistente</h2>
-          <p className="text-xs text-muted-foreground mt-1">Tomá un minuto para personalizar tu bot.</p>
+          <h2 className="text-lg font-semibold leading-none tracking-tight">Configuración inicial del asistente</h2>
+          <p className="text-sm text-muted-foreground mt-1.5">Tomá un minuto para personalizar tu bot.</p>
 
           {/* Step indicator */}
           <div className="mt-4 space-y-2">
@@ -512,7 +513,7 @@ export function OnboardingModal() {
                   <Sparkles className="h-3.5 w-3.5 text-amber-500" />
                   Descripción generada por IA
                 </Label>
-                <textarea
+                <Textarea
                   value={editedDesc}
                   onChange={e => {
                     setEditedDesc(e.target.value);
@@ -520,7 +521,7 @@ export function OnboardingModal() {
                     if (testHistory.length > 0) setTestHistory([]);
                   }}
                   rows={6}
-                  className="w-full text-sm border rounded-md px-3 py-2 bg-background resize-none focus:outline-none focus:ring-1 focus:ring-ring font-mono leading-relaxed"
+                  className="resize-none leading-relaxed"
                 />
                 <p className="text-[11px] text-muted-foreground">
                   Una vez que confirmés, podés volver a editarla desde Configuración → Bot.
