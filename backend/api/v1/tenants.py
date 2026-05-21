@@ -13,7 +13,7 @@ from sqlalchemy import text
 import time
 
 from core.config import settings
-from core.database import get_pg_session
+from core.database import get_pg_session, get_redis_cache
 from core.prometheus import get_system_metrics
 from core.security import CurrentUser, create_widget_token, require_super_admin, require_admin, require_admin_or_super
 from models.tenant import TenantCreate, TenantPlan, TenantStatus, WidgetTokenResponse
