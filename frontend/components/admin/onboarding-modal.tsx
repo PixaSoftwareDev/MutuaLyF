@@ -1,14 +1,25 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, Sparkles, CheckCircle2, AlertCircle, Send, MessageSquare } from "lucide-react";
+import { Loader2, Sparkles, CheckCircle2, AlertCircle, Send, MessageSquare, Upload, FileText, X, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
+
+const MAX_ONBOARDING_DOCS = 3;
+const ACCEPTED_DOC_TYPES = ".pdf,.docx,.txt,.html";
+
+type DocStatus = "uploading" | "processing" | "ready" | "error";
+interface UploadedDoc {
+  filename: string;
+  doc_id?: string;
+  status: DocStatus;
+  error?: string;
+}
 
 const ORG_TYPES = ["Empresa privada", "Cooperativa", "Mutual", "ONG", "Organismo público", "Sindicato", "Otra"];
 const SERVES_OPTIONS = ["Clientes", "Empleados", "Afiliados", "Socios", "Ciudadanos", "Estudiantes", "Otro"];
@@ -92,6 +103,75 @@ export function OnboardingModal() {
   const [testInput, setTestInput] = useState("");
   /** Historial de pruebas (Q/A) en orden cronologico — se resetea si editan la descripcion. */
   const [testHistory, setTestHistory] = useState<Array<{ q: string; a: string }>>([]);
+
+  // ── Docs upload (Fase 5) ────────────────────────────────────────────────────
+  /** Docs subidos durante el onboarding. Se persisten en el tenant (van al Qdrant real). */
+  const [uploadedDocs, setUploadedDocs] = useState<UploadedDoc[]>([]);
+  /** Cuantos docs estan en estado "ready" — habilita "regenerar con docs". */
+  const readyDocs = uploadedDocs.filter(d => d.status === "ready").length;
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Polling de status para docs en "processing"
+  useEffect(() => {
+    const pollingTargets = uploadedDocs
+      .filter(d => d.status === "processing" && d.doc_id)
+      .map(d => d.doc_id!);
+    if (pollingTargets.length === 0) return;
+
+    let cancelled = false;
+    const interval = setInterval(async () => {
+      for (const docId of pollingTargets) {
+        try {
+          const status = await api.documents.status(docId);
+          if (cancelled) return;
+          if (status.status === "ready" || status.status === "error") {
+            setUploadedDocs(docs => docs.map(d =>
+              d.doc_id === docId
+                ? { ...d, status: status.status === "ready" ? "ready" : "error" }
+                : d
+            ));
+          }
+        } catch { /* sigue polleando */ }
+      }
+    }, 3000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [uploadedDocs]);
+
+  const handleFilesSelected = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const slotsAvailable = MAX_ONBOARDING_DOCS - uploadedDocs.length;
+    const toUpload = Array.from(files).slice(0, slotsAvailable);
+
+    for (const file of toUpload) {
+      // Marcar pending
+      const pendingEntry: UploadedDoc = { filename: file.name, status: "uploading" };
+      setUploadedDocs(docs => [...docs, pendingEntry]);
+
+      try {
+        const resp = await api.documents.upload(file);
+        // El endpoint /ingest devuelve doc_id + status inicial
+        setUploadedDocs(docs => docs.map(d =>
+          d.filename === file.name && d.status === "uploading"
+            ? { ...d, doc_id: (resp as any).document_id || (resp as any).doc_id, status: "processing" }
+            : d
+        ));
+      } catch (err: any) {
+        const detail = err?.response?.data?.detail || "Error al subir";
+        setUploadedDocs(docs => docs.map(d =>
+          d.filename === file.name && d.status === "uploading"
+            ? { ...d, status: "error", error: typeof detail === "string" ? detail : "Error al subir" }
+            : d
+        ));
+      }
+    }
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const removeDoc = (filename: string) => {
+    // No borramos del backend — solo lo sacamos del listado del wizard.
+    // Si quieren borrarlo despues, lo hacen desde el panel de Documentos.
+    setUploadedDocs(docs => docs.filter(d => d.filename !== filename));
+  };
 
   const set = (k: keyof typeof empty, v: string) => setForm(f => ({ ...f, [k]: v }));
 
@@ -445,6 +525,93 @@ export function OnboardingModal() {
                 <p className="text-[11px] text-muted-foreground">
                   Una vez que confirmés, podés volver a editarla desde Configuración → Bot.
                 </p>
+              </div>
+
+              {/* ── Docs upload (Fase 5) ──────────────────────────────────────── */}
+              <div className="pt-3 mt-3 border-t space-y-2">
+                <div className="flex items-center gap-1.5">
+                  <Upload className="h-3.5 w-3.5 text-primary" />
+                  <Label className="text-xs">Mejorar la descripción con tus documentos (opcional)</Label>
+                </div>
+                <p className="text-[11px] text-muted-foreground -mt-1">
+                  Subí hasta {MAX_ONBOARDING_DOCS} archivos representativos. La IA va a generar una descripción más precisa basándose en el contenido real de tus docs.
+                </p>
+
+                {/* Drop zone / file picker */}
+                {uploadedDocs.length < MAX_ONBOARDING_DOCS && (
+                  <div>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      multiple
+                      accept={ACCEPTED_DOC_TYPES}
+                      className="hidden"
+                      onChange={e => handleFilesSelected(e.target.files)}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="w-full border-2 border-dashed border-border rounded-lg py-4 px-3 flex flex-col items-center gap-1 hover:border-primary/50 hover:bg-primary/5 transition-colors text-xs text-muted-foreground"
+                    >
+                      <Upload className="h-4 w-4" />
+                      Clickeá para seleccionar archivos
+                      <span className="text-[10px]">PDF, DOCX, TXT, HTML · máx {MAX_ONBOARDING_DOCS}</span>
+                    </button>
+                  </div>
+                )}
+
+                {/* Lista de docs subidos */}
+                {uploadedDocs.length > 0 && (
+                  <div className="space-y-1.5 mt-2">
+                    {uploadedDocs.map(d => (
+                      <div key={d.filename} className="flex items-center gap-2 text-xs bg-muted/40 rounded-md px-2.5 py-1.5">
+                        <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                        <span className="truncate flex-1">{d.filename}</span>
+                        {d.status === "uploading" && (
+                          <span className="flex items-center gap-1 text-[10px] text-muted-foreground shrink-0">
+                            <Loader2 className="h-3 w-3 animate-spin" /> subiendo…
+                          </span>
+                        )}
+                        {d.status === "processing" && (
+                          <span className="flex items-center gap-1 text-[10px] text-amber-600 shrink-0">
+                            <Loader2 className="h-3 w-3 animate-spin" /> procesando…
+                          </span>
+                        )}
+                        {d.status === "ready" && (
+                          <span className="text-[10px] text-emerald-600 font-medium shrink-0">listo</span>
+                        )}
+                        {d.status === "error" && (
+                          <span className="text-[10px] text-destructive shrink-0" title={d.error || ""}>
+                            error
+                          </span>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => removeDoc(d.filename)}
+                          className="text-muted-foreground hover:text-destructive shrink-0"
+                          aria-label="Quitar"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Botón regenerar con docs */}
+                {readyDocs > 0 && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={generateM.isPending}
+                    onClick={() => { setSubmitError(null); generateM.mutate(); }}
+                    className="w-full mt-2 gap-1.5"
+                  >
+                    {generateM.isPending
+                      ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Regenerando con tus {readyDocs} {readyDocs === 1 ? "documento" : "documentos"}…</>
+                      : <><RefreshCw className="h-3.5 w-3.5" /> Regenerar descripción con {readyDocs} {readyDocs === 1 ? "documento" : "documentos"}</>}
+                  </Button>
+                )}
               </div>
 
               {/* ── Test inline (Fase 4) ──────────────────────────────────────── */}

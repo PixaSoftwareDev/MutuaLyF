@@ -561,6 +561,49 @@ async def onboarding_generate(
     }
     fallback_line = _fallback_map.get(body.fallback_behavior, _fallback_map["suggest_contact"])
 
+    # ── Fase 5: leer documentos ya cargados para anclar la descripcion al contenido real ──
+    # Si el admin subio docs durante el onboarding, los usamos como verdad-de-base.
+    # El bot_description generado va a reflejar lo que los docs REALMENTE dicen,
+    # no solo lo que el admin imagino en main_topics. Asi se evita el mismatch
+    # "admin dice X / docs dicen Y" que confunde al bot en producción.
+    doc_context = ""
+    try:
+        async with get_pg_session(tenant_id) as session:
+            # Traemos los 3 docs mas recientes ready y un preview de su primer chunk.
+            # parent_chunks.text tiene el contenido real extraido — es lo que el bot
+            # vera durante RAG. Limitamos a 400 chars/doc para que el prompt total
+            # no exceda los tokens disponibles.
+            doc_result = await session.execute(text("""
+                SELECT
+                    d.title,
+                    (
+                        SELECT LEFT(p.text, 400)
+                        FROM parent_chunks p
+                        WHERE p.document_id = d.id
+                        ORDER BY p.chunk_index ASC
+                        LIMIT 1
+                    ) AS preview
+                FROM documentos d
+                WHERE d.status = 'ready'
+                ORDER BY d.created_at DESC
+                LIMIT 3
+            """))
+            doc_rows = doc_result.mappings().all()
+        # Filtramos docs sin chunks (extraccion fallida, raros) para no enviar previews vacios.
+        doc_rows = [r for r in doc_rows if r["preview"]]
+        if doc_rows:
+            doc_context = "\n\nContenido REAL de documentos ya cargados:\n" + "\n---\n".join(
+                f"📄 {r['title']}:\n{r['preview']}"
+                for r in doc_rows
+            ) + ("""
+
+IMPORTANTE: si el contenido REAL de los documentos cubre temas distintos a los \
+"Temas principales" listados por el admin, privilegiá el contenido real para describir \
+qué sabe responder el bot. Los documentos son la fuente de verdad sobre el alcance real.""")
+    except Exception as exc:
+        # Si falla la lectura de docs, seguimos sin contexto — no bloqueamos el onboarding.
+        logger.warning("onboarding_doc_context_failed tenant_id=%s error=%s", tenant_id, exc)
+
     prompt = f"""Generá una descripción concisa (4-6 oraciones) de un asistente virtual, \
 optimizada para ser leída por un modelo de lenguaje como parte de su system prompt. \
 La descripción debe ser en español, en tercera persona, sin saludos ni listas, \
@@ -575,7 +618,7 @@ Datos de la organización:
 - {excluded_line}
 - Tono: {body.tone}
 - {bot_name_line}
-- Comportamiento ante consultas fuera del alcance: {fallback_line}
+- Comportamiento ante consultas fuera del alcance: {fallback_line}{doc_context}
 
 Respondé únicamente con el texto de la descripción, sin título ni formato extra."""
 
