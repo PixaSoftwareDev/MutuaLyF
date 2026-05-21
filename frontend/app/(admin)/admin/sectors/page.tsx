@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Edit2, Loader2, Star, MoreVertical, Users, Folder, UserX } from "lucide-react";
+import { Plus, Edit2, Loader2, Star, MoreVertical, Users, Folder, UserX, Trash2, AlertTriangle } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -33,6 +33,8 @@ export default function SectorsPage() {
   const [editNombre, setEditNombre]   = useState("");
   const [editDesc, setEditDesc]       = useState("");
 
+  const [deleting, setDeleting]       = useState<SectorRow | null>(null);
+
   const { data: sectors = [], isLoading } = useQuery({
     queryKey: ["sectors"],
     queryFn: api.sectors.list,
@@ -59,6 +61,16 @@ export default function SectorsPage() {
     mutationFn: (id: string) => api.sectors.setDefault(id),
     onSuccess: () => { inv(); toast({ title: "Sector default actualizado", variant: "success" }); },
     onError: () => toast({ title: "Error al cambiar el default", variant: "destructive" }),
+  });
+
+  const deleteM = useMutation({
+    mutationFn: (id: string) => api.sectors.delete(id),
+    onSuccess: () => {
+      inv();
+      setDeleting(null);
+      toast({ title: "Sector eliminado", description: "Se desactivó del listado.", variant: "success" });
+    },
+    onError: () => toast({ title: "Error al eliminar", variant: "destructive" }),
   });
 
   const startEdit = (s: SectorRow) => {
@@ -105,6 +117,7 @@ export default function SectorsPage() {
               sector={s}
               onEdit={() => startEdit(s)}
               onSetDefault={() => defaultM.mutate(s.id)}
+              onDelete={() => setDeleting(s)}
               defaultBusy={defaultM.isPending}
             />
           ))}
@@ -195,6 +208,45 @@ export default function SectorsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Modal eliminar */}
+      <Dialog open={!!deleting} onOpenChange={(v) => !v && setDeleting(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-destructive" />
+              Eliminar sector
+            </DialogTitle>
+            <DialogDescription>
+              {deleting && (
+                <>
+                  Vas a desactivar el sector <span className="font-semibold text-foreground">{deleting.nombre}</span>.
+                  {deleting.operator_count > 0 && (
+                    <span className="block mt-2 text-amber-600">
+                      ⚠️ {deleting.operator_count} {deleting.operator_count === 1 ? "operador tiene" : "operadores tienen"} este sector asignado.
+                      Sus asignaciones quedarán activas pero el sector dejará de aparecer en el listado.
+                    </span>
+                  )}
+                  <span className="block mt-2 text-xs">
+                    El borrado es reversible (soft-delete). Si te equivocás, podemos reactivarlo desde la base de datos.
+                  </span>
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleting(null)}>Cancelar</Button>
+            <Button
+              variant="destructive"
+              onClick={() => deleting && deleteM.mutate(deleting.id)}
+              disabled={deleteM.isPending}
+            >
+              {deleteM.isPending && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
+              Eliminar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </PageShell>
   );
 }
@@ -252,11 +304,12 @@ function AssignedOperators({ sectorId }: { sectorId: string }) {
 // ── Sector card ──────────────────────────────────────────────────────────────
 
 function SectorCard({
-  sector, onEdit, onSetDefault, defaultBusy,
+  sector, onEdit, onSetDefault, onDelete, defaultBusy,
 }: {
   sector: SectorRow;
   onEdit: () => void;
   onSetDefault: () => void;
+  onDelete: () => void;
   defaultBusy: boolean;
 }) {
   return (
@@ -289,7 +342,7 @@ function SectorCard({
                   <MoreVertical className="h-4 w-4" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-44">
+              <DropdownMenuContent align="end" className="w-48">
                 <DropdownMenuItem onSelect={onEdit}>
                   <Edit2 className="h-4 w-4 mr-2" />
                   Editar
@@ -298,6 +351,15 @@ function SectorCard({
                   <DropdownMenuItem onSelect={onSetDefault} disabled={defaultBusy}>
                     <Star className="h-4 w-4 mr-2" />
                     Marcar como default
+                  </DropdownMenuItem>
+                )}
+                {!sector.is_default && (
+                  <DropdownMenuItem
+                    onSelect={onDelete}
+                    className="text-destructive focus:text-destructive"
+                  >
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Eliminar
                   </DropdownMenuItem>
                 )}
               </DropdownMenuContent>
