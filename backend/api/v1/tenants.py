@@ -524,6 +524,168 @@ class OnboardingTestQueryResponse(BaseModel):
     answer: str
 
 
+# ── Onboarding chat (adaptive AI conversation) ────────────────────────────────
+
+class OnboardingChatMessage(BaseModel):
+    role: str  # "assistant" | "user"
+    content: str
+
+
+class OnboardingChatRequest(BaseModel):
+    org_name: str
+    org_type: str
+    tone: str
+    bot_name: str = ""
+    conversation: list[OnboardingChatMessage] = []
+    force_generate: bool = False
+
+
+class OnboardingChatResponse(BaseModel):
+    next_question: str | None = None
+    is_done: bool = False
+    bot_description: str | None = None
+
+
+@router.post("/{tenant_id}/onboarding/chat", response_model=OnboardingChatResponse)
+async def onboarding_chat(
+    tenant_id: str,
+    body: OnboardingChatRequest,
+    current_user: CurrentUser = Depends(require_admin),
+):
+    """Conversational AI onboarding: asks targeted questions and generates bot_description.
+
+    Stateless — caller sends full conversation history each time.
+    Returns next_question, or is_done=True + bot_description after ≤5 exchanges
+    or when force_generate=True.
+    """
+    if current_user.tenant_id != tenant_id:
+        raise HTTPException(status_code=403, detail="Cannot chat for another tenant")
+
+    async with get_pg_session() as session:
+        result = await session.execute(
+            text("SELECT onboarding_completed FROM tenants WHERE id = :tid"),
+            {"tid": tenant_id},
+        )
+        row = result.mappings().fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+    if row["onboarding_completed"]:
+        raise HTTPException(status_code=409, detail="Onboarding already completed")
+
+    MAX_EXCHANGES = 5
+    user_turns = [m for m in body.conversation if m.role == "user"]
+    force_done = len(user_turns) >= MAX_EXCHANGES or body.force_generate
+
+    # Read doc previews to ground the AI in real content
+    doc_context = ""
+    try:
+        async with get_pg_session(tenant_id) as session:
+            doc_result = await session.execute(text("""
+                SELECT d.title,
+                    (SELECT LEFT(p.text, 400) FROM parent_chunks p
+                     WHERE p.document_id = d.id ORDER BY p.chunk_index ASC LIMIT 1) AS preview
+                FROM documentos d WHERE d.status = 'ready'
+                ORDER BY d.created_at DESC LIMIT 3
+            """))
+            doc_rows = [r for r in doc_result.mappings().all() if r["preview"]]
+        if doc_rows:
+            doc_context = "\n\nDocumentos ya cargados (fragmentos reales):\n" + "\n---\n".join(
+                f"📄 {r['title']}:\n{r['preview']}" for r in doc_rows
+            )
+    except Exception as exc:
+        logger.warning("onboarding_chat_doc_ctx_failed tenant_id=%s err=%s", tenant_id, exc)
+
+    bot_name_str = f"El asistente se llama '{body.bot_name}'." if body.bot_name.strip() else ""
+    conv_text = ""
+    if body.conversation:
+        conv_text = "\n\nConversación hasta ahora:\n" + "\n".join(
+            f"{'IA' if m.role == 'assistant' else 'Admin'}: {m.content}"
+            for m in body.conversation
+        )
+
+    if force_done:
+        action_str = (
+            "Ya tenés suficiente información (o se solicitó generar ahora). "
+            "Generá la descripción final del bot."
+        )
+    else:
+        action_str = (
+            "Si necesitás más información, hacé una pregunta específica. "
+            "Si ya tenés suficiente contexto, generá la descripción directamente."
+        )
+
+    prompt = f"""Sos un especialista en configuración de asistentes virtuales. \
+Tu tarea: hacer preguntas precisas a un administrador para entender su organización \
+y luego generar la descripción del bot que se usará como system prompt.
+
+Contexto disponible:
+- Organización: {body.org_name} ({body.org_type})
+- Tono configurado: {body.tone}
+{f"- {bot_name_str}" if bot_name_str else ""}{doc_context}{conv_text}
+
+Reglas para preguntas:
+1. Una sola pregunta a la vez, concreta y específica al tipo de organización.
+2. Preguntá sobre: qué trámites o procesos maneja el bot, qué temas NO debe responder, \
+a quién atiende específicamente, particularidades operacionales importantes.
+3. Basate en el tipo de organización y los documentos cargados para hacer preguntas relevantes.
+4. Evitá preguntas genéricas ("¿sobre qué temas responde?"). Sé específico.
+
+Reglas para la descripción (cuando generás):
+- 4-6 oraciones en tercera persona, español neutro
+- Incluye: quién es la organización, a quién atiende, qué temas cubre, tono, \
+comportamiento cuando no encuentra la respuesta
+- Optimizada para ser leída como system prompt de un LLM
+- Sin saludos, sin listas, sin markdown
+
+{action_str}
+
+Respondé SOLO con JSON válido, sin texto extra ni markdown:
+- Si preguntás: {{"action": "question", "content": "tu pregunta aquí"}}
+- Si generás: {{"action": "done", "bot_description": "descripción completa aquí"}}"""
+
+    from services.groq_client import complete, QueryComplexity
+    import json as _json
+    import re as _re
+
+    try:
+        raw = await complete(
+            messages=[{"role": "user", "content": prompt}],
+            complexity=QueryComplexity.SIMPLE,
+            temperature=0.35,
+            max_tokens=500,
+        )
+    except Exception as exc:
+        logger.error("onboarding_chat_llm_failed tenant_id=%s err=%s", tenant_id, exc)
+        raise HTTPException(status_code=502, detail="No se pudo procesar. Intentá de nuevo.")
+
+    # Robustly extract JSON from possible markdown wrapping
+    clean = raw.strip()
+    md_match = _re.search(r"```(?:json)?\s*([\s\S]*?)```", clean)
+    if md_match:
+        clean = md_match.group(1).strip()
+    brace_match = _re.search(r"\{[\s\S]*\}", clean)
+    if brace_match:
+        clean = brace_match.group(0)
+
+    try:
+        parsed = _json.loads(clean)
+        if parsed.get("action") == "done":
+            desc = (parsed.get("bot_description") or "").strip()
+            if len(desc) < 20:
+                raise ValueError("description too short")
+            return OnboardingChatResponse(is_done=True, bot_description=desc)
+        content = (parsed.get("content") or "").strip()
+        if not content:
+            raise ValueError("empty question")
+        return OnboardingChatResponse(next_question=content, is_done=False)
+    except Exception:
+        fallback = raw.strip()[:500]
+        return OnboardingChatResponse(
+            next_question=fallback or "¿Qué trámites o consultas frecuentes maneja tu organización?",
+            is_done=False,
+        )
+
+
 @router.post("/{tenant_id}/onboarding/generate", response_model=OnboardingGenerateResponse)
 async def onboarding_generate(
     tenant_id: str,

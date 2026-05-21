@@ -594,6 +594,20 @@ export const api = {
       const { data } = await apiClient.post(`/tenants/${tenantId}/onboarding/test-query`, payload);
       return data;
     },
+    onboardingChat: async (
+      tenantId: string,
+      payload: {
+        org_name: string;
+        org_type: string;
+        tone: string;
+        bot_name: string;
+        conversation: Array<{ role: string; content: string }>;
+        force_generate?: boolean;
+      },
+    ): Promise<{ next_question?: string | null; is_done: boolean; bot_description?: string | null }> => {
+      const { data } = await apiClient.post(`/tenants/${tenantId}/onboarding/chat`, payload);
+      return data;
+    },
   },
 
   operator: {
