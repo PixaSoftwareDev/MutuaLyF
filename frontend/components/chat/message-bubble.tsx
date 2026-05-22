@@ -6,6 +6,33 @@ import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import type { ChatMessage } from "@/lib/store";
 
+const URL_REGEX = /https?:\/\/[^\s<>"')\]]+/g;
+
+function renderWithLinks(text: string) {
+  const parts: React.ReactNode[] = [];
+  let last = 0;
+  let match: RegExpExecArray | null;
+  URL_REGEX.lastIndex = 0;
+  while ((match = URL_REGEX.exec(text)) !== null) {
+    if (match.index > last) parts.push(text.slice(last, match.index));
+    const url = match[0].replace(/[.,;:!?]+$/, ""); // strip trailing punctuation
+    parts.push(
+      <a
+        key={match.index}
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="underline underline-offset-2 hover:opacity-80 break-all"
+      >
+        {url}
+      </a>
+    );
+    last = match.index + url.length;
+  }
+  if (last < text.length) parts.push(text.slice(last));
+  return parts;
+}
+
 interface MessageBubbleProps {
   message: ChatMessage;
 }
@@ -50,7 +77,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
               : "bg-muted text-foreground rounded-tl-sm"
           )}
         >
-          {message.content}
+          {renderWithLinks(message.content)}
         </div>
 
         {/* Meta: intent + cache + latency */}
