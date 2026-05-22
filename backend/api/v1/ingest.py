@@ -306,14 +306,16 @@ async def delete_document(
     tenant_id: str = Depends(get_tenant_id),
     current_user: CurrentUser = Depends(require_operator),
 ):
-    """Delete a document and all associated data: PG record, Qdrant chunks, Neo4j nodes."""
-    # 1. Verify document exists and belongs to this tenant
+    """Delete a document and all associated data: PG record, Qdrant chunks, Neo4j nodes, parent_chunks, MinIO file."""
+    # 1. Verify document exists and belongs to this tenant; fetch storage_key for MinIO cleanup
     async with get_pg_session(tenant_id) as session:
         row = await session.execute(
-            text("SELECT id FROM documentos WHERE id = :id"), {"id": document_id}
+            text("SELECT id, storage_key FROM documentos WHERE id = :id"), {"id": document_id}
         )
-        if row.fetchone() is None:
+        doc = row.fetchone()
+        if doc is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+        storage_key = doc["storage_key"] if hasattr(doc, "__getitem__") else doc[1]
 
     # 2. Delete Qdrant chunks (filter by document_id in payload)
     qdrant = get_qdrant_client()
@@ -360,7 +362,25 @@ async def delete_document(
     except Exception as e:
         logger.warning("delete_neo4j_nodes_failed document_id=%s error=%s", document_id, e)
 
-    # 4. Delete PG record
+    # 4. Delete parent_chunks (BM25 full-text search index)
+    async with get_pg_session(tenant_id) as session:
+        await session.execute(
+            text("DELETE FROM parent_chunks WHERE document_id = :id"), {"id": document_id}
+        )
+
+    # 5. Delete original file from MinIO
+    if storage_key:
+        try:
+            import asyncio as _asyncio
+            def _delete_from_minio() -> None:
+                client = get_minio_client()
+                client.remove_object(settings.minio_bucket, storage_key)
+            await _asyncio.to_thread(_delete_from_minio)
+            logger.info("minio_delete_ok document_id=%s key=%s", document_id, storage_key)
+        except Exception as e:
+            logger.warning("minio_delete_failed document_id=%s error=%s", document_id, e)
+
+    # 6. Delete PG record
     async with get_pg_session(tenant_id) as session:
         await session.execute(
             text("DELETE FROM documentos WHERE id = :id"), {"id": document_id}
