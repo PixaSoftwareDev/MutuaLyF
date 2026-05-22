@@ -19,6 +19,7 @@ export function GeneralSettings() {
   const [widgetToken, setWidgetToken] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [botName, setBotName] = useState("");
+  const [botDescription, setBotDescription] = useState("");
   const [greetingMessage, setGreetingMessage] = useState("");
 
   const { data: botConfig } = useQuery({
@@ -36,13 +37,15 @@ export function GeneralSettings() {
   useEffect(() => {
     if (botConfig) {
       setBotName(botConfig.bot_name ?? "");
+      setBotDescription(botConfig.bot_description ?? "");
       setGreetingMessage(botConfig.greeting_message ?? "");
     }
   }, [botConfig]);
 
   // Dirty flags por sección — guardado independiente
-  const identityDirty = botConfig != null && (botName.trim() !== (botConfig.bot_name ?? ""));
-  const greetingDirty = botConfig != null && (greetingMessage !== (botConfig.greeting_message ?? ""));
+  const identityDirty    = botConfig != null && (botName.trim() !== (botConfig.bot_name ?? ""));
+  const descriptionDirty = botConfig != null && (botDescription !== (botConfig.bot_description ?? ""));
+  const greetingDirty    = botConfig != null && (greetingMessage !== (botConfig.greeting_message ?? ""));
 
   const saveIdentityM = useMutation({
     mutationFn: () => api.tenants.updateBotConfig(tenantId!, {
@@ -51,6 +54,17 @@ export function GeneralSettings() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["bot-config", tenantId] });
       toast({ title: "Nombre actualizado", variant: "success" });
+    },
+    onError: () => toast({ title: "Error al guardar", variant: "destructive" }),
+  });
+
+  const saveDescriptionM = useMutation({
+    mutationFn: () => api.tenants.updateBotConfig(tenantId!, {
+      bot_description: botDescription.trim() || null,
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["bot-config", tenantId] });
+      toast({ title: "Descripción actualizada", variant: "success" });
     },
     onError: () => toast({ title: "Error al guardar", variant: "destructive" }),
   });
@@ -119,18 +133,6 @@ export function GeneralSettings() {
             />
           </div>
 
-          {botConfig?.bot_description && (
-            <div className="space-y-1.5">
-              <Label className="text-xs">Descripción</Label>
-              <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap rounded-md border bg-muted/30 px-3 py-2">
-                {botConfig.bot_description}
-              </p>
-              <p className="text-[11px] text-muted-foreground/80">
-                La descripción la gestiona el equipo de soporte.
-              </p>
-            </div>
-          )}
-
           {identityDirty && (
             <Button
               size="sm"
@@ -138,6 +140,37 @@ export function GeneralSettings() {
               disabled={saveIdentityM.isPending}
             >
               {saveIdentityM.isPending
+                ? <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                : <Save className="h-4 w-4 mr-1" />}
+              Guardar
+            </Button>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ── Descripción del bot ── */}
+      <Card>
+        <CardHeader className="pb-3">
+          <h2 className="font-semibold text-sm">Descripción del bot</h2>
+          <p className="text-[11px] text-muted-foreground mt-0.5">
+            Guía al asistente en cada conversación. Editala con cuidado: define quién es, a quién atiende y cómo se comporta.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <Textarea
+            value={botDescription}
+            onChange={e => setBotDescription(e.target.value)}
+            rows={10}
+            placeholder="Sin descripción aún. Completá el onboarding o escribila acá."
+            className="text-sm resize-none leading-relaxed"
+          />
+          {descriptionDirty && (
+            <Button
+              size="sm"
+              onClick={() => saveDescriptionM.mutate()}
+              disabled={saveDescriptionM.isPending}
+            >
+              {saveDescriptionM.isPending
                 ? <Loader2 className="h-4 w-4 animate-spin mr-1" />
                 : <Save className="h-4 w-4 mr-1" />}
               Guardar
