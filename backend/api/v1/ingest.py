@@ -14,7 +14,7 @@ from qdrant_client.models import Filter, FieldCondition, MatchValue
 from sqlalchemy import text
 
 from core.config import settings
-from core.database import get_pg_session, get_qdrant_client
+from core.database import get_pg_session, get_qdrant_client, get_minio_client
 from core.security import CurrentUser, require_admin, require_operator
 from core.tenant import get_tenant_id
 from models.document import DocumentIngestResponse, DocumentResponse, DocumentStatus, document_response_from_row
@@ -32,7 +32,7 @@ async def list_documents(
     async with get_pg_session(tenant_id) as session:
         result = await session.execute(
             text(
-                "SELECT id, title, filename, status, chunk_count, quality_gate_status, created_at, updated_at "
+                "SELECT id, title, filename, status, chunk_count, quality_gate_status, storage_key, created_at, updated_at "
                 "FROM documentos ORDER BY created_at DESC LIMIT 500"
             )
         )
@@ -63,6 +63,40 @@ async def document_status(
         "chunk_count": row["chunk_count"],
         "quality_gate_status": row["quality_gate_status"],
     }
+
+
+@router.get("/documents/{document_id}/download")
+async def download_document(
+    document_id: uuid.UUID,
+    tenant_id: str = Depends(get_tenant_id),
+    current_user: CurrentUser = Depends(require_admin),
+):
+    """Return a short-lived presigned MinIO URL for direct download."""
+    async with get_pg_session(tenant_id) as session:
+        result = await session.execute(
+            text("SELECT filename, storage_key FROM documentos WHERE id = :id"),
+            {"id": document_id},
+        )
+        row = result.mappings().fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if not row["storage_key"]:
+        raise HTTPException(status_code=404, detail="Original file not stored")
+
+    import asyncio as _asyncio
+    from datetime import timedelta
+
+    def _presign() -> str:
+        client = get_minio_client()
+        url = client.presigned_get_object(
+            settings.minio_bucket,
+            row["storage_key"],
+            expires=timedelta(hours=1),
+        )
+        return url
+
+    presigned_url = await _asyncio.to_thread(_presign)
+    return {"url": presigned_url, "filename": row["filename"]}
 
 
 @router.get("/documents/{document_id}/chunks")
@@ -566,10 +600,36 @@ async def ingest_document(
                 },
             )
 
+    # ── Upload original file to MinIO ─────────────────────────────────────────
+    import io as _io
+    import asyncio as _asyncio
+
+    safe_name = re.sub(r"[^\w\-.]", "_", file.filename or "unknown")[:200]
+    storage_key = f"{tenant_id}/{document_id}/{safe_name}"
+
+    def _upload_to_minio() -> None:
+        client = get_minio_client()
+        client.put_object(
+            settings.minio_bucket,
+            storage_key,
+            _io.BytesIO(content),
+            length=len(content),
+            content_type=mime_type,
+        )
+
+    try:
+        await _asyncio.to_thread(_upload_to_minio)
+        async with get_pg_session(tenant_id) as session:
+            await session.execute(
+                text("UPDATE documentos SET storage_key = :key WHERE id = :id"),
+                {"key": storage_key, "id": document_id},
+            )
+        logger.info("minio_upload_ok document_id=%s key=%s", document_id, storage_key)
+    except Exception as exc:
+        logger.warning("minio_upload_failed document_id=%s error=%s — continuing without storage", document_id, exc)
+
     # ── Write to temp dir and enqueue Celery task ─────────────────────────────
     _ensure_upload_dir()
-    # Sanitize filename: strip path separators and control characters
-    safe_name = re.sub(r"[^\w\-.]", "_", file.filename or "unknown")[:200]
     file_path = os.path.join(_UPLOAD_DIR, f"{document_id}_{safe_name}")
     with open(file_path, "wb") as f:
         f.write(content)

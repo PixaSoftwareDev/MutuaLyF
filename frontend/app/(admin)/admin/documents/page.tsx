@@ -7,7 +7,7 @@ import {
   FileText, Clock, Trash2, Loader2,
   ChevronDown, ChevronRight, Search, CheckCircle2,
   XCircle, UserCheck, AlertTriangle, ShieldCheck, ChevronUp,
-  ArrowRight, MoreVertical, Edit2,
+  ArrowRight, MoreVertical, Edit2, Download,
 } from "lucide-react";
 import { api, type DocumentResponse, type ChunkResponse, type PendingChunkResponse } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
@@ -412,6 +412,12 @@ function DocumentRow({
     onError: () => toast({ title: "Error al eliminar", description: "Intentá de nuevo.", variant: "destructive" }),
   });
 
+  const { mutate: downloadDoc, isPending: downloading } = useMutation({
+    mutationFn: () => api.documents.download(doc.id),
+    onSuccess: ({ url }) => window.open(url, "_blank", "noopener"),
+    onError: () => toast({ title: "No se pudo descargar", description: "El archivo original no está disponible.", variant: "destructive" }),
+  });
+
   return (
     <div className={cn(
       "relative rounded-lg border overflow-hidden transition-colors",
@@ -496,6 +502,14 @@ function DocumentRow({
                   ) : (
                     <><Edit2 className="h-4 w-4 mr-2" /> Editar fragmentos</>
                   )}
+                </DropdownMenuItem>
+              )}
+              {doc.storage_key && (
+                <DropdownMenuItem onSelect={() => downloadDoc()} disabled={downloading}>
+                  {downloading
+                    ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Descargando…</>
+                    : <><Download className="h-4 w-4 mr-2" /> Descargar original</>
+                  }
                 </DropdownMenuItem>
               )}
               <DropdownMenuItem

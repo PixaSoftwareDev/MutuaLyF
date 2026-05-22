@@ -102,6 +102,7 @@ export interface DocumentResponse {
   status: "pending" | "processing" | "ready" | "failed";
   chunk_count: number;
   quality_gate_status: "pending" | "passed" | "skipped";
+  storage_key: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -489,6 +490,10 @@ export const api = {
     },
     pendingChunks: async (): Promise<PendingChunkResponse[]> => {
       const { data } = await apiClient.get<PendingChunkResponse[]>("/chunks/pending");
+      return data;
+    },
+    download: async (documentId: string): Promise<{ url: string; filename: string }> => {
+      const { data } = await apiClient.get(`/documents/${documentId}/download`);
       return data;
     },
   },

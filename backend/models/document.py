@@ -31,6 +31,7 @@ class DocumentResponse(BaseModel):
     status: DocumentStatus
     chunk_count: int
     quality_gate_status: QualityGateStatus
+    storage_key: str | None = None
     created_at: datetime
     updated_at: datetime
 

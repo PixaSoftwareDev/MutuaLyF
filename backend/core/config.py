@@ -70,6 +70,13 @@ class Settings(BaseSettings):
     qdrant_host: str = "qdrant"
     qdrant_port: int = 6333
 
+    # ── MinIO ─────────────────────────────────────────────────────────────────
+    minio_endpoint: str = "minio:9000"
+    minio_root_user: str = "minioadmin"
+    minio_root_password: str = "minioadmin123"
+    minio_bucket: str = "documents"
+    minio_secure: bool = False
+
     # ── Redis ─────────────────────────────────────────────────────────────────
     redis_url_broker: str = "redis://redis:6379/0"
     redis_url_cache: str = "redis://redis:6379/1"

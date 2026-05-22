@@ -74,6 +74,9 @@ opentelemetry-instrumentation-sqlalchemy==0.46b0
 opentelemetry-instrumentation-httpx==0.46b0
 opentelemetry-exporter-otlp-proto-grpc==1.25.0
 
+# Object storage
+minio==7.2.9
+
 # Email
 aiosmtplib==3.0.1
 

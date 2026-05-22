@@ -1,10 +1,11 @@
-"""Async database connections: PostgreSQL, Neo4j, Qdrant, Redis."""
+"""Async database connections: PostgreSQL, Neo4j, Qdrant, Redis, MinIO."""
 
 import logging
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
 import redis.asyncio as aioredis
+from minio import Minio
 from neo4j import AsyncGraphDatabase, AsyncDriver
 from qdrant_client import AsyncQdrantClient
 from sqlalchemy.ext.asyncio import (
@@ -330,3 +331,32 @@ async def get_worker_neo4j_driver() -> AsyncGenerator[AsyncDriver, None]:
         yield driver
     finally:
         await driver.close()
+
+
+# ── MinIO ─────────────────────────────────────────────────────────────────────
+
+_minio_client: Minio | None = None
+
+
+def get_minio_client() -> Minio:
+    """Return a module-level Minio client (thread-safe, reusable)."""
+    global _minio_client
+    if _minio_client is None:
+        _minio_client = Minio(
+            settings.minio_endpoint,
+            access_key=settings.minio_root_user,
+            secret_key=settings.minio_root_password,
+            secure=settings.minio_secure,
+        )
+        _ensure_minio_bucket(_minio_client)
+    return _minio_client
+
+
+def _ensure_minio_bucket(client: Minio) -> None:
+    """Create the bucket if it doesn't exist. Called once at client init."""
+    try:
+        if not client.bucket_exists(settings.minio_bucket):
+            client.make_bucket(settings.minio_bucket)
+            logger.info("minio_bucket_created bucket=%s", settings.minio_bucket)
+    except Exception as exc:
+        logger.warning("minio_bucket_check_failed error=%s", exc)

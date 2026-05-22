@@ -610,7 +610,7 @@ async def _store_parent_chunks(parents: list, tenant_id: str) -> None:
                         INSERT INTO parent_chunks
                             (id, document_id, text, chunk_index, token_count, metadata)
                         VALUES
-                            (:id, :doc_id, :text, :idx, :tokens, :meta::jsonb)
+                            (:id, :doc_id, :text, :idx, :tokens, CAST(:meta AS jsonb))
                         ON CONFLICT (id) DO NOTHING
                     """),
                     {
