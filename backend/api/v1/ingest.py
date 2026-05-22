@@ -386,6 +386,7 @@ ALLOWED_MIME_TYPES = {
     "text/plain",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "text/html",
+    "application/json",
     "application/octet-stream",  # Some browsers send this for .docx — detected by extension below
 }
 
@@ -395,6 +396,7 @@ _EXTENSION_MIME_MAP = {
     ".txt":  "text/plain",
     ".html": "text/html",
     ".htm":  "text/html",
+    ".json": "application/json",
 }
 
 # Max file size per plan is enforced in nginx. Here we enforce a hard cap.

@@ -30,6 +30,7 @@ const ACCEPTED_TYPES = {
   "text/plain": [".txt"],
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [".docx"],
   "text/html": [".html"],
+  "application/json": [".json"],
 };
 
 const MAX_SIZE_MB = 200;
@@ -132,7 +133,7 @@ export function DocumentUploader({ onUploaded }: { onUploaded?: () => void }) {
 
         {/* Chips de formatos + tamaño máx en una sola línea */}
         <div className="flex flex-wrap items-center justify-center gap-1.5 mt-2.5">
-          {["PDF", "DOCX", "TXT", "HTML"].map((fmt) => (
+          {["PDF", "DOCX", "TXT", "HTML", "JSON"].map((fmt) => (
             <span
               key={fmt}
               className="inline-flex items-center px-2 py-0.5 rounded-md bg-muted text-[10px] font-mono font-medium text-muted-foreground border border-border/60"

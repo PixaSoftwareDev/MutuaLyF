@@ -325,6 +325,8 @@ def extract_text_from_bytes(content: bytes, mime_type: str, filename: str) -> st
         return _extract_docx(content, filename)
     if mime_type == "text/html":
         return _extract_html(content, filename)
+    if mime_type == "application/json":
+        return _extract_json(content, filename)
     logger.warning("unsupported_mime_type mime=%s filename=%s", mime_type, filename)
     return content.decode("utf-8", errors="replace")
 
@@ -634,3 +636,44 @@ def _extract_html(content: bytes, filename: str) -> str:
     except Exception as exc:
         logger.error("html_extraction_failed filename=%s error=%s", filename, exc)
         return content.decode("utf-8", errors="replace")
+
+
+def _extract_json(content: bytes, filename: str) -> str:
+    """Flatten JSON to readable text for chunking and embedding.
+
+    Recursively walks the structure and emits key: value lines so the
+    chunker and embeddings see natural language rather than raw syntax.
+    Arrays of objects are expanded; primitive arrays are joined inline.
+    """
+    import json
+
+    def _flatten(obj, prefix: str = "") -> list[str]:
+        lines: list[str] = []
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                label = f"{prefix}{k}" if not prefix else f"{prefix}.{k}"
+                if isinstance(v, (dict, list)):
+                    lines.extend(_flatten(v, label))
+                else:
+                    lines.append(f"{label}: {v}")
+        elif isinstance(obj, list):
+            for i, item in enumerate(obj):
+                if isinstance(item, (dict, list)):
+                    lines.extend(_flatten(item, f"{prefix}[{i}]"))
+                else:
+                    lines.append(f"{prefix}[{i}]: {item}")
+        else:
+            lines.append(f"{prefix}: {obj}")
+        return lines
+
+    try:
+        raw = content.decode("utf-8", errors="replace")
+        data = json.loads(raw)
+        lines = _flatten(data)
+        return "\n".join(lines)
+    except json.JSONDecodeError:
+        logger.warning("json_parse_failed filename=%s — treating as plain text", filename)
+        return content.decode("utf-8", errors="replace")
+    except Exception as exc:
+        logger.error("json_extraction_failed filename=%s error=%s", filename, exc)
+        return ""
