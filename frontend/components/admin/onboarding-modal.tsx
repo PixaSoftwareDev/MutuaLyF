@@ -86,7 +86,7 @@ export function OnboardingModal() {
   // Step 3 — Revisión
   const [editedDesc, setEditedDesc] = useState("");
   const [testInput, setTestInput]   = useState("");
-  const [testHistory, setTestHistory] = useState<Array<{ q: string; a: string }>>([]);
+  const [lastTest, setLastTest] = useState<{ q: string; a: string } | null>(null);
 
   const effectiveOrgType = useMemo(
     () => (orgType === "Otra" ? orgTypeCustom.trim() : orgType),
@@ -214,7 +214,7 @@ export function OnboardingModal() {
     onSuccess: (data) => {
       setEditedDesc(data.bot_description);
       setSubmitError(null);
-      setTestHistory([]);
+      setLastTest(null);
       setStep(3);
     },
     onError: (err: any) => {
@@ -229,7 +229,7 @@ export function OnboardingModal() {
       bot_description: editedDesc.trim(),
     }),
     onSuccess: (data) => {
-      setTestHistory(h => [...h, { q: testInput.trim(), a: data.answer }]);
+      setLastTest({ q: testInput.trim(), a: data.answer });
       setTestInput("");
     },
     onError: (err: any) => {
@@ -250,7 +250,7 @@ export function OnboardingModal() {
     }),
     onSuccess: (data) => {
       setEditedDesc(data.bot_description);
-      setTestHistory([]);
+      setLastTest(null);
     },
     onError: () => setSubmitError("No se pudo regenerar."),
   });
@@ -370,7 +370,6 @@ export function OnboardingModal() {
                 <Input
                   value={orgName}
                   onChange={e => setOrgName(e.target.value)}
-                  placeholder="Ej. Mutual Norte"
                   className="h-9"
                   autoFocus
                 />
@@ -431,7 +430,6 @@ export function OnboardingModal() {
                 <Input
                   value={botName}
                   onChange={e => setBotName(e.target.value)}
-                  placeholder="Ej. Aria"
                   className="h-9"
                 />
               </div>
@@ -697,9 +695,9 @@ export function OnboardingModal() {
                   value={editedDesc}
                   onChange={e => {
                     setEditedDesc(e.target.value);
-                    if (testHistory.length > 0) setTestHistory([]);
+                    if (lastTest) setLastTest(null);
                   }}
-                  rows={6}
+                  rows={10}
                   className="resize-none leading-relaxed"
                 />
               </div>
@@ -732,20 +730,16 @@ export function OnboardingModal() {
                   </Button>
                 </div>
 
-                {testHistory.length > 0 && (
-                  <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                    {testHistory.map((t, i) => (
-                      <div key={i} className="text-xs space-y-1">
-                        <div className="flex items-start gap-2">
-                          <span className="font-semibold text-muted-foreground shrink-0">Vos:</span>
-                          <span>{t.q}</span>
-                        </div>
-                        <div className="flex items-start gap-2 bg-primary/5 rounded-md px-2 py-1.5 border border-primary/10">
-                          <span className="font-semibold text-primary shrink-0">Bot:</span>
-                          <span className="text-foreground leading-relaxed">{t.a}</span>
-                        </div>
-                      </div>
-                    ))}
+                {lastTest && (
+                  <div className="text-xs space-y-1">
+                    <div className="flex items-start gap-2">
+                      <span className="font-semibold text-muted-foreground shrink-0">Vos:</span>
+                      <span>{lastTest.q}</span>
+                    </div>
+                    <div className="flex items-start gap-2 bg-primary/5 rounded-md px-2 py-1.5 border border-primary/10">
+                      <span className="font-semibold text-primary shrink-0">Bot:</span>
+                      <span className="text-foreground leading-relaxed">{lastTest.a}</span>
+                    </div>
                   </div>
                 )}
               </div>
