@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  Upload, Trash2, Loader2, Check,
+  Upload, Trash2, Loader2, Save, MoreVertical, Edit2,
 } from "lucide-react";
 import { api, type TenantBranding } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
+} from "@/components/ui/dropdown-menu";
 import { toast } from "@/components/ui/toast";
 import { PageShell } from "@/components/layout/page-shell";
 import { PageHeader } from "@/components/layout/page-header";
@@ -44,27 +47,55 @@ export default function BrandingPage() {
   const [displayName, setDisplayName]   = useState("");
   const [primary, setPrimary]           = useState(DEFAULT_COLOR);
 
+  // Modo edición por sección — read-only por default. Se entra con el dropdown
+  // 3 puntos, se sale con Guardar o Cancelar.
+  const [editingName,  setEditingName]  = useState(false);
+  const [editingColor, setEditingColor] = useState(false);
+
   useEffect(() => {
     if (!branding) return;
     setDisplayName(branding.display_name);
     setPrimary(branding.primary_color || DEFAULT_COLOR);
   }, [branding]);
 
-  const dirty = !!branding && (
-    displayName.trim() !== branding.display_name ||
-    primary !== (branding.primary_color || DEFAULT_COLOR)
-  );
+  const nameDirty  = !!branding && displayName.trim() !== branding.display_name;
+  const colorDirty = !!branding && primary !== (branding.primary_color || DEFAULT_COLOR);
+
+  const cancelName = () => {
+    if (branding) setDisplayName(branding.display_name);
+    setEditingName(false);
+  };
+  const cancelColor = () => {
+    if (branding) setPrimary(branding.primary_color || DEFAULT_COLOR);
+    setEditingColor(false);
+  };
 
   // ── Mutations ─────────────────────────────────────────────────────────────
-  const saveM = useMutation({
+  const saveNameM = useMutation({
     mutationFn: () => api.branding.update({
-      display_name:  displayName.trim() || branding!.display_name,
+      display_name: displayName.trim() || branding!.display_name,
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin-branding"] });
+      qc.invalidateQueries({ queryKey: ["tenant-branding"] });
+      setEditingName(false);
+      toast({ title: "Nombre actualizado", variant: "success" });
+    },
+    onError: (err: any) => {
+      const detail = err?.response?.data?.detail ?? "Error al guardar";
+      toast({ title: detail, variant: "destructive" });
+    },
+  });
+
+  const saveColorM = useMutation({
+    mutationFn: () => api.branding.update({
       primary_color: primary,
     }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin-branding"] });
       qc.invalidateQueries({ queryKey: ["tenant-branding"] });
-      toast({ title: "Branding actualizado", variant: "success" });
+      setEditingColor(false);
+      toast({ title: "Color actualizado", variant: "success" });
     },
     onError: (err: any) => {
       const detail = err?.response?.data?.detail ?? "Error al guardar";
@@ -121,18 +152,45 @@ export default function BrandingPage() {
           {/* Identity */}
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-base">Identidad</CardTitle>
+              <div className="flex items-center justify-between gap-2">
+                <CardTitle className="text-base">Identidad</CardTitle>
+                {!editingName && <SectionMenu onEdit={() => setEditingName(true)} />}
+              </div>
             </CardHeader>
             <CardContent>
               <div className="space-y-1.5 max-w-md">
                 <Label htmlFor="display_name" className="text-xs">Nombre visible</Label>
-                <Input
-                  id="display_name"
-                  value={displayName}
-                  onChange={e => setDisplayName(e.target.value)}
-                  maxLength={200}
-                  placeholder="Ej: Mutualyf S.A."
-                />
+                {editingName ? (
+                  <>
+                    <Input
+                      id="display_name"
+                      value={displayName}
+                      onChange={e => setDisplayName(e.target.value)}
+                      maxLength={200}
+                      placeholder="Ej. Mutualyf S.A."
+                      autoFocus
+                    />
+                    <div className="flex gap-2 pt-2">
+                      <Button
+                        size="sm"
+                        onClick={() => saveNameM.mutate()}
+                        disabled={!nameDirty || !displayName.trim() || saveNameM.isPending}
+                      >
+                        {saveNameM.isPending
+                          ? <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                          : <Save className="h-4 w-4 mr-1" />}
+                        Guardar
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={cancelName} disabled={saveNameM.isPending}>
+                        Cancelar
+                      </Button>
+                    </div>
+                  </>
+                ) : (
+                  <p className="text-sm text-muted-foreground leading-relaxed rounded-md border bg-muted/30 px-3 py-2">
+                    {displayName}
+                  </p>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -140,16 +198,47 @@ export default function BrandingPage() {
           {/* Colors */}
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-base">Color institucional</CardTitle>
+              <div className="flex items-center justify-between gap-2">
+                <CardTitle className="text-base">Color institucional</CardTitle>
+                {!editingColor && <SectionMenu onEdit={() => setEditingColor(true)} />}
+              </div>
             </CardHeader>
             <CardContent>
               <div className="max-w-md">
-                <ColorField
-                  value={primary}
-                  onChange={setPrimary}
-                  presets={PALETTE_PRESETS}
-                  required
-                />
+                {editingColor ? (
+                  <>
+                    <ColorField
+                      value={primary}
+                      onChange={setPrimary}
+                      presets={PALETTE_PRESETS}
+                      required
+                    />
+                    <div className="flex gap-2 pt-3">
+                      <Button
+                        size="sm"
+                        onClick={() => saveColorM.mutate()}
+                        disabled={!colorDirty || saveColorM.isPending}
+                      >
+                        {saveColorM.isPending
+                          ? <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                          : <Save className="h-4 w-4 mr-1" />}
+                        Guardar
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={cancelColor} disabled={saveColorM.isPending}>
+                        Cancelar
+                      </Button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex items-center gap-3 rounded-md border bg-muted/30 px-3 py-2">
+                    <span
+                      className="h-7 w-7 rounded-md border shrink-0"
+                      style={{ backgroundColor: primary }}
+                      aria-label="Vista previa del color"
+                    />
+                    <code className="text-sm font-mono uppercase text-foreground">{primary}</code>
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -221,20 +310,28 @@ export default function BrandingPage() {
             </CardContent>
           </Card>
 
-          {/* Guardar */}
-          <div className="flex justify-end">
-            <Button
-              onClick={() => saveM.mutate()}
-              disabled={!dirty || saveM.isPending || !displayName.trim()}
-            >
-              {saveM.isPending
-                ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                : <Check className="h-4 w-4 mr-2" />}
-              Guardar cambios
-            </Button>
-          </div>
       </div>
     </PageShell>
+  );
+}
+
+// ── Dropdown 3 puntos compartido por sección editable ────────────────────────
+
+function SectionMenu({ onEdit }: { onEdit: () => void }) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button size="icon" variant="ghost" className="h-8 w-8 -mr-1" aria-label="Acciones">
+          <MoreVertical className="h-4 w-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-32">
+        <DropdownMenuItem onSelect={onEdit}>
+          <Edit2 className="h-4 w-4 mr-2" />
+          Editar
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
