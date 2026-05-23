@@ -230,9 +230,9 @@ services:
         fi
         echo "[init] instalando huggingface_hub..."
         pip install --quiet --no-cache-dir huggingface_hub
-        echo "[init] descargando BAAI/bge-reranker-v2-m3 (~600MB)..."
+        echo "[init] descargando BAAI/bge-reranker-base (~600MB)..."
         # huggingface_hub >= 1.0 renombro el CLI a `hf` (antes huggingface-cli)
-        hf download BAAI/bge-reranker-v2-m3 --cache-dir /data
+        hf download BAAI/bge-reranker-base --cache-dir /data
         echo "[init] download completo"
     logging: *default-logging
 
@@ -248,7 +248,7 @@ services:
     environment:
       HF_HOME: /data
     command:
-      - --model-id=BAAI/bge-reranker-v2-m3
+      - --model-id=BAAI/bge-reranker-base
       - --max-concurrent-requests=128
       - --max-batch-tokens=16384
       - --port=80
