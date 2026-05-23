@@ -28,31 +28,87 @@ EMBEDDING_DIM = 1024  # multilingual-e5-large nativo. OpenAI usa dimensions para
 _openai_sync_client: httpx.Client | None = None
 _tei_sync_client: httpx.Client | None = None
 
+# Async clients para el query path (hot path). Per-event-loop init para soportar
+# Celery workers que crean event loops nuevos en cada task. Sin esto, el client
+# httpx queda atado a un loop ya cerrado y rompe la siguiente request.
+import asyncio as _asyncio
+_openai_async_client: httpx.AsyncClient | None = None
+_openai_async_client_loop: _asyncio.AbstractEventLoop | None = None
+_tei_async_client: httpx.AsyncClient | None = None
+_tei_async_client_loop: _asyncio.AbstractEventLoop | None = None
+
+
+def _current_loop() -> _asyncio.AbstractEventLoop | None:
+    try:
+        return _asyncio.get_running_loop()
+    except RuntimeError:
+        return None
+
 
 def _get_openai_sync_client() -> httpx.Client:
+    """Sync client para callers legacy (Celery workers en background)."""
     global _openai_sync_client
     if _openai_sync_client is None:
-        # Connection pool grande para soportar 15+ requests paralelas sin que
-        # se encolen esperando socket. keepalive evita reconexión en cada call.
         _openai_sync_client = httpx.Client(
             base_url="https://api.openai.com/v1",
             headers={"Authorization": f"Bearer {settings.openai_api_key}"},
             timeout=15.0,
-            limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
+            limits=httpx.Limits(
+                max_connections=settings.http_pool_max_connections,
+                max_keepalive_connections=settings.http_pool_max_keepalive,
+            ),
         )
     return _openai_sync_client
 
 
 def _get_tei_sync_client() -> httpx.Client:
-    """Cliente HTTP para TEI (Text Embeddings Inference). Pool grande para batching."""
+    """Sync client TEI para callers legacy."""
     global _tei_sync_client
     if _tei_sync_client is None:
         _tei_sync_client = httpx.Client(
             base_url=settings.tei_embedding_url,
             timeout=settings.tei_timeout_ms / 1000,
-            limits=httpx.Limits(max_connections=128, max_keepalive_connections=32),
+            limits=httpx.Limits(
+                max_connections=settings.http_pool_max_connections,
+                max_keepalive_connections=settings.http_pool_max_keepalive,
+            ),
         )
     return _tei_sync_client
+
+
+def _get_openai_async_client() -> httpx.AsyncClient:
+    """Async client OpenAI para el query path. Per-event-loop init."""
+    global _openai_async_client, _openai_async_client_loop
+    loop = _current_loop()
+    if _openai_async_client is None or loop is not _openai_async_client_loop:
+        _openai_async_client = httpx.AsyncClient(
+            base_url="https://api.openai.com/v1",
+            headers={"Authorization": f"Bearer {settings.openai_api_key}"},
+            timeout=15.0,
+            limits=httpx.Limits(
+                max_connections=settings.http_pool_max_connections,
+                max_keepalive_connections=settings.http_pool_max_keepalive,
+            ),
+        )
+        _openai_async_client_loop = loop
+    return _openai_async_client
+
+
+def _get_tei_async_client() -> httpx.AsyncClient:
+    """Async client TEI para el query path. Per-event-loop init."""
+    global _tei_async_client, _tei_async_client_loop
+    loop = _current_loop()
+    if _tei_async_client is None or loop is not _tei_async_client_loop:
+        _tei_async_client = httpx.AsyncClient(
+            base_url=settings.tei_embedding_url,
+            timeout=settings.tei_timeout_ms / 1000,
+            limits=httpx.Limits(
+                max_connections=settings.http_pool_max_connections,
+                max_keepalive_connections=settings.http_pool_max_keepalive,
+            ),
+        )
+        _tei_async_client_loop = loop
+    return _tei_async_client
 
 
 def _provider() -> str:
@@ -227,3 +283,85 @@ def embed_batch(texts: list[str], is_query: bool = False) -> list[list[float] | 
     except Exception as exc:
         logger.error("embed_batch_failed error=%s", exc)
         return [None] * len(texts)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Async API (query hot path — sin executor wrapping → no consume thread pool)
+#
+# Para uso desde el query path, donde la concurrencia depende de tener I/O
+# verdaderamente non-blocking. El thread pool default tiene ~16 threads;
+# con 4 workers x 20 requests = 80 ops simultaneas, los embeds esperaban
+# slot del executor → serializacion. Estas versiones llaman directo a
+# httpx.AsyncClient sin executor.
+#
+# Background callers (intentions, clustering, ingest) siguen usando las
+# versiones sync arriba — corren en Celery con asyncio.run, no se benefician
+# de async aca.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+async def _aembed_tei(texts: list[str]) -> list[list[float] | None]:
+    """Async version de _embed_tei."""
+    if not texts:
+        return []
+    client = _get_tei_async_client()
+    try:
+        r = await client.post("/embed", json={"inputs": texts, "normalize": True})
+        r.raise_for_status()
+        data = r.json()
+        return data if isinstance(data, list) else [None] * len(texts)
+    except Exception as exc:
+        logger.error("aembed_tei_failed count=%d error=%s", len(texts), exc)
+        return [None] * len(texts)
+
+
+async def _aembed_openai(texts: list[str]) -> list[list[float] | None]:
+    """Async version de _embed_openai — sin run_in_executor, libera el thread pool."""
+    if not texts:
+        return []
+    client = _get_openai_async_client()
+    cleaned = [_strip_e5_prefix(t) for t in texts]
+    try:
+        r = await client.post(
+            "/embeddings",
+            json={
+                "model": settings.openai_embedding_model,
+                "input": cleaned,
+                "dimensions": EMBEDDING_DIM,
+            },
+        )
+        r.raise_for_status()
+        data = r.json()
+        return [item["embedding"] for item in data["data"]]
+    except Exception as exc:
+        logger.error("aembed_openai_failed count=%d error=%s", len(texts), exc)
+        return [None] * len(texts)
+
+
+async def aembed_text(text: str) -> list[float] | None:
+    """Async embed de un texto. Misma logica que embed_text pero non-blocking."""
+    if _is_tei():
+        result = await _aembed_tei([text])
+        if result and result[0] is not None:
+            return result[0]
+        if settings.openai_api_key:
+            logger.warning("aembed_tei_failed_fallback_openai")
+            result = await _aembed_openai([text])
+            return result[0] if result else None
+        return None
+
+    if _is_openai():
+        result = await _aembed_openai([text])
+        return result[0] if result else None
+
+    # Fallback local: el modelo sentence-transformers es sync CPU-bound,
+    # lo corremos en thread pool para no bloquear event loop. Solo si no
+    # hay openai_api_key disponible (provider=local explicito).
+    import asyncio as _asyncio_inner
+    loop = _asyncio_inner.get_running_loop()
+    return await loop.run_in_executor(None, embed_text, text)
+
+
+async def aembed_query(query: str) -> list[float] | None:
+    """Async embed de una query. Agrega prefijo 'query: ' (stripeado por OpenAI)."""
+    return await aembed_text(f"query: {query}")

@@ -47,19 +47,49 @@ try:
 except ImportError:
     pass
 
-# ── TEI client para reranker (lazy) ──────────────────────────────────────────
-_tei_rerank_client: httpx.Client | None = None
+# ── TEI client para reranker — async per-event-loop ──────────────────────────
+_tei_rerank_client_sync: httpx.Client | None = None  # legacy, sync (no usar en query path)
+_tei_rerank_async_client: httpx.AsyncClient | None = None
+_tei_rerank_async_client_loop: asyncio.AbstractEventLoop | None = None
+
+
+def _current_loop() -> asyncio.AbstractEventLoop | None:
+    try:
+        return asyncio.get_running_loop()
+    except RuntimeError:
+        return None
 
 
 def _get_tei_rerank_client() -> httpx.Client:
-    global _tei_rerank_client
-    if _tei_rerank_client is None:
-        _tei_rerank_client = httpx.Client(
+    """Sync TEI rerank client — legacy, no usar en query path async."""
+    global _tei_rerank_client_sync
+    if _tei_rerank_client_sync is None:
+        _tei_rerank_client_sync = httpx.Client(
             base_url=settings.tei_reranker_url,
             timeout=settings.tei_timeout_ms / 1000,
-            limits=httpx.Limits(max_connections=128, max_keepalive_connections=32),
+            limits=httpx.Limits(
+                max_connections=settings.http_pool_max_connections,
+                max_keepalive_connections=settings.http_pool_max_keepalive,
+            ),
         )
-    return _tei_rerank_client
+    return _tei_rerank_client_sync
+
+
+def _get_tei_rerank_async_client() -> httpx.AsyncClient:
+    """Async TEI rerank client para el query path. Per-event-loop init."""
+    global _tei_rerank_async_client, _tei_rerank_async_client_loop
+    loop = _current_loop()
+    if _tei_rerank_async_client is None or loop is not _tei_rerank_async_client_loop:
+        _tei_rerank_async_client = httpx.AsyncClient(
+            base_url=settings.tei_reranker_url,
+            timeout=settings.tei_timeout_ms / 1000,
+            limits=httpx.Limits(
+                max_connections=settings.http_pool_max_connections,
+                max_keepalive_connections=settings.http_pool_max_keepalive,
+            ),
+        )
+        _tei_rerank_async_client_loop = loop
+    return _tei_rerank_async_client
 
 
 def _rerank_via_tei() -> bool:
@@ -250,11 +280,11 @@ async def retrieve(
             try:
                 async with asyncio.timeout(_RERANKER_TIMEOUT_S):
                     if _rerank_via_tei():
-                        # TEI HTTP — no necesita executor (httpx sync pero rápido)
-                        reranked = await loop.run_in_executor(
-                            None, _rerank_tei, query, chunks, rerank_top_k
-                        )
+                        # TEI async — sin executor, no consume thread pool.
+                        reranked = await _arerank_tei(query, chunks, rerank_top_k)
                     else:
+                        # Local sentence-transformers es CPU-bound sync,
+                        # mandamos al executor para no bloquear event loop.
                         reranked = await loop.run_in_executor(
                             None, _rerank, query, chunks, rerank_top_k
                         )
@@ -432,47 +462,39 @@ def _rrf_merge(
     return sorted(chunk_by_pid.values(), key=lambda c: c.score, reverse=True)
 
 
-def _rerank_tei(query: str, chunks: list[RetrievedChunk], top_k: int) -> list[RetrievedChunk]:
-    """Rerank usando TEI /rerank endpoint.
+async def _arerank_tei(query: str, chunks: list[RetrievedChunk], top_k: int) -> list[RetrievedChunk]:
+    """Rerank async via TEI /rerank — sin executor, libera thread pool.
 
     TEI maneja batching server-side y devuelve scores [0,1] normalizados (sigmoid
-    sobre los logits del cross-encoder). Mismo modelo que el local pero sin GIL
-    contention en el proceso uvicorn.
-
-    Si TEI falla o timeoutea, devuelve chunks ordenados por Qdrant score como
-    fallback (mejor que romper la respuesta entera).
+    sobre los logits del cross-encoder). Si TEI falla, fallback a Qdrant scores.
     """
     if not chunks:
         return []
-    client = _get_tei_rerank_client()
+    client = _get_tei_rerank_async_client()
     try:
-        # TEI espera: {"query": "...", "texts": [...]}
-        # Devuelve: [{"index": N, "score": 0.X}, ...] ordenado por score desc
-        r = client.post(
+        r = await client.post(
             "/rerank",
             json={
                 "query": query,
                 "texts": [c.text for c in chunks],
-                "raw_scores": False,  # devuelve scores normalizados [0,1]
-                "return_text": False,  # no necesitamos los textos de vuelta
+                "raw_scores": False,
+                "return_text": False,
             },
         )
         r.raise_for_status()
         results = r.json()
         if not isinstance(results, list):
-            logger.warning("rerank_tei_unexpected_response type=%s", type(results).__name__)
+            logger.warning("arerank_tei_unexpected_response type=%s", type(results).__name__)
             return sorted(chunks, key=lambda c: c.score, reverse=True)[:top_k]
-        # Actualizar scores en los chunks segun el orden devuelto
         for item in results:
             idx = item.get("index")
             if idx is not None and 0 <= idx < len(chunks):
                 chunks[idx].score = float(item.get("score", 0.0))
-        # TEI devuelve ya ordenado, pero aseguramos el orden en nuestro lado
         sorted_chunks = sorted(chunks, key=lambda c: c.score, reverse=True)
         return sorted_chunks[:top_k]
     except Exception as exc:
         logger.error(
-            "rerank_tei_failed candidates=%d error=%s fallback=qdrant_scores",
+            "arerank_tei_failed candidates=%d error=%s fallback=qdrant_scores",
             len(chunks), exc,
         )
         return sorted(chunks, key=lambda c: c.score, reverse=True)[:top_k]

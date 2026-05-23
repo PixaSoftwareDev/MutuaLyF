@@ -47,13 +47,16 @@ _groq_client_loop: asyncio.AbstractEventLoop | None = None
 _openai_http_client: httpx.AsyncClient | None = None
 _openai_http_client_loop: asyncio.AbstractEventLoop | None = None
 
-# Global semaphore: max concurrent LLM requests across queries + quality gate.
-# Sized for LLM_PROVIDER=openai (tier 1+ paid). With Groq free tier, lower to 4.
-# Name kept as _GROQ_* for historical compatibility — the semaphore actually
-# applies to whichever provider complete() ends up calling.
+# Global semaphore: max concurrent LLM requests POR WORKER uvicorn.
+# Lee de settings.llm_max_concurrent_per_worker (default 50).
+# - OpenAI Tier 1 paid (500 RPM = ~8 RPS): 50 por worker × 4 workers = 200 max
+#   concurrent. Bien debajo del rate limit real.
+# - OpenAI Tier 2+ (5000 RPM): subir a 100-200.
+# - Groq free tier (30 RPM): bajar a 4-7.
+# El semaforo es por event loop (per-worker), no global cross-process.
+# Name kept as _GROQ_* for historical compatibility — applies to cualquier provider.
 _GROQ_SEMAPHORE: asyncio.Semaphore | None = None
 _GROQ_SEMAPHORE_LOOP: asyncio.AbstractEventLoop | None = None
-_GROQ_MAX_CONCURRENT = 10
 _QUALITY_GATE_MAX_CONCURRENT = 1  # Quality gate takes max 1 slot to avoid starving queries
 
 
@@ -68,10 +71,16 @@ def _get_openai_http_client() -> httpx.AsyncClient:
     global _openai_http_client, _openai_http_client_loop
     loop = _current_loop()
     if _openai_http_client is None or loop is not _openai_http_client_loop:
+        # Pool grande: bajo carga, 4 workers x 50 concurrentes pueden hacer
+        # cientos de calls en flight. Default httpx (100/20) es chico.
         _openai_http_client = httpx.AsyncClient(
             base_url="https://api.openai.com/v1",
             headers={"Authorization": f"Bearer {settings.openai_api_key}"},
             timeout=30.0,
+            limits=httpx.Limits(
+                max_connections=settings.http_pool_max_connections,
+                max_keepalive_connections=settings.http_pool_max_keepalive,
+            ),
         )
         _openai_http_client_loop = loop
     return _openai_http_client
@@ -81,7 +90,7 @@ def _get_groq_semaphore() -> asyncio.Semaphore:
     global _GROQ_SEMAPHORE, _GROQ_SEMAPHORE_LOOP
     loop = _current_loop()
     if _GROQ_SEMAPHORE is None or loop is not _GROQ_SEMAPHORE_LOOP:
-        _GROQ_SEMAPHORE = asyncio.Semaphore(_GROQ_MAX_CONCURRENT)
+        _GROQ_SEMAPHORE = asyncio.Semaphore(settings.llm_max_concurrent_per_worker)
         _GROQ_SEMAPHORE_LOOP = loop
     return _GROQ_SEMAPHORE
 

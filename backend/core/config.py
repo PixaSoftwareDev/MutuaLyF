@@ -48,6 +48,20 @@ class Settings(BaseSettings):
     # tei:   mismo modelo en TEI container con batching.
     reranker_provider: str = "local"
 
+    # ── Concurrency tuning (production) ───────────────────────────────────────
+    # Semaforo asyncio: max LLM requests concurrentes POR WORKER uvicorn.
+    # 4 workers x este valor = max LLM calls totales en el sistema.
+    # Default 50 calibrado para OpenAI Tier 1 paid (500 RPM):
+    #   4 x 50 = 200 max concurrent — bien debajo de los 500 RPM (8 RPS).
+    # Para Tier 2+ (5000 RPM): subir a 100-200.
+    # Para Groq free tier: bajar a 4-7 (rate limit 30 RPM).
+    llm_max_concurrent_per_worker: int = 50
+
+    # Connection pool sizes para clientes HTTP externos (OpenAI, TEI).
+    # Default httpx es 100/20 — chico para multi-worker bajo concurrencia.
+    http_pool_max_connections: int = 200
+    http_pool_max_keepalive: int = 50
+
     # ── PostgreSQL ─────────────────────────────────────────────────────────────
     postgres_host: str = "postgres"
     postgres_port: int = 5432

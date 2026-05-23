@@ -55,15 +55,18 @@ async def set_cached_embedding(text: str, vector: list[float]) -> None:
 
 
 async def embed_query_cached(text: str) -> list[float] | None:
-    """Embed query with Redis cache. Falls back to fresh embedding on miss."""
+    """Embed query with Redis cache. Falls back to fresh embedding on miss.
+
+    Usa aembed_query (httpx.AsyncClient nativo) en vez de embed_query+executor.
+    El cambio elimina la dependencia del thread pool de asyncio que serializaba
+    los embeds bajo carga (16 threads default → cuello bajo 20+ requests).
+    """
     cached = await get_cached_embedding(text)
     if cached is not None:
         return cached
 
-    from services.embeddings import embed_query
-    import asyncio
-    loop = asyncio.get_running_loop()
-    vector = await loop.run_in_executor(None, embed_query, text)
+    from services.embeddings import aembed_query
+    vector = await aembed_query(text)
 
     if vector is not None:
         await set_cached_embedding(text, vector)
