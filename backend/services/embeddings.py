@@ -26,6 +26,7 @@ EMBEDDING_DIM = 1024  # multilingual-e5-large nativo. OpenAI usa dimensions para
 # loop.run_in_executor para no bloquear). Lazy-init para no crear conexión
 # si nunca se llama.
 _openai_sync_client: httpx.Client | None = None
+_tei_sync_client: httpx.Client | None = None
 
 
 def _get_openai_sync_client() -> httpx.Client:
@@ -42,8 +43,28 @@ def _get_openai_sync_client() -> httpx.Client:
     return _openai_sync_client
 
 
+def _get_tei_sync_client() -> httpx.Client:
+    """Cliente HTTP para TEI (Text Embeddings Inference). Pool grande para batching."""
+    global _tei_sync_client
+    if _tei_sync_client is None:
+        _tei_sync_client = httpx.Client(
+            base_url=settings.tei_embedding_url,
+            timeout=settings.tei_timeout_ms / 1000,
+            limits=httpx.Limits(max_connections=128, max_keepalive_connections=32),
+        )
+    return _tei_sync_client
+
+
+def _provider() -> str:
+    return (settings.embedding_provider or "local").lower()
+
+
 def _is_openai() -> bool:
-    return (settings.embedding_provider or "local").lower() == "openai"
+    return _provider() == "openai"
+
+
+def _is_tei() -> bool:
+    return _provider() == "tei"
 
 
 # ── Local model (lazy, skipped if provider=openai) ────────────────────────────
@@ -80,6 +101,30 @@ def _strip_e5_prefix(text: str) -> str:
     return text
 
 
+def _embed_tei(texts: list[str]) -> list[list[float] | None]:
+    """Send a batch of texts to TEI's /embed endpoint.
+
+    TEI hace dynamic batching server-side: aunque mandemos requests separados,
+    el server los junta en 1 batch si llegan dentro de la misma ventana. Igual
+    enviamos batch para minimizar HTTP overhead.
+
+    El modelo de TEI sirve los prefixes 'query: '/'passage: ' tal como vienen
+    (mismo binario que sentence-transformers).
+    """
+    if not texts:
+        return []
+    client = _get_tei_sync_client()
+    try:
+        r = client.post("/embed", json={"inputs": texts, "normalize": True})
+        r.raise_for_status()
+        data = r.json()
+        # TEI devuelve [[v1...], [v2...], ...]
+        return data if isinstance(data, list) else [None] * len(texts)
+    except Exception as exc:
+        logger.error("embed_tei_failed count=%d error=%s", len(texts), exc)
+        return [None] * len(texts)
+
+
 def _embed_openai(texts: list[str]) -> list[list[float] | None]:
     """Send a batch of texts to OpenAI text-embedding-3-small.
 
@@ -110,11 +155,23 @@ def _embed_openai(texts: list[str]) -> list[list[float] | None]:
 
 # ── Public API (unchanged signatures, sync) ───────────────────────────────────
 def embed_text(text: str) -> list[float] | None:
-    """Embed a single text. Routes to OpenAI or local based on settings.
+    """Embed a single text. Routes to TEI, OpenAI or local based on settings.
 
     Local model expects 'query: ' or 'passage: ' prefix; callers add it via
-    embed_query. OpenAI strips these prefixes internally.
+    embed_query. OpenAI strips these prefixes internally. TEI usa los prefixes
+    tal como vienen (mismo modelo que local).
     """
+    if _is_tei():
+        result = _embed_tei([text])
+        if result and result[0] is not None:
+            return result[0]
+        # Fallback a OpenAI si TEI falla y openai_api_key esta seteada
+        if settings.openai_api_key:
+            logger.warning("embed_tei_failed_fallback_openai")
+            result = _embed_openai([text])
+            return result[0] if result else None
+        return None
+
     if _is_openai():
         result = _embed_openai([text])
         return result[0] if result else None
@@ -149,6 +206,14 @@ def embed_batch(texts: list[str], is_query: bool = False) -> list[list[float] | 
         return []
     prefix = "query: " if is_query else "passage: "
     prefixed = [f"{prefix}{t}" for t in texts]
+
+    if _is_tei():
+        result = _embed_tei(prefixed)
+        # Si TEI fallo completo y openai esta disponible, fallback a openai
+        if all(v is None for v in result) and settings.openai_api_key:
+            logger.warning("embed_batch_tei_failed_fallback_openai count=%d", len(prefixed))
+            return _embed_openai(prefixed)
+        return result
 
     if _is_openai():
         return _embed_openai(prefixed)

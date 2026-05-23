@@ -32,12 +32,14 @@ def get_pg_engine() -> AsyncEngine:
     if _pg_engine is None:
         _pg_engine = create_async_engine(
             settings.postgres_dsn,
-            # Bumped from 10/20 -> 30/50 (max 80 connections). Cada query del
-            # widget abre 2-3 sesiones (search_path SET, leer datos, log async).
-            # Con 15 concurrent users el viejo cap de 30 (10+20) se saturaba
-            # y los logs de query/usage_event empezaban a fallar en cascada.
-            pool_size=30,
-            max_overflow=50,
+            # F1.8: pool tuned per-worker para multi-worker (4 workers uvicorn).
+            # SQLAlchemy pool es process-local: 4 workers x 15 base + 15 overflow
+            # = ~120 connections total al PG bajo carga maxima.
+            # PG max_connections subido a 200 (via -c en docker-compose) → headroom
+            # para celery, migraciones, admin tools.
+            # Antes (30/50 con 1 worker): 80 max, OK para single-worker.
+            pool_size=15,
+            max_overflow=15,
             pool_pre_ping=True,
             pool_timeout=settings.db_timeout_ms / 1000,
             echo=False,

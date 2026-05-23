@@ -12,6 +12,7 @@ import logging
 from dataclasses import dataclass
 from functools import lru_cache
 
+import httpx
 from qdrant_client.models import ScoredPoint
 
 from core.config import settings
@@ -21,15 +22,17 @@ from services.embedding_cache import embed_query_cached
 logger = logging.getLogger(__name__)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# PyTorch threading config — debe correr ANTES de cualquier op de torch.
-# torch.set_num_interop_threads() solo se puede llamar al inicio. En Docker el
-# default es os.cpu_count()=16 pero el cgroup nos limita a 6 → oversubscription.
-# Auditoria 2026-05-20 confirmo: con 10 threads default, rerank de 10 pares
-# tarda 12s; con 6 threads, 2s. Alineamos al cgroup limit del backend.
+# PyTorch threading config — solo aplica si reranker_provider=local (fallback).
+# F1: ahora corren 4 workers uvicorn con cgroup limit 12 CPUs. Cada worker
+# deberia usar ~3 threads para no oversubscribir (4 workers x 3 threads = 12).
+# Si todos usan los 6 viejos: 24 threads pelean por 12 CPU cores → context
+# switching mata performance.
+# Si reranker_provider=tei (default produccion), el modelo corre en otro
+# container y este import solo sirve por si torch fue importado por otro path.
 # ─────────────────────────────────────────────────────────────────────────────
 try:
     import torch as _torch
-    _torch.set_num_threads(6)
+    _torch.set_num_threads(3)
     try:
         _torch.set_num_interop_threads(1)
     except RuntimeError:
@@ -43,6 +46,24 @@ try:
     )
 except ImportError:
     pass
+
+# ── TEI client para reranker (lazy) ──────────────────────────────────────────
+_tei_rerank_client: httpx.Client | None = None
+
+
+def _get_tei_rerank_client() -> httpx.Client:
+    global _tei_rerank_client
+    if _tei_rerank_client is None:
+        _tei_rerank_client = httpx.Client(
+            base_url=settings.tei_reranker_url,
+            timeout=settings.tei_timeout_ms / 1000,
+            limits=httpx.Limits(max_connections=128, max_keepalive_connections=32),
+        )
+    return _tei_rerank_client
+
+
+def _rerank_via_tei() -> bool:
+    return (settings.reranker_provider or "local").lower() == "tei"
 
 # Per-source timeouts (independent — Qdrant and reranker don't block each other)
 _QDRANT_TIMEOUT_S  = settings.db_timeout_ms / 1000       # default 500ms
@@ -70,8 +91,17 @@ class RetrievedChunk:
 
 @lru_cache(maxsize=1)
 def _load_reranker():
+    """Carga el reranker local (sentence-transformers CrossEncoder).
+
+    Solo se llama si reranker_provider=local. En produccion default es tei,
+    asi que esta funcion no se invoca y el modelo no se carga (libera ~2GB RAM
+    en el proceso uvicorn).
+    """
     if not settings.reranker_enabled:
         logger.info("reranker_disabled via RERANKER_ENABLED=false")
+        return None
+    if _rerank_via_tei():
+        logger.info("reranker_via_tei skipping local model load")
         return None
     try:
         from sentence_transformers import CrossEncoder
@@ -208,6 +238,7 @@ async def retrieve(
     # Cuando se carguen 5+ docs relevantes el reranker se activa automaticamente.
     with tracer.start_as_current_span("retrieval.rerank") as span:
         span.set_attribute("candidates", len(chunks))
+        span.set_attribute("provider", "tei" if _rerank_via_tei() else "local")
         if len(chunks) < settings.reranker_min_candidates:
             logger.debug(
                 "rerank_skipped reason=few_candidates count=%d min=%d",
@@ -218,7 +249,15 @@ async def retrieve(
         else:
             try:
                 async with asyncio.timeout(_RERANKER_TIMEOUT_S):
-                    reranked = await loop.run_in_executor(None, _rerank, query, chunks, rerank_top_k)
+                    if _rerank_via_tei():
+                        # TEI HTTP — no necesita executor (httpx sync pero rápido)
+                        reranked = await loop.run_in_executor(
+                            None, _rerank_tei, query, chunks, rerank_top_k
+                        )
+                    else:
+                        reranked = await loop.run_in_executor(
+                            None, _rerank, query, chunks, rerank_top_k
+                        )
                 span.set_attribute("reranked", len(reranked))
             except asyncio.TimeoutError:
                 logger.warning(
@@ -391,6 +430,52 @@ def _rrf_merge(
             chunk_by_pid[key].score = rrf
 
     return sorted(chunk_by_pid.values(), key=lambda c: c.score, reverse=True)
+
+
+def _rerank_tei(query: str, chunks: list[RetrievedChunk], top_k: int) -> list[RetrievedChunk]:
+    """Rerank usando TEI /rerank endpoint.
+
+    TEI maneja batching server-side y devuelve scores [0,1] normalizados (sigmoid
+    sobre los logits del cross-encoder). Mismo modelo que el local pero sin GIL
+    contention en el proceso uvicorn.
+
+    Si TEI falla o timeoutea, devuelve chunks ordenados por Qdrant score como
+    fallback (mejor que romper la respuesta entera).
+    """
+    if not chunks:
+        return []
+    client = _get_tei_rerank_client()
+    try:
+        # TEI espera: {"query": "...", "texts": [...]}
+        # Devuelve: [{"index": N, "score": 0.X}, ...] ordenado por score desc
+        r = client.post(
+            "/rerank",
+            json={
+                "query": query,
+                "texts": [c.text for c in chunks],
+                "raw_scores": False,  # devuelve scores normalizados [0,1]
+                "return_text": False,  # no necesitamos los textos de vuelta
+            },
+        )
+        r.raise_for_status()
+        results = r.json()
+        if not isinstance(results, list):
+            logger.warning("rerank_tei_unexpected_response type=%s", type(results).__name__)
+            return sorted(chunks, key=lambda c: c.score, reverse=True)[:top_k]
+        # Actualizar scores en los chunks segun el orden devuelto
+        for item in results:
+            idx = item.get("index")
+            if idx is not None and 0 <= idx < len(chunks):
+                chunks[idx].score = float(item.get("score", 0.0))
+        # TEI devuelve ya ordenado, pero aseguramos el orden en nuestro lado
+        sorted_chunks = sorted(chunks, key=lambda c: c.score, reverse=True)
+        return sorted_chunks[:top_k]
+    except Exception as exc:
+        logger.error(
+            "rerank_tei_failed candidates=%d error=%s fallback=qdrant_scores",
+            len(chunks), exc,
+        )
+        return sorted(chunks, key=lambda c: c.score, reverse=True)[:top_k]
 
 
 def _rerank(query: str, chunks: list[RetrievedChunk], top_k: int) -> list[RetrievedChunk]:

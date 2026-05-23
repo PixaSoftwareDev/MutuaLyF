@@ -24,15 +24,29 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
 
-    # ── Embedding provider switch (local | openai) ───────────────────────────
-    # local: multilingual-e5-large CPU-bound, ~1.5GB RAM, ~200ms/embed.
-    # openai: text-embedding-3-small con dimensions=1024 (compat Qdrant).
-    #   Beneficio: libera 1.5GB RAM del backend y el celery_worker, embeddings
-    #   ~80ms via API. NOTA: cambiar provider requiere re-embeddear chunks
-    #   existentes (ver scripts/re_embed_qdrant.py) — los vectores no son
-    #   intercambiables entre modelos.
+    # ── Embedding provider switch (local | openai | tei) ─────────────────────
+    # local: multilingual-e5-large CPU-bound EN el proceso uvicorn, ~1.5GB RAM,
+    #        ~200ms/embed pero consume GIL → bloquea event loop con concurrencia.
+    # openai: text-embedding-3-small con dimensions=1024 (compat Qdrant). Via API.
+    # tei:   text-embeddings-inference (HuggingFace, Rust). Mismo modelo
+    #        multilingual-e5-large pero corriendo en su propio container. Hace
+    #        dynamic batching: 20 requests simultaneas se procesan en 1 forward
+    #        pass del modelo → throughput ~10x vs local.
+    # NOTA: cambiar provider entre local/tei NO requiere re-embeddear (mismo
+    # modelo y dim). Entre openai y local/tei SI requiere reembedding completo.
     embedding_provider: str = "local"
     openai_embedding_model: str = "text-embedding-3-small"
+
+    # ── TEI URLs (Text Embeddings Inference) ──────────────────────────────────
+    tei_embedding_url: str = "http://tei-embeddings:80"
+    tei_reranker_url:  str = "http://tei-reranker:80"
+    tei_timeout_ms:    int = 5000   # margen para batching server-side
+
+    # ── Reranker provider switch (local | tei) ────────────────────────────────
+    # local: bge-reranker-large via sentence-transformers CrossEncoder en el
+    #        proceso uvicorn (CPU, GIL bound, ~2GB RAM, OOM leak conocido).
+    # tei:   mismo modelo en TEI container con batching.
+    reranker_provider: str = "local"
 
     # ── PostgreSQL ─────────────────────────────────────────────────────────────
     postgres_host: str = "postgres"

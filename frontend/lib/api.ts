@@ -24,12 +24,37 @@ apiClient.interceptors.request.use((config) => {
   return config;
 });
 
-// Redirect to /login on 401 — wipe ALL auth state first to avoid a redirect loop
-// where the middleware still sees ia_role/ia_tenant cookies and bounces back.
+// 401 → wipe auth + redirect a /login. 429 → mostrar toast, NO tocar auth.
+// F1.7: antes cualquier 4xx mataba la sesion. Bajo stress test, nginx tira
+// 429 (rate limit) y el frontend lo trataba como sesion invalida → falso
+// positivo "token revocado". Ahora 429 es ruidoso pero no destructivo.
+let _rateLimitToastShownAt = 0;
 apiClient.interceptors.response.use(
   (res) => res,
   (err: AxiosError) => {
-    if (err.response?.status === 401 && typeof window !== "undefined") {
+    const status = err.response?.status;
+
+    // ── 429 Too Many Requests — rate limit ──────────────────────────────────
+    if (status === 429 && typeof window !== "undefined") {
+      // Throttle: 1 toast cada 3s para no spammear si hay muchas requests fallando
+      const now = Date.now();
+      if (now - _rateLimitToastShownAt > 3000) {
+        _rateLimitToastShownAt = now;
+        // Lazy import del toast helper
+        import("@/components/ui/toast").then(({ toast }) => {
+          toast({
+            title: "Demasiadas solicitudes",
+            description: "Esperá un momento y volvé a intentar.",
+            variant: "destructive",
+          });
+        }).catch(() => {/* toast no disponible — silencioso */});
+      }
+      // No tocar el token: la sesión sigue siendo válida, solo hay backpressure.
+      return Promise.reject(err);
+    }
+
+    // ── 401 Unauthorized — wipe auth y redirect ─────────────────────────────
+    if (status === 401 && typeof window !== "undefined") {
       // Avoid loops: if already on /login, just reject; don't kick off another redirect.
       if (!window.location.pathname.startsWith("/login")) {
         try {

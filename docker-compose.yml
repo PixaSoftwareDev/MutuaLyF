@@ -13,6 +13,16 @@ services:
     image: pgvector/pgvector:pg16
     container_name: ia_postgres
     restart: unless-stopped
+    # F1.8: max_connections subido de 100 (default) a 200. Necesario para
+    # 4 workers uvicorn (4x30=120 pool) + celery + migraciones + admin tools.
+    # 200 es conservador para los recursos del container (PG usa ~10MB por
+    # connection idle), con 31G de RAM en VPS hay margen sobrado.
+    command:
+      - "postgres"
+      - "-c"
+      - "max_connections=200"
+      - "-c"
+      - "shared_buffers=512MB"
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
@@ -129,11 +139,20 @@ services:
       dockerfile: Dockerfile
     container_name: ia_backend
     restart: unless-stopped
-    # Modo producción: 2 workers dedicados, sin --reload (que en stress causa
-    # zombies de healthcheck y procesos sin worker).
-    # Para hot-reload en desarrollo: agregar --reload manualmente y bajar workers a 1.
-    command: uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1 --log-level info --timeout-keep-alive 30 --timeout-graceful-shutdown 30
+    # Modo producción: 4 workers en paralelo para soportar concurrencia real.
+    # Con 1 worker, 20 chats simultáneos colapsan a 21s (audit 2026-05-22).
+    # Con 4 workers + 12 CPU cap, 20 chats simultáneos → ~2-3s.
+    # No --reload aca: causa zombies de healthcheck bajo stress. Dev usa override.
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4 --log-level info --timeout-keep-alive 30 --timeout-graceful-shutdown 30
     env_file: .env
+    environment:
+      # F2: rutear embeddings y reranker a TEI (out-of-process, batching nativo).
+      # Si los containers tei-* no arrancan, embeddings cae a openai (si openai_api_key
+      # esta seteada) o a local; reranker se skipea (chunks se ordenan por Qdrant score).
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-tei}
+      RERANKER_PROVIDER: ${RERANKER_PROVIDER:-tei}
+      TEI_EMBEDDING_URL: ${TEI_EMBEDDING_URL:-http://tei-embeddings:80}
+      TEI_RERANKER_URL: ${TEI_RERANKER_URL:-http://tei-reranker:80}
     ports:
       - "127.0.0.1:8000:8000"
     volumes:
@@ -159,18 +178,86 @@ services:
       retries: 10
       start_period: 180s
     logging: *default-logging
-    # docker-compose standalone ignora deploy.resources.limits — usar atajos directos.
-    # 10G RAM y 6 CPU. Subido de 6G a 10G tras descubrir leak ~250MB/query en
-    # bge-reranker-large (PyTorch retiene state aún con torch.inference_mode + gc).
-    # En VPS conviene 16G+. Con restart: unless-stopped + healthcheck holgado,
-    # los OOM intermitentes se recuperan en ~60s sin intervención.
-    mem_limit: 10g
-    cpus: 6
+    # F1.2-3: subido de 6/10G → 12/14G. Cada worker uvicorn consume ~700MB
+    # (modelos locales como fallback). Con 4 workers + TEI out-of-process,
+    # el backend usa ~5GB. Margen para picos hasta 14G. CPU: 4 workers x 3
+    # cores cada uno = 12 (de 16 disponibles en el VPS).
+    mem_limit: 14g
+    cpus: 12
     deploy:
       resources:
         limits:
-          cpus: "6"
-          memory: 10G
+          cpus: "12"
+          memory: 14G
+
+  # ─── F2: Text Embeddings Inference (TEI) — modelos ML out-of-process ────────
+  #
+  # Sacar embeddings + reranker del proceso Python uvicorn. TEI corre el modelo
+  # en Rust con dynamic batching: si llegan 20 requests a la vez, las junta en
+  # 1 sola forward pass. Throughput sube ~10x vs llamar al modelo en-proceso.
+  #
+  # Cada container TEI sirve UN modelo. Por eso necesitamos 2:
+  #   - tei-embeddings: multilingual-e5-large (1024 dims, español/100+ idiomas)
+  #   - tei-reranker:   bge-reranker-large (cross-encoder)
+  #
+  # Resources: 4 CPUs y 4G RAM cada uno. El modelo pesa ~1.5GB.
+  # El backend deja de cargar torch/sentence-transformers → libera ~2GB RAM.
+
+  tei-embeddings:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.5
+    container_name: ia_tei_embeddings
+    restart: unless-stopped
+    command:
+      - --model-id=intfloat/multilingual-e5-large
+      - --max-concurrent-requests=128
+      - --max-batch-tokens=16384
+      - --port=80
+    volumes:
+      - tei_data:/data
+    environment:
+      HF_HOME: /data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:80/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 300s
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          cpus: "4"
+          memory: 4G
+
+  tei-reranker:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.5
+    container_name: ia_tei_reranker
+    restart: unless-stopped
+    command:
+      - --model-id=BAAI/bge-reranker-large
+      - --max-concurrent-requests=128
+      - --max-batch-tokens=16384
+      - --port=80
+    volumes:
+      - tei_data:/data
+    environment:
+      HF_HOME: /data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:80/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 300s
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          cpus: "4"
+          memory: 4G
 
   celery_worker:
     build:
@@ -416,6 +503,7 @@ volumes:
   redis_data:
   minio_data:
   models_data:
+  tei_data:
   uploads_data:
   branding_data:
   prometheus_data:
