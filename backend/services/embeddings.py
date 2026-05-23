@@ -10,6 +10,7 @@ existing chunks (vectors are not semantically interchangeable across models).
 NEVER use bge-large-en-v1.5 — English-only, incompatible with Spanish corpus.
 """
 
+import asyncio
 import logging
 from functools import lru_cache
 
@@ -31,16 +32,15 @@ _tei_sync_client: httpx.Client | None = None
 # Async clients para el query path (hot path). Per-event-loop init para soportar
 # Celery workers que crean event loops nuevos en cada task. Sin esto, el client
 # httpx queda atado a un loop ya cerrado y rompe la siguiente request.
-import asyncio as _asyncio
 _openai_async_client: httpx.AsyncClient | None = None
-_openai_async_client_loop: _asyncio.AbstractEventLoop | None = None
+_openai_async_client_loop: asyncio.AbstractEventLoop | None = None
 _tei_async_client: httpx.AsyncClient | None = None
-_tei_async_client_loop: _asyncio.AbstractEventLoop | None = None
+_tei_async_client_loop: asyncio.AbstractEventLoop | None = None
 
 
-def _current_loop() -> _asyncio.AbstractEventLoop | None:
+def _current_loop() -> asyncio.AbstractEventLoop | None:
     try:
-        return _asyncio.get_running_loop()
+        return asyncio.get_running_loop()
     except RuntimeError:
         return None
 
@@ -300,42 +300,66 @@ def embed_batch(texts: list[str], is_query: bool = False) -> list[list[float] | 
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+# Semaforo per-worker para limitar hits concurrentes a OpenAI/TEI embeddings.
+# OpenAI throttla per-key cuando ve burst alto; sin este semaforo, 20 queries
+# concurrentes mandaban 20 embeds + 20 LLMs simultaneos a OpenAI → cada call
+# pasaba de 2s a 19s. Con semaforo, los embeds se cuelgan en cola asyncio
+# (sin consumir threads/CPU) y OpenAI nunca ve burst > N.
+_embedding_semaphore: asyncio.Semaphore | None = None
+_embedding_semaphore_loop: asyncio.AbstractEventLoop | None = None
+
+
+def _get_embedding_semaphore() -> asyncio.Semaphore:
+    global _embedding_semaphore, _embedding_semaphore_loop
+    loop = _current_loop()
+    if _embedding_semaphore is None or loop is not _embedding_semaphore_loop:
+        _embedding_semaphore = asyncio.Semaphore(settings.embedding_max_concurrent_per_worker)
+        _embedding_semaphore_loop = loop
+    return _embedding_semaphore
+
+
 async def _aembed_tei(texts: list[str]) -> list[list[float] | None]:
-    """Async version de _embed_tei."""
+    """Async TEI embed con semaforo per-worker para no slamear el container."""
     if not texts:
         return []
+    sem = _get_embedding_semaphore()
     client = _get_tei_async_client()
-    try:
-        r = await client.post("/embed", json={"inputs": texts, "normalize": True})
-        r.raise_for_status()
-        data = r.json()
-        return data if isinstance(data, list) else [None] * len(texts)
-    except Exception as exc:
-        logger.error("aembed_tei_failed count=%d error=%s", len(texts), exc)
-        return [None] * len(texts)
+    async with sem:
+        try:
+            r = await client.post("/embed", json={"inputs": texts, "normalize": True})
+            r.raise_for_status()
+            data = r.json()
+            return data if isinstance(data, list) else [None] * len(texts)
+        except Exception as exc:
+            logger.error("aembed_tei_failed count=%d error=%s", len(texts), exc)
+            return [None] * len(texts)
 
 
 async def _aembed_openai(texts: list[str]) -> list[list[float] | None]:
-    """Async version de _embed_openai — sin run_in_executor, libera el thread pool."""
+    """Async OpenAI embed con semaforo per-worker. Critico para evitar throttling
+    de OpenAI: sin semaforo, 20 queries concurrentes mandaban 20 embeds simultaneos
+    a OpenAI → each call passed from 2s to 19s (verified empirically 2026-05-23)."""
     if not texts:
         return []
+    sem = _get_embedding_semaphore()
     client = _get_openai_async_client()
     cleaned = [_strip_e5_prefix(t) for t in texts]
-    try:
-        r = await client.post(
-            "/embeddings",
-            json={
-                "model": settings.openai_embedding_model,
-                "input": cleaned,
-                "dimensions": EMBEDDING_DIM,
-            },
-        )
-        r.raise_for_status()
-        data = r.json()
-        return [item["embedding"] for item in data["data"]]
-    except Exception as exc:
-        logger.error("aembed_openai_failed count=%d error=%s", len(texts), exc)
-        return [None] * len(texts)
+    async with sem:
+        try:
+            r = await client.post(
+                "/embeddings",
+                json={
+                    "model": settings.openai_embedding_model,
+                    "input": cleaned,
+                    "dimensions": EMBEDDING_DIM,
+                },
+            )
+            r.raise_for_status()
+            data = r.json()
+            return [item["embedding"] for item in data["data"]]
+        except Exception as exc:
+            logger.error("aembed_openai_failed count=%d error=%s", len(texts), exc)
+            return [None] * len(texts)
 
 
 async def aembed_text(text: str) -> list[float] | None:
@@ -357,8 +381,7 @@ async def aembed_text(text: str) -> list[float] | None:
     # Fallback local: el modelo sentence-transformers es sync CPU-bound,
     # lo corremos en thread pool para no bloquear event loop. Solo si no
     # hay openai_api_key disponible (provider=local explicito).
-    import asyncio as _asyncio_inner
-    loop = _asyncio_inner.get_running_loop()
+    loop = asyncio.get_running_loop()
     return await loop.run_in_executor(None, embed_text, text)
 
 
