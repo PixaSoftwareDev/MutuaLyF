@@ -209,8 +209,13 @@ services:
     image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.5
     container_name: ia_tei_reranker
     restart: unless-stopped
+    # bge-reranker-v2-m3 en vez de bge-reranker-large:
+    #   - Multilingue nativo (100+ idiomas incluyendo español)
+    #   - 600MB vs 1.5GB → mas rapido el cold start
+    #   - Calidad equivalente o mejor para corpus no-ingles
+    #   - bge-reranker-large tiene bug con TEI cpu-1.5 ("relative URL without a base")
     command:
-      - --model-id=BAAI/bge-reranker-large
+      - --model-id=BAAI/bge-reranker-v2-m3
       - --max-concurrent-requests=128
       - --max-batch-tokens=16384
       - --port=80
