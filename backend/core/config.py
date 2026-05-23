@@ -205,7 +205,11 @@ class Settings(BaseSettings):
     email_from: str = "noreply@example.com"
 
     # ── Rate limiting ─────────────────────────────────────────────────────────
-    rate_limit_requests_per_minute: int = 60
+    # Aplicado en core/rate_limit.py como FastAPI dependency. Sliding window
+    # 60s en Redis DB 2 por tenant. Default subido de 60 → 600 r/m (10/s) para
+    # matchear nginx (que tambien tiene rate=600r/m). Si alguien necesita mas:
+    # subir en .env via RATE_LIMIT_REQUESTS_PER_MINUTE.
+    rate_limit_requests_per_minute: int = 600
 
     # SSO / OAuth 2.0 (Google Workspace + Azure AD) eliminado en limpieza
     # de dead code (Sprint 1, 2026-05-20). El router auth_sso.py nunca estuvo
