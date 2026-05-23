@@ -205,27 +205,52 @@ services:
   # El reranker SI era cuello critico: bge-reranker-large corria en uvicorn
   # con PyTorch + GIL + leak conocido de ~250MB/query. Eso es lo que se mueve.
 
+  # Init container: pre-descarga el modelo del reranker antes de que TEI arranque.
+  # TEI no maneja bien los redirects relativos que devuelve HF Hub → falla con
+  # "relative URL without a base". huggingface-cli (Python) SI los maneja.
+  # Una vez descargado el modelo, este container exitea y TEI lo usa del cache.
+  tei-model-init:
+    image: python:3.11-slim
+    container_name: ia_tei_model_init
+    restart: "no"
+    volumes:
+      - tei_data:/data
+    environment:
+      HF_HOME: /data
+    networks:
+      - internal
+    command:
+      - bash
+      - -c
+      - |
+        set -e
+        if [ -d /data/models--BAAI--bge-reranker-v2-m3 ]; then
+          echo "[init] modelo ya en cache, skipping download"
+          exit 0
+        fi
+        echo "[init] instalando huggingface-cli..."
+        pip install --quiet --no-cache-dir 'huggingface_hub[cli]'
+        echo "[init] descargando BAAI/bge-reranker-v2-m3 (~600MB)..."
+        huggingface-cli download BAAI/bge-reranker-v2-m3 --cache-dir /data
+        echo "[init] download completo"
+    logging: *default-logging
+
   tei-reranker:
-    # TEI cpu-1.5 tiene un bug: "relative URL without a base" al descargar
-    # config.json de cualquier model-id. Reportado en upstream issue.
-    # Rollback a cpu-1.4 (estable, mismo API HTTP /rerank).
-    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.4
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.5
     container_name: ia_tei_reranker
     restart: unless-stopped
-    # bge-reranker-v2-m3 en vez de bge-reranker-large:
-    #   - Multilingue nativo (100+ idiomas incluyendo español)
-    #   - 600MB vs 1.5GB → mas rapido el cold start
-    #   - Calidad equivalente o mejor para corpus no-ingles
-    #   - bge-reranker-large tiene bug con TEI cpu-1.5 ("relative URL without a base")
+    depends_on:
+      tei-model-init:
+        condition: service_completed_successfully
+    volumes:
+      - tei_data:/data
+    environment:
+      HF_HOME: /data
     command:
       - --model-id=BAAI/bge-reranker-v2-m3
       - --max-concurrent-requests=128
       - --max-batch-tokens=16384
       - --port=80
-    volumes:
-      - tei_data:/data
-    environment:
-      HF_HOME: /data
     networks:
       - internal
     healthcheck:
@@ -233,7 +258,7 @@ services:
       interval: 15s
       timeout: 5s
       retries: 10
-      start_period: 300s
+      start_period: 180s
     logging: *default-logging
     deploy:
       resources:
