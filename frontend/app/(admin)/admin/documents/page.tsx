@@ -25,6 +25,7 @@ import { DocumentUploader } from "@/components/documents/document-uploader";
 import { toast } from "@/components/ui/toast";
 import { PageShell } from "@/components/layout/page-shell";
 import { PageHeader } from "@/components/layout/page-header";
+import { ExportKbButton } from "@/components/admin/export-kb-button";
 import { cn } from "@/lib/utils";
 
 // ── Config maps ───────────────────────────────────────────────────────────────
@@ -135,6 +136,7 @@ export default function DocumentsPage() {
       <PageHeader
         title="Documentos"
         description="Subí documentos para que la IA los use en sus respuestas."
+        actions={<ExportKbButton />}
       />
 
       {/* Uploader — el dropzone se explica solo, sin doble título */}

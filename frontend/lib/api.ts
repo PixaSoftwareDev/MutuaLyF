@@ -521,6 +521,28 @@ export const api = {
       const { data } = await apiClient.get(`/documents/${documentId}/download`);
       return data;
     },
+    /**
+     * Exporta la KB completa como JSON descargable (portable, re-importable).
+     * Devuelve un Blob — el caller arma el download del navegador.
+     */
+    exportJson: async (opts: {
+      includeConversations?: boolean;
+      includeEmbeddings?: boolean;
+    } = {}): Promise<{ blob: Blob; filename: string }> => {
+      const params = new URLSearchParams({
+        include_conversations: String(opts.includeConversations ?? false),
+        include_embeddings:    String(opts.includeEmbeddings ?? false),
+      });
+      const res = await apiClient.get(`/admin/export/json?${params.toString()}`, {
+        responseType: "blob",
+        timeout: 300_000, // 5min para exports grandes con embeddings
+      });
+      // Filename viene del Content-Disposition header
+      const cd = (res.headers["content-disposition"] || "") as string;
+      const match = cd.match(/filename="?([^"]+)"?/);
+      const filename = match?.[1] ?? `kb-export-${Date.now()}.json`;
+      return { blob: res.data as Blob, filename };
+    },
   },
 
   intentions: {
