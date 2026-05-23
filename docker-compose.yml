@@ -228,10 +228,11 @@ services:
           echo "[init] modelo ya en cache, skipping download"
           exit 0
         fi
-        echo "[init] instalando huggingface-cli..."
-        pip install --quiet --no-cache-dir 'huggingface_hub[cli]'
+        echo "[init] instalando huggingface_hub..."
+        pip install --quiet --no-cache-dir huggingface_hub
         echo "[init] descargando BAAI/bge-reranker-v2-m3 (~600MB)..."
-        huggingface-cli download BAAI/bge-reranker-v2-m3 --cache-dir /data
+        # huggingface_hub >= 1.0 renombro el CLI a `hf` (antes huggingface-cli)
+        hf download BAAI/bge-reranker-v2-m3 --cache-dir /data
         echo "[init] download completo"
     logging: *default-logging
 
