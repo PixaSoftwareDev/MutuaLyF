@@ -51,15 +51,16 @@ class Settings(BaseSettings):
     # ── Concurrency tuning (production) ───────────────────────────────────────
     # Semaforos asyncio POR WORKER uvicorn para controlar hits concurrentes
     # a OpenAI. Critico bajo carga: OpenAI throttla agresivamente per-key cuando
-    # ve 40+ calls simultaneos, INDEPENDIENTE del RPM tier. Calibrado empirica-
-    # mente con bench 20-50 simultaneos en 2026-05-23.
+    # ve >25 calls simultaneos del mismo key, INDEPENDIENTE del RPM tier.
     #
-    # Tradeoff: numero alto = mas paralelismo nuestro pero OpenAI castiga latencia.
-    # Numero bajo = throttle propio pero cada call termina rapido.
-    # Sweet spot OpenAI Tier 1 paid: 8 LLM + 8 embed = 16 concurrent calls/worker.
-    # 4 workers x 16 = 64 hits paralelos total — OpenAI lo tolera sin throttlear.
-    llm_max_concurrent_per_worker: int = 8
-    embedding_max_concurrent_per_worker: int = 8
+    # Calibrado empirica con bench 20-50 simultaneos (2026-05-23):
+    #   Cada query hace ~2 calls a OpenAI (embed + LLM).
+    #   4 workers x 6 LLM x 6 embed = 24+24 = 48 max OpenAI concurrent.
+    #   Eso es safe zone para Tier 1 paid (probado: <2s/call sostenido).
+    #
+    # Tier 2+ podria subir a 10/10 o 15/15. Groq free: bajar a 2/2.
+    llm_max_concurrent_per_worker: int = 6
+    embedding_max_concurrent_per_worker: int = 6
 
     # Connection pool sizes para clientes HTTP externos (OpenAI, TEI).
     # Default httpx es 100/20 — chico para multi-worker bajo concurrencia.
