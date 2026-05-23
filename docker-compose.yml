@@ -146,12 +146,11 @@ services:
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4 --log-level info --timeout-keep-alive 30 --timeout-graceful-shutdown 30
     env_file: .env
     environment:
-      # F2: rutear embeddings y reranker a TEI (out-of-process, batching nativo).
-      # Si los containers tei-* no arrancan, embeddings cae a openai (si openai_api_key
-      # esta seteada) o a local; reranker se skipea (chunks se ordenan por Qdrant score).
-      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-tei}
+      # F2 Opcion A: solo el reranker se mueve a TEI. Embeddings siguen via
+      # OpenAI (text-embedding-3-small, ~80ms via API, sin GIL en uvicorn).
+      # Si tei-reranker no arranca, el reranker se skipea y chunks se ordenan
+      # por scores de Qdrant (degraded mode pero el bot sigue respondiendo).
       RERANKER_PROVIDER: ${RERANKER_PROVIDER:-tei}
-      TEI_EMBEDDING_URL: ${TEI_EMBEDDING_URL:-http://tei-embeddings:80}
       TEI_RERANKER_URL: ${TEI_RERANKER_URL:-http://tei-reranker:80}
     ports:
       - "127.0.0.1:8000:8000"
@@ -190,46 +189,21 @@ services:
           cpus: "12"
           memory: 14G
 
-  # ─── F2: Text Embeddings Inference (TEI) — modelos ML out-of-process ────────
+  # ─── F2: Text Embeddings Inference (TEI) — solo reranker ──────────────────
   #
-  # Sacar embeddings + reranker del proceso Python uvicorn. TEI corre el modelo
-  # en Rust con dynamic batching: si llegan 20 requests a la vez, las junta en
-  # 1 sola forward pass. Throughput sube ~10x vs llamar al modelo en-proceso.
+  # Saca el reranker del proceso Python uvicorn. TEI corre bge-reranker-large
+  # en Rust con dynamic batching: 20 requests simultaneas se procesan en 1
+  # forward pass → throughput ~10x vs llamar al modelo en-proceso.
   #
-  # Cada container TEI sirve UN modelo. Por eso necesitamos 2:
-  #   - tei-embeddings: multilingual-e5-large (1024 dims, español/100+ idiomas)
-  #   - tei-reranker:   bge-reranker-large (cross-encoder)
+  # NOTA: embeddings NO van por TEI sino por OpenAI (text-embedding-3-small,
+  # ~80ms via API). OpenAI ya es async HTTP → no consume GIL del uvicorn,
+  # no era cuello de botella. Mantenemos esa opcion estable para no
+  # introducir un nuevo container de 4GB solo por ~50ms de ganancia.
+  # Si en el futuro queremos sacar OpenAI: code TEI embeddings existe en
+  # services/embeddings.py — solo cambiar EMBEDDING_PROVIDER=tei.
   #
-  # Resources: 4 CPUs y 4G RAM cada uno. El modelo pesa ~1.5GB.
-  # El backend deja de cargar torch/sentence-transformers → libera ~2GB RAM.
-
-  tei-embeddings:
-    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.5
-    container_name: ia_tei_embeddings
-    restart: unless-stopped
-    command:
-      - --model-id=intfloat/multilingual-e5-large
-      - --max-concurrent-requests=128
-      - --max-batch-tokens=16384
-      - --port=80
-    volumes:
-      - tei_data:/data
-    environment:
-      HF_HOME: /data
-    networks:
-      - internal
-    healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://localhost:80/health || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 10
-      start_period: 300s
-    logging: *default-logging
-    deploy:
-      resources:
-        limits:
-          cpus: "4"
-          memory: 4G
+  # El reranker SI era cuello critico: bge-reranker-large corria en uvicorn
+  # con PyTorch + GIL + leak conocido de ~250MB/query. Eso es lo que se mueve.
 
   tei-reranker:
     image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.5
