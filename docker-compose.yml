@@ -206,7 +206,10 @@ services:
   # con PyTorch + GIL + leak conocido de ~250MB/query. Eso es lo que se mueve.
 
   tei-reranker:
-    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.5
+    # TEI cpu-1.5 tiene un bug: "relative URL without a base" al descargar
+    # config.json de cualquier model-id. Reportado en upstream issue.
+    # Rollback a cpu-1.4 (estable, mismo API HTTP /rerank).
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.4
     container_name: ia_tei_reranker
     restart: unless-stopped
     # bge-reranker-v2-m3 en vez de bge-reranker-large:
