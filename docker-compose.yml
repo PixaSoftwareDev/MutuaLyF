@@ -224,7 +224,7 @@ services:
       - -c
       - |
         set -e
-        if [ -d /data/models--BAAI--bge-reranker-v2-m3 ]; then
+        if [ -d /data/models--BAAI--bge-reranker-base ]; then
           echo "[init] modelo ya en cache, skipping download"
           exit 0
         fi
