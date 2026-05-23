@@ -309,13 +309,16 @@ async def delete_document(
     """Delete a document and all associated data: PG record, Qdrant chunks, Neo4j nodes, parent_chunks, MinIO file."""
     # 1. Verify document exists and belongs to this tenant; fetch storage_key for MinIO cleanup
     async with get_pg_session(tenant_id) as session:
-        row = await session.execute(
+        result = await session.execute(
             text("SELECT id, storage_key FROM documentos WHERE id = :id"), {"id": document_id}
         )
-        doc = row.fetchone()
+        # Usar .mappings() para que el Row se comporte como dict (acceso por nombre).
+        # Sin esto, doc["storage_key"] falla con "tuple indices must be integers or slices, not str"
+        # porque Row de SQLAlchemy solo soporta indexing posicional por default.
+        doc = result.mappings().fetchone()
         if doc is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
-        storage_key = doc["storage_key"] if hasattr(doc, "__getitem__") else doc[1]
+        storage_key = doc["storage_key"]
 
     # 2. Delete Qdrant chunks (filter by document_id in payload)
     qdrant = get_qdrant_client()
