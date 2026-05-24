@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from "react";
 import { useDropzone } from "react-dropzone";
-import { Upload, File, AlertCircle, Loader2, X } from "lucide-react";
+import { Upload, File, AlertCircle, Loader2, X, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -13,16 +13,20 @@ import { Button } from "@/components/ui/button";
 // backend acepta el archivo, la fila desaparece y el documento pasa a verse
 // en la lista de Documentos (que tiene polling adaptativo propio).
 //
-// Mostramos filas solo cuando "uploading" (feedback de la subida) o "failed"
-// (para que el usuario sepa qué archivo no entró y pueda reintentar).
+// Mostramos filas solo cuando "uploading" (feedback de la subida), "failed"
+// (para que el usuario sepa qué archivo no entró y pueda reintentar), o
+// "duplicate" (cuando el backend detecta exact_bytes — no es un error,
+// solo info de que ya estaba cargado).
 
-type UploadPhase = "uploading" | "failed";
+type UploadPhase = "uploading" | "failed" | "duplicate";
 
 interface UploadItem {
   file: File;
   phase: UploadPhase;
   uploadPct: number;
   error?: string;
+  /** Cuando phase=duplicate: titulo del doc ya existente. */
+  duplicateOfTitle?: string;
 }
 
 const ACCEPTED_TYPES = {
@@ -56,6 +60,17 @@ export function DocumentUploader({ onUploaded }: { onUploaded?: () => void }) {
       remove(item.file);
       onUploaded?.();
     } catch (err: any) {
+      // 409 Conflict = duplicado exacto (mismos bytes). NO es un error tecnico —
+      // el backend nos esta avisando que ya cargaste este archivo antes.
+      // Lo mostramos en estilo info (ambar) en vez de error (rojo).
+      if (err?.response?.status === 409) {
+        const dup = err.response.data?.duplicate_of;
+        update(item.file, {
+          phase: "duplicate",
+          duplicateOfTitle: dup?.title || dup?.filename,
+        });
+        return;
+      }
       const msg =
         err?.response?.data?.detail ||
         (typeof err?.message === "string" ? err.message : "Error al subir el archivo");
@@ -164,12 +179,14 @@ function UploadRow({ item, onDismiss }: { item: UploadItem; onDismiss: () => voi
   const sizeMB = (item.file.size / (1024 * 1024)).toFixed(1);
   const isUploading = item.phase === "uploading";
   const isFailed    = item.phase === "failed";
+  const isDuplicate = item.phase === "duplicate";
 
   return (
     <div
       className={cn(
         "rounded-lg border p-3 space-y-2 transition-colors",
         isFailed    && "border-destructive/40 bg-destructive/5",
+        isDuplicate && "border-amber-300 bg-amber-50",
         isUploading && "border-primary/30 bg-primary/5",
       )}
     >
@@ -180,6 +197,18 @@ function UploadRow({ item, onDismiss }: { item: UploadItem; onDismiss: () => voi
           <p className="text-xs text-muted-foreground">{sizeMB} MB</p>
         </div>
         {isUploading && <Loader2 className="h-4 w-4 animate-spin text-primary shrink-0" />}
+        {isDuplicate && (
+          <>
+            <Info className="h-4 w-4 text-amber-600 shrink-0" />
+            <button
+              onClick={onDismiss}
+              className="text-amber-700/70 hover:text-amber-900 transition-colors"
+              aria-label="Descartar"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </>
+        )}
         {isFailed && (
           <>
             <AlertCircle className="h-4 w-4 text-destructive shrink-0" />
@@ -206,6 +235,16 @@ function UploadRow({ item, onDismiss }: { item: UploadItem; onDismiss: () => voi
             Subiendo… {item.uploadPct}%
           </p>
         </div>
+      )}
+
+      {isDuplicate && (
+        <p className="text-xs text-amber-900">
+          Este archivo ya estaba cargado{item.duplicateOfTitle ? ` como ` : "."}
+          {item.duplicateOfTitle && (
+            <span className="font-medium">"{item.duplicateOfTitle}"</span>
+          )}
+          {item.duplicateOfTitle && "."} No se volvió a procesar.
+        </p>
       )}
 
       {isFailed && item.error && (
