@@ -607,12 +607,17 @@ async def _arerank_tei(query: str, chunks: list[RetrievedChunk], top_k: int) -> 
     if not chunks:
         return []
     client = _get_tei_rerank_async_client()
+    # Truncate text per candidate to avoid 413 Payload Too Large.
+    # The cross-encoder only needs a representative excerpt to score relevance —
+    # the full parent text (up to 2000 words) is kept for the LLM context, not for ranking.
+    _MAX_RERANK_CHARS = 900
+    truncated_texts = [c.text[:_MAX_RERANK_CHARS] for c in chunks]
     try:
         r = await client.post(
             "/rerank",
             json={
                 "query": query,
-                "texts": [c.text for c in chunks],
+                "texts": truncated_texts,
                 "raw_scores": False,
                 "return_text": False,
                 "truncate": True,
