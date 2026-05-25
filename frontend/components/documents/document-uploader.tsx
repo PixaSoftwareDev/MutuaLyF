@@ -20,6 +20,12 @@ import { Button } from "@/components/ui/button";
 
 type UploadPhase = "uploading" | "failed" | "duplicate";
 
+// Tipos de match que devuelve el backend en el 409:
+//   filename:     mismo nombre, contenido distinto
+//   exact_bytes:  bytes idénticos (mismo archivo subido dos veces)
+//   same_content: mismo texto pero formato/bytes distintos (PDF vs DOCX del mismo doc)
+type DuplicateMatchType = "filename" | "exact_bytes" | "same_content";
+
 interface UploadItem {
   file: File;
   phase: UploadPhase;
@@ -27,6 +33,7 @@ interface UploadItem {
   error?: string;
   /** Cuando phase=duplicate: titulo del doc ya existente. */
   duplicateOfTitle?: string;
+  duplicateMatchType?: DuplicateMatchType;
 }
 
 const ACCEPTED_TYPES = {
@@ -60,14 +67,19 @@ export function DocumentUploader({ onUploaded }: { onUploaded?: () => void }) {
       remove(item.file);
       onUploaded?.();
     } catch (err: any) {
-      // 409 Conflict = duplicado exacto (mismos bytes). NO es un error tecnico —
-      // el backend nos esta avisando que ya cargaste este archivo antes.
-      // Lo mostramos en estilo info (ambar) en vez de error (rojo).
+      // 409 Conflict = duplicado detectado. NO es un error tecnico — el backend
+      // avisa que ya cargaste algo similar. Lo mostramos en estilo info (ambar).
+      // El backend devuelve match_type para que mostremos mensaje preciso:
+      //   filename     → mismo nombre, contenido distinto
+      //   exact_bytes  → mismo archivo (bytes idénticos)
+      //   same_content → mismo texto, formato distinto (PDF vs DOCX, etc)
       if (err?.response?.status === 409) {
         const dup = err.response.data?.duplicate_of;
+        const matchType = err.response.data?.match_type as DuplicateMatchType | undefined;
         update(item.file, {
           phase: "duplicate",
           duplicateOfTitle: dup?.title || dup?.filename,
+          duplicateMatchType: matchType,
         });
         return;
       }
@@ -239,11 +251,31 @@ function UploadRow({ item, onDismiss }: { item: UploadItem; onDismiss: () => voi
 
       {isDuplicate && (
         <p className="text-xs text-amber-900">
-          Este archivo ya estaba cargado{item.duplicateOfTitle ? ` como ` : "."}
-          {item.duplicateOfTitle && (
-            <span className="font-medium">"{item.duplicateOfTitle}"</span>
+          {item.duplicateMatchType === "filename" ? (
+            <>
+              Ya existe un documento con este nombre
+              {item.duplicateOfTitle && (
+                <> (<span className="font-medium">"{item.duplicateOfTitle}"</span>)</>
+              )}
+              . Renombrá el archivo o eliminá el anterior antes de subir.
+            </>
+          ) : item.duplicateMatchType === "same_content" ? (
+            <>
+              Se detectó contenido duplicado: el texto coincide con
+              {item.duplicateOfTitle && (
+                <> <span className="font-medium">"{item.duplicateOfTitle}"</span></>
+              )}
+              {" "}aunque el archivo sea distinto. No se volvió a procesar.
+            </>
+          ) : (
+            <>
+              Este archivo ya estaba cargado{item.duplicateOfTitle ? ` como ` : "."}
+              {item.duplicateOfTitle && (
+                <span className="font-medium">"{item.duplicateOfTitle}"</span>
+              )}
+              {item.duplicateOfTitle && "."} No se volvió a procesar.
+            </>
           )}
-          {item.duplicateOfTitle && "."} No se volvió a procesar.
         </p>
       )}
 

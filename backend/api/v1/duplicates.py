@@ -1,21 +1,23 @@
 """Duplicate chunk management endpoints.
 
 Endpoints:
-  GET  /duplicates          — list pending pairs (paginated)
-  POST /duplicates/{id}/resolve — mark resolved, optionally delete chunk from Qdrant
-  GET  /duplicates/stats    — counts by status
+  GET   /duplicates                        — list pending pairs (paginated)
+  POST  /duplicates/{id}/resolve           — mark resolved, optionally delete chunk
+  PATCH /duplicates/{id}/chunks/{which}    — edit text of chunk A or B + re-embed
+  GET   /duplicates/stats                  — counts by status
 """
 
 import logging
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import text
 
 from core.database import get_pg_session, get_qdrant_client
 from core.security import require_admin
 from core.tenant import get_tenant_id
+from services.embeddings import aembed_text
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -41,6 +43,10 @@ class DuplicatePairResponse(BaseModel):
 
 class ResolveRequest(BaseModel):
     action: Literal["keep_a", "keep_b", "keep_both"]
+
+
+class EditChunkRequest(BaseModel):
+    text: str = Field(..., min_length=1, max_length=8000)
 
 
 class DuplicateStats(BaseModel):
@@ -187,6 +193,93 @@ async def resolve_duplicate(
         pair_id, body.action, tenant_id, current_user.user_id,
     )
     return {"pair_id": pair_id, "action": body.action, "status": "resolved"}
+
+
+@router.patch("/duplicates/{pair_id}/chunks/{which}", status_code=status.HTTP_200_OK)
+async def edit_duplicate_chunk(
+    pair_id: str,
+    which: Literal["a", "b"],
+    body: EditChunkRequest,
+    tenant_id: str = Depends(get_tenant_id),
+    current_user=Depends(require_admin),
+):
+    """Edit the text of one chunk in a duplicate pair (A or B).
+
+    Steps:
+      1. Fetch the chunk_id from the pair (chunk_id_a or chunk_id_b)
+      2. Re-embed the new text via OpenAI ('passage:' prefix)
+      3. Update Qdrant point: payload.text + new vector
+      4. Update chunk_duplicate_pairs.text_a or text_b snapshot
+
+    Notes:
+      - Parent_chunks (PG) NO se actualizan: el par usa child chunks, los parents
+        son agrupaciones distintas. Si el admin quiere afectar BM25 sobre el
+        parent, tiene que editar el documento original.
+      - El cosine_score del par queda stale (el vector A cambio) pero no es
+        critico porque el admin esta a punto de resolver el par.
+    """
+    new_text = body.text.strip()
+    if len(new_text) < 1:
+        raise HTTPException(status_code=422, detail="Texto vacio")
+
+    chunk_col = "chunk_id_a" if which == "a" else "chunk_id_b"
+    text_col  = "text_a"     if which == "a" else "text_b"
+
+    # 1. Fetch chunk_id
+    async with get_pg_session(tenant_id) as session:
+        result = await session.execute(
+            text(f"SELECT {chunk_col} AS chunk_id FROM chunk_duplicate_pairs WHERE id = :pid"),
+            {"pid": pair_id},
+        )
+        row = result.mappings().fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Par de duplicados no encontrado")
+    chunk_id = row["chunk_id"]
+
+    # 2. Re-embed the new text (passage prefix for indexing)
+    vector = await aembed_text(f"passage: {new_text}")
+    if vector is None:
+        raise HTTPException(status_code=502, detail="No se pudo re-embeddear el texto")
+
+    # 3. Update Qdrant: payload.text + vector
+    qdrant = get_qdrant_client()
+    collection = f"{tenant_id}_docs"
+    try:
+        # Get current payload to preserve other fields
+        points = await qdrant.retrieve(
+            collection_name=collection,
+            ids=[chunk_id],
+            with_payload=True,
+            with_vectors=False,
+        )
+        if not points:
+            raise HTTPException(status_code=404, detail="Chunk no existe en Qdrant")
+        current_payload = points[0].payload or {}
+        current_payload["text"] = new_text
+
+        from qdrant_client.models import PointStruct
+        await qdrant.upsert(
+            collection_name=collection,
+            points=[PointStruct(id=chunk_id, vector=vector, payload=current_payload)],
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("edit_chunk_qdrant_failed chunk_id=%s error=%s", chunk_id, exc)
+        raise HTTPException(status_code=502, detail=f"Error al actualizar Qdrant: {exc}")
+
+    # 4. Update snapshot text in chunk_duplicate_pairs
+    async with get_pg_session(tenant_id) as session:
+        await session.execute(
+            text(f"UPDATE chunk_duplicate_pairs SET {text_col} = :t WHERE id = :pid"),
+            {"t": new_text, "pid": pair_id},
+        )
+
+    logger.info(
+        "duplicate_chunk_edited pair_id=%s which=%s chunk_id=%s tenant_id=%s user=%s len=%d",
+        pair_id, which, chunk_id, tenant_id, current_user.user_id, len(new_text),
+    )
+    return {"pair_id": pair_id, "which": which, "chunk_id": chunk_id, "text": new_text}
 
 
 @router.get("/duplicates/stats", response_model=DuplicateStats)

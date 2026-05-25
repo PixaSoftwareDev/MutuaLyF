@@ -2,11 +2,15 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Loader2, Pencil } from "lucide-react";
 import { api, type ChunkDuplicatePair } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
 import { toast } from "@/components/ui/toast";
 import { PageShell } from "@/components/layout/page-shell";
 import { PageHeader } from "@/components/layout/page-header";
@@ -70,15 +74,22 @@ function diffWords(textA: string, textB: string): [DiffToken[], DiffToken[]] {
 
 // ── DiffView component ─────────────────────────────────────────────────────────
 
-function DiffView({ textA, textB }: { textA: string; textB: string }) {
+function DiffView({
+  textA,
+  textB,
+  onEditA,
+  onEditB,
+}: {
+  textA: string;
+  textB: string;
+  onEditA: () => void;
+  onEditB: () => void;
+}) {
   const [tokensA, tokensB] = diffWords(textA, textB);
 
   const renderTokens = (tokens: DiffToken[]) => (
     <p className="text-sm leading-relaxed">
       {tokens.map((tok, idx) => {
-        // Lo común queda en texto normal. Lo distinto se highlight-ea en amber
-        // (mismo color para A y B — no hay "bueno/malo", solo "esto no está
-        // en el otro lado"). El cerebro lee: lo marcado es la diferencia.
         const isDiff = tok.type !== "common";
         return (
           <span
@@ -94,19 +105,135 @@ function DiffView({ textA, textB }: { textA: string; textB: string }) {
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3">
-      <div className="rounded-md border p-3 bg-muted/30">
-        <p className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wide">
-          Fragmento A
-        </p>
+      <div className="rounded-md border p-3 bg-muted/30 relative">
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+            Fragmento A
+          </p>
+          <button
+            onClick={onEditA}
+            className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
+            title="Editar este fragmento antes de decidir"
+          >
+            <Pencil className="h-3 w-3" />
+            Editar
+          </button>
+        </div>
         {renderTokens(tokensA)}
       </div>
-      <div className="rounded-md border p-3 bg-muted/30">
-        <p className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wide">
-          Fragmento B
-        </p>
+      <div className="rounded-md border p-3 bg-muted/30 relative">
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+            Fragmento B
+          </p>
+          <button
+            onClick={onEditB}
+            className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
+            title="Editar este fragmento antes de decidir"
+          >
+            <Pencil className="h-3 w-3" />
+            Editar
+          </button>
+        </div>
         {renderTokens(tokensB)}
       </div>
     </div>
+  );
+}
+
+// ── Edit chunk modal ───────────────────────────────────────────────────────────
+
+function EditChunkModal({
+  open,
+  onClose,
+  pairId,
+  which,
+  initialText,
+  onSaved,
+}: {
+  open: boolean;
+  onClose: () => void;
+  pairId: string;
+  which: "a" | "b";
+  initialText: string;
+  onSaved: (newText: string) => void;
+}) {
+  const [text, setText] = useState(initialText);
+
+  useEffect(() => {
+    if (open) setText(initialText);
+  }, [open, initialText]);
+
+  const saveM = useMutation({
+    mutationFn: () => api.duplicates.editChunk(pairId, which, text.trim()),
+    onSuccess: ({ text: savedText }) => {
+      onSaved(savedText);
+      toast({
+        title: "Fragmento actualizado",
+        description: "Se re-procesó el embedding para que el bot lo encuentre con el nuevo texto.",
+        variant: "success",
+      });
+      onClose();
+    },
+    onError: (err: any) => {
+      const detail = err?.response?.data?.detail || "No se pudo guardar el cambio.";
+      toast({
+        title: "Error al guardar",
+        description: typeof detail === "string" ? detail : "Intentá de nuevo.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const dirty = text.trim() !== initialText.trim();
+  const tooShort = text.trim().length < 1;
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !saveM.isPending && !v && onClose()}>
+      <DialogContent className="sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Editar fragmento {which.toUpperCase()}</DialogTitle>
+          <DialogDescription>
+            Cambiá el texto del fragmento. Al guardar, el bot lo re-indexa para que
+            las búsquedas usen la versión nueva.
+          </DialogDescription>
+        </DialogHeader>
+
+        <Textarea
+          value={text}
+          onChange={e => setText(e.target.value)}
+          rows={14}
+          maxLength={8000}
+          className="font-mono text-xs resize-none"
+          disabled={saveM.isPending}
+        />
+        <p className="text-[11px] text-muted-foreground">
+          {text.length} / 8000 caracteres
+        </p>
+
+        <DialogFooter className="gap-2 sm:gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onClose}
+            disabled={saveM.isPending}
+          >
+            Cancelar
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => saveM.mutate()}
+            disabled={!dirty || tooShort || saveM.isPending}
+          >
+            {saveM.isPending ? (
+              <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Guardando…</>
+            ) : (
+              "Guardar cambios"
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -147,6 +274,16 @@ function PairCard({
   onResolve: (action: "keep_a" | "keep_b" | "keep_both") => void;
   resolving: boolean;
 }) {
+  // Local override de los textos cuando el admin edita un fragmento.
+  // Mantengo el texto editado en el state local para que el diff se recalcule
+  // inmediatamente sin esperar al refetch del query.
+  const [textA, setTextA] = useState(pair.text_a);
+  const [textB, setTextB] = useState(pair.text_b);
+  useEffect(() => { setTextA(pair.text_a); }, [pair.text_a]);
+  useEffect(() => { setTextB(pair.text_b); }, [pair.text_b]);
+
+  const [editingWhich, setEditingWhich] = useState<"a" | "b" | null>(null);
+
   const titleA = pair.doc_title_a;
   const titleB = pair.doc_title_b;
   const sameDoc = pair.doc_id_a === pair.doc_id_b;
@@ -205,8 +342,24 @@ function PairCard({
         </div>
       </CardHeader>
       <CardContent>
-        <DiffView textA={pair.text_a} textB={pair.text_b} />
+        <DiffView
+          textA={textA}
+          textB={textB}
+          onEditA={() => setEditingWhich("a")}
+          onEditB={() => setEditingWhich("b")}
+        />
       </CardContent>
+      <EditChunkModal
+        open={editingWhich !== null}
+        onClose={() => setEditingWhich(null)}
+        pairId={pair.id}
+        which={editingWhich ?? "a"}
+        initialText={editingWhich === "a" ? textA : textB}
+        onSaved={(newText) => {
+          if (editingWhich === "a") setTextA(newText);
+          else if (editingWhich === "b") setTextB(newText);
+        }}
+      />
     </Card>
   );
 }

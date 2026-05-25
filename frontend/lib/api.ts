@@ -740,6 +740,21 @@ export const api = {
     resolve: async (pairId: string, action: "keep_a" | "keep_b" | "keep_both") => {
       await apiClient.post(`/duplicates/${pairId}/resolve`, { action });
     },
+    /**
+     * Edita el texto de uno de los chunks (A o B) en un par de duplicados.
+     * Backend re-embeddea el texto y actualiza Qdrant + snapshot del par.
+     */
+    editChunk: async (
+      pairId: string,
+      which: "a" | "b",
+      newText: string,
+    ): Promise<{ pair_id: string; which: "a" | "b"; chunk_id: string; text: string }> => {
+      const { data } = await apiClient.patch(
+        `/duplicates/${pairId}/chunks/${which}`,
+        { text: newText },
+      );
+      return data;
+    },
     stats: async () => { const { data } = await apiClient.get("/duplicates/stats"); return data; },
   },
 

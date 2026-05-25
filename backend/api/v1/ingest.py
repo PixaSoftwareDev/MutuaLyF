@@ -555,6 +555,41 @@ async def ingest_document(
     # hash_text. A tiny TOCTOU window remains but the consequence is a duplicate doc,
     # not data loss — acceptable given the rarity of concurrent same-content uploads.
     async with get_pg_session(tenant_id) as session:
+        # ── Check 1: mismo filename pero contenido distinto ──────────────────
+        # Si bytes coinciden tambien → se ignora aca, el ON CONFLICT abajo
+        # lo va a marcar como exact_bytes (mas preciso).
+        filename_dup_result = await session.execute(
+            text(
+                "SELECT id, title, filename, created_at FROM documentos "
+                "WHERE filename = :fn AND content_hash_bytes != :hb LIMIT 1"
+            ),
+            {"fn": file.filename, "hb": hash_bytes},
+        )
+        filename_dup_row = filename_dup_result.mappings().fetchone()
+        if filename_dup_row is not None:
+            logger.info(
+                "ingest_filename_duplicate tenant_id=%s existing_id=%s filename=%s",
+                tenant_id, filename_dup_row["id"], file.filename,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "detail": "Documento duplicado",
+                    "duplicate_of": {
+                        "id": str(filename_dup_row["id"]),
+                        "title": filename_dup_row["title"],
+                        "filename": filename_dup_row["filename"],
+                        "created_at": (
+                            filename_dup_row["created_at"].isoformat()
+                            if isinstance(filename_dup_row["created_at"], datetime)
+                            else str(filename_dup_row["created_at"])
+                        ),
+                    },
+                    "match_type": "filename",
+                },
+            )
+
+        # ── Check 2: mismo contenido de texto pero bytes y filename distintos ──
         text_dup_result = await session.execute(
             text(
                 "SELECT id, title, filename, created_at FROM documentos "
