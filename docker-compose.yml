@@ -255,7 +255,7 @@ services:
     networks:
       - internal
     healthcheck:
-      test: ["CMD-SHELL", "perl -e 'use IO::Socket::INET; my $s=IO::Socket::INET->new(PeerAddr=>\"localhost\",PeerPort=>80,Proto=>\"tcp\",Timeout=>3) or exit 1; print $s \"GET /health HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n\"; my $r=<$s>; exit($r=~/200/?0:1)' || exit 1"]
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/localhost/80 && echo -ne \"GET /health HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n\" >&3 && read r <&3 && [[ $r == *200* ]]'"]
       interval: 15s
       timeout: 5s
       retries: 10
