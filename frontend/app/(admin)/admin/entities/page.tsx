@@ -1,23 +1,37 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   User, Building2, Briefcase, Clock, Globe, Calendar,
   MapPin, Tag, Search, X, ChevronRight, FileText, ChevronDown,
+  Pencil, Trash2, Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { api, type EntitySummary, type EntityStats } from "@/lib/api";
+import { api, type EntitySummary, type EntityStats, type EntityLabel } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
+import { toast } from "@/components/ui/toast";
 import { PageShell } from "@/components/layout/page-shell";
 import { PageHeader } from "@/components/layout/page-header";
+
+// Resalta el nombre de la entidad dentro del texto del chunk (case-insensitive).
+// Usa <mark> nativo del browser que ya viene con un styling visible.
+function highlightEntity(text: string, name: string): React.ReactNode[] {
+  if (!name) return [text];
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp(`(${escaped})`, "gi");
+  const parts = text.split(re);
+  return parts.map((p, i) =>
+    re.test(p) ? <mark key={i} className="bg-amber-200 text-amber-900 rounded px-0.5">{p}</mark> : p,
+  );
+}
 
 // ── Label config ───────────────────────────────────────────────────────────────
 
@@ -106,61 +120,301 @@ function EntityDetailDialog({
   open: boolean;
   onClose: () => void;
 }) {
+  const qc = useQueryClient();
+  const [editOpen, setEditOpen] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  // Trackear qué docs están expandidos para mostrar el texto de sus chunks
+  const [expandedDocs, setExpandedDocs] = useState<Record<string, boolean>>({});
+
   const { data, isLoading } = useQuery({
     queryKey: ["entity-detail", entity?.label, entity?.nombre],
     queryFn: () => api.entities.detail(entity!.label, entity!.nombre),
     enabled: open && !!entity,
   });
 
+  const deleteM = useMutation({
+    mutationFn: () => api.entities.remove(entity!.label, entity!.nombre),
+    onSuccess: () => {
+      toast({ title: "Entidad eliminada", variant: "success" });
+      qc.invalidateQueries({ queryKey: ["entities"] });
+      qc.invalidateQueries({ queryKey: ["entity-stats"] });
+      onClose();
+    },
+    onError: (err: any) => {
+      const d = err?.response?.data?.detail || "No se pudo eliminar.";
+      toast({ title: "Error", description: typeof d === "string" ? d : "Intentá de nuevo.", variant: "destructive" });
+    },
+  });
+
   if (!entity) return null;
   const cfg = getLabelConfig(entity.label);
 
-  // Group chunks by document
-  const byDoc: Record<string, { filename: string | null; chunks: string[] }> = {};
+  // Agrupar chunks por documento; ahora cada chunk lleva su `text`.
+  const byDoc: Record<string, { filename: string | null; chunks: { chunk_id: string; text: string | null }[] }> = {};
   if (data) {
     for (const c of data.chunks) {
       if (!byDoc[c.doc_id]) byDoc[c.doc_id] = { filename: c.doc_filename, chunks: [] };
-      byDoc[c.doc_id].chunks.push(c.chunk_id);
+      byDoc[c.doc_id].chunks.push({ chunk_id: c.chunk_id, text: c.text });
     }
   }
 
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-lg">
+    <>
+      <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <DialogTitle className="truncate">{entity.nombre}</DialogTitle>
+                <DialogDescription>
+                  {cfg.label} · {entity.mention_count} {entity.mention_count === 1 ? "mención" : "menciones"}
+                </DialogDescription>
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <Button
+                  size="sm" variant="outline"
+                  onClick={() => setEditOpen(true)}
+                  className="h-8"
+                >
+                  <Pencil className="h-3.5 w-3.5 mr-1.5" />
+                  Editar
+                </Button>
+                <Button
+                  size="sm" variant="outline"
+                  onClick={() => setConfirmDelete(true)}
+                  className="h-8 text-destructive hover:text-destructive hover:bg-destructive/10"
+                >
+                  <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+                  Eliminar
+                </Button>
+              </div>
+            </div>
+          </DialogHeader>
+
+          <div className="mt-2 space-y-2">
+            <p className="text-xs font-medium text-muted-foreground">Aparece en</p>
+
+            {isLoading && (
+              <div className="space-y-2">
+                {[1, 2].map(i => <Skeleton key={i} className="h-14 w-full rounded-md" />)}
+              </div>
+            )}
+
+            {!isLoading && data && Object.entries(byDoc).length === 0 && (
+              <p className="text-sm text-muted-foreground py-4 text-center">Sin resultados</p>
+            )}
+
+            {!isLoading && data && Object.entries(byDoc).map(([docId, info]) => {
+              const isOpen = !!expandedDocs[docId];
+              return (
+                <div key={docId} className="rounded-md border bg-card">
+                  <button
+                    onClick={() => setExpandedDocs(prev => ({ ...prev, [docId]: !prev[docId] }))}
+                    className="w-full flex items-start gap-2.5 px-3 py-2.5 hover:bg-muted/40 transition-colors text-left"
+                  >
+                    <FileText className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium truncate">
+                        {info.filename ?? docId.slice(0, 8) + "…"}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {info.chunks.length} {info.chunks.length === 1 ? "fragmento" : "fragmentos"}
+                      </p>
+                    </div>
+                    <ChevronDown
+                      className={cn(
+                        "h-4 w-4 text-muted-foreground transition-transform mt-1",
+                        isOpen && "rotate-180",
+                      )}
+                    />
+                  </button>
+                  {isOpen && (
+                    <div className="border-t bg-muted/20 px-3 py-2 space-y-2">
+                      {info.chunks.map((c, idx) => (
+                        <div key={c.chunk_id} className="text-xs leading-relaxed">
+                          {info.chunks.length > 1 && (
+                            <p className="text-[10px] font-semibold text-muted-foreground/80 mb-1 uppercase tracking-wide">
+                              Fragmento {idx + 1}
+                            </p>
+                          )}
+                          {c.text ? (
+                            <p className="text-foreground/90 whitespace-pre-wrap break-words">
+                              {highlightEntity(c.text, entity.nombre)}
+                            </p>
+                          ) : (
+                            <p className="text-muted-foreground italic">
+                              (Texto no disponible — chunk solo en Neo4j)
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <EntityEditDialog
+        entity={entity}
+        open={editOpen}
+        onClose={() => setEditOpen(false)}
+        onSaved={() => {
+          // Después de editar, cerrar todo y refrescar
+          setEditOpen(false);
+          onClose();
+        }}
+      />
+
+      <Dialog open={confirmDelete} onOpenChange={(v) => !deleteM.isPending && !v && setConfirmDelete(false)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Eliminar entidad</DialogTitle>
+            <DialogDescription>
+              ¿Eliminar <span className="font-semibold">"{entity.nombre}"</span> ({cfg.label}) del grafo?
+              Los documentos quedan intactos — solo se desvincula la entidad. No se puede deshacer.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(false)} disabled={deleteM.isPending}>
+              Cancelar
+            </Button>
+            <Button
+              size="sm"
+              variant="destructive"
+              onClick={() => deleteM.mutate()}
+              disabled={deleteM.isPending}
+            >
+              {deleteM.isPending ? (
+                <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Eliminando…</>
+              ) : "Eliminar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
+// ── Edit entity dialog ─────────────────────────────────────────────────────────
+
+const EDITABLE_LABELS: EntityLabel[] = [
+  "Persona", "Rol", "Departamento", "Horario", "Dominio",
+  "Organizacion", "Fecha", "Lugar", "Entidad",
+];
+
+function EntityEditDialog({
+  entity,
+  open,
+  onClose,
+  onSaved,
+}: {
+  entity: EntitySummary;
+  open: boolean;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const qc = useQueryClient();
+  const [nombre, setNombre] = useState(entity.nombre);
+  const [label, setLabel] = useState<EntityLabel>(entity.label as EntityLabel);
+
+  useEffect(() => {
+    if (open) {
+      setNombre(entity.nombre);
+      setLabel(entity.label as EntityLabel);
+    }
+  }, [open, entity]);
+
+  const saveM = useMutation({
+    mutationFn: () => {
+      const changes: { new_nombre?: string; new_label?: EntityLabel } = {};
+      if (nombre.trim() !== entity.nombre) changes.new_nombre = nombre.trim();
+      if (label !== entity.label) changes.new_label = label;
+      return api.entities.update(entity.label, entity.nombre, changes);
+    },
+    onSuccess: () => {
+      toast({ title: "Entidad actualizada", variant: "success" });
+      qc.invalidateQueries({ queryKey: ["entities"] });
+      qc.invalidateQueries({ queryKey: ["entity-stats"] });
+      qc.invalidateQueries({ queryKey: ["entity-detail"] });
+      onSaved();
+    },
+    onError: (err: any) => {
+      const d = err?.response?.data?.detail || "No se pudo guardar.";
+      toast({ title: "Error", description: typeof d === "string" ? d : "Intentá de nuevo.", variant: "destructive" });
+    },
+  });
+
+  const dirty = nombre.trim() !== entity.nombre || label !== entity.label;
+  const valid = nombre.trim().length > 0;
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !saveM.isPending && !v && onClose()}>
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>{entity.nombre}</DialogTitle>
+          <DialogTitle>Editar entidad</DialogTitle>
           <DialogDescription>
-            {cfg.label} · {entity.mention_count} {entity.mention_count === 1 ? "mención" : "menciones"}
+            Corregí el nombre o el tipo si GLiNER lo detectó mal. Las menciones
+            en documentos se conservan.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="mt-2 space-y-2">
-          <p className="text-xs font-medium text-muted-foreground">Aparece en</p>
+        <div className="space-y-3 py-2">
+          <div className="space-y-1">
+            <label className="text-xs font-medium">Nombre</label>
+            <Input
+              value={nombre}
+              onChange={e => setNombre(e.target.value)}
+              disabled={saveM.isPending}
+              maxLength={200}
+            />
+          </div>
 
-          {isLoading && (
-            <div className="space-y-2">
-              {[1, 2].map(i => <Skeleton key={i} className="h-14 w-full rounded-md" />)}
+          <div className="space-y-1">
+            <label className="text-xs font-medium">Tipo</label>
+            <div className="grid grid-cols-3 gap-1.5">
+              {EDITABLE_LABELS.map(l => {
+                const cfg = getLabelConfig(l);
+                const Icon = cfg.icon;
+                const active = label === l;
+                return (
+                  <button
+                    key={l}
+                    type="button"
+                    onClick={() => setLabel(l)}
+                    disabled={saveM.isPending}
+                    className={cn(
+                      "flex items-center gap-1.5 px-2 py-1.5 rounded-md border text-xs transition-colors",
+                      active
+                        ? "border-primary bg-primary/5 text-primary"
+                        : "border-border text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    <Icon className="h-3 w-3 shrink-0" />
+                    <span className="truncate">{cfg.label}</span>
+                  </button>
+                );
+              })}
             </div>
-          )}
-
-          {!isLoading && data && Object.entries(byDoc).length === 0 && (
-            <p className="text-sm text-muted-foreground py-4 text-center">Sin resultados</p>
-          )}
-
-          {!isLoading && data && Object.entries(byDoc).map(([docId, info]) => (
-            <div key={docId} className="flex items-start gap-2.5 rounded-md border bg-card px-3 py-2.5">
-              <FileText className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
-              <div className="min-w-0">
-                <p className="text-sm font-medium truncate">
-                  {info.filename ?? docId.slice(0, 8) + "…"}
-                </p>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  {info.chunks.length} {info.chunks.length === 1 ? "fragmento" : "fragmentos"}
-                </p>
-              </div>
-            </div>
-          ))}
+          </div>
         </div>
+
+        <DialogFooter className="gap-2 sm:gap-2">
+          <Button variant="ghost" size="sm" onClick={onClose} disabled={saveM.isPending}>
+            Cancelar
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => saveM.mutate()}
+            disabled={!dirty || !valid || saveM.isPending}
+          >
+            {saveM.isPending ? (
+              <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Guardando…</>
+            ) : "Guardar cambios"}
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

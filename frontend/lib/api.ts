@@ -845,6 +845,22 @@ export const api = {
       const { data } = await apiClient.get<EntityDetail>(`/entities/${label}/${encodeURIComponent(nombre)}`);
       return data;
     },
+    /** Renombrar y/o cambiar el tipo de una entidad. */
+    update: async (
+      label: string,
+      nombre: string,
+      changes: { new_nombre?: string; new_label?: EntityLabel },
+    ): Promise<{ nombre: string; label: string }> => {
+      const { data } = await apiClient.patch(
+        `/entities/${label}/${encodeURIComponent(nombre)}`,
+        changes,
+      );
+      return data;
+    },
+    /** Eliminar una entidad detectada mal por GLiNER (no borra chunks). */
+    remove: async (label: string, nombre: string): Promise<void> => {
+      await apiClient.delete(`/entities/${label}/${encodeURIComponent(nombre)}`);
+    },
   },
 
   audit: {
@@ -923,7 +939,13 @@ export interface EntityChunk {
   chunk_id: string;
   doc_id: string;
   doc_filename: string | null;
+  /** Texto del chunk (preview o completo) para mostrar contexto de la entidad. */
+  text: string | null;
 }
+
+export type EntityLabel =
+  | "Persona" | "Rol" | "Departamento" | "Horario" | "Dominio"
+  | "Organizacion" | "Fecha" | "Lugar" | "Entidad";
 
 export interface EntityDetail {
   nombre: string;
