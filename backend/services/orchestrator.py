@@ -184,7 +184,9 @@ async def handle_query(
         from services.query_rewriter import rewrite_query
         rewrite_result = await rewrite_query(retrieval_question, conversation_history)
         all_queries = rewrite_result.all_queries
-        if rewrite_result.used_cache:
+        if rewrite_result.skipped:
+            logger.debug("query_rewrite_skipped_heuristic query=%r", retrieval_question[:80])
+        elif rewrite_result.used_cache:
             logger.debug("query_rewrite_used_cache n_queries=%d", len(all_queries))
         elif rewrite_result.fallback:
             logger.warning("query_rewrite_fallback_to_original query=%r", retrieval_question[:80])
@@ -193,6 +195,8 @@ async def handle_query(
                 "query_rewrite_applied original=%r main=%r variants=%d",
                 retrieval_question[:60], rewrite_result.main[:80], len(rewrite_result.variants),
             )
+        # Si fue skipped o fallback, all_queries = [retrieval_question] (single query) →
+        # retrieve_multi_query delega a retrieve() directamente, sin overhead.
         retrieval_task = retrieve_multi_query(all_queries, tenant_id)
     else:
         retrieval_task = retrieve(retrieval_question, tenant_id)

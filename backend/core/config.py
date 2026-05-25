@@ -167,9 +167,14 @@ class Settings(BaseSettings):
     # Cache en Redis 24h. Sin LLM disponible → fallback a query original.
     query_rewriting_enabled: bool = True
     query_rewriting_timeout_ms: int = 2500     # tope para el LLM call
-    query_rewriting_num_variants: int = 2      # main + 2 variants = 3 queries total
+    query_rewriting_num_variants: int = 1      # main + 1 variant = 2 queries total (calibrado 2026-05-25)
     query_rewriting_cache_ttl: int = 86400     # 24h en Redis
     query_rewriting_max_query_words: int = 30  # skip rewriting si query ya es muy específica
+    # Mejora 2 — Conditional rewriting: solo correr el rewriter cuando aporta valor.
+    # Queries cortas o que empiezan con pronombre interrogativo son las que tienen
+    # vocabulary mismatch (ej: '¿dirección?' vs chunk 'Av. López 567'). Las queries
+    # largas y específicas ya tienen suficiente contexto para el RAG actual.
+    query_rewriting_short_threshold: int = 6   # ≤ N palabras → siempre rewriter
 
     # ── Retrieval ─────────────────────────────────────────────────────────────
     retrieval_top_k: int = 100           # candidates fetched from Qdrant

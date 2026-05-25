@@ -46,6 +46,7 @@ class RewriteResult:
     variants: list[str]
     used_cache: bool = False
     fallback: bool = False  # True si el LLM falló y devolvimos solo la query original
+    skipped: bool = False   # True si la heurística decidió no rewriter (query ya específica)
 
     @property
     def all_queries(self) -> list[str]:
@@ -59,6 +60,50 @@ class RewriteResult:
                 seen.add(key)
                 out.append(q)
         return out
+
+
+# Pronombres interrogativos en español + inglés + portugués — cualquier query que
+# empiece con uno de estos suele tener vocabulary mismatch (la palabra concreta
+# no aparece literalmente en el texto del chunk objetivo).
+_INTERROGATIVE_STARTS = {
+    # Español
+    "que", "qué", "quien", "quién", "quienes", "quiénes",
+    "donde", "dónde", "cuando", "cuándo", "cuanto", "cuánto",
+    "cuanta", "cuánta", "cuantos", "cuántos", "cuantas", "cuántas",
+    "como", "cómo", "cual", "cuál", "cuales", "cuáles",
+    "por", "para",  # "por qué" / "para qué"
+    # Inglés
+    "what", "where", "when", "who", "whom", "how", "why", "which",
+    # Portugués
+    "o", "onde", "quando", "quem", "como", "qual", "quanto",
+}
+
+
+def should_rewrite(query: str) -> bool:
+    """Decide si vale la pena correr el rewriter para esta query.
+
+    Heurística (orden de evaluación):
+      1. Query vacía → False (nada que reescribir)
+      2. Query muy larga (>max_query_words) → False (ya es específica)
+      3. Query corta (≤short_threshold palabras) → True (vocabulary mismatch típico)
+      4. Empieza con pronombre interrogativo → True (questions abstractas)
+      5. Otro caso → False (skip, ya tiene suficiente contexto)
+
+    Beneficio: queries detalladas evitan los 500-2500ms del LLM call extra.
+    Queries cortas/ambiguas siguen recibiendo el rewriting que aporta recall.
+    """
+    if not query or not query.strip():
+        return False
+    words = query.strip().split()
+    if len(words) > settings.query_rewriting_max_query_words:
+        return False
+    if len(words) <= settings.query_rewriting_short_threshold:
+        return True
+    # Limpiar primera palabra: lowercase + strip puntuación
+    first = words[0].lower().strip("¿?¡!.,;:\"'()[]")
+    if first in _INTERROGATIVE_STARTS:
+        return True
+    return False
 
 
 # ── Prompt template (genérico, multi-tenant, multi-idioma) ─────────────────
@@ -176,9 +221,13 @@ async def rewrite_query(
     if not settings.query_rewriting_enabled:
         return RewriteResult(main=query, variants=[])
 
-    # Skip si la query ya es larga/específica — el rewriting no agrega valor
-    if len(query.split()) > settings.query_rewriting_max_query_words:
-        return RewriteResult(main=query, variants=[])
+    # Heurística condicional: solo activar rewriter cuando aporta valor.
+    # Queries específicas (largas, sin pronombre interrogativo) ya tienen
+    # suficiente contexto léxico para el RAG actual — no agregamos latencia.
+    if not should_rewrite(query):
+        logger.debug("query_rewrite_skipped (heuristic) query=%r words=%d",
+                     query[:60], len(query.split()))
+        return RewriteResult(main=query, variants=[], skipped=True)
 
     # Cache hit
     cached = await _get_cached(query, history)
@@ -206,7 +255,7 @@ async def rewrite_query(
                 ],
                 complexity=QueryComplexity.SIMPLE,
                 temperature=0.0,
-                max_tokens=300,
+                max_tokens=200,  # bajado de 300 — con 1 main + 1 variant alcanza
             ),
             timeout=timeout_s,
         )
