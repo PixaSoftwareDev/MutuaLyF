@@ -153,7 +153,7 @@ async def handle_query(
         entities = []
 
     # ── Step 3: Retrieve from Qdrant + Neo4j in parallel ──────────────────────
-    from services.retrieval import retrieve
+    from services.retrieval import retrieve, retrieve_multi_query
     from services.neo4j_client import query_entities
 
     entity_names = [e.text for e in (entities or [])]
@@ -163,10 +163,11 @@ async def handle_query(
     is_ambiguous = intent_result is not None and getattr(intent_result, "is_ambiguous", False)
     second_label = getattr(intent_result, "second_label", None) if intent_result else None
 
-    # ── Step 3a: Conversational query enrichment ──────────────────────────────
+    # ── Step 3a: Conversational query enrichment (legacy keyword merge) ────────
     # Short/elliptical queries ("¿y para el primer año?", "¿cuánto?", "¿sí?")
     # are semantically empty out of context. Append the last user question and
     # last bot topic keywords so the embedding captures the actual intent.
+    # Esto sigue activo como red de seguridad si query rewriting falla.
     retrieval_question = _enrich_query_with_history(normalized_question, conversation_history)
     if retrieval_question != normalized_question:
         logger.debug(
@@ -174,7 +175,28 @@ async def handle_query(
             normalized_question[:80], retrieval_question[:80],
         )
 
-    retrieval_task = retrieve(retrieval_question, tenant_id)
+    # ── Step 3b: Query rewriting con LLM (vocabulary mismatch + follow-ups) ────
+    # Antes del retrieval, un LLM rápido reescribe la query con sinónimos +
+    # contexto del historial y genera N variantes. Multi-query retrieval usa
+    # todas con RRF fusion → mejor recall sin tocar el contenido del KB.
+    # Si feature flag off o LLM falla → fallback a query original (degraded).
+    if settings.query_rewriting_enabled:
+        from services.query_rewriter import rewrite_query
+        rewrite_result = await rewrite_query(retrieval_question, conversation_history)
+        all_queries = rewrite_result.all_queries
+        if rewrite_result.used_cache:
+            logger.debug("query_rewrite_used_cache n_queries=%d", len(all_queries))
+        elif rewrite_result.fallback:
+            logger.warning("query_rewrite_fallback_to_original query=%r", retrieval_question[:80])
+        else:
+            logger.info(
+                "query_rewrite_applied original=%r main=%r variants=%d",
+                retrieval_question[:60], rewrite_result.main[:80], len(rewrite_result.variants),
+            )
+        retrieval_task = retrieve_multi_query(all_queries, tenant_id)
+    else:
+        retrieval_task = retrieve(retrieval_question, tenant_id)
+
     neo4j_task = query_entities(tenant_id, entity_names) if use_neo4j else _empty_list()
 
     qdrant_chunks, neo4j_records = await asyncio.gather(retrieval_task, neo4j_task, return_exceptions=True)

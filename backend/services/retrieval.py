@@ -147,6 +147,94 @@ def _load_reranker():
         return None
 
 
+async def retrieve_multi_query(
+    queries: list[str],
+    tenant_id: str,
+    top_k: int = settings.retrieval_top_k,
+    rerank_top_k: int = settings.rerank_top_k,
+) -> list[RetrievedChunk]:
+    """Multi-query retrieval con RRF fusion.
+
+    Patrón estándar de RAG moderno (LangChain MultiQueryRetriever): dado N
+    reformulaciones del query (main + variants del query rewriter), hace
+    retrieval con cada una en PARALELO y fusiona los resultados con
+    Reciprocal Rank Fusion para priorizar chunks que aparecen relevantes
+    en múltiples variantes.
+
+    Latencia: en paralelo via asyncio.gather, TEI/OpenAI hacen batching
+    natural cuando llegan requests simultáneos → costo ~= 1 retrieve solo.
+
+    Si solo hay 1 query → delega directo a retrieve() (sin overhead RRF).
+    Si gather falla parcialmente → usa las queries que sí retornaron.
+    """
+    queries = [q.strip() for q in queries if q and q.strip()]
+    if not queries:
+        return []
+    if len(queries) == 1:
+        return await retrieve(queries[0], tenant_id, top_k=top_k, rerank_top_k=rerank_top_k)
+
+    # Cada sub-query traemos un top_k chico — el RRF final selecciona
+    # los mejores entre todas. Un poco de overlap para que el merge tenga
+    # señal de "este chunk apareció en N queries".
+    sub_top_k = max(top_k // len(queries) + 10, 20)
+    sub_rerank = max(rerank_top_k // len(queries) + 5, 10)
+
+    # Paralelo — asyncio.gather los corre todos al toque. TEI/OpenAI ven
+    # batch concurrente y procesan eficiente.
+    sub_results = await asyncio.gather(
+        *(retrieve(q, tenant_id, top_k=sub_top_k, rerank_top_k=sub_rerank) for q in queries),
+        return_exceptions=True,
+    )
+
+    # Filtrar excepciones — si una sub-query falla, sigo con las otras
+    valid_lists: list[list[RetrievedChunk]] = []
+    for idx, r in enumerate(sub_results):
+        if isinstance(r, Exception):
+            logger.warning("retrieve_multi_subquery_failed idx=%d query=%r error=%s",
+                           idx, queries[idx][:60], r)
+            continue
+        valid_lists.append(r)
+
+    if not valid_lists:
+        logger.error("retrieve_multi_all_failed queries=%d", len(queries))
+        return []
+
+    # RRF fusion entre los N rankings. Chunks que aparecen en múltiples
+    # listas obtienen score más alto que los que solo aparecen en una.
+    return _rrf_fuse_lists(valid_lists, top_k=rerank_top_k)
+
+
+def _rrf_fuse_lists(
+    rankings: list[list[RetrievedChunk]],
+    top_k: int,
+    k: int | None = None,
+) -> list[RetrievedChunk]:
+    """RRF entre N rankings independientes (uno por query variant).
+
+    Score final de un chunk = Σ 1/(k + rank_en_lista_i) sobre todas las listas
+    donde aparece. Chunks que aparecen en más listas se priorizan.
+    """
+    if k is None:
+        k = settings.rrf_k
+    fused_scores: dict[str, float] = {}
+    chunk_by_id: dict[str, RetrievedChunk] = {}
+    for ranking in rankings:
+        for rank, chunk in enumerate(ranking):
+            # Identidad del chunk: parent_id si tiene, sino chunk_id
+            key = chunk.parent_id or chunk.chunk_id
+            score = 1.0 / (k + rank + 1)
+            fused_scores[key] = fused_scores.get(key, 0.0) + score
+            # Mantener la primera ocurrencia del chunk (con su texto/metadata)
+            if key not in chunk_by_id:
+                chunk_by_id[key] = chunk
+
+    # Aplicar score RRF y ordenar
+    for key, score in fused_scores.items():
+        chunk_by_id[key].score = score
+    sorted_chunks = sorted(chunk_by_id.values(), key=lambda c: c.score, reverse=True)
+    return sorted_chunks[:top_k]
+
+
 async def retrieve(
     query: str,
     tenant_id: str,

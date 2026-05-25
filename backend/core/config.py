@@ -160,6 +160,17 @@ class Settings(BaseSettings):
     max_parent_words: int = 700          # hard cap per parent section sent to LLM
     min_parent_words: int = 60           # sections shorter than this merge into previous
 
+    # ── Query rewriting (multi-query retrieval) ───────────────────────────────
+    # Antes del RAG, un LLM rápido reescribe la query con sinónimos + contexto
+    # del historial. Resuelve "vocabulary mismatch" (query usa palabras que no
+    # están en el texto) y reformulaciones (mismo intent, palabras distintas).
+    # Cache en Redis 24h. Sin LLM disponible → fallback a query original.
+    query_rewriting_enabled: bool = True
+    query_rewriting_timeout_ms: int = 2500     # tope para el LLM call
+    query_rewriting_num_variants: int = 2      # main + 2 variants = 3 queries total
+    query_rewriting_cache_ttl: int = 86400     # 24h en Redis
+    query_rewriting_max_query_words: int = 30  # skip rewriting si query ya es muy específica
+
     # ── Retrieval ─────────────────────────────────────────────────────────────
     retrieval_top_k: int = 100           # candidates fetched from Qdrant
     rerank_top_k: int = 15              # top-k after reranking
