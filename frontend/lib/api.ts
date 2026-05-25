@@ -502,6 +502,21 @@ export const api = {
     delete: async (documentId: string): Promise<void> => {
       await apiClient.delete(`/documents/${documentId}`);
     },
+    /**
+     * Edita el texto de un chunk del documento. Backend re-embeddea el texto
+     * automáticamente y actualiza Qdrant + parent_chunks (si aplica).
+     */
+    editChunkText: async (
+      documentId: string,
+      chunkId: string,
+      newText: string,
+    ): Promise<{ chunk_id: string; document_id: string; text: string; parent_id: string | null }> => {
+      const { data } = await apiClient.patch(
+        `/documents/${documentId}/chunks/${chunkId}`,
+        { text: newText },
+      );
+      return data;
+    },
     reviewChunk: async (
       documentId: string,
       chunkId: string,

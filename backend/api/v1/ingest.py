@@ -203,6 +203,107 @@ class ChunkReviewBody(BaseModel):
     action: Literal["approve", "reject"]
 
 
+class ChunkEditBody(BaseModel):
+    """Editar el texto de un chunk. El backend re-embeddea automaticamente."""
+    text: str
+
+
+@router.patch("/documents/{document_id}/chunks/{chunk_id}")
+async def edit_chunk_text(
+    document_id: str,
+    chunk_id: str,
+    body: ChunkEditBody,
+    request: Request,
+    tenant_id: str = Depends(get_tenant_id),
+    current_user: CurrentUser = Depends(require_admin),
+):
+    """Editar el texto de un chunk desde el panel de Documentos.
+
+    Pasos:
+      1. Validar que el chunk existe y pertenece al documento
+      2. Re-embeddear el nuevo texto via OpenAI ('passage:' prefix)
+      3. Update Qdrant: payload.text + nuevo vector + audit fields
+      4. Update parent_chunks.text si el chunk tiene parent_id
+         (afecta BM25 search — buscar coherente con el contenido nuevo)
+
+    Después de editar, el bot va a recuperar este chunk con el texto nuevo
+    en busquedas semánticas y BM25.
+    """
+    new_text = body.text.strip()
+    if not new_text:
+        raise HTTPException(status_code=422, detail="Texto vacio")
+    if len(new_text) > 8000:
+        raise HTTPException(status_code=422, detail="Texto demasiado largo (max 8000 chars)")
+
+    qdrant = get_qdrant_client()
+    collection = f"{tenant_id}_docs"
+
+    # 1. Validar pertenencia
+    existing = await qdrant.retrieve(
+        collection_name=collection,
+        ids=[chunk_id],
+        with_payload=True,
+        with_vectors=False,
+    )
+    if not existing:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chunk no encontrado")
+    payload = existing[0].payload or {}
+    if payload.get("document_id") != document_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="El chunk no pertenece a este documento")
+
+    # 2. Re-embeddear
+    from services.embeddings import aembed_text
+    vector = await aembed_text(f"passage: {new_text}")
+    if vector is None:
+        raise HTTPException(status_code=502, detail="No se pudo re-embeddear el texto")
+
+    # 3. Upsert Qdrant con payload merged + nuevo vector
+    payload["text"] = new_text
+    payload["manually_edited"] = True
+    payload["edited_by"] = current_user.email
+    payload["edited_at"] = datetime.now(timezone.utc).isoformat()
+
+    from qdrant_client.models import PointStruct
+    await qdrant.upsert(
+        collection_name=collection,
+        points=[PointStruct(id=chunk_id, vector=vector, payload=payload)],
+    )
+
+    # 4. Update parent_chunks si aplica (afecta BM25 + small-to-big retrieval)
+    parent_id = payload.get("parent_id")
+    if parent_id:
+        async with get_pg_session(tenant_id) as session:
+            await session.execute(
+                text("UPDATE parent_chunks SET text = :t WHERE id = :pid AND document_id = :did"),
+                {"t": new_text, "pid": parent_id, "did": document_id},
+            )
+
+    logger.info(
+        "chunk_text_edited document_id=%s chunk_id=%s parent_id=%s len=%d user=%s",
+        document_id, chunk_id, parent_id, len(new_text), current_user.email,
+    )
+
+    import asyncio as _asyncio_audit
+    from core.audit import record as audit
+    _asyncio_audit.ensure_future(audit(
+        tenant_id=tenant_id,
+        actor_id=current_user.user_id,
+        actor_email=current_user.email,
+        actor_role=current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role),
+        action="documents.chunk_text_edited",
+        resource=f"document:{document_id}/chunk:{chunk_id}",
+        detail={"len": len(new_text), "parent_updated": bool(parent_id)},
+        request=request,
+    ))
+
+    return {
+        "chunk_id": chunk_id,
+        "document_id": document_id,
+        "text": new_text,
+        "parent_id": parent_id,
+    }
+
+
 @router.patch("/documents/{document_id}/chunks/{chunk_id}/quality")
 async def review_chunk(
     document_id: str,

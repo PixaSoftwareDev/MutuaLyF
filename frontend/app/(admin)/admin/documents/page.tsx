@@ -7,12 +7,13 @@ import {
   FileText, Clock, Trash2, Loader2,
   ChevronDown, ChevronRight, Search, CheckCircle2,
   XCircle, UserCheck, AlertTriangle, ShieldCheck, ChevronUp,
-  ArrowRight, MoreVertical, Edit2, Download,
+  ArrowRight, MoreVertical, Edit2, Download, Pencil,
 } from "lucide-react";
 import { api, type DocumentResponse, type ChunkResponse, type PendingChunkResponse } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -708,6 +709,7 @@ function PendingChunkCard({ chunk, onReviewed }: { chunk: PendingChunkResponse; 
 function ChunkCard({ chunk, documentId, editable }: { chunk: ChunkResponse; documentId: string; editable: boolean }) {
   const queryClient = useQueryClient();
   const [showFull, setShowFull] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
   const qg = QG_CHUNK_CONFIG[chunk.quality_gate_status];
   const isPassed  = chunk.quality_gate_status === "passed";
   const isSkipped = chunk.quality_gate_status === "skipped";
@@ -760,6 +762,16 @@ function ChunkCard({ chunk, documentId, editable }: { chunk: ChunkResponse; docu
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <Badge variant={qg.variant} className="text-[10px] h-5 px-1.5">{qg.label}</Badge>
+          {editable && (
+            <button
+              onClick={() => setEditOpen(true)}
+              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+              title="Editar texto del fragmento (se re-procesa el embedding)"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+              Editar
+            </button>
+          )}
           {editable && !isPassed && (
             <button
               disabled={reviewing}
@@ -798,6 +810,98 @@ function ChunkCard({ chunk, documentId, editable }: { chunk: ChunkResponse; docu
           </button>
         )}
       </div>
+
+      <EditChunkTextDialog
+        open={editOpen}
+        onClose={() => setEditOpen(false)}
+        documentId={documentId}
+        chunkId={chunk.id}
+        initialText={chunk.text}
+        chunkLabel={`Fragmento ${chunk.chunk_index + 1} / ${chunk.total_chunks}`}
+      />
     </div>
+  );
+}
+
+// ── EditChunkTextDialog ───────────────────────────────────────────────────────
+
+function EditChunkTextDialog({
+  open, onClose, documentId, chunkId, initialText, chunkLabel,
+}: {
+  open: boolean;
+  onClose: () => void;
+  documentId: string;
+  chunkId: string;
+  initialText: string;
+  chunkLabel: string;
+}) {
+  const queryClient = useQueryClient();
+  const [text, setText] = useState(initialText);
+
+  useMemo(() => { if (open) setText(initialText); }, [open, initialText]);
+
+  const { mutate: save, isPending } = useMutation({
+    mutationFn: () => api.documents.editChunkText(documentId, chunkId, text.trim()),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["chunks", documentId] });
+      toast({
+        title: "Fragmento actualizado",
+        description: "Se re-procesó el embedding. El bot va a usar el nuevo texto en sus respuestas.",
+        variant: "success",
+      });
+      onClose();
+    },
+    onError: (err: any) => {
+      const d = err?.response?.data?.detail || "No se pudo guardar.";
+      toast({
+        title: "Error al guardar",
+        description: typeof d === "string" ? d : "Intentá de nuevo.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const dirty = text.trim() !== initialText.trim();
+  const valid = text.trim().length > 0 && text.trim().length <= 8000;
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !isPending && !v && onClose()}>
+      <DialogContent className="sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Editar texto del fragmento</DialogTitle>
+          <DialogDescription>
+            {chunkLabel} · Al guardar, el sistema re-procesa el embedding para que
+            las búsquedas usen este texto. La verificación de calidad se preserva.
+          </DialogDescription>
+        </DialogHeader>
+
+        <Textarea
+          value={text}
+          onChange={e => setText(e.target.value)}
+          rows={14}
+          maxLength={8000}
+          className="font-mono text-xs resize-none"
+          disabled={isPending}
+        />
+        <p className="text-[11px] text-muted-foreground">
+          {text.length} / 8000 caracteres
+        </p>
+
+        <DialogFooter className="gap-2 sm:gap-2">
+          <Button variant="ghost" size="sm" onClick={onClose} disabled={isPending}>
+            Cancelar
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => save()}
+            disabled={!dirty || !valid || isPending}
+          >
+            {isPending ? (
+              <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Guardando…</>
+            ) : "Guardar cambios"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
