@@ -160,6 +160,84 @@ _BOUNDARY_RE = re.compile(
 _SEPARATOR_ONLY_RE = re.compile(r"^(?:---CHUNK---|[═─=\-]{4,})$")
 
 
+# ── Contact / address block detection ────────────────────────────────────────
+# Algunos chunks contienen datos de contacto (dirección postal, teléfono,
+# email) sin que aparezcan literalmente las palabras "dirección" o "contacto"
+# en el texto. Eso hace que queries tipo "¿dónde está?" / "dirección" no
+# encuentren el chunk porque el embedding no tiene esas señales.
+#
+# Detectamos esos bloques por patrones (no por keywords) y le inyectamos al
+# texto embebido un prefijo tipo "[Datos de contacto: dirección, teléfono]"
+# para que el embedding capture la intención semántica del bloque.
+#
+# Genérico — no depende del nombre de la organización ni del idioma del cliente.
+
+# Patrones que individualmente sugieren "info de contacto":
+_PHONE_RE   = re.compile(r"(?:\+\d{1,3}[\s\-]?)?(?:\(?\d{2,4}\)?[\s\-]?)?\d{3,4}[\s\-]?\d{3,4}\b")
+_EMAIL_RE   = re.compile(r"\b[\w.+\-]+@[\w\-]+\.[\w.\-]+\b")
+_POSTAL_RE  = re.compile(r"\b(?:CP|C\.P\.|código postal)[\s:]*\d{3,5}\b", re.IGNORECASE)
+# "Calle X 123" / "Av. X 567" / "Avenida X 89" — número al final tipico de calle
+_STREET_RE  = re.compile(
+    r"\b(?:Calle|Avenida|Av\.?|Boulevard|Bv\.?|Pasaje|Ruta|Camino|Diagonal|Plaza)\s+"
+    r"[A-ZÁÉÍÓÚÑa-záéíóúñ\s\.]{2,40}\s+\d{1,5}\b"
+)
+_LOCATION_RE = re.compile(
+    r"\b(?:Provincia|Departamento|Localidad|Ciudad|Municipio|Partido)\s+(?:de\s+)?[A-ZÁÉÍÓÚÑ]",
+    re.IGNORECASE,
+)
+# Keywords explícitas de bloques de contacto/sede
+_CONTACT_HEADER_RE = re.compile(
+    r"\b(?:Sede(?:s)?(?:\s+(?:central|principal))?|Domicilio|Direcci[óo]n|"
+    r"Datos\s+de\s+contacto|Contacto|Ubicaci[óo]n|D[óo]nde\s+estamos|How\s+to\s+find\s+us)\b",
+    re.IGNORECASE,
+)
+
+
+def _detect_contact_block(text: str) -> dict[str, bool]:
+    """Devuelve flags de qué tipos de contacto contiene el texto.
+
+    Genérico: detecta por patrones (no keywords del dominio). Lo usamos para:
+      1. Inyectar prefijo descriptivo al embedded_text → mejor retrieval
+      2. Setear metadata flags para filtros futuros (queries de tipo contact)
+    """
+    has_phone   = bool(_PHONE_RE.search(text))
+    has_email   = bool(_EMAIL_RE.search(text))
+    has_street  = bool(_STREET_RE.search(text)) or bool(_POSTAL_RE.search(text))
+    has_loc     = bool(_LOCATION_RE.search(text))
+    has_header  = bool(_CONTACT_HEADER_RE.search(text))
+
+    # Para considerar "bloque de contacto" requerimos al menos:
+    # - un header explícito (alta confianza), O
+    # - 2 señales fuertes combinadas (teléfono + dirección, etc.)
+    signals = sum([has_phone, has_email, has_street, has_loc])
+    is_contact = has_header or signals >= 2
+
+    return {
+        "is_contact": is_contact,
+        "has_phone": has_phone,
+        "has_email": has_email,
+        "has_street": has_street,
+        "has_location": has_loc,
+    }
+
+
+def _build_contact_prefix(flags: dict[str, bool]) -> str:
+    """Construye un prefijo semántico para chunks de contacto.
+
+    Resultado típico: '[Datos de contacto: dirección, teléfono, ubicación]'.
+    Se inyecta al texto embebido para que el embedding capte la intención
+    sin depender de que el texto literal mencione esas palabras.
+    """
+    parts: list[str] = []
+    if flags["has_street"]:   parts.append("dirección")
+    if flags["has_phone"]:    parts.append("teléfono")
+    if flags["has_email"]:    parts.append("email")
+    if flags["has_location"]: parts.append("ubicación")
+    if not parts:
+        parts.append("información de contacto")
+    return f"[Datos de contacto: {', '.join(parts)}]"
+
+
 # ── Public API ─────────────────────────────────────────────────────────────────
 
 def chunk_document(
@@ -279,7 +357,17 @@ def chunk_document_hierarchical(
             # This anchors the child's embedding to its document context:
             # "5.1 Plan de capacitación\nCada colaborador define..." embeds
             # much better than the fragment alone.
-            embedded_text = f"[{header}]\n{c_text}" if header else c_text
+            #
+            # Adicionalmente: si el chunk contiene datos de contacto/dirección
+            # (detectado por patrones genéricos, no por keywords del dominio),
+            # prependemos un prefijo descriptivo. Sin esto, queries tipo
+            # "¿dónde está la sede?" no matchean el chunk si literalmente no
+            # menciona "dirección" o "ubicación".
+            contact_flags = _detect_contact_block(c_text)
+            contact_prefix = _build_contact_prefix(contact_flags) if contact_flags["is_contact"] else ""
+
+            header_prefix = f"[{header}]" if header else ""
+            embedded_text = "\n".join(p for p in [contact_prefix, header_prefix, c_text] if p)
 
             child = Chunk(
                 id=str(uuid.uuid4()),
@@ -293,7 +381,13 @@ def chunk_document_hierarchical(
                 chunk_level="child",
                 doc_type=doc_type,
                 strategy="hierarchical",
-                metadata={**meta, "section_header": header},
+                metadata={
+                    **meta,
+                    "section_header": header,
+                    # Flags semánticos para retrieval / análisis futuros
+                    **({"has_contact_info": True, **{k: True for k, v in contact_flags.items() if v and k != "is_contact"}}
+                       if contact_flags["is_contact"] else {}),
+                },
             )
             children.append(child)
             child_index += 1
