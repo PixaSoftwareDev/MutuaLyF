@@ -77,6 +77,16 @@
     ".ia-typing{align-self:flex-start;color:#64748b;font-size:13px;padding:4px 8px;}",
     "#ia-widget-handoff-bar{padding:8px 12px;background:#fff7ed;border-top:1px solid #fed7aa;display:none;gap:8px;align-items:center;font-size:13px;color:#92400e;}",
     "#ia-widget-handoff-bar button{background:#f97316;color:#fff;border:none;border-radius:6px;padding:5px 12px;cursor:pointer;font-size:13px;white-space:nowrap;}",
+    "#ia-widget-identify-form{padding:10px 12px;background:#fff7ed;border-top:1px solid #fed7aa;display:none;flex-direction:column;gap:8px;font-size:13px;color:#92400e;}",
+    "#ia-widget-identify-form .ia-identify-title{font-weight:600;font-size:13px;color:#7c2d12;}",
+    "#ia-widget-identify-form .ia-identify-hint{font-size:11px;color:#a16207;line-height:1.4;}",
+    "#ia-widget-identify-form input{padding:6px 10px;border:1px solid #fed7aa;border-radius:6px;font-size:13px;width:100%;box-sizing:border-box;}",
+    "#ia-widget-identify-form input:focus{outline:none;border-color:#f97316;box-shadow:0 0 0 2px rgba(249,115,22,0.15);}",
+    "#ia-widget-identify-form .ia-identify-actions{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:4px;}",
+    "#ia-widget-identify-form .ia-identify-submit{background:#f97316;color:#fff;border:none;border-radius:6px;padding:6px 14px;cursor:pointer;font-size:13px;font-weight:500;}",
+    "#ia-widget-identify-form .ia-identify-submit:disabled{opacity:0.5;cursor:not-allowed;}",
+    "#ia-widget-identify-form .ia-identify-skip{background:none;border:none;cursor:pointer;color:#92400e;font-size:12px;text-decoration:underline;padding:0;}",
+    "#ia-widget-identify-form .ia-identify-error{font-size:11px;color:#b91c1c;margin-top:-2px;}",
     "#ia-widget-human-btn{padding:6px 12px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;cursor:pointer;font-size:13px;color:#475569;white-space:nowrap;}",
     "#ia-widget-human-btn:hover{background:#f8fafc;}",
     "#ia-sector-change{padding:4px 8px;border:1px solid rgba(255,255,255,.4);border-radius:6px;background:none;color:rgba(255,255,255,.8);cursor:pointer;font-size:11px;white-space:nowrap;}",
@@ -122,6 +132,19 @@
     '  <button id="ia-handoff-yes">Sí, conectar</button>',
     '  <button id="ia-handoff-no" style="background:none;border:none;cursor:pointer;color:#92400e">Ahora no</button>',
     '</div>',
+    // Form de identificación just-in-time — aparece al confirmar handoff,
+    // antes de derivar realmente. Permite al operador ver nombre + DNI.
+    '<form id="ia-widget-identify-form" autocomplete="off">',
+    '  <div class="ia-identify-title">Antes de conectarte con un operador</div>',
+    '  <div class="ia-identify-hint">Para una mejor atención, decinos tu nombre y DNI:</div>',
+    '  <input id="ia-identify-nombre" type="text" placeholder="Nombre y apellido" maxlength="200" />',
+    '  <input id="ia-identify-dni" type="text" inputmode="numeric" placeholder="DNI (sin puntos)" maxlength="20" />',
+    '  <div id="ia-identify-error" class="ia-identify-error" style="display:none"></div>',
+    '  <div class="ia-identify-actions">',
+    '    <button type="button" class="ia-identify-skip" id="ia-identify-skip-btn">Prefiero no decir</button>',
+    '    <button type="submit" class="ia-identify-submit" id="ia-identify-submit-btn">Continuar</button>',
+    '  </div>',
+    '</form>',
     '<form id="ia-widget-form" style="display:none">',
     '  <textarea id="ia-widget-input" rows="1" placeholder="' + _escape(PLACEHOLDER) + '" autocomplete="off"></textarea>',
     '  <button id="ia-widget-human-btn" type="button" title="Hablar con un operador">👤</button>',
@@ -142,6 +165,12 @@
   var widgetForm     = document.getElementById("ia-widget-form");
   var statusEl       = document.getElementById("ia-widget-status");
   var handoffBar     = document.getElementById("ia-widget-handoff-bar");
+  var identifyForm   = document.getElementById("ia-widget-identify-form");
+  var identifyNombre = document.getElementById("ia-identify-nombre");
+  var identifyDni    = document.getElementById("ia-identify-dni");
+  var identifyError  = document.getElementById("ia-identify-error");
+  var identifyBtn    = document.getElementById("ia-identify-submit-btn");
+  var identifySkip   = document.getElementById("ia-identify-skip-btn");
   var badge          = document.getElementById("ia-widget-badge");
   var sectorChange   = document.getElementById("ia-sector-change");
 
@@ -210,12 +239,52 @@
 
   document.getElementById("ia-handoff-yes").addEventListener("click", function () {
     handoffBar.style.display = "none";
-    _confirmHandoff();
+    // Antes de derivar, pedimos identificación just-in-time
+    _showIdentifyForm();
   });
 
   document.getElementById("ia-handoff-no").addEventListener("click", function () {
     handoffBar.style.display = "none";
   });
+
+  // Identify form: submit con datos
+  identifyForm.addEventListener("submit", function (e) {
+    e.preventDefault();
+    var nombre = identifyNombre.value.trim();
+    var dni    = identifyDni.value.trim();
+    if (!nombre) { _identifyShowError("Decinos tu nombre, por favor."); return; }
+    if (!dni)    { _identifyShowError("Decinos tu DNI, por favor.");    return; }
+    if (dni.length < 4) { _identifyShowError("El DNI parece muy corto."); return; }
+    identifyBtn.disabled = true;
+    identifySkip.disabled = true;
+    _confirmHandoff({ afiliado_nombre: nombre, afiliado_dni: dni });
+  });
+
+  // Skip: deriva sin datos (degraded mode)
+  identifySkip.addEventListener("click", function () {
+    identifyBtn.disabled = true;
+    identifySkip.disabled = true;
+    _confirmHandoff(null);
+  });
+
+  function _showIdentifyForm() {
+    identifyNombre.value = "";
+    identifyDni.value    = "";
+    identifyError.style.display = "none";
+    identifyBtn.disabled  = false;
+    identifySkip.disabled = false;
+    identifyForm.style.display = "flex";
+    identifyNombre.focus();
+  }
+
+  function _hideIdentifyForm() {
+    identifyForm.style.display = "none";
+  }
+
+  function _identifyShowError(msg) {
+    identifyError.textContent = msg;
+    identifyError.style.display = "block";
+  }
 
   // ── Sector logic ────────────────────────────────────────────────────────────
   function _loadSectors() {
@@ -374,16 +443,25 @@
       .catch(function (err) { console.error("[IA Widget] human request error:", err); });
   }
 
-  function _confirmHandoff() {
-    fetch(API_BASE + "/api/v1/widget/conversation/" + conversationId + "/confirm-handoff", {
-      method: "POST", headers: _headers(),
-    })
+  function _confirmHandoff(identifyData) {
+    var fetchOpts = { method: "POST", headers: _headers() };
+    if (identifyData && (identifyData.afiliado_nombre || identifyData.afiliado_dni)) {
+      fetchOpts.headers["Content-Type"] = "application/json";
+      fetchOpts.body = JSON.stringify(identifyData);
+    }
+    fetch(API_BASE + "/api/v1/widget/conversation/" + conversationId + "/confirm-handoff", fetchOpts)
       .then(function (r) { return r.json(); })
       .then(function (data) {
         convStatus = data.status;
         _updateStatus();
+        _hideIdentifyForm();
       })
-      .catch(function (err) { console.error("[IA Widget] confirm handoff error:", err); });
+      .catch(function (err) {
+        console.error("[IA Widget] confirm handoff error:", err);
+        identifyBtn.disabled  = false;
+        identifySkip.disabled = false;
+        _identifyShowError("No pudimos conectarte. Probá de nuevo.");
+      });
   }
 
   // ── Polling ──────────────────────────────────────────────────────────────────

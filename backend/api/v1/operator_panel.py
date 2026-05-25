@@ -123,7 +123,7 @@ async def list_conversations(
         conv_result = await session.execute(text(f"""
             SELECT
                 c.id, c.widget_session_id, c.status, c.sector_id,
-                c.afiliado_nombre, c.afiliado_email,
+                c.afiliado_nombre, c.afiliado_email, c.afiliado_dni,
                 c.created_at, c.updated_at,
                 s.nombre AS sector_nombre,
                 u.name  AS operator_name,
@@ -158,6 +158,7 @@ async def list_conversations(
                 "status":         conv["status"],
                 "afiliado_nombre": conv["afiliado_nombre"],
                 "afiliado_email":  conv["afiliado_email"],
+                "afiliado_dni":    conv["afiliado_dni"],
                 "sector_id":       sid,
                 "sector_nombre":   conv["sector_nombre"],
                 "operator_name":   conv["operator_name"],
@@ -260,7 +261,7 @@ async def list_conversations_history(
         rows_result = await session.execute(text(f"""
             SELECT
                 c.id, c.status, c.sector_id,
-                c.afiliado_nombre, c.afiliado_email,
+                c.afiliado_nombre, c.afiliado_email, c.afiliado_dni,
                 c.created_at, c.updated_at, c.closed_at,
                 s.nombre AS sector_nombre,
                 u.name   AS operator_name,
@@ -283,6 +284,7 @@ async def list_conversations_history(
                 "sector_nombre":    r["sector_nombre"],
                 "afiliado_nombre":  r["afiliado_nombre"],
                 "afiliado_email":   r["afiliado_email"],
+                "afiliado_dni":     r["afiliado_dni"],
                 "operator_name":    r["operator_name"],
                 "message_count":    int(r["message_count"] or 0),
                 "created_at":       r["created_at"].isoformat() if r["created_at"] else None,
@@ -339,6 +341,7 @@ async def get_conversation(
         "operator_name": conv["operator_name"],
         "afiliado_nombre": conv["afiliado_nombre"],
         "afiliado_email": conv["afiliado_email"],
+        "afiliado_dni": conv["afiliado_dni"],
         "created_at": conv["created_at"].isoformat(),
         "messages": [
             {

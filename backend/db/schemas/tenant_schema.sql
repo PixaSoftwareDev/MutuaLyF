@@ -117,6 +117,7 @@ CREATE TABLE IF NOT EXISTS conversaciones (
     human_request_count     INTEGER NOT NULL DEFAULT 0,
     afiliado_nombre         VARCHAR(200),
     afiliado_email          VARCHAR(320),
+    afiliado_dni            VARCHAR(20),
     created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     closed_at               TIMESTAMPTZ

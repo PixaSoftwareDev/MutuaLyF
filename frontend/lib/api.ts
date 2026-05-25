@@ -233,6 +233,7 @@ export interface ConversationRow {
   status: "bot_active" | "handoff_requested" | "human_attending" | "closed";
   afiliado_nombre: string | null;
   afiliado_email: string | null;
+  afiliado_dni: string | null;
   sector_id: string | null;
   sector_nombre: string | null;
   operator_name: string | null;
@@ -253,6 +254,7 @@ export interface ConversationHistoryRow {
   sector_nombre: string | null;
   afiliado_nombre: string | null;
   afiliado_email: string | null;
+  afiliado_dni: string | null;
   operator_name: string | null;
   message_count: number;
   created_at: string | null;

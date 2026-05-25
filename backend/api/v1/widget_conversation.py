@@ -51,6 +51,17 @@ class PollRequest(BaseModel):
     last_message_id: str | None = None  # UUID of last known message
 
 
+class ConfirmHandoffRequest(BaseModel):
+    """Datos de identificación capturados just-in-time antes del handoff a operador.
+
+    Opcional para no romper compat con clientes viejos. Cuando viene, se persisten
+    en la conversación (afiliado_nombre, afiliado_dni) y quedan visibles para el
+    operador. Sin estos datos, el handoff sigue funcionando (degraded mode).
+    """
+    afiliado_nombre: str | None = Field(default=None, min_length=1, max_length=200)
+    afiliado_dni:    str | None = Field(default=None, min_length=4, max_length=20)
+
+
 # ── Start / resume conversation ───────────────────────────────────────────────
 
 @router.post("/widget/conversation/start")
@@ -339,10 +350,36 @@ async def request_human(
 @router.post("/widget/conversation/{conversation_id}/confirm-handoff")
 async def confirm_handoff(
     conversation_id: str,
+    body: ConfirmHandoffRequest | None = None,
     tenant_id: str = Depends(get_tenant_id),
     widget_user: CurrentUser = Depends(get_widget_user),
 ):
-    """Afiliado confirms they want handoff after being offered."""
+    """Afiliado confirma handoff. Opcionalmente envía nombre + DNI para que el
+    operador tenga la identificación al recibir la conversación.
+
+    Si llegan datos en el body, se persisten en `conversaciones` antes de
+    disparar el handoff (sin esto el operador ve "Afiliado anónimo").
+    """
+    # Persistir datos de identificación si vinieron en el body
+    if body and (body.afiliado_nombre or body.afiliado_dni):
+        updates = []
+        params: dict[str, str] = {"cid": conversation_id}
+        if body.afiliado_nombre:
+            updates.append("afiliado_nombre = :nombre")
+            params["nombre"] = body.afiliado_nombre.strip()
+        if body.afiliado_dni:
+            updates.append("afiliado_dni = :dni")
+            params["dni"] = body.afiliado_dni.strip()
+        if updates:
+            async with get_pg_session(tenant_id) as session:
+                await session.execute(
+                    text(
+                        f"UPDATE conversaciones SET {', '.join(updates)}, updated_at = NOW() "
+                        "WHERE id = :cid"
+                    ),
+                    params,
+                )
+
     from services.handoff import _get_handoff_config
     config = await _get_handoff_config(tenant_id)
     msg = config["transition_messages"]["handoff_auto"]

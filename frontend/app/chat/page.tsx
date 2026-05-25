@@ -85,24 +85,93 @@ function SystemBubble({ content }: { content: string }) {
   );
 }
 
-function HandoffOfferBubble({ content, onConfirm, confirmed }: { content: string; onConfirm: () => void; confirmed: boolean }) {
+function HandoffOfferBubble({
+  content,
+  onConfirm,
+  confirmed,
+}: {
+  content: string;
+  onConfirm: (identif?: { afiliado_nombre: string; afiliado_dni: string }) => void;
+  confirmed: boolean;
+}) {
+  // 3 estados: "offer" (botón inicial) → "identify" (form) → confirmed (loader)
+  const [phase, setPhase] = useState<"offer" | "identify">("offer");
+  const [nombre, setNombre] = useState("");
+  const [dni, setDni]       = useState("");
+  const [err, setErr]       = useState<string | null>(null);
+
+  function submit() {
+    setErr(null);
+    const n = nombre.trim();
+    const d = dni.trim();
+    if (!n) { setErr("Decinos tu nombre, por favor."); return; }
+    if (!d) { setErr("Decinos tu DNI, por favor."); return; }
+    if (d.length < 4) { setErr("El DNI parece muy corto."); return; }
+    onConfirm({ afiliado_nombre: n, afiliado_dni: d });
+  }
+
+  function skip() {
+    onConfirm();
+  }
+
   return (
     <div className="flex justify-center py-2">
       <div className="max-w-[85%] bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3 text-center space-y-3">
         <p className="text-sm text-amber-800">{renderWithLinks(content)}</p>
-        {!confirmed ? (
+        {confirmed ? (
+          <span className="inline-flex items-center gap-1.5 text-xs text-amber-600 font-medium">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            Buscando operador disponible…
+          </span>
+        ) : phase === "offer" ? (
           <button
-            onClick={onConfirm}
+            onClick={() => setPhase("identify")}
             className="inline-flex items-center gap-2 bg-amber-500 hover:bg-amber-600 active:scale-95 text-white text-sm font-medium rounded-xl px-4 py-2 transition-all"
           >
             <UserCheck className="h-4 w-4" />
             Sí, conectarme con un operador
           </button>
         ) : (
-          <span className="inline-flex items-center gap-1.5 text-xs text-amber-600 font-medium">
-            <Loader2 className="h-3 w-3 animate-spin" />
-            Buscando operador disponible…
-          </span>
+          <div className="text-left space-y-2">
+            <p className="text-xs font-semibold text-amber-900">Antes de conectarte con un operador</p>
+            <p className="text-[11px] text-amber-700 leading-relaxed">
+              Para una mejor atención, decinos tu nombre y DNI:
+            </p>
+            <input
+              type="text"
+              value={nombre}
+              onChange={e => setNombre(e.target.value)}
+              placeholder="Nombre y apellido"
+              maxLength={200}
+              autoFocus
+              className="w-full px-3 py-2 rounded-md border border-amber-200 text-sm text-amber-900 placeholder:text-amber-300 bg-white focus:outline-none focus:ring-2 focus:ring-amber-400"
+            />
+            <input
+              type="text"
+              inputMode="numeric"
+              value={dni}
+              onChange={e => setDni(e.target.value)}
+              placeholder="DNI (sin puntos)"
+              maxLength={20}
+              className="w-full px-3 py-2 rounded-md border border-amber-200 text-sm text-amber-900 placeholder:text-amber-300 bg-white focus:outline-none focus:ring-2 focus:ring-amber-400"
+              onKeyDown={e => { if (e.key === "Enter") submit(); }}
+            />
+            {err && <p className="text-[11px] text-red-600">{err}</p>}
+            <div className="flex items-center justify-between pt-1">
+              <button
+                onClick={skip}
+                className="text-xs text-amber-700 hover:text-amber-900 underline"
+              >
+                Prefiero no decir
+              </button>
+              <button
+                onClick={submit}
+                className="bg-amber-500 hover:bg-amber-600 active:scale-95 text-white text-sm font-medium rounded-xl px-4 py-2 transition-all"
+              >
+                Continuar
+              </button>
+            </div>
+          </div>
         )}
       </div>
     </div>
@@ -303,11 +372,21 @@ function ChatInner() {
     } catch { /* ignore */ }
   }
 
-  async function confirmHandoff() {
+  async function confirmHandoff(identif?: { afiliado_nombre: string; afiliado_dni: string }) {
     if (!conversationId) return;
     setHandoffConfirmed(true);
     try {
-      const r = await fetch(`${API_BASE}/api/v1/widget/conversation/${conversationId}/confirm-handoff`, { method: "POST", headers: getHeaders() });
+      const headers: Record<string, string> = { ...getHeaders() };
+      let body: string | undefined;
+      if (identif) {
+        headers["Content-Type"] = "application/json";
+        body = JSON.stringify(identif);
+      }
+      const r = await fetch(`${API_BASE}/api/v1/widget/conversation/${conversationId}/confirm-handoff`, {
+        method: "POST",
+        headers,
+        body,
+      });
       const data = await r.json();
       setStatus(data.status ?? "handoff_requested");
       if (data.message)

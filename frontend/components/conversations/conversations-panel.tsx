@@ -444,6 +444,7 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
                   <p className="font-semibold text-sm truncate">{detail.afiliado_nombre || "Afiliado anónimo"}</p>
                   <p className="text-xs text-muted-foreground truncate">
                     {detail.sector_nombre}
+                    {detail.afiliado_dni && ` · DNI ${detail.afiliado_dni}`}
                     {detail.afiliado_email && ` · ${detail.afiliado_email}`}
                   </p>
                 </div>
