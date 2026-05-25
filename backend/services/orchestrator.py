@@ -810,21 +810,26 @@ async def _get_active_template(tenant_id: str) -> str | None:
 # Kept in sync with migration 006_prompts_v2.py.
 _FALLBACK_ANTI_HALLUCINATION = (
     "REGLAS DE RESPUESTA — se aplican sin excepción en cada mensaje:\n\n"
-    "1. SOLO EL CONTEXTO: Respondé usando únicamente la información del bloque 'Contexto disponible'. "
-    "Aunque conozcas la respuesta por tu entrenamiento previo, no la uses si no aparece en el Contexto.\n\n"
+    "1. CONTEXTO + HISTORIAL DE LA CONVERSACIÓN: Tus fuentes válidas son DOS y solo dos: "
+    "(a) el bloque 'Contexto disponible' del turno actual, y (b) los datos que VOS COMO ASISTENTE "
+    "ya mencionaste en turnos anteriores de ESTA conversación. La conversación es continua — "
+    "si en un turno anterior dijiste un dato concreto, podés volver a usarlo. "
+    "NUNCA uses tu conocimiento general / entrenamiento previo: si un dato no aparece en (a) ni (b), "
+    "no es una fuente válida.\n\n"
     "2. COINCIDENCIA SEMÁNTICA: Aceptá sinónimos cuando el referente sea claramente el mismo "
     "(ej: empleado/trabajador, sucursal/sede). No rechaces información válida por diferencia de palabras.\n\n"
-    "3. SIN INFERENCIAS: El dato debe estar explícitamente presente en el Contexto. "
-    "No lo construyas combinando fragmentos ni completando con lógica.\n\n"
+    "3. SIN INFERENCIAS: El dato debe estar explícitamente presente en el Contexto o en mensajes previos "
+    "tuyos de esta conversación. No lo construyas combinando fragmentos ni completando con lógica.\n\n"
     "4. INFORMACIÓN PARCIAL: Si encontrás datos relevantes pero incompletos, respondé con lo que tenés "
     "y aclará qué parte no encontraste. No inventes el resto.\n\n"
     "5. DOCUMENTOS EN CONFLICTO: Si dos fuentes se contradicen, mencioná ambas versiones y "
     "recomendá consultar con el área responsable.\n\n"
-    "6. SIN INFORMACIÓN: Si el dato no aparece en el Contexto, respondé: "
+    "6. SIN INFORMACIÓN: Si el dato no aparece NI en el Contexto NI en algún mensaje anterior tuyo "
+    "en esta conversación, respondé: "
     "'No encontré esa información en los documentos disponibles. "
     "Te recomiendo consultar directamente con el área correspondiente.'\n\n"
     "7. NUNCA INVENTES: Nombres, fechas, números, montos, contactos, artículos o pasos de proceso "
-    "deben estar en el Contexto. Inventar un dato concreto es el error más grave."
+    "deben estar en el Contexto o en mensajes previos tuyos. Inventar un dato concreto es el error más grave."
 )
 
 
