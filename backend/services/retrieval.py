@@ -357,7 +357,11 @@ async def retrieve(
     with tracer.start_as_current_span("retrieval.rerank") as span:
         span.set_attribute("candidates", len(chunks))
         span.set_attribute("provider", "tei" if _rerank_via_tei() else "local")
-        if len(chunks) < settings.reranker_min_candidates:
+        if not settings.reranker_enabled:
+            logger.debug("rerank_skipped reason=disabled")
+            span.set_attribute("skipped", "disabled")
+            reranked = sorted(chunks, key=lambda c: c.score, reverse=True)[:rerank_top_k]
+        elif len(chunks) < settings.reranker_min_candidates:
             logger.debug(
                 "rerank_skipped reason=few_candidates count=%d min=%d",
                 len(chunks), settings.reranker_min_candidates,
@@ -441,13 +445,13 @@ async def retrieve_by_ids(
 async def _fetch_parent_texts(parent_ids: list[str], tenant_id: str) -> dict[str, str]:
     """Fetch parent chunk texts from PostgreSQL in a single IN query."""
     from sqlalchemy import text as sa_text
-    from core.database import get_worker_pg_session
+    from core.database import get_pg_session
 
     if not parent_ids:
         return {}
 
     try:
-        async with get_worker_pg_session(tenant_id) as session:
+        async with get_pg_session(tenant_id) as session:
             rows = await session.execute(
                 sa_text("SELECT id, text FROM parent_chunks WHERE id = ANY(:ids)"),
                 {"ids": parent_ids},
@@ -461,7 +465,7 @@ async def _fetch_parent_texts(parent_ids: list[str], tenant_id: str) -> dict[str
 async def _bm25_search(query: str, tenant_id: str, limit: int = 20) -> list[dict]:
     """Full-text BM25 search over parent_chunks via PostgreSQL tsvector."""
     from sqlalchemy import text as sa_text
-    from core.database import get_worker_pg_session
+    from core.database import get_pg_session
 
     # Sanitize query for tsquery: keep only word chars and spaces, join with &
     words = [w for w in query.replace("'", " ").split() if len(w) > 1]
@@ -470,7 +474,7 @@ async def _bm25_search(query: str, tenant_id: str, limit: int = 20) -> list[dict
     tsquery = " & ".join(words)
 
     try:
-        async with get_worker_pg_session(tenant_id) as session:
+        async with get_pg_session(tenant_id) as session:
             rows = await session.execute(
                 sa_text("""
                     SELECT id, document_id, text,
@@ -567,6 +571,7 @@ async def _arerank_tei(query: str, chunks: list[RetrievedChunk], top_k: int) -> 
                 "texts": [c.text for c in chunks],
                 "raw_scores": False,
                 "return_text": False,
+                "truncate": True,
             },
         )
         r.raise_for_status()

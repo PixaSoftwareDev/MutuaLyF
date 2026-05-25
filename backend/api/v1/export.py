@@ -183,7 +183,7 @@ async def export_kb_json(
         if intent_ids:
             examples_result = await session.execute(
                 text(
-                    "SELECT id, intencion_id, texto, source, created_at "
+                    "SELECT id, intencion_id, question_text, question_hash, created_at "
                     "FROM intencion_ejemplos WHERE intencion_id = ANY(:intent_ids) "
                     "ORDER BY intencion_id, created_at"
                 ),
@@ -193,8 +193,8 @@ async def export_kb_json(
                 key = str(e["intencion_id"])
                 examples_by_intent.setdefault(key, []).append(
                     {
-                        "texto": e["texto"],
-                        "source": e["source"],
+                        "texto": e["question_text"],
+                        "source": e["question_hash"],
                         "created_at": e["created_at"].isoformat() if e["created_at"] else None,
                     }
                 )

@@ -1,14 +1,18 @@
 """Document type classifier: decides chunking strategy per document.
 
-Three document types:
+Five document types:
+  short       — total word count < 400; entire document is one parent
+  faq         — Q&A pairs; each question+answer is one parent
   structured  — tables, forms, numbered lists, clear headers
-                → fixed-size chunking preserves structure
+                → structural split respecting article/section boundaries
   mixed       — combination of prose and structured elements
-                → fixed-size with smaller chunks to preserve context
+                → fixed-size with smaller chunks
   freeform    — continuous prose (manuals, policies, narratives)
                 → semantic chunking (split on meaning boundaries)
 
 Classification uses heuristics on the extracted text:
+  - Total word count (short detection)
+  - FAQ marker density (question patterns)
   - Header density (lines starting with # or digit+period)
   - Table density (lines with | separators)
   - Avg sentence length (short sentences → structured)
@@ -25,8 +29,34 @@ from typing import Literal
 
 logger = logging.getLogger(__name__)
 
+# Words below which the whole document is a single parent (no split needed).
+# 200 covers emails, memos, short notices. Above this, structural splits
+# (FAQ pairs, articles) provide better precision than a single parent.
+_SHORT_DOC_THRESHOLD = 200
+
+# Structural section markers: Artículo, Cláusula, Capítulo, etc. (mixed-case)
+# These appear in reglamentos, contracts, policies — high-confidence structured signal.
+_ARTICLE_MARKER_RE = re.compile(
+    r"^(?:Art[íi]culo|Cl[áa]usula|Cap[íi]tulo|Secci[óo]n|Secci[oó]n|Anexo|T[íi]tulo|Parte)\s+\w",
+    re.IGNORECASE,
+)
+
+# FAQ: lines/paragraphs that look like questions
+# Matches: "1. ¿Cómo...", "Pregunta 3:", "Q:", "P:", lines starting with ¿
+_FAQ_MARKER_RE = re.compile(
+    r"(?:^|\n)"
+    r"(?:\d+[\.\)]\s+[¿\w]"         # "1. ¿Qué..." or "1. What..."
+    r"|[Pp]regunta\s*\d*\s*[:\.\-]"  # "Pregunta:" / "Pregunta 3."
+    r"|[Qq][:\.\-]\s+"               # "Q: " / "Q. "
+    r"|[Pp][:\.\-]\s+"               # "P: " / "P. "
+    r"|¿)",                          # Starts with inverted question mark
+    re.MULTILINE,
+)
+
 
 class DocType(str, Enum):
+    SHORT      = "short"
+    FAQ        = "faq"
     STRUCTURED = "structured"
     MIXED      = "mixed"
     FREEFORM   = "freeform"
@@ -34,10 +64,10 @@ class DocType(str, Enum):
 
 @dataclass
 class ClassificationResult:
-    doc_type:         DocType
-    confidence:       float          # 0–1
-    chunking_strategy: Literal["fixed", "fixed_small", "semantic"]
-    features:         dict           # raw feature values for debugging
+    doc_type:          DocType
+    confidence:        float          # 0–1
+    chunking_strategy: Literal["single", "faq", "fixed", "fixed_small", "semantic"]
+    features:          dict           # raw feature values for debugging
 
 
 def classify_document(text: str) -> ClassificationResult:
@@ -51,20 +81,79 @@ def classify_document(text: str) -> ClassificationResult:
     """
     if not text or len(text.strip()) < 100:
         return ClassificationResult(
-            doc_type=DocType.FREEFORM,
-            confidence=0.5,
-            chunking_strategy="fixed",
+            doc_type=DocType.SHORT,
+            confidence=1.0,
+            chunking_strategy="single",
             features={"reason": "too_short"},
         )
 
     lines = text.splitlines()
     non_empty = [l for l in lines if l.strip()]
     total = max(len(non_empty), 1)
+    total_words = len(text.split())
 
-    features = _extract_features(text, non_empty, total)
+    features = _extract_features(text, non_empty, total, total_words)
 
+    # ── FAQ: check before SHORT so a 5-question FAQ isn't collapsed to one parent
+    # FAQ detection: explicit question markers OR high density of ?-ending lines ─
+    # Require either explicit markers (high confidence) or very high ? density
+    # to avoid false positives from contracts with rhetorical questions.
+    faq_markers = len(_FAQ_MARKER_RE.findall(text))
+    question_lines = sum(1 for l in non_empty if l.strip().rstrip('"\'»)').endswith("?"))
+    faq_marker_density = faq_markers / total
+    faq_question_density = question_lines / total
+
+    is_faq = (
+        faq_marker_density >= 0.08          # ≥8% of lines have explicit FAQ marker
+        or faq_question_density >= 0.20     # ≥20% of lines end with ?
+        or (faq_markers >= 5 and faq_question_density >= 0.10)  # mixed signal
+    )
+    if is_faq:
+        confidence = min((faq_marker_density + faq_question_density) * 3, 1.0)
+        logger.debug(
+            "doc_classify type=faq marker_density=%.3f question_density=%.3f",
+            faq_marker_density, faq_question_density,
+        )
+        return ClassificationResult(
+            doc_type=DocType.FAQ,
+            confidence=round(confidence, 3),
+            chunking_strategy="faq",
+            features=features,
+        )
+
+    # ── SHORT: check after FAQ so short FAQs keep their Q+A structure ────────
+    if total_words < _SHORT_DOC_THRESHOLD:
+        logger.debug("doc_classify type=short words=%d", total_words)
+        return ClassificationResult(
+            doc_type=DocType.SHORT,
+            confidence=1.0,
+            chunking_strategy="single",
+            features=features,
+        )
+
+    # ── STRUCTURED (early exit): signals that are unambiguous ────────────────
+    # Article/clause markers (Artículo, Cláusula, etc.) are legal-doc signals —
+    # even a low density (2%) confirms a structured regulatory document.
+    # Similarly, high header density (≥8%) with markdown or numbered headings.
+    # These checks happen before scoring because legal text always has long
+    # sentences that inflate freeform_score and would otherwise win.
+    if features["article_density"] >= 0.02 or features["header_density"] >= 0.08:
+        confidence = max(features["article_density"] * 20, features["header_density"] * 10, 0.7)
+        logger.debug(
+            "doc_classify type=structured (early) article_density=%.3f header_density=%.3f",
+            features["article_density"], features["header_density"],
+        )
+        return ClassificationResult(
+            doc_type=DocType.STRUCTURED,
+            confidence=round(min(confidence, 1.0), 3),
+            chunking_strategy="fixed",
+            features=features,
+        )
+
+    # ── STRUCTURED / MIXED / FREEFORM (score-based) ───────────────────────────
     structured_score = (
         features["header_density"] * 3.0
+        + features["article_density"] * 5.0   # strong: unambiguous legal/regulatory markers
         + features["list_density"] * 2.0
         + features["table_density"] * 4.0
         + (1 - features["avg_sentence_length_normalized"]) * 1.0
@@ -108,12 +197,18 @@ def classify_document(text: str) -> ClassificationResult:
     )
 
 
-def _extract_features(text: str, non_empty_lines: list[str], total: int) -> dict:
+def _extract_features(text: str, non_empty_lines: list[str], total: int, total_words: int = 0) -> dict:
     """Extract numerical features from text for classification."""
     # Header density: lines starting with # or "N. " or "TÍTULO EN MAYUSCULAS"
     header_re = re.compile(r"^(#{1,6}\s|[A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ\s]{4,}$|\d+\.\s|\d+\)\s)")
     headers = sum(1 for l in non_empty_lines if header_re.match(l.strip()))
     header_density = headers / total
+
+    # Article/legal marker density: "Artículo 15", "Cláusula X", etc.
+    # Stronger structured signal than generic header_density because these are
+    # unambiguous section delimiters in regulatory and legal documents.
+    articles = sum(1 for l in non_empty_lines if _ARTICLE_MARKER_RE.match(l.strip()))
+    article_density = articles / total
 
     # List density: lines starting with -, *, •, or digit+.
     list_re = re.compile(r"^[\-\*•·]\s|^\d+[\.\)]\s")
@@ -137,10 +232,12 @@ def _extract_features(text: str, non_empty_lines: list[str], total: int) -> dict
 
     return {
         "header_density":                 round(header_density, 3),
+        "article_density":                round(article_density, 3),
         "list_density":                   round(list_density, 3),
         "table_density":                  round(table_density, 3),
         "paragraph_density":              round(paragraph_density, 3),
         "avg_sentence_length":            round(avg_sentence_len, 1),
         "avg_sentence_length_normalized": round(avg_sentence_length_normalized, 3),
         "total_lines":                    total,
+        "total_words":                    total_words,
     }

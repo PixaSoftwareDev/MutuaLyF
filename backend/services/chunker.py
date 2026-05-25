@@ -322,8 +322,19 @@ def chunk_document_hierarchical(
     doc_type = classification.doc_type.value if classification else "unknown"
     meta = metadata or {}
 
-    # 1. Split into structural parent sections
-    sections = _structural_split(text)  # list of (section_header, body_text)
+    # ── SHORT: entire document is one parent ──────────────────────────────────
+    # Trust the classifier result — it already checked total_words < threshold.
+    # Do NOT re-check word count here; a short structured doc (e.g. a 3-article
+    # internal memo) should still be split by article boundaries.
+    if doc_type == "short":
+        return _build_single_parent(text, document_id, tenant_id, doc_type, meta)
+
+    # ── FAQ: split by question/answer pairs ──────────────────────────────────
+    if doc_type == "faq":
+        sections = _faq_split(text)
+    else:
+        # 1. Split into structural parent sections (type-aware cap)
+        sections = _structural_split(text, doc_type)
 
     parents: list[HierarchicalChunk] = []
     children: list[Chunk] = []
@@ -430,8 +441,138 @@ def extract_text_from_bytes(content: bytes, mime_type: str, filename: str) -> st
 _MAX_PARENT_WORDS = settings.max_parent_words
 _MIN_PARENT_WORDS = settings.min_parent_words
 
+# Per-type caps: structured and faq respect semantic units over word count.
+# freeform/mixed keep the original 700-word cap.
+_MAX_PARENT_WORDS_BY_TYPE: dict[str, int] = {
+    "structured": 2000,   # full legal article / policy section
+    "faq":         600,   # one Q+A pair (long answers)
+    "mixed":       700,
+    "freeform":    700,
+    "short":       400,
+    "unknown":     700,
+}
 
-def _structural_split(text: str) -> list[tuple[str, str]]:
+# Threshold below which the whole document is a single parent.
+# Must match _SHORT_DOC_THRESHOLD in doc_classifier.py.
+_SHORT_DOC_THRESHOLD = 200
+
+# FAQ question detector — same logic as doc_classifier but used for paragraph-level split
+_FAQ_Q_RE = re.compile(
+    r"^(?:\d+[\.\)]\s+[¿\w]"          # "1. ¿Qué..." / "1. What..."
+    r"|[Pp]regunta\s*\d*\s*[:\.\-]"   # "Pregunta:" / "Pregunta 3."
+    r"|[Qq][:\.\-]\s+"                 # "Q: "
+    r"|[Pp][:\.\-]\s+"                 # "P: "
+    r"|¿)",                            # starts with ¿
+)
+
+
+def _is_faq_question(para: str) -> bool:
+    """Return True if a paragraph looks like a FAQ question."""
+    s = para.strip()
+    ends_with_q = s.rstrip('"\'»)').endswith("?")
+    has_marker = bool(_FAQ_Q_RE.match(s))
+    # Questions are usually concise; cap at 80 words to avoid false positives
+    return (ends_with_q or has_marker) and len(s.split()) <= 80
+
+
+def _faq_split(text: str) -> list[tuple[str, str]]:
+    """Split FAQ text into (question, answer) pairs.
+
+    Works line-by-line so it handles both formats:
+      - "¿Pregunta?\nRespuesta." (single newline)
+      - "¿Pregunta?\n\nRespuesta." (paragraph-separated)
+
+    Each line that looks like a question starts a new pair.
+    Answer lines accumulate until the next question line.
+    Blank lines within an answer are preserved as paragraph breaks.
+    """
+    lines = text.splitlines()
+    if not lines:
+        return [("", text)]
+
+    sections: list[tuple[str, str]] = []
+    current_q = ""
+    current_a: list[str] = []
+
+    for line in lines:
+        stripped = line.strip()
+        if stripped and _is_faq_question(stripped):
+            if current_q or current_a:
+                sections.append((current_q, "\n".join(current_a).strip()))
+            current_q = stripped
+            current_a = []
+        else:
+            current_a.append(line)
+
+    if current_q or current_a:
+        sections.append((current_q, "\n".join(current_a).strip()))
+
+    # Drop pairs where both question and answer are empty
+    sections = [(q, a) for q, a in sections if q.strip() or a.strip()]
+
+    return sections if sections else [("", text)]
+
+
+def _build_single_parent(
+    text: str,
+    document_id: str,
+    tenant_id: str,
+    doc_type: str,
+    meta: dict,
+) -> tuple[list[HierarchicalChunk], list[Chunk]]:
+    """Return one parent (the full document) with its children.
+
+    Used for short documents where splitting would hurt coherence.
+    Children are still created for fine-grained embedding search.
+    """
+    parent_id = str(uuid.uuid4())
+    clean = text.strip()
+
+    parent = HierarchicalChunk(
+        id=parent_id,
+        document_id=document_id,
+        tenant_id=tenant_id,
+        text=clean,
+        token_count=_count_tokens(clean),
+        chunk_index=0,
+        total_chunks=1,
+        section_header="",
+        metadata=meta,
+    )
+
+    child_texts = [t for t in _build_child_splitter().split_text(clean) if t.strip()]
+    if not child_texts:
+        child_texts = [clean]
+
+    children: list[Chunk] = []
+    for idx, c_text in enumerate(child_texts):
+        contact_flags = _detect_contact_block(c_text)
+        contact_prefix = _build_contact_prefix(contact_flags) if contact_flags["is_contact"] else ""
+        embedded_text = "\n".join(p for p in [contact_prefix, c_text] if p)
+
+        children.append(Chunk(
+            id=str(uuid.uuid4()),
+            document_id=document_id,
+            tenant_id=tenant_id,
+            text=embedded_text,
+            token_count=_count_tokens(embedded_text),
+            chunk_index=idx,
+            total_chunks=len(child_texts),
+            parent_id=parent_id,
+            chunk_level="child",
+            doc_type=doc_type,
+            strategy="single",
+            metadata={**meta, "section_header": ""},
+        ))
+
+    logger.info(
+        "chunk_hierarchical_complete document_id=%s parents=1 children=%d strategy=single",
+        document_id, len(children),
+    )
+    return [parent], children
+
+
+def _structural_split(text: str, doc_type: str = "unknown") -> list[tuple[str, str]]:
     """Detect document structural boundaries and split into (header, body) pairs.
 
     Boundaries recognised (in priority order):
@@ -442,15 +583,18 @@ def _structural_split(text: str) -> list[tuple[str, str]]:
       - Single-level numbered headings (1. TITLE)
       - Markdown headers (## Title)
 
-    Each resulting section is capped at _MAX_PARENT_WORDS.  Sections shorter
-    than _MIN_PARENT_WORDS are merged into the previous one to avoid tiny
-    orphan parents.
+    For structured documents the per-section cap is raised to
+    _MAX_PARENT_WORDS_BY_TYPE["structured"] (default 2000) so that a long
+    article or clause is kept whole instead of being cut mid-sentence.
+    Sections shorter than _MIN_PARENT_WORDS are merged into the previous one.
 
     Returns:
         List of (section_header, section_body) tuples.
         section_header is the boundary line itself (e.g. "5.1 Plan de…").
         section_body is all text until the next boundary.
     """
+    max_words = _MAX_PARENT_WORDS_BY_TYPE.get(doc_type, _MAX_PARENT_WORDS)
+
     lines = text.splitlines(keepends=True)
     sections: list[tuple[str, str]] = []
     current_header = ""
@@ -485,11 +629,11 @@ def _structural_split(text: str) -> list[tuple[str, str]]:
                 result[-1] = (prev_h, merged_body)
             else:
                 result.append((header, body))
-        elif words <= _MAX_PARENT_WORDS:
+        elif words <= max_words:
             result.append((header, body))
         else:
             # Section too long — split at paragraph boundaries, keep header on first part
-            parts = _split_long_section(body)
+            parts = _split_long_section(body, max_words)
             for i, part in enumerate(parts):
                 part_header = header if i == 0 else f"{header} (cont. {i + 1})" if header else ""
                 result.append((part_header, part))
@@ -497,11 +641,13 @@ def _structural_split(text: str) -> list[tuple[str, str]]:
     return result if result else [("", text)]
 
 
-def _split_long_section(text: str) -> list[str]:
-    """Split a section that exceeds _MAX_PARENT_WORDS at paragraph boundaries.
+def _split_long_section(text: str, max_words: int | None = None) -> list[str]:
+    """Split a section that exceeds max_words at paragraph boundaries.
 
     Falls back to the fixed splitter if there are no paragraph breaks.
+    Never cuts mid-paragraph — always at a blank-line boundary.
     """
+    cap = max_words if max_words is not None else _MAX_PARENT_WORDS
     paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
     if len(paragraphs) <= 1:
         return _fixed_split(text, "fixed")
@@ -512,7 +658,7 @@ def _split_long_section(text: str) -> list[str]:
 
     for para in paragraphs:
         para_words = _count_tokens(para)
-        if current_words + para_words > _MAX_PARENT_WORDS and current_words >= _MIN_PARENT_WORDS:
+        if current_words + para_words > cap and current_words >= _MIN_PARENT_WORDS:
             parts.append("\n\n".join(current))
             current = [para]
             current_words = para_words
