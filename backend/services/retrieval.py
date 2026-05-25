@@ -607,11 +607,14 @@ async def _arerank_tei(query: str, chunks: list[RetrievedChunk], top_k: int) -> 
     if not chunks:
         return []
     client = _get_tei_rerank_async_client()
-    # Truncate text per candidate to avoid 413 Payload Too Large.
-    # The cross-encoder only needs a representative excerpt to score relevance —
-    # the full parent text (up to 2000 words) is kept for the LLM context, not for ranking.
+    # TEI max_client_batch_size=32 — cap at 30 to stay safely under.
+    # Pre-sort by Qdrant score to drop weakest candidates first.
+    # Also truncate text to 900 chars: cross-encoder scores on excerpt,
+    # full parent text stays in RetrievedChunk.text for LLM context.
+    _TEI_MAX_BATCH = 30
     _MAX_RERANK_CHARS = 900
-    truncated_texts = [c.text[:_MAX_RERANK_CHARS] for c in chunks]
+    candidates = sorted(chunks, key=lambda c: c.score, reverse=True)[:_TEI_MAX_BATCH]
+    truncated_texts = [c.text[:_MAX_RERANK_CHARS] for c in candidates]
     try:
         r = await client.post(
             "/rerank",
@@ -627,19 +630,20 @@ async def _arerank_tei(query: str, chunks: list[RetrievedChunk], top_k: int) -> 
         results = r.json()
         if not isinstance(results, list):
             logger.warning("arerank_tei_unexpected_response type=%s", type(results).__name__)
-            return sorted(chunks, key=lambda c: c.score, reverse=True)[:top_k]
+            return sorted(candidates, key=lambda c: c.score, reverse=True)[:top_k]
         for item in results:
             idx = item.get("index")
-            if idx is not None and 0 <= idx < len(chunks):
-                chunks[idx].score = float(item.get("score", 0.0))
-        sorted_chunks = sorted(chunks, key=lambda c: c.score, reverse=True)
+            if idx is not None and 0 <= idx < len(candidates):
+                candidates[idx].score = float(item.get("score", 0.0))
+        sorted_chunks = sorted(candidates, key=lambda c: c.score, reverse=True)
+        logger.info("arerank_tei_done candidates=%d reranked=%d", len(candidates), len(sorted_chunks[:top_k]))
         return sorted_chunks[:top_k]
     except Exception as exc:
         logger.error(
             "arerank_tei_failed candidates=%d error=%s fallback=qdrant_scores",
-            len(chunks), exc,
+            len(candidates), exc,
         )
-        return sorted(chunks, key=lambda c: c.score, reverse=True)[:top_k]
+        return sorted(candidates, key=lambda c: c.score, reverse=True)[:top_k]
 
 
 def _rerank(query: str, chunks: list[RetrievedChunk], top_k: int) -> list[RetrievedChunk]:
