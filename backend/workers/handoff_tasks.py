@@ -124,19 +124,66 @@ async def _run_close_stale() -> dict:
 
 
 async def _close_stale_tenant(tenant_id: str) -> int:
+    """Cierra conversaciones inactivas por estado, con thresholds distintos:
+
+    bot_active          → 30 min  (el bot respondio, user no volvio)
+    handoff_requested   → 2 h     (espera de operador muy larga)
+    human_attending     → 12 h    (operador atendio, user abandono el chat)
+
+    Sin esto, conversaciones quedan abiertas para siempre y el operador
+    puede mandar mensajes a 'sesiones fantasma' (afiliado ya cerro el browser).
+    """
     from core.database import get_worker_pg_session
     from sqlalchemy import text
 
     async with get_worker_pg_session(tenant_id) as session:
+        # bot_active sin actividad > 30 min
         result = await session.execute(text("""
             UPDATE conversaciones
-            SET status = 'closed', updated_at = NOW()
+            SET status = 'closed', updated_at = NOW(), closed_at = NOW()
             WHERE status = 'bot_active'
               AND updated_at < NOW() - INTERVAL '30 minutes'
             RETURNING id
         """))
-        closed = result.fetchall()
+        bot_closed = result.fetchall()
 
-    if closed:
-        logger.info("stale_conversations_closed tenant=%s count=%d", tenant_id, len(closed))
-    return len(closed)
+        # handoff_requested sin operador aceptando > 2 h
+        result = await session.execute(text("""
+            UPDATE conversaciones
+            SET status = 'closed', updated_at = NOW(), closed_at = NOW()
+            WHERE status = 'handoff_requested'
+              AND updated_at < NOW() - INTERVAL '2 hours'
+            RETURNING id
+        """))
+        handoff_closed = result.fetchall()
+
+        # human_attending sin mensajes nuevos del usuario > 12 h
+        # (la conversacion sigue tecnicamente activa pero el afiliado ya
+        # cerro el browser — el operador no debe seguir respondiendo).
+        # Usamos LAST(mensaje del user), no updated_at, porque updated_at
+        # se renueva con cada mensaje del operador y eso enmascararia el abandono.
+        result = await session.execute(text("""
+            UPDATE conversaciones
+            SET status = 'closed', updated_at = NOW(), closed_at = NOW()
+            WHERE status = 'human_attending'
+              AND id IN (
+                SELECT c.id FROM conversaciones c
+                LEFT JOIN LATERAL (
+                  SELECT MAX(created_at) AS last_user_msg
+                  FROM mensajes
+                  WHERE conversation_id = c.id AND sender_type = 'user'
+                ) m ON TRUE
+                WHERE c.status = 'human_attending'
+                  AND COALESCE(m.last_user_msg, c.created_at) < NOW() - INTERVAL '12 hours'
+              )
+            RETURNING id
+        """))
+        human_closed = result.fetchall()
+
+    total = len(bot_closed) + len(handoff_closed) + len(human_closed)
+    if total:
+        logger.info(
+            "stale_conversations_closed tenant=%s bot=%d handoff=%d human=%d total=%d",
+            tenant_id, len(bot_closed), len(handoff_closed), len(human_closed), total,
+        )
+    return total

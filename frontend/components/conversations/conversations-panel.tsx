@@ -202,7 +202,20 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
   const replyM = useMutation({
     mutationFn: ({ id, content }: { id: string; content: string }) => api.operator.reply(id, content),
     onSuccess: () => { inv(); setReplyText(""); textareaRef.current?.focus(); },
-    onError:   () => toast({ title: "Error al enviar", variant: "destructive" }),
+    onError:   (err: any) => {
+      // Backend devuelve 409 con detail descriptivo cuando la conversación
+      // está cerrada o el afiliado abandonó (>12h inactivo). Mostrar el
+      // mensaje del backend en vez del genérico "Error al enviar".
+      const detail = err?.response?.data?.detail || "Error al enviar el mensaje.";
+      toast({
+        title: "No se pudo enviar",
+        description: typeof detail === "string" ? detail : "Intentá de nuevo.",
+        variant: "destructive",
+      });
+      // Si la conversación quedó cerrada, refrescar el detalle para que
+      // la UI bloquee el reply y muestre el banner de cerrada.
+      if (err?.response?.status === 409) inv();
+    },
   });
 
   const transferM = useMutation({
@@ -529,6 +542,52 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
 
               <div ref={messagesEndRef} />
             </div>
+
+            {/* Banner cuando la conversación está cerrada — read-only explícito */}
+            {detail.status === "closed" && (
+              <div className="px-4 py-2.5 border-t bg-muted/50 flex items-center gap-2 text-xs text-muted-foreground">
+                <XCircle className="h-3.5 w-3.5 shrink-0" />
+                <span>
+                  Conversación cerrada. No se pueden enviar mensajes — el afiliado ya no está
+                  conectado a esta sesión.
+                </span>
+              </div>
+            )}
+
+            {/* Banner cuando el afiliado lleva mucho sin escribir (>2h) — warning preventivo */}
+            {!readOnly && detail.status === "human_attending" && (() => {
+              // Buscar el último mensaje del afiliado para calcular cuánto lleva sin actividad
+              const userMsgs = detail.messages.filter(m => m.sender_type === "user");
+              const lastUserMsg = userMsgs[userMsgs.length - 1];
+              if (!lastUserMsg) return null;
+              const ageMs = Date.now() - new Date(lastUserMsg.created_at).getTime();
+              const HOURS_2 = 2 * 3600 * 1000;
+              const HOURS_12 = 12 * 3600 * 1000;
+              if (ageMs < HOURS_2) return null;
+              const ageHr = Math.floor(ageMs / 3600000);
+              const isStale = ageMs > HOURS_12;
+              return (
+                <div className={cn(
+                  "px-4 py-2.5 border-t flex items-center gap-2 text-xs",
+                  isStale ? "bg-red-50 text-red-800 border-red-200" : "bg-amber-50 text-amber-800 border-amber-200",
+                )}>
+                  <Info className="h-3.5 w-3.5 shrink-0" />
+                  <span>
+                    {isStale ? (
+                      <>
+                        El afiliado lleva <span className="font-semibold">{ageHr}h</span> sin escribir.
+                        La sesión probablemente fue abandonada — el sistema la va a cerrar automáticamente.
+                      </>
+                    ) : (
+                      <>
+                        El afiliado lleva <span className="font-semibold">{ageHr}h</span> sin escribir.
+                        Puede no estar disponible.
+                      </>
+                    )}
+                  </span>
+                </div>
+              );
+            })()}
 
             {/* ── Reply ── */}
             {!readOnly && detail.status === "human_attending" && (

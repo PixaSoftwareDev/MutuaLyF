@@ -408,15 +408,44 @@ async def reply(
     tenant_id: str = Depends(get_tenant_id),
     current_user: CurrentUser = Depends(require_operator),
 ):
-    """Operator sends a message to the afiliado."""
+    """Operator sends a message to the afiliado.
+
+    Bloquea:
+      - Conversación no existente o ya cerrada
+      - Conversación human_attending con último mensaje del user > 12h
+        (la sesión está abandonada — evita 'mensajes a sesión fantasma').
+    """
     async with get_pg_session(tenant_id) as session:
         result = await session.execute(
-            text("SELECT status FROM conversaciones WHERE id = :id"),
+            text("""
+                SELECT c.status,
+                       COALESCE((
+                         SELECT MAX(created_at) FROM mensajes
+                         WHERE conversation_id = c.id AND sender_type = 'user'
+                       ), c.created_at) AS last_user_activity
+                FROM conversaciones c
+                WHERE c.id = :id
+            """),
             {"id": conversation_id},
         )
-        row = result.fetchone()
-        if not row or row[0] == ConvStatus.CLOSED:
-            raise HTTPException(status_code=400, detail="Conversation closed or not found")
+        row = result.mappings().fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        if row["status"] == ConvStatus.CLOSED:
+            raise HTTPException(
+                status_code=409,
+                detail="La conversación está cerrada. No se pueden enviar mensajes.",
+            )
+        # Sesión fantasma: human_attending pero el afiliado no escribe hace > 12h.
+        # La conversación debería haber sido auto-cerrada por el cron, pero defensa
+        # en profundidad acá por si el cron está caído o llega antes.
+        from datetime import datetime, timezone, timedelta
+        last_user = row["last_user_activity"]
+        if last_user and (datetime.now(timezone.utc) - last_user) > timedelta(hours=12):
+            raise HTTPException(
+                status_code=409,
+                detail="El afiliado lleva más de 12 horas inactivo. La conversación se considera abandonada.",
+            )
 
         await session.execute(text("""
             INSERT INTO mensajes (conversation_id, sender_type, content)
