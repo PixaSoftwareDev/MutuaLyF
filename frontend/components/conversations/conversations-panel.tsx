@@ -5,7 +5,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   MessageSquare, Loader2, Send, UserCheck, UserMinus, XCircle, User, Bot,
   Info, ChevronDown, ChevronLeft, Search, Flame, ArrowRightLeft, Eye, Wifi, WifiOff,
-  RotateCcw,
+  RotateCcw, MoreVertical,
 } from "lucide-react";
 import { api, type ConversationRow } from "@/lib/api";
 import { renderWithLinks } from "@/lib/render-with-links";
@@ -13,6 +13,9 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import {
+  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
+} from "@/components/ui/dropdown-menu";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 
@@ -483,41 +486,62 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
                 <StatusBadge status={detail.status} />
                 {!readOnly && detail.status === "human_attending" && (
                   <>
+                    {/* Acción primaria — la más común al terminar una atención */}
                     <Button
-                      size="sm" variant="outline" className="h-8"
-                      onClick={() => setShowTransfer(v => !v)}
-                    >
-                      <ArrowRightLeft className="h-3.5 w-3.5 mr-1.5" />
-                      Transferir
-                    </Button>
-                    <Button
-                      size="sm" variant="outline" className="h-8"
-                      onClick={() => setConfirmRelease(true)}
-                      disabled={releaseM.isPending}
-                      title="Devolver la conversación a la cola para que otro operador la atienda"
-                    >
-                      <UserMinus className="h-3.5 w-3.5 mr-1.5" />
-                      Devolver
-                    </Button>
-                    <Button
-                      size="sm" variant="outline" className="h-8"
-                      onClick={() => returnToBotM.mutate(detail.id)}
-                      disabled={returnToBotM.isPending}
-                      title="Devolver al asistente automático para que siga la conversación"
-                    >
-                      {returnToBotM.isPending
-                        ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-                        : <RotateCcw className="h-3.5 w-3.5 mr-1.5" />}
-                      Devolver al bot
-                    </Button>
-                    <Button
-                      size="sm" variant="outline" className="h-8 text-destructive hover:text-destructive"
+                      size="sm" className="h-8"
                       onClick={() => closeM.mutate(detail.id)}
                       disabled={closeM.isPending}
                     >
-                      <XCircle className="h-3.5 w-3.5 mr-1.5" />
-                      Cerrar
+                      {closeM.isPending
+                        ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                        : <XCircle className="h-3.5 w-3.5 mr-1.5" />}
+                      Cerrar conversación
                     </Button>
+
+                    {/* Acciones secundarias agrupadas en dropdown — antes eran 3
+                        botones sueltos, dos con label "Devolver" que confundian. */}
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          size="icon"
+                          variant="outline"
+                          className="h-8 w-8"
+                          aria-label="Más acciones"
+                          disabled={releaseM.isPending || transferM.isPending || returnToBotM.isPending}
+                        >
+                          <MoreVertical className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-64">
+                        <DropdownMenuItem onSelect={() => setShowTransfer(true)}>
+                          <ArrowRightLeft className="h-4 w-4 mr-2" />
+                          <div className="flex flex-col">
+                            <span>Transferir a otro sector</span>
+                            <span className="text-[10px] text-muted-foreground">
+                              Lo atiende otro equipo
+                            </span>
+                          </div>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onSelect={() => setConfirmRelease(true)}>
+                          <UserMinus className="h-4 w-4 mr-2" />
+                          <div className="flex flex-col">
+                            <span>Liberar a la cola</span>
+                            <span className="text-[10px] text-muted-foreground">
+                              Otro operador del mismo sector la toma
+                            </span>
+                          </div>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onSelect={() => returnToBotM.mutate(detail.id)}>
+                          <RotateCcw className="h-4 w-4 mr-2" />
+                          <div className="flex flex-col">
+                            <span>Pasar al asistente automático</span>
+                            <span className="text-[10px] text-muted-foreground">
+                              El bot retoma la conversación
+                            </span>
+                          </div>
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </>
                 )}
                 {readOnly && <Eye className="h-4 w-4 text-muted-foreground" />}
