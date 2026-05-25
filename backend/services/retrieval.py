@@ -607,11 +607,11 @@ async def _arerank_tei(query: str, chunks: list[RetrievedChunk], top_k: int) -> 
     if not chunks:
         return []
     client = _get_tei_rerank_async_client()
-    # TEI max_client_batch_size=32 — cap at 30 to stay safely under.
-    # Pre-sort by Qdrant score to drop weakest candidates first.
-    # Also truncate text to 900 chars: cross-encoder scores on excerpt,
-    # full parent text stays in RetrievedChunk.text for LLM context.
-    _TEI_MAX_BATCH = 30
+    # TEI forced max_batch_requests=8 (CPU backend limitation).
+    # Sending > 8 triggers multiple sequential batches: 30 candidates = 4 batches ≈ 9s.
+    # 8 candidates = 1 batch ≈ 1.5-2s. Sweet spot: rerank the top 8 by Qdrant score.
+    # The value of cross-encoder reranking is highest on the top candidates anyway.
+    _TEI_MAX_BATCH = 8
     _MAX_RERANK_CHARS = 900
     candidates = sorted(chunks, key=lambda c: c.score, reverse=True)[:_TEI_MAX_BATCH]
     truncated_texts = [c.text[:_MAX_RERANK_CHARS] for c in candidates]
