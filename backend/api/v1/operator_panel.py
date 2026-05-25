@@ -999,7 +999,11 @@ async def update_handoff_config(
     params: dict = {}
     for k, v in updates.items():
         if isinstance(v, (list, dict)):
-            set_parts.append(f"{k} = :{k}::jsonb")
+            # CAST(:k AS jsonb) en vez de :k::jsonb — el "::" PG castea pero
+            # SQLAlchemy/asyncpg lo confunde con el separador de parametro
+            # nombrado (":k::jsonb" → "named-param 'k' + named-param 'jsonb'").
+            # Mismo bug que rompía _store_parent_chunks (fix en commit 3e53d4c).
+            set_parts.append(f"{k} = CAST(:{k} AS jsonb)")
             params[k] = _json.dumps(v, ensure_ascii=False)
         else:
             set_parts.append(f"{k} = :{k}")

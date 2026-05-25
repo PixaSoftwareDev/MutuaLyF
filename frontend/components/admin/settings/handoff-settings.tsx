@@ -51,7 +51,16 @@ export function HandoffSettings() {
       transition_messages:            messages,
     }),
     onSuccess: () => { setDirty(false); toast({ title: "Configuración guardada", variant: "success" }); },
-    onError:   () => toast({ title: "Error al guardar", variant: "destructive" }),
+    onError:   (err: any) => {
+      // Mostrar el detail real del backend en vez de "Error al guardar"
+      // generico (feedback dijo: 'agregar manejo de error descriptivo').
+      const detail = err?.response?.data?.detail || err?.message || "No se pudo guardar la configuración.";
+      toast({
+        title: "Error al guardar",
+        description: typeof detail === "string" ? detail : "Intentá de nuevo.",
+        variant: "destructive",
+      });
+    },
   });
 
   const addPhrase = () => {
