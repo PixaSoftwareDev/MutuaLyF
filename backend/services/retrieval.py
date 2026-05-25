@@ -15,8 +15,10 @@ from functools import lru_cache
 import httpx
 from qdrant_client.models import ScoredPoint
 
+from sqlalchemy import text
+
 from core.config import settings
-from core.database import get_qdrant_client
+from core.database import get_pg_session, get_qdrant_client, get_redis_cache
 from services.embedding_cache import embed_query_cached
 
 logger = logging.getLogger(__name__)
@@ -98,6 +100,40 @@ def _rerank_via_tei() -> bool:
 # Per-source timeouts (independent — Qdrant and reranker don't block each other)
 _QDRANT_TIMEOUT_S  = settings.db_timeout_ms / 1000       # default 500ms
 _RERANKER_TIMEOUT_S = settings.reranker_timeout_ms / 1000  # default 5000ms (was 300ms, raised in .env)
+
+# TTL del cache de conteo de documentos para la decision auto-rerank.
+# 5 minutos: un doc nuevo activa el reranker en max 5 min sin golpear PG en cada query.
+_DOC_COUNT_CACHE_TTL = 300
+
+
+async def _count_ready_docs(tenant_id: str) -> int:
+    """Devuelve el numero de documentos listos del tenant, cacheado en Redis 5 min.
+
+    Usado para decidir si activar el reranker automaticamente. Si Redis falla,
+    retorna un valor alto (999) para que el reranker se active por default —
+    preferimos falso positivo (reranker innecesario) a falso negativo (KB grande sin reranker).
+    """
+    cache_key = f"{tenant_id}:reranker:doc_count"
+    redis = get_redis_cache()
+
+    try:
+        cached = await redis.get(cache_key)
+        if cached is not None:
+            return int(cached)
+    except Exception:
+        return 999  # Redis down → activar reranker por precaucion
+
+    try:
+        async with get_pg_session(tenant_id) as session:
+            row = await session.execute(
+                text("SELECT COUNT(*) FROM documentos WHERE status = 'ready'")
+            )
+            count = int(row.scalar_one())
+        await redis.setex(cache_key, _DOC_COUNT_CACHE_TTL, str(count))
+        return count
+    except Exception as exc:
+        logger.warning("doc_count_failed tenant_id=%s error=%s — reranker activado", tenant_id, exc)
+        return 999
 
 
 @dataclass
@@ -360,6 +396,14 @@ async def retrieve(
         if not settings.reranker_enabled:
             logger.debug("rerank_skipped reason=disabled")
             span.set_attribute("skipped", "disabled")
+            reranked = sorted(chunks, key=lambda c: c.score, reverse=True)[:rerank_top_k]
+        elif (doc_count := await _count_ready_docs(tenant_id)) < settings.reranker_auto_min_docs:
+            logger.info(
+                "rerank_auto_skipped tenant_id=%s docs=%d threshold=%d",
+                tenant_id, doc_count, settings.reranker_auto_min_docs,
+            )
+            span.set_attribute("skipped", "few_docs")
+            span.set_attribute("doc_count", doc_count)
             reranked = sorted(chunks, key=lambda c: c.score, reverse=True)[:rerank_top_k]
         elif len(chunks) < settings.reranker_min_candidates:
             logger.debug(

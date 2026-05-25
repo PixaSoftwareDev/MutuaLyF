@@ -194,10 +194,14 @@ class Settings(BaseSettings):
     embedding_model: str = "intfloat/multilingual-e5-large"
     reranker_model: str = "BAAI/bge-reranker-large"
     reranker_enabled: bool = True
-    # Minimo de candidatos de Qdrant para correr el reranker. Si Qdrant
-    # devuelve menos, skipear (no aporta calidad rankear 1-4 elementos y
-    # gasta ~2s en CPU). Tenants con base chica veran queries mas rapidas;
-    # cuando carguen 5+ docs relevantes el reranker se activa solo.
+    # Umbral de documentos listos para activar el reranker automaticamente.
+    # Con < N docs la KB es chica: Qdrant similarity ya es precisa y el reranker
+    # no aporta calidad pero si latencia. Con >= N docs hay overlap tematico entre
+    # fuentes distintas y el reranker empieza a discriminar mejor que coseno puro.
+    # 5 docs ≈ 180 chunks — punto de inflexion validado empiricamente.
+    reranker_auto_min_docs: int = 5
+    # Minimo de candidatos de Qdrant para correr el reranker en esa query.
+    # Si Qdrant devuelve menos de este numero, skipear (sin calidad real a ganar).
     reranker_min_candidates: int = 5
     nlu_model: str = "urchade/gliner_large-v2.1"
     nlu_enabled: bool = True
