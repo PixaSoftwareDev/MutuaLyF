@@ -7,6 +7,7 @@ import {
   Info, ChevronDown, ChevronLeft, Search, Flame, ArrowRightLeft, Eye, Wifi, WifiOff,
 } from "lucide-react";
 import { api, type ConversationRow } from "@/lib/api";
+import { renderWithLinks } from "@/lib/render-with-links";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -794,7 +795,7 @@ export function MessageBubble({ msg }: { msg: { id: string; sender_type: string;
     <div className="flex justify-center">
       <span className="text-[11px] bg-muted text-muted-foreground rounded-full px-3 py-1 flex items-center gap-1.5">
         <Info className="h-3 w-3 shrink-0" />
-        {msg.content}
+        {renderWithLinks(msg.content)}
       </span>
     </div>
   );
@@ -820,7 +821,7 @@ export function MessageBubble({ msg }: { msg: { id: string; sender_type: string;
           isOperator && "bg-white border border-emerald-200 text-slate-800 rounded-bl-sm shadow-sm",
           !isUser && !isOperator && "bg-white border border-slate-200 text-slate-800 rounded-bl-sm shadow-sm",
         )}>
-          <p className="whitespace-pre-wrap break-words">{msg.content}</p>
+          <p className="whitespace-pre-wrap break-words">{renderWithLinks(msg.content)}</p>
           <p className={cn("text-[10px] mt-1 opacity-60", isUser ? "text-right" : "text-left")}>{time}</p>
         </div>
         {isOperator && (

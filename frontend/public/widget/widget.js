@@ -415,10 +415,52 @@
   }
 
   // ── UI helpers ───────────────────────────────────────────────────────────────
+
+  // Regex global para detectar URLs http(s) en el texto del mensaje.
+  // Strip de puntuacion final (".,;:!?") porque es comun que el LLM diga
+  // "visita https://example.com." y no queremos que el punto entre al link.
+  var URL_REGEX = /https?:\/\/[^\s<>"')\]]+/g;
+
+  // Renderiza texto con URLs convertidas en <a> clickables.
+  // Usa createTextNode + createElement (NO innerHTML) para evitar inyeccion
+  // de HTML desde respuestas del bot. URLs van con target="_blank" + rel.
+  function _renderTextWithLinks(text, parentEl) {
+    URL_REGEX.lastIndex = 0;
+    var last = 0;
+    var match;
+    while ((match = URL_REGEX.exec(text)) !== null) {
+      // Texto antes del link
+      if (match.index > last) {
+        parentEl.appendChild(document.createTextNode(text.slice(last, match.index)));
+      }
+      // Strip puntuacion final
+      var url = match[0].replace(/[.,;:!?]+$/, "");
+      var anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.target = "_blank";
+      anchor.rel = "noopener noreferrer";
+      anchor.textContent = url;
+      anchor.style.color = "inherit";
+      anchor.style.textDecoration = "underline";
+      anchor.style.textUnderlineOffset = "2px";
+      anchor.style.wordBreak = "break-all";
+      parentEl.appendChild(anchor);
+      last = match.index + url.length;
+    }
+    // Texto despues del ultimo link
+    if (last < text.length) {
+      parentEl.appendChild(document.createTextNode(text.slice(last)));
+    }
+    // Si no hubo matches, igual hay que poner el texto entero
+    if (last === 0) {
+      parentEl.textContent = text;
+    }
+  }
+
   function _appendMessage(senderType, text) {
     var el = document.createElement("div");
     el.className = "ia-msg " + senderType;
-    el.textContent = text;
+    _renderTextWithLinks(text, el);
     messagesEl.appendChild(el);
     messagesEl.scrollTop = messagesEl.scrollHeight;
   }

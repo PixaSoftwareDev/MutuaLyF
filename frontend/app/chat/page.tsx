@@ -6,6 +6,7 @@ import { Suspense } from "react";
 import { Loader2, Send, Bot, ChevronLeft, UserCheck } from "lucide-react";
 import { api, type TenantBranding } from "@/lib/api";
 import { applyBrandingVars } from "@/lib/use-tenant-branding";
+import { renderWithLinks } from "@/lib/render-with-links";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
@@ -39,7 +40,7 @@ function BotBubble({ content }: { content: string }) {
       </div>
       <div className="max-w-[78%] sm:max-w-[65%]">
         <div className="bg-white text-slate-800 rounded-2xl rounded-bl-sm px-4 py-3 text-sm leading-relaxed shadow-sm border border-slate-100">
-          {content}
+          {renderWithLinks(content)}
         </div>
       </div>
     </div>
@@ -51,7 +52,7 @@ function UserBubble({ content }: { content: string }) {
     <div className="flex justify-end">
       <div className="max-w-[78%] sm:max-w-[65%]">
         <div className="bg-gradient-to-br from-brand to-brand-dark text-white rounded-2xl rounded-br-sm px-4 py-3 text-sm leading-relaxed shadow-md shadow-black/15">
-          {content}
+          {renderWithLinks(content)}
         </div>
       </div>
     </div>
@@ -66,7 +67,7 @@ function OperatorBubble({ content, operatorName }: { content: string; operatorNa
       </div>
       <div className="max-w-[78%] sm:max-w-[65%]">
         <div className="bg-white text-slate-800 rounded-2xl rounded-bl-sm px-4 py-3 text-sm leading-relaxed shadow-sm border border-emerald-100">
-          {content}
+          {renderWithLinks(content)}
         </div>
         <p className="text-xs text-emerald-600 mt-1 ml-1 font-medium">{operatorName || "Operador"}</p>
       </div>
@@ -78,7 +79,7 @@ function SystemBubble({ content }: { content: string }) {
   return (
     <div className="flex justify-center py-1">
       <span className="text-xs text-slate-400 bg-slate-100 rounded-full px-4 py-1.5">
-        {content}
+        {renderWithLinks(content)}
       </span>
     </div>
   );
@@ -88,7 +89,7 @@ function HandoffOfferBubble({ content, onConfirm, confirmed }: { content: string
   return (
     <div className="flex justify-center py-2">
       <div className="max-w-[85%] bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3 text-center space-y-3">
-        <p className="text-sm text-amber-800">{content}</p>
+        <p className="text-sm text-amber-800">{renderWithLinks(content)}</p>
         {!confirmed ? (
           <button
             onClick={onConfirm}
