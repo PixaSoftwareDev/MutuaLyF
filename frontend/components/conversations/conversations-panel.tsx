@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   MessageSquare, Loader2, Send, UserCheck, UserMinus, XCircle, User, Bot,
   Info, ChevronDown, ChevronLeft, Search, Flame, ArrowRightLeft, Eye, Wifi, WifiOff,
+  RotateCcw,
 } from "lucide-react";
 import { api, type ConversationRow } from "@/lib/api";
 import { renderWithLinks } from "@/lib/render-with-links";
@@ -186,6 +187,22 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
   const closeM = useMutation({
     mutationFn: (id: string) => api.operator.close(id),
     onSuccess: () => { inv(); toast({ title: "Conversación cerrada" }); },
+  });
+
+  const returnToBotM = useMutation({
+    mutationFn: (id: string) => api.operator.returnToBot(id),
+    onSuccess: () => {
+      inv();
+      toast({
+        title: "Devuelta al bot",
+        description: "El asistente automático va a seguir la conversación.",
+        variant: "success",
+      });
+    },
+    onError: (err: any) => {
+      const d = err?.response?.data?.detail || "No se pudo devolver al bot.";
+      toast({ title: "Error", description: typeof d === "string" ? d : "Intentá de nuevo.", variant: "destructive" });
+    },
   });
 
   const releaseM = useMutation({
@@ -481,6 +498,17 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
                     >
                       <UserMinus className="h-3.5 w-3.5 mr-1.5" />
                       Devolver
+                    </Button>
+                    <Button
+                      size="sm" variant="outline" className="h-8"
+                      onClick={() => returnToBotM.mutate(detail.id)}
+                      disabled={returnToBotM.isPending}
+                      title="Devolver al asistente automático para que siga la conversación"
+                    >
+                      {returnToBotM.isPending
+                        ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                        : <RotateCcw className="h-3.5 w-3.5 mr-1.5" />}
+                      Devolver al bot
                     </Button>
                     <Button
                       size="sm" variant="outline" className="h-8 text-destructive hover:text-destructive"

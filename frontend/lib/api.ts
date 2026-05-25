@@ -705,6 +705,8 @@ export const api = {
       await apiClient.post(`/operator/conversations/${id}/transfer`, { sector_id: sectorId, message });
     },
     release: async (id: string) => { await apiClient.post(`/operator/conversations/${id}/release`); },
+    /** Cierra el handoff humano y devuelve la conversación al bot. La sesión sigue activa. */
+    returnToBot: async (id: string) => { await apiClient.post(`/operator/conversations/${id}/return-to-bot`); },
     close:   async (id: string) => { await apiClient.post(`/operator/conversations/${id}/close`); },
     presence: async () => {
       const { data } = await apiClient.get("/operator/presence");

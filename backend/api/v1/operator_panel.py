@@ -561,6 +561,67 @@ async def release_to_queue(
     return {"status": ConvStatus.HANDOFF_REQUESTED, "system_message": msg}
 
 
+@router.post("/operator/conversations/{conversation_id}/return-to-bot")
+async def return_to_bot(
+    conversation_id: str,
+    request: Request,
+    tenant_id: str = Depends(get_tenant_id),
+    current_user: CurrentUser = Depends(require_operator),
+):
+    """Devuelve la conversación al bot — sale de human_attending y vuelve a bot_active.
+
+    Caso de uso (feedback del tester): el afiliado terminó el caso humano
+    y quiere seguir consultando al bot. Sin esto, el operador tenía que
+    cerrar la conversación y el usuario empezar de cero.
+
+    Diferencias con otros endpoints:
+      - /release  → vuelve a la cola (handoff_requested) para que otro operador la tome
+      - /close    → cierra la conversación, fin del flujo
+      - /return-to-bot → la conversación sigue activa pero ahora la atiende el bot
+    """
+    async with get_pg_session(tenant_id) as session:
+        result = await session.execute(text("""
+            UPDATE conversaciones
+            SET status = 'bot_active',
+                assigned_operator_id = NULL,
+                updated_at = NOW()
+            WHERE id = :id
+              AND status = 'human_attending'
+              AND assigned_operator_id = :op_id
+            RETURNING id
+        """), {"id": conversation_id, "op_id": current_user.user_id})
+        if not result.fetchone():
+            raise HTTPException(
+                status_code=400,
+                detail="La conversación no está asignada a este operador o no está en atención humana.",
+            )
+
+        # Mensaje para el afiliado: el bot vuelve a estar disponible.
+        # Hardcoded de momento — si en el futuro el admin quiere personalizarlo,
+        # agregar transition_messages.returned_to_bot en handoff_config.
+        msg = (
+            "Te devuelvo al asistente automático. Podés hacerle nuevas consultas "
+            "o pedirme de nuevo si necesitás un operador."
+        )
+        await session.execute(text("""
+            INSERT INTO mensajes (conversation_id, sender_type, content)
+            VALUES (:cid, 'system', :msg)
+        """), {"cid": conversation_id, "msg": msg})
+
+    logger.info("handoff_returned_to_bot conversation_id=%s operator=%s",
+                conversation_id, current_user.user_id)
+    from core.audit import record as audit
+    asyncio.ensure_future(audit(
+        tenant_id=tenant_id, actor_id=current_user.user_id, actor_email=current_user.email,
+        actor_role=current_user.role.value, action="handoff.returned_to_bot",
+        resource=conversation_id, request=request,
+    ))
+    asyncio.ensure_future(publish(tenant_id, "conversation_updated", {
+        "conversation_id": conversation_id, "status": ConvStatus.BOT_ACTIVE,
+    }))
+    return {"status": ConvStatus.BOT_ACTIVE, "system_message": msg}
+
+
 @router.post("/operator/conversations/{conversation_id}/close")
 async def close_conversation(
     conversation_id: str,
