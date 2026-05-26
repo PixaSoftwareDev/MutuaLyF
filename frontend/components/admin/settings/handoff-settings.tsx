@@ -2,37 +2,35 @@
 
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, X, Loader2, Save } from "lucide-react";
+import { Loader2, Save } from "lucide-react";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "@/components/ui/toast";
 
 // Tres mensajes que cubren los tres momentos del flujo:
-//   1. Bot detecta que conviene derivar y ofrece -> handoff_offer
-//   2. Afiliado confirma (clickea + DNI) o pide humano por boton -> handoff_confirmed
+//   1. Bot detecta que conviene derivar (insuficiente N veces) -> handoff_offer
+//   2. Afiliado acepta el cartel con nombre + DNI -> handoff_confirmed
 //   3. Espera prolongada en cola -> operator_inactive_alert
-// No hay "auto-derivacion": el afiliado siempre decide.
 const MESSAGE_KEYS: Array<{ key: string; label: string; hint: string }> = [
   {
     key: "handoff_offer",
     label: "Oferta del bot",
-    hint: "Texto del cartel amarillo cuando el bot detecta que conviene derivar (sin info tras varios intentos, palabra clave de humano, o frustración).",
+    hint: "Texto del cartel amarillo. Aparece cuando el bot no encuentra la respuesta tras N intentos seguidos (N se configura arriba).",
   },
   {
     key: "handoff_confirmed",
     label: "Confirmando derivación",
-    hint: "Aparece cuando el afiliado acepta la oferta (tras nombre + DNI) o clickea el botón de pedir humano.",
+    hint: "Aparece cuando el afiliado acepta la oferta y completa nombre + DNI. La conversación pasa a la cola de operadores.",
   },
   {
     key: "operator_inactive_alert",
     label: "Espera prolongada",
-    hint: "Recordatorio automático si el afiliado lleva 15+ min en cola sin que ningún operador acepte.",
+    hint: "Recordatorio automático si el afiliado lleva varios minutos en cola sin que ningún operador acepte.",
   },
 ];
 
@@ -44,16 +42,13 @@ export function HandoffSettings() {
 
   const [timeout, setTimeout_]   = useState(15);
   const [threshold, setThreshold] = useState(3);
-  const [phrases, setPhrases]     = useState<string[]>([]);
   const [messages, setMessages]   = useState<Record<string, string>>({});
-  const [newPhrase, setNewPhrase] = useState("");
   const [dirty, setDirty]         = useState(false);
 
   useEffect(() => {
     if (!config) return;
     setTimeout_(config.inactivity_timeout_minutes);
     setThreshold(config.consecutive_insufficient_count);
-    setPhrases(config.frustration_phrases || []);
     setMessages(config.transition_messages || {});
   }, [config]);
 
@@ -61,13 +56,10 @@ export function HandoffSettings() {
     mutationFn: () => api.handoffConfig.update({
       inactivity_timeout_minutes:     timeout,
       consecutive_insufficient_count: threshold,
-      frustration_phrases:            phrases,
       transition_messages:            messages,
     }),
     onSuccess: () => { setDirty(false); toast({ title: "Configuración guardada", variant: "success" }); },
     onError:   (err: any) => {
-      // Mostrar el detail real del backend en vez de "Error al guardar"
-      // generico (feedback dijo: 'agregar manejo de error descriptivo').
       const detail = err?.response?.data?.detail || err?.message || "No se pudo guardar la configuración.";
       toast({
         title: "Error al guardar",
@@ -77,14 +69,7 @@ export function HandoffSettings() {
     },
   });
 
-  const addPhrase = () => {
-    const p = newPhrase.trim().toLowerCase();
-    if (p && !phrases.includes(p)) { setPhrases([...phrases, p]); setDirty(true); }
-    setNewPhrase("");
-  };
-
-  const removePhrase = (phrase: string) => { setPhrases(phrases.filter(p => p !== phrase)); setDirty(true); };
-  const setMessage   = (key: string, value: string) => { setMessages({ ...messages, [key]: value }); setDirty(true); };
+  const setMessage = (key: string, value: string) => { setMessages({ ...messages, [key]: value }); setDirty(true); };
 
   if (isLoading) return (
     <div className="space-y-4">
@@ -118,37 +103,6 @@ export function HandoffSettings() {
               className="w-20"
             />
             <span className="text-sm text-muted-foreground">minutos sin atención del operador → avisar al usuario</span>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Frases de frustración */}
-      <Card>
-        <CardHeader className="pb-3">
-          <h2 className="font-semibold text-sm">Frases que disparan el pase inmediato</h2>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="flex flex-wrap gap-1.5">
-            {phrases.map(p => (
-              <Badge key={p} variant="secondary" className="gap-1 pr-1">
-                {p}
-                <button onClick={() => removePhrase(p)} className="hover:text-destructive ml-1">
-                  <X className="h-3 w-3" />
-                </button>
-              </Badge>
-            ))}
-          </div>
-          <div className="flex gap-2">
-            <Input
-              placeholder="Agregar frase..."
-              value={newPhrase}
-              onChange={e => setNewPhrase(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && addPhrase()}
-              className="h-8"
-            />
-            <Button size="sm" variant="outline" onClick={addPhrase} disabled={!newPhrase.trim()}>
-              <Plus className="h-4 w-4" />
-            </Button>
           </div>
         </CardContent>
       </Card>

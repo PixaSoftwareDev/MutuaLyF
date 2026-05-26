@@ -52,7 +52,6 @@ class SectorCreate(BaseModel):
 class HandoffConfigUpdate(BaseModel):
     inactivity_timeout_minutes:      int | None = None
     consecutive_insufficient_count:  int | None = None
-    frustration_phrases:             list[str] | None = None
     transition_messages:             dict | None = None
 
 

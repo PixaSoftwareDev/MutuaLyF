@@ -5,10 +5,12 @@ The widget identifies the afiliado by widget_session_id (UUID in localStorage).
 
 Flow:
   1. POST /widget/conversation/start     → create or resume conversation
-  2. POST /widget/conversation/{id}/message → send message (bot responds or queued for operator)
-  3. GET  /widget/conversation/{id}/poll    → long-poll for new messages (5s interval)
-  4. POST /widget/conversation/{id}/human  → explicit human request
-  5. POST /widget/conversation/{id}/confirm-handoff → afiliado confirms handoff offer
+  2. POST /widget/conversation/{id}/message → send message (bot responds; si el
+     bot no encuentra info N veces seguidas, ofrece derivacion)
+  3. GET  /widget/conversation/{id}/poll    → long-poll for new messages
+  4. POST /widget/conversation/{id}/confirm-handoff → afiliado confirma la
+     oferta del bot (con nombre + DNI) y la conversacion pasa a la cola de
+     operadores. Es la unica manera de derivar.
 """
 
 import logging
@@ -24,7 +26,6 @@ from core.tenant import get_tenant_id
 from services.handoff import (
     ConvStatus, HandoffTrigger,
     evaluate_handoff, request_handoff, get_default_sector_id,
-    is_explicit_handoff_intent,
 )
 
 logger = logging.getLogger(__name__)
@@ -174,55 +175,47 @@ async def send_message(
             """), {"cid": conversation_id})
         return {"message_id": msg_id, "status": conv_status, "bot_response": None}
 
-    # Fast path: si el usuario pidio operador explicito o esta frustrado,
-    # saltamos el RAG. Sin esto el bot responde algo de los docs ("te dejo
-    # el telefono de mesa de ayuda") y abajo aparece la tarjeta amarilla
-    # ofreciendo operador — textos contradictorios.
-    skip_rag = await is_explicit_handoff_intent(body.content, tenant_id)
+    # El bot siempre corre el RAG. La unica regla de derivacion mira el
+    # resultado: si responde "no encontre la info" N veces seguidas, ofrece
+    # cartel. No hay shortcuts por palabras del usuario — esa logica se
+    # elimino para simplificar (ver handoff.py).
+    from services.orchestrator import handle_query
+    async with get_pg_session(tenant_id) as session:
+        hist_result = await session.execute(text("""
+            SELECT sender_type, content FROM mensajes
+            WHERE conversation_id = :cid AND sender_type IN ('user', 'bot')
+            ORDER BY created_at DESC LIMIT 20
+        """), {"cid": conversation_id})
+        history_rows = list(reversed(hist_result.mappings().fetchall()))
+    conversation_history = [
+        (r["sender_type"], r["content"])
+        for r in history_rows
+        if r["content"] != body.content or r["sender_type"] != "user"
+    ]
+    try:
+        rag_result = await handle_query(
+            question=body.content,
+            tenant_id=tenant_id,
+            user_id=None,
+            language="es",
+            conversation_history=conversation_history,
+        )
+        bot_answer = rag_result["answer"]
+        sources = rag_result.get("sources", [])
+        intent_confidence = rag_result.get("intent_confidence")
+    except Exception as exc:
+        logger.error("widget_rag_failed conversation_id=%s error=%s", conversation_id, exc)
+        bot_answer = "Lo siento, ocurrió un error. Intentá de nuevo en un momento."
+        sources = []
+        intent_confidence = None
 
-    bot_answer = ""
-    bot_msg_id: str | None = None
-    sources: list = []
-    intent_confidence: float | None = None
+    bot_msg_id = str(uuid.uuid4())
+    async with get_pg_session(tenant_id) as session:
+        await session.execute(text("""
+            INSERT INTO mensajes (id, conversation_id, sender_type, content)
+            VALUES (:id, :cid, 'bot', :content)
+        """), {"id": bot_msg_id, "cid": conversation_id, "content": bot_answer})
 
-    if not skip_rag:
-        from services.orchestrator import handle_query
-        async with get_pg_session(tenant_id) as session:
-            hist_result = await session.execute(text("""
-                SELECT sender_type, content FROM mensajes
-                WHERE conversation_id = :cid AND sender_type IN ('user', 'bot')
-                ORDER BY created_at DESC LIMIT 20
-            """), {"cid": conversation_id})
-            history_rows = list(reversed(hist_result.mappings().fetchall()))
-        conversation_history = [
-            (r["sender_type"], r["content"])
-            for r in history_rows
-            if r["content"] != body.content or r["sender_type"] != "user"
-        ]
-        try:
-            rag_result = await handle_query(
-                question=body.content,
-                tenant_id=tenant_id,
-                user_id=None,
-                language="es",
-                conversation_history=conversation_history,
-            )
-            bot_answer = rag_result["answer"]
-            sources = rag_result.get("sources", [])
-            intent_confidence = rag_result.get("intent_confidence")
-        except Exception as exc:
-            logger.error("widget_rag_failed conversation_id=%s error=%s", conversation_id, exc)
-            bot_answer = "Lo siento, ocurrió un error. ¿Querés que te conecte con un operador?"
-
-        bot_msg_id = str(uuid.uuid4())
-        async with get_pg_session(tenant_id) as session:
-            await session.execute(text("""
-                INSERT INTO mensajes (id, conversation_id, sender_type, content)
-                VALUES (:id, :cid, 'bot', :content)
-            """), {"id": bot_msg_id, "cid": conversation_id, "content": bot_answer})
-
-    # Evaluate handoff rules (con sources/bot_answer vacios si skip_rag,
-    # la Regla 1 no dispara y la decision queda solo en manos de Reglas 2/3)
     signal = await evaluate_handoff(
         conversation_id=conversation_id,
         tenant_id=tenant_id,
@@ -234,33 +227,22 @@ async def send_message(
 
     handoff_message = None
     if signal.trigger != HandoffTrigger.NONE:
-        if signal.auto_activate:
-            # Rule 2: auto handoff without confirmation
-            await request_handoff(conversation_id, tenant_id, signal.offer_message)
-            handoff_message = signal.offer_message
-            conv_status = ConvStatus.HANDOFF_REQUESTED
-        else:
-            # Rules 1 & 3: offer handoff, wait for afiliado confirmation.
-            # is_handoff_offer=true marca el mensaje como "card con boton" para
-            # que el frontend lo identifique sin comparar texto (que se rompia
-            # en el polling).
-            async with get_pg_session(tenant_id) as session:
-                await session.execute(text("""
-                    INSERT INTO mensajes (conversation_id, sender_type, content, is_handoff_offer)
-                    VALUES (:cid, 'system', :msg, TRUE)
-                """), {"cid": conversation_id, "msg": signal.offer_message})
-            handoff_message = signal.offer_message
+        # Oferta: insert mensaje system con is_handoff_offer=TRUE para que el
+        # frontend lo renderice como cartel amarillo con boton.
+        async with get_pg_session(tenant_id) as session:
+            await session.execute(text("""
+                INSERT INTO mensajes (conversation_id, sender_type, content, is_handoff_offer)
+                VALUES (:cid, 'system', :msg, TRUE)
+            """), {"cid": conversation_id, "msg": signal.offer_message})
+        handoff_message = signal.offer_message
 
     return {
         "message_id": bot_msg_id,
         "status": conv_status,
-        # bot_response es None cuando salteamos el RAG (intent explicito de
-        # humano). El cliente no tiene que renderizar nada de "bot": va directo
-        # al handoff_message.
-        "bot_response": bot_answer or None,
+        "bot_response": bot_answer,
         "sources_count": len(sources),
-        "handoff_offered": signal.trigger != HandoffTrigger.NONE and not signal.auto_activate,
-        "handoff_activated": signal.auto_activate,
+        "handoff_offered": signal.trigger != HandoffTrigger.NONE,
+        "handoff_activated": False,  # nunca auto-activa — el afiliado siempre confirma
         "handoff_message": handoff_message,
     }
 
@@ -371,37 +353,6 @@ async def poll_messages(
     # Re-read after the event to capture the new message + any concurrent updates.
     fresh = await _read_conversation_snapshot(tenant_id, conversation_id)
     return fresh or snapshot
-
-
-# ── Explicit human request ────────────────────────────────────────────────────
-
-@router.post("/widget/conversation/{conversation_id}/human")
-async def request_human(
-    conversation_id: str,
-    tenant_id: str = Depends(get_tenant_id),
-    widget_user: CurrentUser = Depends(get_widget_user),
-):
-    """Afiliado explicitly requests human operator."""
-    async with get_pg_session(tenant_id) as session:
-        result = await session.execute(
-            text("SELECT status FROM conversaciones WHERE id = :id"),
-            {"id": conversation_id},
-        )
-        row = result.fetchone()
-    if not row or row[0] == ConvStatus.CLOSED:
-        raise HTTPException(status_code=404, detail="Conversation not found or closed")
-    if row[0] != ConvStatus.BOT_ACTIVE:
-        return {"status": row[0], "message": "Ya en proceso de atención"}
-
-    # El boton "Pedir humano" del widget es una confirmacion explicita del
-    # afiliado — usa el mismo texto que confirm-handoff. handoff_auto quedo
-    # sin usar (lo dejamos en DB por compat, pero no es editable desde el UI).
-    from services.handoff import _get_handoff_config
-    config = await _get_handoff_config(tenant_id)
-    messages = config["transition_messages"]
-    msg = messages.get("handoff_confirmed") or messages.get("handoff_auto") or "Te conecto con un operador."
-    await request_handoff(conversation_id, tenant_id, msg)
-    return {"status": ConvStatus.HANDOFF_REQUESTED, "message": msg}
 
 
 # ── Confirm handoff offer ─────────────────────────────────────────────────────

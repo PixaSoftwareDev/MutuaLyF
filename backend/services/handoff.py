@@ -42,50 +42,15 @@ class ConvStatus(str, Enum):
 
 class HandoffTrigger(str, Enum):
     NONE         = "none"
-    INSUFFICIENT = "insufficient"    # Rule 1
-    HUMAN_REQUEST = "human_request"  # Rule 2
-    FRUSTRATION  = "frustration"     # Rule 3
+    INSUFFICIENT = "insufficient"  # bot no encontro respuesta N veces
+    MANUAL       = "manual"        # afiliado clickeo "Pedir humano"
 
 
 @dataclass
 class HandoffSignal:
     trigger:      HandoffTrigger
-    auto_activate: bool   # True = no confirmation needed (Rule 2)
-    offer_message: str    # message to show the afiliado
-
-
-# ── Human request detection ───────────────────────────────────────────────────
-
-_HUMAN_REQUEST_PATTERNS = [
-    r"\boperador\b", r"\bpersona\b", r"\bhumano\b", r"\bagente\b",
-    r"\bhablar\s+con\b", r"\batención\s+personal\b", r"\bme\s+comuniques?\b",
-    r"\btransferir\b", r"\bderivá\b", r"\bderiva\b",
-]
-_HUMAN_RE = re.compile("|".join(_HUMAN_REQUEST_PATTERNS), re.IGNORECASE)
-
-
-def _is_human_request(text: str) -> bool:
-    return bool(_HUMAN_RE.search(text))
-
-
-def _is_frustrated(text: str, frustration_phrases: list[str]) -> bool:
-    text_lower = text.lower()
-    return any(phrase.lower() in text_lower for phrase in frustration_phrases)
-
-
-async def is_explicit_handoff_intent(user_message: str, tenant_id: str) -> bool:
-    """Fast path para decidir si saltar el RAG.
-
-    Cuando el usuario explicitamente pide humano o expresa frustracion, no
-    tiene sentido invocar al LLM con la pregunta — el bot termina respondiendo
-    algo de los documentos y abajo aparece la oferta de operador, textos
-    contradictorios. Esta funcion solo mira las Reglas 2 y 3 (las que
-    dependen del mensaje del usuario, no de la respuesta del bot).
-    """
-    if _is_human_request(user_message):
-        return True
-    config = await _get_handoff_config(tenant_id)
-    return _is_frustrated(user_message, config["frustration_phrases"])
+    auto_activate: bool   # siempre False — el afiliado decide via cartel + DNI
+    offer_message: str    # texto del cartel amarillo
 
 
 _CHITCHAT_RE = re.compile(
@@ -222,65 +187,43 @@ async def evaluate_handoff(
     intent_confidence: float | None,
     bot_answer: str = "",
 ) -> HandoffSignal:
-    """Evaluate handoff rules after each bot turn. Returns a HandoffSignal."""
+    """Decide si ofrecer derivacion despues del turno actual del bot.
+
+    Hay una sola regla: si el bot respondio 'no encontre la informacion'
+    N veces seguidas (N = consecutive_insufficient_count del tenant, default 3),
+    se ofrece un cartel amarillo. El afiliado decide aceptar via DNI.
+
+    El cooldown de 90s evita que se apilen carteles si el afiliado ignora
+    el primero y el bot sigue sin poder responder.
+    """
     config = await _get_handoff_config(tenant_id)
     signals = await _get_signals(conversation_id)
     offer_pending = await _is_offer_pending(conversation_id)
 
-    async def _reset_insufficient_if_needed() -> None:
-        if signals.get("insufficient_count", 0) > 0:
-            signals["insufficient_count"] = 0
-            await _save_signals(conversation_id, signals)
-
-    async def _fire_offer(trigger: HandoffTrigger) -> HandoffSignal:
-        """Emite una oferta (no auto-activate), reseteando el contador para
-        no re-disparar en el siguiente turno y marcando cooldown."""
-        signals["insufficient_count"] = 0
-        await _save_signals(conversation_id, signals)
-        await _mark_offer_pending(conversation_id)
-        return HandoffSignal(
-            trigger=trigger,
-            auto_activate=False,
-            offer_message=config["transition_messages"]["handoff_offer"],
-        )
-
-    # ── Rule 3: Frustration signal ─────────────────────────────────────────────
-    if _is_frustrated(user_message, config["frustration_phrases"]):
-        logger.info("handoff_rule3_frustration conversation_id=%s", conversation_id)
-        await _reset_insufficient_if_needed()
-        if offer_pending:
-            # Ya hay una oferta vigente — no apilar otra.
-            return HandoffSignal(trigger=HandoffTrigger.NONE, auto_activate=False, offer_message="")
-        return await _fire_offer(HandoffTrigger.FRUSTRATION)
-
-    # ── Rule 2: Human request ─────────────────────────────────────────────────
-    # Siempre ofrece, nunca auto-activa. La decision la toma el afiliado
-    # clickeando el cartel. Si menciona "operador" varias veces, el cooldown
-    # de 90s evita que se apilen tarjetas en cada turno.
-    if _is_human_request(user_message):
-        logger.info("handoff_rule2_human_request conversation_id=%s", conversation_id)
-        if offer_pending:
-            return HandoffSignal(trigger=HandoffTrigger.NONE, auto_activate=False, offer_message="")
-        return await _fire_offer(HandoffTrigger.HUMAN_REQUEST)
-
-    # ── Rule 1: Insufficient responses ────────────────────────────────────────
     if _is_response_insufficient(sources, intent_confidence, user_message, bot_answer):
         signals["insufficient_count"] = signals.get("insufficient_count", 0) + 1
         await _save_signals(conversation_id, signals)
         threshold = config["consecutive_insufficient_count"]
         if signals["insufficient_count"] >= threshold:
             logger.info(
-                "handoff_rule1_insufficient conversation_id=%s count=%d threshold=%d",
+                "handoff_insufficient conversation_id=%s count=%d threshold=%d",
                 conversation_id, signals["insufficient_count"], threshold,
             )
             if offer_pending:
                 return HandoffSignal(trigger=HandoffTrigger.NONE, auto_activate=False, offer_message="")
-            return await _fire_offer(HandoffTrigger.INSUFFICIENT)
-    else:
-        # Cualquier turno no-insuficiente (respuesta exitosa, chitchat, follow-up
-        # resuelto por historial) resetea el contador. Sin esto, una respuesta
-        # buena entre dos turnos sin sources dispara el cartel amarillo.
-        await _reset_insufficient_if_needed()
+            # Disparar oferta: reset counter + cooldown 90s
+            signals["insufficient_count"] = 0
+            await _save_signals(conversation_id, signals)
+            await _mark_offer_pending(conversation_id)
+            return HandoffSignal(
+                trigger=HandoffTrigger.INSUFFICIENT,
+                auto_activate=False,
+                offer_message=config["transition_messages"]["handoff_offer"],
+            )
+    elif signals.get("insufficient_count", 0) > 0:
+        # Respuesta exitosa, chitchat o follow-up resuelto -> reset contador.
+        signals["insufficient_count"] = 0
+        await _save_signals(conversation_id, signals)
 
     return HandoffSignal(trigger=HandoffTrigger.NONE, auto_activate=False, offer_message="")
 
@@ -351,14 +294,13 @@ async def _get_handoff_config(tenant_id: str) -> dict:
 
         async with get_pg_session(tenant_id) as session:
             result = await session.execute(text("""
-                SELECT consecutive_insufficient_count, frustration_phrases, transition_messages
+                SELECT consecutive_insufficient_count, transition_messages
                 FROM handoff_config LIMIT 1
             """))
             row = result.mappings().fetchone()
 
         config = {
-            "consecutive_insufficient_count": row["consecutive_insufficient_count"] if row else 2,
-            "frustration_phrases":            list(row["frustration_phrases"]) if row else [],
+            "consecutive_insufficient_count": row["consecutive_insufficient_count"] if row else 3,
             "transition_messages":            dict(row["transition_messages"]) if row else {},
             "_ts": time.monotonic(),
         }
@@ -366,14 +308,10 @@ async def _get_handoff_config(tenant_id: str) -> dict:
         logger.warning("handoff_config_load_failed tenant=%s error=%s", tenant_id, exc)
         config = {
             "consecutive_insufficient_count": 3,
-            "frustration_phrases": ["no me ayuda", "quiero hablar con alguien"],
             "transition_messages": {
                 "handoff_offer": "¿Querés que te conecte con un operador?",
-                "handoff_auto":  "Te conecto con un operador ahora.",
-                "human_assigned": "Un operador se unió a la conversación.",
-                "sector_transferred": "Tu consulta fue derivada al área correspondiente.",
+                "handoff_confirmed": "Listo, tu solicitud fue recibida. Un operador te atenderá en breve.",
                 "operator_inactive_alert": "Seguís en cola. Lamentamos la demora.",
-                "conversation_closed": "Conversación cerrada. ¡Gracias!",
             },
             "_ts": time.monotonic(),
         }

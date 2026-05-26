@@ -142,8 +142,7 @@ CREATE TABLE IF NOT EXISTS handoff_config (
     id                              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     inactivity_timeout_minutes      INTEGER NOT NULL DEFAULT 15,
     consecutive_insufficient_count  INTEGER NOT NULL DEFAULT 3,
-    frustration_phrases             JSONB NOT NULL DEFAULT '["no me ayuda","no sirve","mal servicio","quiero quejarme","esto no funciona","necesito hablar con alguien"]',
-    transition_messages             JSONB NOT NULL DEFAULT '{"handoff_offer":"Veo que tengo dificultades para resolver tu consulta. ¿Querés que te conecte con un operador?","handoff_auto":"Te estoy conectando con un operador. En breve alguien te atenderá.","handoff_confirmed":"Listo, tu solicitud fue recibida. Un operador te atenderá en breve.","operator_inactive_alert":"Todavía estás en cola. Un operador te atenderá a la brevedad."}',
+    transition_messages             JSONB NOT NULL DEFAULT '{"handoff_offer":"Veo que tengo dificultades para resolver tu consulta. ¿Querés que te conecte con un operador?","handoff_confirmed":"Listo, tu solicitud fue recibida. Un operador te atenderá en breve.","operator_inactive_alert":"Todavía estás en cola. Un operador te atenderá a la brevedad."}',
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 INSERT INTO handoff_config DEFAULT VALUES ON CONFLICT DO NOTHING;

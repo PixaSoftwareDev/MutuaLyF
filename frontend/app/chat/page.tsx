@@ -393,17 +393,6 @@ function ChatInner() {
     await sendMessageTo(conversationId, text);
   }
 
-  async function requestHuman() {
-    if (!conversationId) return;
-    try {
-      const r = await fetch(`${API_BASE}/api/v1/widget/conversation/${conversationId}/human`, { method: "POST", headers: getHeaders() });
-      const data = await r.json();
-      setStatus(data.status);
-      if (data.message)
-        setMessages(prev => [...prev, { id: Date.now().toString(), role: "system", content: data.message }]);
-    } catch { /* ignore */ }
-  }
-
   async function confirmHandoff(identif?: { afiliado_nombre: string; afiliado_dni: string }) {
     if (!conversationId) return;
     setHandoffConfirmed(true);

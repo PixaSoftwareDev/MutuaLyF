@@ -88,8 +88,6 @@
     "#ia-widget-identify-form .ia-identify-submit:disabled{opacity:0.5;cursor:not-allowed;}",
     "#ia-widget-identify-form .ia-identify-skip{background:none;border:none;cursor:pointer;color:#92400e;font-size:12px;text-decoration:underline;padding:0;}",
     "#ia-widget-identify-form .ia-identify-error{font-size:11px;color:#b91c1c;margin-top:-2px;}",
-    "#ia-widget-human-btn{padding:6px 12px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;cursor:pointer;font-size:13px;color:#475569;white-space:nowrap;}",
-    "#ia-widget-human-btn:hover{background:#f8fafc;}",
     "#ia-sector-change{padding:4px 8px;border:1px solid rgba(255,255,255,.4);border-radius:6px;background:none;color:rgba(255,255,255,.8);cursor:pointer;font-size:11px;white-space:nowrap;}",
     "#ia-sector-change:hover{background:rgba(255,255,255,.15);}",
     "#ia-widget-form{padding:8px 12px;border-top:1px solid #e2e8f0;display:flex;gap:8px;align-items:flex-end;}",
@@ -148,7 +146,6 @@
     '</form>',
     '<form id="ia-widget-form" style="display:none">',
     '  <textarea id="ia-widget-input" rows="1" placeholder="' + _escape(PLACEHOLDER) + '" autocomplete="off"></textarea>',
-    '  <button id="ia-widget-human-btn" type="button" title="Hablar con un operador">👤</button>',
     '  <button id="ia-widget-send" type="submit">Enviar</button>',
     '</form>',
   ].join("");
@@ -231,11 +228,6 @@
       e.preventDefault();
       widgetForm.dispatchEvent(new Event("submit"));
     }
-  });
-
-  document.getElementById("ia-widget-human-btn").addEventListener("click", function () {
-    if (!conversationId) return;
-    _requestHuman();
   });
 
   document.getElementById("ia-handoff-yes").addEventListener("click", function () {
@@ -436,19 +428,6 @@
         inputEl.disabled = false;
         inputEl.focus();
       });
-  }
-
-  function _requestHuman() {
-    fetch(API_BASE + "/api/v1/widget/conversation/" + conversationId + "/human", {
-      method: "POST", headers: _headers(),
-    })
-      .then(function (r) { return r.json(); })
-      .then(function (data) {
-        convStatus = data.status;
-        _updateStatus();
-        if (data.message) _appendMessage("system", data.message);
-      })
-      .catch(function (err) { console.error("[IA Widget] human request error:", err); });
   }
 
   function _confirmHandoff(identifyData) {

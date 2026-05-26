@@ -301,7 +301,6 @@ export interface HandoffConfig {
   id: string;
   inactivity_timeout_minutes: number;
   consecutive_insufficient_count: number;
-  frustration_phrases: string[];
   transition_messages: Record<string, string>;
   updated_at: string;
 }
