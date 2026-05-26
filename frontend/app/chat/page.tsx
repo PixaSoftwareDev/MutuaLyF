@@ -481,12 +481,12 @@ function ChatInner() {
                 {phase === "chat" && operatorsOnline !== null && status === "bot_active" && (
                   operatorsOnline.count > 0 ? (
                     <span className="text-white/70 text-xs">
-                      · {operatorsOnline.count === 1 && operatorsOnline.names[0]
-                          ? `${operatorsOnline.names[0]} en línea`
-                          : `${operatorsOnline.count} operadores en línea`}
+                      · {operatorsOnline.count === 1
+                          ? "1 operador disponible"
+                          : `${operatorsOnline.count} operadores disponibles`}
                     </span>
                   ) : (
-                    <span className="text-white/50 text-xs">· Sin operadores en línea</span>
+                    <span className="text-white/50 text-xs">· Sin operadores disponibles</span>
                   )
                 )}
               </div>
