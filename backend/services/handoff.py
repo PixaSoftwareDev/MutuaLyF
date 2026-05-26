@@ -68,18 +68,18 @@ def _is_response_insufficient(
 ) -> bool:
     """True si el turno cuenta como "el bot no pudo responder".
 
-    Senial autoritativa: ¿el RAG devolvio fuentes para esta consulta?
-    - Sources vacios → el bot respondio sin info de la KB → insuficiente
-    - Sources con contenido → el bot tenia algo concreto → suficiente
+    Senial autoritativa: ¿el RAG devolvio fuentes de confianza normal?
 
-    Cero matching de paráfrasis en el texto del bot — eso era frágil porque
-    cada vez que el LLM inventaba una nueva forma de decir "no sé", había
-    que tocar el código. Esta señal viene del RAG, no del LLM, así que es
-    inmune a paráfrasis.
+    El orquestador tiene un "low_confidence_fallback": si ningun chunk supero
+    el threshold de relevancia, igual mete los top-N chunks "menos malos" en
+    sources con flag low_confidence=true para que el LLM intente una respuesta
+    cautelosa. Para handoff esos chunks NO valen — son ruido. Solo contamos
+    el turno como suficiente si hubo al menos una source de confianza normal.
+
+    Inmune a paráfrasis del LLM: la senial viene del RAG, no del texto.
 
     Filtros para evitar falsos positivos:
-    - Saludos y respuestas cortas (chitchat) no cuentan: el bot responde
-      bien sin sources en esos casos.
+    - Saludos y respuestas cortas (chitchat) no cuentan.
     """
     msg = user_message.strip()
 
@@ -88,7 +88,10 @@ def _is_response_insufficient(
     if _CHITCHAT_RE.match(msg):
         return False
 
-    return not sources
+    # sources con low_confidence=True son el fallback del orquestador para
+    # que el LLM no responda "no se" en seco. No cuentan como respuesta valida.
+    has_high_confidence = any(not s.get("low_confidence") for s in sources)
+    return not has_high_confidence
 
 
 # ── Signal accumulation in Redis ──────────────────────────────────────────────
