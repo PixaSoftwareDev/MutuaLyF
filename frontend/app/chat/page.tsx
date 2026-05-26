@@ -224,6 +224,11 @@ function ChatInner() {
   const pollTimeoutRef                      = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollAliveRef                        = useRef<boolean>(false);
   const lastMessageIdRef                    = useRef<string | null>(null);
+  // Cada call a startPolling incrementa esta version. Si un loop viejo
+  // dispara su proximo tick despues de que arrancamos uno nuevo, lo detecta
+  // por version mismatch y termina sin hacer fetch. Sin esto, al renovar
+  // una conv cerrada podian quedar dos loops corriendo en paralelo.
+  const pollVersionRef                      = useRef<number>(0);
 
   useEffect(() => {
     const key = "ia_chat_session_" + (token || tenantId).slice(-8);
@@ -278,6 +283,8 @@ function ChatInner() {
   useEffect(() => () => {
     pollAliveRef.current = false;
     if (pollTimeoutRef.current) clearTimeout(pollTimeoutRef.current);
+    lastMessageIdRef.current = null;
+    pollVersionRef.current++;  // invalida cualquier loop async pendiente
   }, []);
 
   function getHeaders() {
@@ -320,14 +327,19 @@ function ChatInner() {
   // Long-polling loop: server holds the request up to ~25s and replies as soon
   // as there's news. We chain the next fetch right after each response so the
   // perceived latency is essentially network RTT.
+  //
+  // Version token: cada call genera una nueva version. Si un loop viejo despierta
+  // despues (porque su await /poll tardo y nosotros ya arrancamos otro), detecta
+  // el mismatch y termina. Sin esto, al renovar conv cerrada podian quedar dos
+  // loops paralelos.
   const startPolling = useCallback((convId: string) => {
     if (pollTimeoutRef.current) clearTimeout(pollTimeoutRef.current);
     pollAliveRef.current = true;
+    const myVersion = ++pollVersionRef.current;
     const loop = async () => {
-      if (!pollAliveRef.current) return;
+      if (!pollAliveRef.current || pollVersionRef.current !== myVersion) return;
       await pollMessages(convId);
-      if (!pollAliveRef.current) return;
-      // Small breather to avoid hot-looping if the endpoint is degraded.
+      if (!pollAliveRef.current || pollVersionRef.current !== myVersion) return;
       pollTimeoutRef.current = setTimeout(loop, 250);
     };
     loop();
@@ -341,6 +353,14 @@ function ChatInner() {
   }
 
   async function startChat(sector: Sector, pendingMessage?: string) {
+    // Reset critico: matar polling viejo (si lo hay) y limpiar todos los refs
+    // que persisten entre ciclos. Sin esto, al renovar conv el cliente quedaba
+    // polleando con last_message_id de la conv vieja → backend hacia long-poll
+    // 25s buscando un mensaje que ya no existia → UX se sentia "rota".
+    pollAliveRef.current = false;
+    if (pollTimeoutRef.current) { clearTimeout(pollTimeoutRef.current); pollTimeoutRef.current = null; }
+    lastMessageIdRef.current = null;
+
     setSelectedSector(sector);
     setPhase("chat");
     setMessages([]);
