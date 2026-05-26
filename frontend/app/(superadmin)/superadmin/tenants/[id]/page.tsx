@@ -259,6 +259,48 @@ export default function TenantDetailPage() {
             </div>
           </div>
 
+          {/* ── Usuarios ─────────────────────────────────────────────── */}
+          <SectionTitle icon={Users} label="Usuarios" sublabel={`${tenantUsers.length} en total`} />
+          {usersLoading ? (
+            <div className="space-y-2">
+              {[1,2,3].map(i => <Skeleton key={i} className="h-12 w-full rounded-lg" />)}
+            </div>
+          ) : tenantUsers.length === 0 ? (
+            <div className="rounded-xl border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
+              Sin usuarios registrados.
+            </div>
+          ) : (
+            <div className="rounded-xl border bg-card shadow-sm divide-y overflow-hidden">
+              {tenantUsers.map(u => (
+                <div key={u.id} className="flex items-center gap-3 px-4 py-3">
+                  <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                    <span className="text-xs font-bold text-primary uppercase">{u.name?.[0] ?? u.email[0]}</span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{u.name}</p>
+                    <p className="text-xs text-muted-foreground truncate">{u.email}</p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className={cn(
+                      "text-xs px-2 py-0.5 rounded-full font-medium",
+                      u.role === "admin"    ? "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300" :
+                      u.role === "operator" ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300" :
+                      "bg-muted text-muted-foreground"
+                    )}>
+                      {u.role}
+                    </span>
+                    <span className={cn(
+                      "text-xs px-2 py-0.5 rounded-full",
+                      u.is_active ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" : "bg-muted text-muted-foreground"
+                    )}>
+                      {u.is_active ? "activo" : "inactivo"}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
           {/* ── Bot activo ───────────────────────────────────────────── */}
           <SectionTitle icon={Bot} label="Bot activo" sublabel="personalidad del asistente de este tenant" />
           <BotSelector
@@ -431,48 +473,6 @@ export default function TenantDetailPage() {
                 ))}
               </div>
             </>
-          )}
-
-          {/* ── Usuarios ─────────────────────────────────────────────── */}
-          <SectionTitle icon={Users} label="Usuarios" sublabel={`${tenantUsers.length} en total`} />
-          {usersLoading ? (
-            <div className="space-y-2">
-              {[1,2,3].map(i => <Skeleton key={i} className="h-12 w-full rounded-lg" />)}
-            </div>
-          ) : tenantUsers.length === 0 ? (
-            <div className="rounded-xl border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
-              Sin usuarios registrados.
-            </div>
-          ) : (
-            <div className="rounded-xl border bg-card shadow-sm divide-y overflow-hidden">
-              {tenantUsers.map(u => (
-                <div key={u.id} className="flex items-center gap-3 px-4 py-3">
-                  <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                    <span className="text-xs font-bold text-primary uppercase">{u.name?.[0] ?? u.email[0]}</span>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{u.name}</p>
-                    <p className="text-xs text-muted-foreground truncate">{u.email}</p>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <span className={cn(
-                      "text-xs px-2 py-0.5 rounded-full font-medium",
-                      u.role === "admin"    ? "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300" :
-                      u.role === "operator" ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300" :
-                      "bg-muted text-muted-foreground"
-                    )}>
-                      {u.role}
-                    </span>
-                    <span className={cn(
-                      "text-xs px-2 py-0.5 rounded-full",
-                      u.is_active ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" : "bg-muted text-muted-foreground"
-                    )}>
-                      {u.is_active ? "activo" : "inactivo"}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
           )}
 
           {/* Empty state for no consultas_log data */}
