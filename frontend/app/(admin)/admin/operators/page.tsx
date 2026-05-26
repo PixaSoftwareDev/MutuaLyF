@@ -39,10 +39,11 @@ async function listOperators(): Promise<OperatorUser[]> {
 
 export default function OperatorsPage() {
   const qc = useQueryClient();
-  const [showCreate, setShowCreate] = useState(false);
-  const [name, setName]             = useState("");
-  const [email, setEmail]           = useState("");
-  const [password, setPassword]     = useState("");
+  const [showCreate, setShowCreate]       = useState(false);
+  const [name, setName]                   = useState("");
+  const [email, setEmail]                 = useState("");
+  const [password, setPassword]           = useState("");
+  const [createSectors, setCreateSectors] = useState<Set<string>>(new Set());
 
   const { data: operators = [], isLoading: loadingOps } = useQuery({
     queryKey: ["operators"],
@@ -63,8 +64,31 @@ export default function OperatorsPage() {
   });
   const onlineIds = new Set((presenceData?.operators ?? []).map(o => o.user_id));
 
+  const activeSectors = useMemo(() => sectors.filter(s => s.is_active), [sectors]);
+  const defaultSectorId = useMemo(() => activeSectors.find(s => s.is_default)?.id ?? null, [activeSectors]);
+
+  // Cuando se abre el modal, pre-seleccionar el sector default. Si el admin
+  // no toca nada, el operador queda con "Consultas Generales".
+  useEffect(() => {
+    if (showCreate) {
+      setCreateSectors(defaultSectorId ? new Set([defaultSectorId]) : new Set());
+    }
+  }, [showCreate, defaultSectorId]);
+
   const createM = useMutation({
-    mutationFn: () => apiClient.post("/admin/operators", { name: name.trim(), email: email.trim(), password }),
+    mutationFn: async () => {
+      const { data } = await apiClient.post("/admin/operators", { name: name.trim(), email: email.trim(), password });
+      const newId = data?.id;
+      // Si el admin seleccionó sectores distintos al default-único, reasignamos.
+      // (El backend ya asigna el default automáticamente al crear, así que un
+      // único sector === default lo dejamos pasar sin segunda llamada.)
+      const selected = Array.from(createSectors);
+      const isDefaultOnly = selected.length === 1 && selected[0] === defaultSectorId;
+      if (newId && selected.length > 0 && !isDefaultOnly) {
+        await api.sectors.assignOperatorSectors(newId, selected);
+      }
+      return data;
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["operators"] });
       toast({ title: "Operador creado", variant: "success" });
@@ -76,6 +100,14 @@ export default function OperatorsPage() {
       toast({ title: typeof detail === "string" ? detail : "Error al crear operador", variant: "destructive" });
     },
   });
+
+  const toggleCreateSector = (id: string) => {
+    setCreateSectors(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
 
   const operatorsFiltered = operators
     .filter(o => o.role === "operator" && o.is_active)
@@ -132,12 +164,53 @@ export default function OperatorsPage() {
               <Label htmlFor="op-password">Contraseña</Label>
               <Input id="op-password" type="password" placeholder="Mínimo 8 caracteres" value={password} onChange={e => setPassword(e.target.value)} />
             </div>
+            <div className="space-y-1.5 pt-1">
+              <Label>Sectores que puede atender</Label>
+              {activeSectors.length === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  No hay sectores activos. Creá sectores primero desde la sección "Sectores".
+                </p>
+              ) : (
+                <div className="flex flex-wrap gap-1.5">
+                  {activeSectors.map(sector => {
+                    const isSelected = createSectors.has(sector.id);
+                    return (
+                      <button
+                        key={sector.id}
+                        type="button"
+                        onClick={() => toggleCreateSector(sector.id)}
+                        className={cn(
+                          "px-2.5 py-1 rounded-md text-xs border transition-colors",
+                          isSelected
+                            ? "bg-primary text-primary-foreground border-primary"
+                            : "bg-background text-muted-foreground border-border hover:border-primary/40 hover:text-foreground",
+                        )}
+                      >
+                        {sector.nombre}
+                        {sector.is_default && <span className="ml-1 opacity-60">(default)</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              {createSectors.size === 0 && activeSectors.length > 0 && (
+                <p className="text-xs text-amber-600">
+                  Seleccioná al menos un sector. Sin sectores el operador no recibe consultas.
+                </p>
+              )}
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowCreate(false)}>Cancelar</Button>
             <Button
               onClick={() => createM.mutate()}
-              disabled={!name.trim() || !email.trim() || password.length < 8 || createM.isPending}
+              disabled={
+                !name.trim() ||
+                !email.trim() ||
+                password.length < 8 ||
+                createSectors.size === 0 ||
+                createM.isPending
+              }
             >
               {createM.isPending && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
               Crear
