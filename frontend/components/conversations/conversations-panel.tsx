@@ -198,12 +198,24 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
 
   const closeM = useMutation({
     mutationFn: (id: string) => api.operator.close(id),
-    onSuccess: () => { inv(); toast({ title: "Conversación cerrada" }); },
+    onSuccess: () => {
+      // Deseleccionar la conv recien cerrada para volver a la bandeja.
+      // Sin esto, el operador seguia viendo el chat cerrado en el panel
+      // derecho como si nada hubiese pasado.
+      setSelectedId(null);
+      setReplyText("");
+      inv();
+      toast({ title: "Conversación cerrada" });
+    },
   });
 
   const returnToBotM = useMutation({
     mutationFn: (id: string) => api.operator.returnToBot(id),
     onSuccess: () => {
+      // Igual que el cierre: el operador ya no atiende esta conv, sacarla
+      // de la vista para que vuelva a la bandeja.
+      setSelectedId(null);
+      setReplyText("");
       inv();
       toast({
         title: "Devuelta al bot",

@@ -392,7 +392,9 @@ async def accept_handoff(
         if not result.fetchone():
             raise HTTPException(status_code=400, detail="Conversation not in handoff_requested state")
 
-        msg = config["transition_messages"]["human_assigned"]
+        # human_assigned es key legacy que sacamos del panel admin pero algunos
+        # tenants la tienen en DB y otros no. .get() con fallback evita KeyError.
+        msg = config["transition_messages"].get("human_assigned") or "Un operador se unió a la conversación."
         await session.execute(text("""
             INSERT INTO mensajes (conversation_id, sender_type, content)
             VALUES (:cid, 'system', :msg)
@@ -497,7 +499,7 @@ async def transfer(
             WHERE id = :id
         """), {"id": conversation_id, "sector_id": body.sector_id})
 
-        msg = body.message or config["transition_messages"]["sector_transferred"]
+        msg = body.message or config["transition_messages"].get("sector_transferred") or "Tu consulta fue derivada al área correspondiente."
         await session.execute(text("""
             INSERT INTO mensajes (conversation_id, sender_type, content)
             VALUES (:cid, 'system', :msg)
@@ -554,7 +556,7 @@ async def release_to_queue(
 
         # Reuse the same "connecting to an operator" message the user already
         # saw when they first entered the queue, to avoid surprise.
-        msg = config["transition_messages"]["handoff_auto"]
+        msg = config["transition_messages"].get("handoff_auto") or "Te conectamos con un operador."
         await session.execute(text("""
             INSERT INTO mensajes (conversation_id, sender_type, content)
             VALUES (:cid, 'system', :msg)
@@ -651,7 +653,7 @@ async def close_conversation(
             SET status = 'closed', closed_at = NOW(), updated_at = NOW()
             WHERE id = :id
         """), {"id": conversation_id})
-        msg = config["transition_messages"]["conversation_closed"]
+        msg = config["transition_messages"].get("conversation_closed") or "La conversación fue cerrada. Gracias por contactarnos."
         await session.execute(text("""
             INSERT INTO mensajes (conversation_id, sender_type, content)
             VALUES (:cid, 'system', :msg)
