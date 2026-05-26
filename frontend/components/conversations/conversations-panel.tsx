@@ -25,12 +25,13 @@ const URGENT_MS       = 120_000; // 2 min waiting → urgent (amber)
 const VERY_URGENT_MS  = 300_000; // 5 min waiting → very urgent (red)
 const COLLAPSED_KEY = "ia_ops_collapsed_v2";
 
-type SectionKey = "handoff_requested" | "human_attending" | "closed";
+// La bandeja muestra solo lo accionable. Cerradas viven en /historial
+// para no mezclar y evitar que el operador piense que tiene que hacer algo.
+type SectionKey = "handoff_requested" | "human_attending";
 
 const SECTION_DEFS: Array<{ key: SectionKey; label: string; tone: string; defaultOpen: boolean }> = [
-  { key: "handoff_requested", label: "En espera",              tone: "text-amber-600",   defaultOpen: true },
-  { key: "human_attending",   label: "En atención",            tone: "text-emerald-600", defaultOpen: true },
-  { key: "closed",            label: "Cerradas (últimas 24h)", tone: "text-slate-500",   defaultOpen: false },
+  { key: "handoff_requested", label: "En espera",   tone: "text-amber-600",   defaultOpen: true },
+  { key: "human_attending",   label: "En atención", tone: "text-emerald-600", defaultOpen: true },
 ];
 
 export type ConversationsPanelMode = "operator" | "admin-readonly";
@@ -976,7 +977,7 @@ export function MessageBubble({ msg }: { msg: { id: string; sender_type: string;
 
 function segmentAndSort(convs: ConversationRow[], now: number): Record<SectionKey, ConversationRow[]> {
   const out: Record<SectionKey, ConversationRow[]> = {
-    handoff_requested: [], human_attending: [], closed: [],
+    handoff_requested: [], human_attending: [],
   };
   for (const c of convs) {
     if (c.status in out) out[c.status as SectionKey].push(c);
@@ -992,9 +993,6 @@ function segmentAndSort(convs: ConversationRow[], now: number): Record<SectionKe
     if (aW !== bW) return bW - aW;
     return msSince(a.last_message_at ?? a.created_at, now) - msSince(b.last_message_at ?? b.created_at, now);
   });
-  out.closed.sort((a, b) =>
-    msSince(b.last_message_at ?? b.created_at, now) - msSince(a.last_message_at ?? a.created_at, now)
-  );
   return out;
 }
 

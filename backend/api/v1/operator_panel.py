@@ -106,11 +106,11 @@ async def list_conversations(
             where_clauses.append("c.status = :status")
             params["status"] = status_filter
         else:
-            # Bandeja: solo lo accionable (handoff + atendiendo + cerradas <24h).
-            # Resto va al historial.
+            # Bandeja: solo lo accionable (handoff + atendiendo). Las cerradas
+            # van al historial — antes traiamos las ultimas 24h aca pero
+            # confundian al operador (parecian pendientes).
             where_clauses.append(
-                "(c.status IN ('handoff_requested', 'human_attending') "
-                "OR (c.status = 'closed' AND c.closed_at >= NOW() - INTERVAL '24 hours'))"
+                "c.status IN ('handoff_requested', 'human_attending')"
             )
 
         # Operators see only their own conversations (assigned or pending in their sector).
