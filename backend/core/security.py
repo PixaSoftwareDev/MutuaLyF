@@ -83,10 +83,12 @@ def create_widget_token(tenant_id: str) -> str:
     sería un dolor. La revocación se hace por hash en DB (widget_token_hash):
     al regenerar, el viejo hash se reemplaza y el token previo deja de validar.
     """
+    now = datetime.now(timezone.utc)
     payload = {
         "tenant_id": tenant_id,
         "scope": TokenScope.WIDGET.value,
-        "iat": datetime.now(timezone.utc),
+        "iat": now,
+        "exp": now + timedelta(days=settings.jwt_widget_expire_days),
     }
     return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 

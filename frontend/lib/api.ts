@@ -651,6 +651,10 @@ export const api = {
         top_intents: Array<{ label: string; count: number; avg_confidence: number | null }>;
       };
     },
+    listUsers: async (tenantId: string): Promise<Array<{ id: string; email: string; name: string; role: string; is_active: boolean; created_at: string | null }>> => {
+      const { data } = await apiClient.get(`/tenants/${tenantId}/users`);
+      return data;
+    },
     createAdmin: async (tenantId: string, payload: { email: string; name: string; password: string }) => {
       const { data } = await apiClient.post(`/tenants/${tenantId}/admin`, payload);
       return data;

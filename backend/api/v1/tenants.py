@@ -963,6 +963,32 @@ async def generate_widget_token(
     )
 
 
+# ── List users of a tenant (super_admin only) ────────────────────────────────
+
+@router.get("/{tenant_id}/users")
+async def list_tenant_users(
+    tenant_id: str,
+    current_user: CurrentUser = Depends(require_super_admin),
+):
+    """Return all users of a tenant. Super-admin only."""
+    async with get_pg_session(tenant_id) as session:
+        result = await session.execute(
+            text("SELECT id, email, name, role, is_active, created_at FROM usuarios ORDER BY created_at DESC")
+        )
+        rows = result.mappings().fetchall()
+    return [
+        {
+            "id": str(r["id"]),
+            "email": r["email"],
+            "name": r["name"],
+            "role": r["role"],
+            "is_active": r["is_active"],
+            "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+        }
+        for r in rows
+    ]
+
+
 # ── Create / replace admin for an existing tenant (super_admin only) ──────────
 
 class AdminCreate(BaseModel):
