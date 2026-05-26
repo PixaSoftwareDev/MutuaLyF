@@ -113,6 +113,14 @@ async def list_conversations(
                 "OR (c.status = 'closed' AND c.closed_at >= NOW() - INTERVAL '24 hours'))"
             )
 
+        # Operators see only their own conversations (assigned or pending in their sector).
+        # handoff_requested are not yet assigned — visible to any operator in the sector.
+        if not is_admin:
+            where_clauses.append(
+                "(c.assigned_operator_id = :op_id OR c.status = 'handoff_requested')"
+            )
+            params["op_id"] = current_user.user_id
+
         if sector_id:
             where_clauses.append("c.sector_id = :sector_id")
             params["sector_id"] = sector_id
@@ -224,6 +232,11 @@ async def list_conversations_history(
         if status_filter:
             where_clauses.append("c.status = :status")
             params["status"] = status_filter
+
+        # Operators see only their own conversations in history
+        if not is_admin:
+            where_clauses.append("c.assigned_operator_id = :op_id")
+            params["op_id"] = current_user.user_id
 
         if sector_id:
             where_clauses.append("c.sector_id = :sector_id")
