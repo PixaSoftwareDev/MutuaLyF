@@ -7,7 +7,7 @@ import hashlib
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, validator
 from sqlalchemy import text
 
 import time
@@ -995,7 +995,16 @@ class UserUpdate(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=120)
     role: str | None = Field(None, pattern="^(admin|operator|user)$")
     is_active: bool | None = None
-    password: str | None = Field(None, min_length=8, max_length=200)
+    password: str | None = Field(None, max_length=200)
+
+    @validator("password", pre=True, always=True)
+    @classmethod
+    def blank_password_to_none(cls, v: str | None) -> str | None:
+        if v is not None and v.strip() == "":
+            return None
+        if v is not None and len(v) < 8:
+            raise ValueError("La contraseña debe tener al menos 8 caracteres")
+        return v
 
 
 @router.patch("/{tenant_id}/users/{user_id}")
