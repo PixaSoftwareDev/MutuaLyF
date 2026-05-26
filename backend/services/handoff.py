@@ -62,74 +62,24 @@ _CHITCHAT_RE = re.compile(
 
 _MIN_WORDS_FOR_INSUFFICIENT = 4  # queries with fewer words are treated as chitchat
 
-# Frases que el LLM emite cuando no pudo responder con el contexto disponible.
-# Cualquiera de estos substrings hace que el turno cuente como "insuficiente"
-# (suma al contador y eventualmente dispara el cartel amarillo).
-#
-# Lista extendida con paráfrasis observadas en produccion. Si el bot empieza
-# a generar nuevas variantes que no estan aca, hay que agregarlas — sino el
-# usuario queda atrapado preguntando sin que nunca aparezca el cartel.
-_BOT_NO_INFO_PATTERNS = (
-    # Declaraciones directas de no tener informacion
-    "no encontré esa información",
-    "no encontré información",
-    "no tengo información sobre",
-    "no tengo esa información",
-    "no dispongo de información",
-    "no cuento con información",
-    "no puedo responder con la información disponible",
-    "no figura en los documentos",
-    "no figura información",
-    "no se encuentra en los documentos",
-    # Fuera de scope / dominio
-    "fuera de mi área",
-    "fuera de mi alcance",
-    "está fuera de",
-    "fuera del alcance",
-    "no es de mi competencia",
-    # Capacidad / posibilidad
-    "no tengo la capacidad",
-    "no tengo acceso",
-    "no puedo conectarte",
-    "no puedo derivarte",
-    "no estoy en condiciones de",
-    # Recomendaciones a canales externos (el bot intenta cerrar punteandote afuera)
-    "te recomiendo",
-    "te sugiero",
-    "consultá directamente",
-    "consultar directamente",
-    "comuníquese con",
-    "comunicate con",
-    "contactá a",
-    "podés comunicarte con",
-    "podes comunicarte con",
-    "te recomiendo que llames",
-    "te recomiendo que contactes",
-)
-
-
-def _bot_signaled_no_info(bot_answer: str) -> bool:
-    if not bot_answer:
-        return False
-    lowered = bot_answer.lower()
-    return any(p in lowered for p in _BOT_NO_INFO_PATTERNS)
-
-
 def _is_response_insufficient(
     sources: list,
-    intent_confidence: float | None,
     user_message: str,
-    bot_answer: str,
 ) -> bool:
-    """True solo si el bot realmente no pudo responder.
+    """True si el turno cuenta como "el bot no pudo responder".
 
-    Señal autoritativa: el propio LLM, siguiendo las reglas anti-alucinación,
-    devolvió una frase del tipo "no encontré esa información". Esa decisión la
-    toma el modelo viendo todo el contexto disponible (sources nuevas + historial
-    conversacional) y por eso es más robusta que mirar solo `sources`.
+    Senial autoritativa: ¿el RAG devolvio fuentes para esta consulta?
+    - Sources vacios → el bot respondio sin info de la KB → insuficiente
+    - Sources con contenido → el bot tenia algo concreto → suficiente
 
-    Saludos, respuestas cortas y chitchat no cuentan: el bot responde
-    correctamente sin sources en esos casos.
+    Cero matching de paráfrasis en el texto del bot — eso era frágil porque
+    cada vez que el LLM inventaba una nueva forma de decir "no sé", había
+    que tocar el código. Esta señal viene del RAG, no del LLM, así que es
+    inmune a paráfrasis.
+
+    Filtros para evitar falsos positivos:
+    - Saludos y respuestas cortas (chitchat) no cuentan: el bot responde
+      bien sin sources en esos casos.
     """
     msg = user_message.strip()
 
@@ -138,20 +88,7 @@ def _is_response_insufficient(
     if _CHITCHAT_RE.match(msg):
         return False
 
-    # Señal fuerte: el bot explícitamente declaró que no encontró la información.
-    if _bot_signaled_no_info(bot_answer):
-        return True
-
-    # Señal débil de respaldo: confianza muy baja Y sin sources. Ambas a la vez
-    # — cualquiera sola puede ser un follow-up válido resuelto por historial.
-    if (
-        not sources
-        and intent_confidence is not None
-        and intent_confidence < 0.2
-    ):
-        return True
-
-    return False
+    return not sources
 
 
 # ── Signal accumulation in Redis ──────────────────────────────────────────────
@@ -213,23 +150,21 @@ async def evaluate_handoff(
     tenant_id: str,
     user_message: str,
     sources: list,
-    intent_confidence: float | None,
-    bot_answer: str = "",
 ) -> HandoffSignal:
     """Decide si ofrecer derivacion despues del turno actual del bot.
 
-    Hay una sola regla: si el bot respondio 'no encontre la informacion'
-    N veces seguidas (N = consecutive_insufficient_count del tenant, default 3),
-    se ofrece un cartel amarillo. El afiliado decide aceptar via DNI.
+    Una sola regla: si el RAG devolvio sources vacios N veces seguidas
+    (N = consecutive_insufficient_count del tenant, default 3), se ofrece
+    el cartel amarillo. El afiliado decide aceptar via DNI.
 
-    El cooldown de 90s evita que se apilen carteles si el afiliado ignora
-    el primero y el bot sigue sin poder responder.
+    Cooldown 90s evita que se apilen carteles si el afiliado ignora el
+    primero y el bot sigue sin poder responder.
     """
     config = await _get_handoff_config(tenant_id)
     signals = await _get_signals(conversation_id)
     offer_pending = await _is_offer_pending(conversation_id)
 
-    if _is_response_insufficient(sources, intent_confidence, user_message, bot_answer):
+    if _is_response_insufficient(sources, user_message):
         signals["insufficient_count"] = signals.get("insufficient_count", 0) + 1
         await _save_signals(conversation_id, signals)
         threshold = config["consecutive_insufficient_count"]

@@ -202,12 +202,10 @@ async def send_message(
         )
         bot_answer = rag_result["answer"]
         sources = rag_result.get("sources", [])
-        intent_confidence = rag_result.get("intent_confidence")
     except Exception as exc:
         logger.error("widget_rag_failed conversation_id=%s error=%s", conversation_id, exc)
         bot_answer = "Lo siento, ocurrió un error. Intentá de nuevo en un momento."
         sources = []
-        intent_confidence = None
 
     bot_msg_id = str(uuid.uuid4())
     async with get_pg_session(tenant_id) as session:
@@ -221,8 +219,6 @@ async def send_message(
         tenant_id=tenant_id,
         user_message=body.content,
         sources=sources,
-        intent_confidence=intent_confidence,
-        bot_answer=bot_answer,
     )
 
     handoff_message = None
