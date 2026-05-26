@@ -73,6 +73,21 @@ def _is_frustrated(text: str, frustration_phrases: list[str]) -> bool:
     return any(phrase.lower() in text_lower for phrase in frustration_phrases)
 
 
+async def is_explicit_handoff_intent(user_message: str, tenant_id: str) -> bool:
+    """Fast path para decidir si saltar el RAG.
+
+    Cuando el usuario explicitamente pide humano o expresa frustracion, no
+    tiene sentido invocar al LLM con la pregunta — el bot termina respondiendo
+    algo de los documentos y abajo aparece la oferta de operador, textos
+    contradictorios. Esta funcion solo mira las Reglas 2 y 3 (las que
+    dependen del mensaje del usuario, no de la respuesta del bot).
+    """
+    if _is_human_request(user_message):
+        return True
+    config = await _get_handoff_config(tenant_id)
+    return _is_frustrated(user_message, config["frustration_phrases"])
+
+
 _CHITCHAT_RE = re.compile(
     r"^\s*(hola|hi|hello|buenos?\s+d[ií]as?|buenas?\s+tardes?|buenas?\s+noches?|"
     r"todo\s+bien|ok|okay|gracias?|de\s+nada|si|sí|no|claro|dale|genial|"

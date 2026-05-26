@@ -24,6 +24,7 @@ from core.tenant import get_tenant_id
 from services.handoff import (
     ConvStatus, HandoffTrigger,
     evaluate_handoff, request_handoff, get_default_sector_id,
+    is_explicit_handoff_intent,
 )
 
 logger = logging.getLogger(__name__)
@@ -173,47 +174,55 @@ async def send_message(
             """), {"cid": conversation_id})
         return {"message_id": msg_id, "status": conv_status, "bot_response": None}
 
-    # Bot active — fetch recent history then call RAG orchestrator
-    from services.orchestrator import handle_query
-    async with get_pg_session(tenant_id) as session:
-        hist_result = await session.execute(text("""
-            SELECT sender_type, content FROM mensajes
-            WHERE conversation_id = :cid AND sender_type IN ('user', 'bot')
-            ORDER BY created_at DESC LIMIT 20
-        """), {"cid": conversation_id})
-        history_rows = list(reversed(hist_result.mappings().fetchall()))
-    # Build list of (role, content) tuples, excluding the just-inserted user message
-    conversation_history = [
-        (r["sender_type"], r["content"])
-        for r in history_rows
-        if r["content"] != body.content or r["sender_type"] != "user"
-    ]
-    try:
-        rag_result = await handle_query(
-            question=body.content,
-            tenant_id=tenant_id,
-            user_id=None,
-            language="es",
-            conversation_history=conversation_history,
-        )
-        bot_answer = rag_result["answer"]
-        sources = rag_result.get("sources", [])
-        intent_confidence = rag_result.get("intent_confidence")
-    except Exception as exc:
-        logger.error("widget_rag_failed conversation_id=%s error=%s", conversation_id, exc)
-        bot_answer = "Lo siento, ocurrió un error. ¿Querés que te conecte con un operador?"
-        sources = []
-        intent_confidence = None
+    # Fast path: si el usuario pidio operador explicito o esta frustrado,
+    # saltamos el RAG. Sin esto el bot responde algo de los docs ("te dejo
+    # el telefono de mesa de ayuda") y abajo aparece la tarjeta amarilla
+    # ofreciendo operador — textos contradictorios.
+    skip_rag = await is_explicit_handoff_intent(body.content, tenant_id)
 
-    # Store bot message
-    bot_msg_id = str(uuid.uuid4())
-    async with get_pg_session(tenant_id) as session:
-        await session.execute(text("""
-            INSERT INTO mensajes (id, conversation_id, sender_type, content)
-            VALUES (:id, :cid, 'bot', :content)
-        """), {"id": bot_msg_id, "cid": conversation_id, "content": bot_answer})
+    bot_answer = ""
+    bot_msg_id: str | None = None
+    sources: list = []
+    intent_confidence: float | None = None
 
-    # Evaluate handoff rules
+    if not skip_rag:
+        from services.orchestrator import handle_query
+        async with get_pg_session(tenant_id) as session:
+            hist_result = await session.execute(text("""
+                SELECT sender_type, content FROM mensajes
+                WHERE conversation_id = :cid AND sender_type IN ('user', 'bot')
+                ORDER BY created_at DESC LIMIT 20
+            """), {"cid": conversation_id})
+            history_rows = list(reversed(hist_result.mappings().fetchall()))
+        conversation_history = [
+            (r["sender_type"], r["content"])
+            for r in history_rows
+            if r["content"] != body.content or r["sender_type"] != "user"
+        ]
+        try:
+            rag_result = await handle_query(
+                question=body.content,
+                tenant_id=tenant_id,
+                user_id=None,
+                language="es",
+                conversation_history=conversation_history,
+            )
+            bot_answer = rag_result["answer"]
+            sources = rag_result.get("sources", [])
+            intent_confidence = rag_result.get("intent_confidence")
+        except Exception as exc:
+            logger.error("widget_rag_failed conversation_id=%s error=%s", conversation_id, exc)
+            bot_answer = "Lo siento, ocurrió un error. ¿Querés que te conecte con un operador?"
+
+        bot_msg_id = str(uuid.uuid4())
+        async with get_pg_session(tenant_id) as session:
+            await session.execute(text("""
+                INSERT INTO mensajes (id, conversation_id, sender_type, content)
+                VALUES (:id, :cid, 'bot', :content)
+            """), {"id": bot_msg_id, "cid": conversation_id, "content": bot_answer})
+
+    # Evaluate handoff rules (con sources/bot_answer vacios si skip_rag,
+    # la Regla 1 no dispara y la decision queda solo en manos de Reglas 2/3)
     signal = await evaluate_handoff(
         conversation_id=conversation_id,
         tenant_id=tenant_id,
@@ -245,7 +254,10 @@ async def send_message(
     return {
         "message_id": bot_msg_id,
         "status": conv_status,
-        "bot_response": bot_answer,
+        # bot_response es None cuando salteamos el RAG (intent explicito de
+        # humano). El cliente no tiene que renderizar nada de "bot": va directo
+        # al handoff_message.
+        "bot_response": bot_answer or None,
         "sources_count": len(sources),
         "handoff_offered": signal.trigger != HandoffTrigger.NONE and not signal.auto_activate,
         "handoff_activated": signal.auto_activate,
