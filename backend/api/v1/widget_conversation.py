@@ -393,9 +393,13 @@ async def request_human(
     if row[0] != ConvStatus.BOT_ACTIVE:
         return {"status": row[0], "message": "Ya en proceso de atención"}
 
+    # El boton "Pedir humano" del widget es una confirmacion explicita del
+    # afiliado — usa el mismo texto que confirm-handoff. handoff_auto quedo
+    # sin usar (lo dejamos en DB por compat, pero no es editable desde el UI).
     from services.handoff import _get_handoff_config
     config = await _get_handoff_config(tenant_id)
-    msg = config["transition_messages"]["handoff_auto"]
+    messages = config["transition_messages"]
+    msg = messages.get("handoff_confirmed") or messages.get("handoff_auto") or "Te conecto con un operador."
     await request_handoff(conversation_id, tenant_id, msg)
     return {"status": ConvStatus.HANDOFF_REQUESTED, "message": msg}
 

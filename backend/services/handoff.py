@@ -171,7 +171,7 @@ async def _get_signals(conversation_id: str) -> dict:
             return json.loads(raw)
     except Exception as exc:
         logger.debug("handoff_redis_read_error error=%s", exc)
-    return {"insufficient_count": 0, "human_request_count": 0}
+    return {"insufficient_count": 0}
 
 
 async def _save_signals(conversation_id: str, signals: dict) -> None:
@@ -253,20 +253,12 @@ async def evaluate_handoff(
             return HandoffSignal(trigger=HandoffTrigger.NONE, auto_activate=False, offer_message="")
         return await _fire_offer(HandoffTrigger.FRUSTRATION)
 
-    # ── Rule 2: Human request tracking ────────────────────────────────────────
+    # ── Rule 2: Human request ─────────────────────────────────────────────────
+    # Siempre ofrece, nunca auto-activa. La decision la toma el afiliado
+    # clickeando el cartel. Si menciona "operador" varias veces, el cooldown
+    # de 90s evita que se apilen tarjetas en cada turno.
     if _is_human_request(user_message):
-        signals["human_request_count"] = signals.get("human_request_count", 0) + 1
-        await _save_signals(conversation_id, signals)
-        if signals["human_request_count"] >= 2:
-            logger.info("handoff_rule2_repeated conversation_id=%s count=%d", conversation_id, signals["human_request_count"])
-            # Auto-activate es independiente del cooldown: el usuario lo pidio
-            # explicito dos veces, derivamos ya.
-            await clear_offer_pending(conversation_id)
-            return HandoffSignal(
-                trigger=HandoffTrigger.HUMAN_REQUEST,
-                auto_activate=True,
-                offer_message=config["transition_messages"]["handoff_auto"],
-            )
+        logger.info("handoff_rule2_human_request conversation_id=%s", conversation_id)
         if offer_pending:
             return HandoffSignal(trigger=HandoffTrigger.NONE, auto_activate=False, offer_message="")
         return await _fire_offer(HandoffTrigger.HUMAN_REQUEST)

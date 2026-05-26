@@ -13,29 +13,26 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "@/components/ui/toast";
 
-// Solo incluimos keys que el backend realmente lee. Antes habia 3 keys de adorno
-// (human_assigned, sector_transferred, conversation_closed) que se podian editar
-// pero nunca afectaban nada. Quedan en la columna JSONB por compat, salen del UI.
+// Tres mensajes que cubren los tres momentos del flujo:
+//   1. Bot detecta que conviene derivar y ofrece -> handoff_offer
+//   2. Afiliado confirma (clickea + DNI) o pide humano por boton -> handoff_confirmed
+//   3. Espera prolongada en cola -> operator_inactive_alert
+// No hay "auto-derivacion": el afiliado siempre decide.
 const MESSAGE_KEYS: Array<{ key: string; label: string; hint: string }> = [
   {
     key: "handoff_offer",
-    label: "Bot no puede ayudar",
-    hint: "Aparece cuando el bot no encontró respuesta tras varios intentos o el usuario pide hablar con un operador.",
-  },
-  {
-    key: "handoff_auto",
-    label: "Pide operador explícitamente",
-    hint: "Mensaje del sistema cuando el usuario pide humano dos veces seguidas — derivación automática sin confirmar.",
+    label: "Oferta del bot",
+    hint: "Texto del cartel amarillo cuando el bot detecta que conviene derivar (sin info tras varios intentos, palabra clave de humano, o frustración).",
   },
   {
     key: "handoff_confirmed",
     label: "Confirmando derivación",
-    hint: "Aparece cuando el afiliado confirma la oferta del bot tras completar nombre y DNI.",
+    hint: "Aparece cuando el afiliado acepta la oferta (tras nombre + DNI) o clickea el botón de pedir humano.",
   },
   {
     key: "operator_inactive_alert",
     label: "Espera prolongada",
-    hint: "Recordatorio automático que se le manda al afiliado si lleva 15+ min en cola sin atención.",
+    hint: "Recordatorio automático si el afiliado lleva 15+ min en cola sin que ningún operador acepte.",
   },
 ];
 
