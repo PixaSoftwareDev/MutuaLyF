@@ -721,8 +721,31 @@ async def operator_presence(
     tenant_id: str = Depends(get_tenant_id),
     current_user: CurrentUser = Depends(require_operator),
 ):
-    """Return list of currently online operators (based on active SSE connections)."""
-    from services.events import get_online_operators
+    """Return list of currently online operators.
+
+    Doubles as heartbeat: when an OPERATOR polls this endpoint, refresh their
+    own presence key in Redis. The operator frontend polls every 15s, so this
+    keeps the 90s TTL fresh without depending on SSE keepalive (which has been
+    observed to skip set_presence in some browser/uvicorn race conditions).
+    Admins polling for status do NOT refresh their own presence.
+    """
+    from services.events import get_online_operators, set_presence
+
+    if current_user.role == Role.OPERATOR:
+        user_name = str(current_user.user_id)
+        try:
+            async with get_pg_session(tenant_id) as session:
+                r = await session.execute(
+                    text("SELECT name FROM usuarios WHERE id = :id LIMIT 1"),
+                    {"id": current_user.user_id},
+                )
+                row = r.fetchone()
+                if row and row[0]:
+                    user_name = row[0]
+        except Exception:
+            pass
+        await set_presence(tenant_id, str(current_user.user_id), user_name)
+
     online = await get_online_operators(tenant_id)
     return {"operators": online, "count": len(online)}
 

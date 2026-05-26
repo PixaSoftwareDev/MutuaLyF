@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS documentos (
     uploaded_by         UUID         NOT NULL,
     content_hash_bytes  VARCHAR(64),
     content_hash_text   VARCHAR(64),
+    storage_key         VARCHAR(1000),
     created_at          TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     updated_at          TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
