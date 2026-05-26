@@ -77,17 +77,26 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
 
   // ── Queries ────────────────────────────────────────────────────────────────
 
+  // Polling de respaldo: aunque el SSE este conectado, si se cae el cliente
+  // se entera tarde. Refetch periodico garantiza que el operador siempre vea
+  // los mensajes nuevos sin tener que recargar manualmente.
   const { data, isLoading, error } = useQuery({
     queryKey: ["operator-conversations", "all", mode],
     queryFn:  () => api.operator.listConversations(),
-    staleTime: 30_000,
+    staleTime: 5_000,
+    refetchInterval: 6_000,
+    refetchIntervalInBackground: false,
   });
 
   const { data: detail, isLoading: detailLoading } = useQuery({
     queryKey: ["conversation-detail", selectedId],
     queryFn:  () => api.operator.getConversation(selectedId!),
     enabled:  !!selectedId,
-    staleTime: 30_000,
+    staleTime: 2_000,
+    // 2s cuando hay conv seleccionada: el operador necesita ver mensajes del
+    // afiliado al instante. SSE sigue siendo el camino "rapido" cuando funciona.
+    refetchInterval: 2_500,
+    refetchIntervalInBackground: false,
   });
 
   const { data: sectorsData } = useQuery({
