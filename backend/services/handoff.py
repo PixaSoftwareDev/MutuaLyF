@@ -60,7 +60,7 @@ _CHITCHAT_RE = re.compile(
     re.IGNORECASE,
 )
 
-_MIN_WORDS_FOR_INSUFFICIENT = 4  # queries with fewer words are treated as chitchat
+_MIN_WORDS_FOR_INSUFFICIENT = 2  # 1-palabra son chitchat / interjecciones. "quien es messi" (3 palabras) ya cuenta como pregunta real.
 
 def _is_response_insufficient(
     sources: list,
