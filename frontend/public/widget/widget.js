@@ -30,7 +30,8 @@
 
   var conversationId  = null;
   var lastMessageId   = null;
-  var pollingInterval = null;
+  var pollAlive       = false;
+  var pollTimeout     = null;
   var convStatus      = "bot_active";
   var sectors         = [];
   var selectedSector  = null;
@@ -464,23 +465,43 @@
       });
   }
 
-  // ── Polling ──────────────────────────────────────────────────────────────────
+  // ── Long-polling ─────────────────────────────────────────────────────────────
+  // Server holds each request up to ~25s and replies as soon as there's news.
+  // We chain the next request right after the previous one finishes, so
+  // perceived latency is ~RTT instead of the old 5s interval.
   function _startPolling() {
-    if (pollingInterval) clearInterval(pollingInterval);
-    pollingInterval = setInterval(_poll, 5000);
+    if (pollTimeout) clearTimeout(pollTimeout);
+    pollAlive = true;
+    _pollLoop();
+  }
+
+  function _stopPolling() {
+    pollAlive = false;
+    if (pollTimeout) clearTimeout(pollTimeout);
+    pollTimeout = null;
+  }
+
+  function _pollLoop() {
+    if (!pollAlive || !conversationId) return;
+    _poll().finally(function () {
+      if (!pollAlive) return;
+      // Small breather to avoid hot-looping if the endpoint is degraded.
+      pollTimeout = setTimeout(_pollLoop, 250);
+    });
   }
 
   function _poll() {
-    if (!conversationId) return;
+    if (!conversationId) return Promise.resolve();
     var url = API_BASE + "/api/v1/widget/conversation/" + conversationId + "/poll";
     if (lastMessageId) url += "?last_message_id=" + lastMessageId;
 
-    fetch(url, { headers: _headers() })
+    return fetch(url, { headers: _headers() })
       .then(function (r) { return r.json(); })
       .then(function (data) {
         convStatus = data.status;
         _updateStatus();
         (data.messages || []).forEach(function (m) {
+          if (lastMessageId === m.id) return;
           _appendMessage(m.sender_type, m.content);
           lastMessageId = m.id;
           if (!panel.classList.contains("open") && (m.sender_type === "operator" || m.sender_type === "system")) {

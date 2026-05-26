@@ -252,16 +252,16 @@ async def send_message(
 
 # ── Polling ───────────────────────────────────────────────────────────────────
 
-@router.get("/widget/conversation/{conversation_id}/poll")
-async def poll_messages(
-    conversation_id: str,
-    last_message_id: str | None = None,
-    tenant_id: str = Depends(get_tenant_id),
-    widget_user: CurrentUser = Depends(get_widget_user),
-):
-    """Return new messages since last_message_id. Widget calls this every 5s."""
+_LONG_POLL_TIMEOUT_S = 25.0
+
+
+async def _read_conversation_snapshot(tenant_id: str, conversation_id: str) -> dict | None:
+    """Single query: conversation status + latest 50 messages. Returns None if not found.
+
+    Also marks operator messages as read when the conversation is being attended by a human.
+    """
     async with get_pg_session(tenant_id) as session:
-        conv_result = await session.execute(
+        conv_row = (await session.execute(
             text("""
                 SELECT c.status, c.assigned_operator_id, u.name AS operator_name
                 FROM conversaciones c
@@ -269,27 +269,17 @@ async def poll_messages(
                 WHERE c.id = :id
             """),
             {"id": conversation_id},
-        )
-        conv = conv_result.mappings().fetchone()
-        if not conv:
-            raise HTTPException(status_code=404, detail="Conversation not found")
+        )).mappings().fetchone()
+        if not conv_row:
+            return None
 
-        if last_message_id:
-            msg_result = await session.execute(text("""
-                SELECT id, sender_type, content, created_at
-                FROM mensajes
-                WHERE conversation_id = :cid
-                  AND created_at > (SELECT created_at FROM mensajes WHERE id = :last_id)
-                ORDER BY created_at ASC
-            """), {"cid": conversation_id, "last_id": last_message_id})
-        else:
-            msg_result = await session.execute(text("""
-                SELECT id, sender_type, content, created_at
-                FROM mensajes
-                WHERE conversation_id = :cid
-                ORDER BY created_at ASC
-                LIMIT 50
-            """), {"cid": conversation_id})
+        msg_rows = (await session.execute(text("""
+            SELECT id, sender_type, content, created_at
+            FROM mensajes
+            WHERE conversation_id = :cid
+            ORDER BY created_at ASC
+            LIMIT 50
+        """), {"cid": conversation_id})).mappings().all()
 
         messages = [
             {
@@ -298,11 +288,10 @@ async def poll_messages(
                 "content": r["content"],
                 "created_at": r["created_at"].isoformat(),
             }
-            for r in msg_result.mappings().all()
+            for r in msg_rows
         ]
 
-        # Mark operator messages as read
-        if messages and conv["status"] == ConvStatus.HUMAN_ATTENDING:
+        if messages and conv_row["status"] == ConvStatus.HUMAN_ATTENDING:
             await session.execute(text("""
                 UPDATE mensajes SET read_at = NOW()
                 WHERE conversation_id = :cid
@@ -312,10 +301,60 @@ async def poll_messages(
 
     return {
         "conversation_id": conversation_id,
-        "status": conv["status"],
-        "operator_name": conv["operator_name"],
+        "status": conv_row["status"],
+        "operator_name": conv_row["operator_name"],
         "messages": messages,
     }
+
+
+@router.get("/widget/conversation/{conversation_id}/poll")
+async def poll_messages(
+    conversation_id: str,
+    last_message_id: str | None = None,
+    tenant_id: str = Depends(get_tenant_id),
+    widget_user: CurrentUser = Depends(get_widget_user),
+):
+    """Long-polling: returns immediately if the conversation has new messages
+    or status changes since `last_message_id`; otherwise holds the request
+    open up to ~25s waiting for a relevant pub/sub event. Falls back to a
+    final fresh read when timeout expires so the client always gets the
+    current snapshot.
+
+    No `last_message_id` → always returns the latest snapshot (used for the
+    first poll after starting a conversation). This preserves the existing
+    contract for the widget that does not track ids.
+    """
+    snapshot = await _read_conversation_snapshot(tenant_id, conversation_id)
+    if snapshot is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    # First poll (no anchor) → snapshot immediately.
+    # Otherwise, if the latest message id differs from the anchor, the client
+    # is behind → return now. If they match, long-poll until something changes.
+    if last_message_id is None:
+        return snapshot
+    if snapshot["messages"] and snapshot["messages"][-1]["id"] != last_message_id:
+        return snapshot
+
+    # Hold the request until either:
+    #   - new_message arrives for this conversation
+    #   - conversation_updated (status change: handoff accepted, returned to bot, closed)
+    #   - timeout (~25s) — client retries naturally
+    from services.events import wait_for_event
+
+    def _relevant(event: dict) -> bool:
+        if event.get("conversation_id") != conversation_id:
+            return False
+        return event.get("type") in {"new_message", "conversation_updated"}
+
+    event = await wait_for_event(tenant_id, _relevant, timeout=_LONG_POLL_TIMEOUT_S)
+    if event is None:
+        # Timeout: return whatever we have so the client stays in sync.
+        return snapshot
+
+    # Re-read after the event to capture the new message + any concurrent updates.
+    fresh = await _read_conversation_snapshot(tenant_id, conversation_id)
+    return fresh or snapshot
 
 
 # ── Explicit human request ────────────────────────────────────────────────────

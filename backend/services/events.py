@@ -71,6 +71,53 @@ async def get_online_operators(tenant_id: str) -> list[dict]:
         return []
 
 
+async def wait_for_event(tenant_id: str, predicate, timeout: float = 25.0) -> dict | None:
+    """Subscribe to tenant channel and return the first event matching predicate.
+
+    Used by long-polling endpoints (e.g. widget /poll) to hold the request
+    open until something interesting happens. Returns None on timeout —
+    callers should treat that as "nothing new, client will retry".
+
+    `predicate(event_dict) -> bool` decides which events count. Each event
+    dict has at least a `type` field plus whatever the publisher attached.
+    """
+    import asyncio
+    from core.database import new_redis_pubsub_connection
+
+    redis_conn = new_redis_pubsub_connection()
+    pubsub = redis_conn.pubsub()
+    await pubsub.subscribe(_channel(tenant_id))
+    deadline = asyncio.get_event_loop().time() + timeout
+    try:
+        while True:
+            remaining = deadline - asyncio.get_event_loop().time()
+            if remaining <= 0:
+                return None
+            try:
+                msg = await asyncio.wait_for(
+                    pubsub.get_message(ignore_subscribe_messages=True),
+                    timeout=remaining,
+                )
+            except asyncio.TimeoutError:
+                return None
+            if msg is None or msg.get("type") != "message":
+                await asyncio.sleep(0.02)
+                continue
+            try:
+                event = json.loads(msg["data"])
+            except Exception:
+                continue
+            if predicate(event):
+                return event
+    finally:
+        try:
+            await pubsub.unsubscribe(_channel(tenant_id))
+            await pubsub.aclose()
+            await redis_conn.aclose()
+        except Exception:
+            pass
+
+
 async def publish(tenant_id: str, event_type: str, payload: dict) -> None:
     """Publish an event to all SSE subscribers for this tenant."""
     try:

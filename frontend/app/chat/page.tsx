@@ -226,7 +226,9 @@ function ChatInner() {
   const bottomRef                           = useRef<HTMLDivElement>(null);
   const inputRef                            = useRef<HTMLInputElement>(null);
   const sessionId                           = useRef<string>("");
-  const pollIntervalRef                     = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollTimeoutRef                      = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pollAliveRef                        = useRef<boolean>(false);
+  const lastMessageIdRef                    = useRef<string | null>(null);
 
   useEffect(() => {
     const key = "ia_chat_session_" + (token || tenantId).slice(-8);
@@ -278,7 +280,10 @@ function ChatInner() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, sectorsLoading]);
 
-  useEffect(() => () => { if (pollIntervalRef.current) clearInterval(pollIntervalRef.current); }, []);
+  useEffect(() => () => {
+    pollAliveRef.current = false;
+    if (pollTimeoutRef.current) clearTimeout(pollTimeoutRef.current);
+  }, []);
 
   function getHeaders() {
     return { "Content-Type": "application/json", Authorization: `Bearer ${resolvedToken}`, "X-Tenant-ID": tenantId };
@@ -286,17 +291,14 @@ function ChatInner() {
 
   const pollMessages = useCallback(async (convId: string) => {
     try {
-      const r = await fetch(`${API_BASE}/api/v1/widget/conversation/${convId}/poll`, { headers: getHeaders() });
+      const anchor = lastMessageIdRef.current;
+      const url = `${API_BASE}/api/v1/widget/conversation/${convId}/poll`
+        + (anchor ? `?last_message_id=${encodeURIComponent(anchor)}` : "");
+      const r = await fetch(url, { headers: getHeaders() });
       if (!r.ok) return;
       const data = await r.json();
-      // El polling reemplaza todos los mensajes. Para no perder el flag
-      // handoffOffer (que solo se setea localmente al recibir handoff_offered
-      // del send-message), re-marcamos el mensaje del backend que coincide
-      // con el texto del offer pendiente — siempre que el status aún sea
-      // bot_active (si ya pasó a handoff_requested/attending, el offer ya
-      // se consumió y NO debería seguir mostrando el botón).
       const offerActive = data.status === "bot_active" && pendingHandoffOfferText !== null;
-      setMessages((data.messages || []).map((m: { id: string; sender_type: string; content: string }) => ({
+      const msgs = (data.messages || []).map((m: { id: string; sender_type: string; content: string }) => ({
         id:   m.id,
         role: m.sender_type as Message["role"],
         content: m.content,
@@ -304,11 +306,11 @@ function ChatInner() {
           offerActive &&
           m.sender_type === "system" &&
           m.content === pendingHandoffOfferText,
-      })));
+      }));
+      setMessages(msgs);
+      if (msgs.length > 0) lastMessageIdRef.current = msgs[msgs.length - 1].id;
       setStatus(data.status);
       setOperatorName(data.operator_name ?? null);
-      // Si el status ya cambió (user confirmó o sistema escaló), limpiar
-      // el offer pendiente para que la próxima poll no re-marque nada.
       if (data.status !== "bot_active") {
         setPendingHandoffOfferText(null);
       }
@@ -316,9 +318,20 @@ function ChatInner() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resolvedToken, tenantId, pendingHandoffOfferText]);
 
+  // Long-polling loop: server holds the request up to ~25s and replies as soon
+  // as there's news. We chain the next fetch right after each response so the
+  // perceived latency is essentially network RTT.
   const startPolling = useCallback((convId: string) => {
-    if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
-    pollIntervalRef.current = setInterval(() => pollMessages(convId), 4000);
+    if (pollTimeoutRef.current) clearTimeout(pollTimeoutRef.current);
+    pollAliveRef.current = true;
+    const loop = async () => {
+      if (!pollAliveRef.current) return;
+      await pollMessages(convId);
+      if (!pollAliveRef.current) return;
+      // Small breather to avoid hot-looping if the endpoint is degraded.
+      pollTimeoutRef.current = setTimeout(loop, 250);
+    };
+    loop();
   }, [pollMessages]);
 
   async function fetchOperatorsOnline(sectorId: string) {
@@ -467,7 +480,9 @@ function ChatInner() {
             {phase === "chat" ? (
               <button
                 onClick={() => {
-                  if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+                  pollAliveRef.current = false;
+                  if (pollTimeoutRef.current) clearTimeout(pollTimeoutRef.current);
+                  lastMessageIdRef.current = null;
                   setPhase("selecting"); setConversationId(null); setMessages([]); setSelectedSector(null);
                 }}
                 className="mr-1 text-white/70 hover:text-white transition-colors p-1 -ml-1 rounded-lg hover:bg-white/10"
