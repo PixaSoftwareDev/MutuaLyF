@@ -1,6 +1,8 @@
 """Authentication endpoints: login, refresh, logout."""
 
 import logging
+import re
+import unicodedata
 import uuid
 from typing import Annotated
 
@@ -25,6 +27,12 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _slugify(s: str) -> str:
+    s = unicodedata.normalize("NFD", s).encode("ascii", "ignore").decode("ascii")
+    s = re.sub(r"[^a-z0-9]+", "-", s.lower()).strip("-")
+    return s[:50]
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
@@ -44,11 +52,11 @@ async def login(
     """
     from core.config import settings
 
-    tenant_id = (
+    raw_tenant = (
         request.headers.get("X-Tenant-ID")
         or _tenant_from_subdomain(request, settings.base_domain)
     )
-    # Treat the platform sentinel as "no tenant" for login purposes
+    tenant_id = _slugify(raw_tenant) if raw_tenant and raw_tenant != "__platform__" else raw_tenant or None
     if tenant_id == "__platform__":
         tenant_id = None
 

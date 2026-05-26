@@ -18,7 +18,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/toast";
-import { cn } from "@/lib/utils";
+import { cn, toSlug } from "@/lib/utils";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface TenantRow {
@@ -491,13 +491,27 @@ function TenantRowCard({ tenant: t, anomaly, onClick }: {
 // ── Modal crear tenant ────────────────────────────────────────────────────────
 const EMPTY_FORM = { id: "", name: "", plan: "starter", admin_email: "", admin_name: "", admin_password: "", personality_id: "" };
 
+
 function CreateTenantModal({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: () => void }) {
   const [form, setForm] = useState(EMPTY_FORM);
+  const [slugLocked, setSlugLocked] = useState(false);
   const [error, setError] = useState("");
+
+  const handleClose = () => { onClose(); setForm(EMPTY_FORM); setSlugLocked(false); setError(""); };
+
+  const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const name = e.target.value;
+    setForm(f => ({ ...f, name, ...(!slugLocked && { id: toSlug(name) }) }));
+  };
+
+  const handleSlugChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setSlugLocked(true);
+    setForm(f => ({ ...f, id: e.target.value }));
+  };
+
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setForm(f => ({ ...f, [k]: e.target.value }));
 
-  // Load available personalities
   const { data: personalities = [], isLoading: loadingP } = useQuery({
     queryKey: ["prompt-templates"],
     queryFn: api.promptTemplates.list,
@@ -508,8 +522,7 @@ function CreateTenantModal({ open, onClose, onCreated }: { open: boolean; onClos
   const createM = useMutation({
     mutationFn: () => tenantsApi.create(form),
     onSuccess: () => {
-      onCreated(); onClose();
-      setForm(EMPTY_FORM);
+      onCreated(); handleClose();
       toast({ title: "Organización creada", description: `'${form.id}' provisionada correctamente.`, variant: "success" });
     },
     onError: (err: any) => {
@@ -523,18 +536,16 @@ function CreateTenantModal({ open, onClose, onCreated }: { open: boolean; onClos
     (p: any) => PLAN_ORDER[p.plan_minimo] <= PLAN_ORDER[form.plan]
   );
 
-  const canSubmit = !createM.isPending && form.id && form.admin_email && form.admin_password && form.personality_id;
+  const canSubmit = !createM.isPending && form.id && form.name && form.admin_email && form.admin_password && form.personality_id;
 
-  const fields = [
-    { key: "id",             label: "ID único (slug)",           placeholder: "mi-empresa",           type: "text",     hint: "Solo minúsculas, números y guiones." },
-    { key: "name",           label: "Nombre de la organización", placeholder: "Mi Empresa S.A.",      type: "text" },
-    { key: "admin_email",    label: "Email del admin",           placeholder: "admin@mi-empresa.com", type: "email" },
-    { key: "admin_name",     label: "Nombre del admin",          placeholder: "Nombre Apellido",      type: "text" },
-    { key: "admin_password", label: "Contraseña inicial",        placeholder: "Mínimo 8 caracteres",  type: "password" },
+  const extraFields = [
+    { key: "admin_email",    label: "Email del admin",  placeholder: "admin@mi-empresa.com", type: "email"    },
+    { key: "admin_name",     label: "Nombre del admin", placeholder: "Nombre Apellido",      type: "text"     },
+    { key: "admin_password", label: "Contraseña inicial", placeholder: "Mínimo 8 caracteres", type: "password" },
   ] as const;
 
   return (
-    <Dialog open={open} onOpenChange={v => !v && onClose()}>
+    <Dialog open={open} onOpenChange={v => !v && handleClose()}>
       <DialogContent className="w-full max-w-md mx-4 sm:mx-auto flex flex-col max-h-[90dvh]">
         <DialogHeader className="shrink-0">
           <DialogTitle className="flex items-center gap-2">
@@ -542,11 +553,27 @@ function CreateTenantModal({ open, onClose, onCreated }: { open: boolean; onClos
           </DialogTitle>
         </DialogHeader>
         <div className="space-y-3 py-1 overflow-y-auto flex-1 min-h-0 pr-1">
-          {fields.map(f => (
+
+          {/* Nombre → genera slug automáticamente */}
+          <div className="space-y-1">
+            <Label className="text-xs font-medium">Nombre de la organización</Label>
+            <Input placeholder="Mi Empresa S.A." value={form.name} onChange={handleNameChange} className="h-9" />
+            {form.id && (
+              <div className="flex items-center gap-1.5 mt-1">
+                <span className="text-[11px] text-muted-foreground shrink-0">Identificador:</span>
+                <input
+                  value={form.id}
+                  onChange={handleSlugChange}
+                  className="text-[11px] font-mono text-muted-foreground bg-muted/50 border border-transparent hover:border-border focus:border-ring focus:outline-none rounded px-1.5 py-0.5 flex-1 min-w-0"
+                />
+              </div>
+            )}
+          </div>
+
+          {extraFields.map(f => (
             <div key={f.key} className="space-y-1">
               <Label className="text-xs font-medium">{f.label}</Label>
               <Input type={f.type} placeholder={f.placeholder} value={(form as any)[f.key]} onChange={set(f.key)} className="h-9" />
-              {"hint" in f && f.hint && <p className="text-[11px] text-muted-foreground">{f.hint}</p>}
             </div>
           ))}
 
@@ -598,7 +625,7 @@ function CreateTenantModal({ open, onClose, onCreated }: { open: boolean; onClos
           {error && <div className="rounded-md bg-destructive/10 border border-destructive/20 px-3 py-2"><p className="text-xs text-destructive">{error}</p></div>}
         </div>
         <DialogFooter className="flex-col sm:flex-row gap-2 shrink-0 pt-2 border-t">
-          <Button variant="outline" className="w-full sm:w-auto" onClick={onClose}>Cancelar</Button>
+          <Button variant="outline" className="w-full sm:w-auto" onClick={handleClose}>Cancelar</Button>
           <Button className="w-full sm:w-auto" disabled={!canSubmit} onClick={() => { setError(""); createM.mutate(); }}>
             {createM.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
             Crear organización

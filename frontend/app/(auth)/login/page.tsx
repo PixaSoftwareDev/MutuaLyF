@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuthStore } from "@/lib/store";
 import { api } from "@/lib/api";
+import { toSlug } from "@/lib/utils";
 import { useTenantBranding } from "@/lib/use-tenant-branding";
 import { Loader2, AlertTriangle, Shield, Eye, EyeOff } from "lucide-react";
 
@@ -45,7 +46,7 @@ export default function LoginPage() {
     setError(null);
     setLoading(true);
     try {
-      const effectiveTenant = superAdmin ? "" : tenant;
+      const effectiveTenant = superAdmin ? "" : toSlug(tenant);
       const data = await api.auth.login(em, pw, effectiveTenant);
       const payload = JSON.parse(atob(data.access_token.split(".")[1]));
       const role = payload.role as string;
