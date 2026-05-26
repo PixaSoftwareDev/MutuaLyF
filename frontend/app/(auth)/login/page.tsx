@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
@@ -25,10 +25,15 @@ export default function LoginPage() {
   const [error, setError]               = useState<string | null>(null);
   const [loading, setLoading]           = useState(false);
 
-  // Pre-fill tenant field with whatever the branding resolved (env / URL / storage)
+  // Pre-fill tenant field once with whatever the branding resolved (env / URL / storage).
+  // Using a ref so editing the field never re-triggers the fill.
+  const tenantPrefilled = useRef(false);
   useEffect(() => {
-    if (branding.tenant_id && !tenantInput) setTenantInput(branding.tenant_id);
-  }, [branding.tenant_id, tenantInput]);
+    if (branding.tenant_id && !tenantPrefilled.current) {
+      tenantPrefilled.current = true;
+      setTenantInput(branding.tenant_id);
+    }
+  }, [branding.tenant_id]);
 
   // Push favicon if branding has one
   useEffect(() => {
