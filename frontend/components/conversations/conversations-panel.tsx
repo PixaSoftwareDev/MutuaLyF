@@ -263,7 +263,14 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
     mutationFn: ({ id, sectorId }: { id: string; sectorId: string }) =>
       api.operator.transfer(id, sectorId),
     onSuccess: () => {
-      inv(); setShowTransfer(false); setTransferSector("");
+      // Transferir mueve la conv a otro sector — este operador ya no la
+      // atiende. Deseleccionar para volver a la bandeja, igual que close
+      // y returnToBot.
+      setSelectedId(null);
+      setReplyText("");
+      setShowTransfer(false);
+      setTransferSector("");
+      inv();
       toast({ title: "Conversación transferida", variant: "success" });
     },
   });
