@@ -13,7 +13,7 @@ from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import text
 
 from core.database import get_pg_session
-from core.security import CurrentUser, Role, require_admin, require_operator, get_widget_user, create_widget_token
+from core.security import CurrentUser, Role, require_admin, require_operator, get_widget_user, get_widget_or_chat_user, create_widget_token, create_public_chat_token
 from core.tenant import get_tenant_id
 from services.handoff import ConvStatus, invalidate_config_cache
 from services.events import publish
@@ -762,7 +762,7 @@ async def public_chat_token(tenant_id: str = Depends(get_tenant_id)):
         )
         if not row.fetchone():
             raise HTTPException(status_code=404, detail="Tenant not found")
-    return {"widget_token": create_widget_token(tenant_id), "tenant_id": tenant_id}
+    return {"widget_token": create_public_chat_token(tenant_id), "tenant_id": tenant_id}
 
 
 @router.get("/public/tenant-branding")
@@ -806,7 +806,7 @@ async def public_tenant_branding(tenant_id: str):
 @router.get("/widget/sectors")
 async def widget_list_sectors(
     tenant_id: str = Depends(get_tenant_id),
-    widget_user: CurrentUser = Depends(get_widget_user),
+    widget_user: CurrentUser = Depends(get_widget_or_chat_user),
 ):
     """Public sector list for the widget — returns active sectors, default flag, and bot greeting."""
     async with get_pg_session(tenant_id) as session:

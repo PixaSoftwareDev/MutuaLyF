@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import text
 
 from core.database import get_pg_session
-from core.security import CurrentUser, get_widget_user
+from core.security import CurrentUser, get_widget_or_chat_user
 from core.tenant import get_tenant_id
 from services.handoff import (
     ConvStatus, HandoffTrigger,
@@ -70,7 +70,7 @@ class ConfirmHandoffRequest(BaseModel):
 async def start_conversation(
     body: StartConversationRequest,
     tenant_id: str = Depends(get_tenant_id),
-    widget_user: CurrentUser = Depends(get_widget_user),
+    widget_user: CurrentUser = Depends(get_widget_or_chat_user),
 ):
     """Create a new conversation or resume existing active one for this session."""
     async with get_pg_session(tenant_id) as session:
@@ -136,7 +136,7 @@ async def send_message(
     conversation_id: str,
     body: SendMessageRequest,
     tenant_id: str = Depends(get_tenant_id),
-    widget_user: CurrentUser = Depends(get_widget_user),
+    widget_user: CurrentUser = Depends(get_widget_or_chat_user),
 ):
     """Send a user message. Routes to bot (RAG) or operator queue based on conversation status."""
     async with get_pg_session(tenant_id) as session:
@@ -310,7 +310,7 @@ async def poll_messages(
     conversation_id: str,
     last_message_id: str | None = None,
     tenant_id: str = Depends(get_tenant_id),
-    widget_user: CurrentUser = Depends(get_widget_user),
+    widget_user: CurrentUser = Depends(get_widget_or_chat_user),
 ):
     """Long-polling: returns immediately if the conversation has new messages
     or status changes since `last_message_id`; otherwise holds the request
@@ -362,7 +362,7 @@ async def confirm_handoff(
     conversation_id: str,
     body: ConfirmHandoffRequest | None = None,
     tenant_id: str = Depends(get_tenant_id),
-    widget_user: CurrentUser = Depends(get_widget_user),
+    widget_user: CurrentUser = Depends(get_widget_or_chat_user),
 ):
     """Afiliado confirma handoff. Opcionalmente envía nombre + DNI para que el
     operador tenga la identificación al recibir la conversación.
@@ -407,7 +407,7 @@ async def confirm_handoff(
 async def operators_online(
     sector_id: str | None = None,
     tenant_id: str = Depends(get_tenant_id),
-    widget_user: CurrentUser = Depends(get_widget_user),
+    widget_user: CurrentUser = Depends(get_widget_or_chat_user),
 ):
     """Return count of operators currently marked as online for a sector."""
     from services.events import get_online_operators

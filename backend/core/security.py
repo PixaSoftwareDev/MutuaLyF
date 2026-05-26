@@ -28,7 +28,8 @@ class Role(str, Enum):
 class TokenScope(str, Enum):
     FULL = "full"
     REFRESH = "refresh"
-    WIDGET = "widget"  # Read-only, query-only, per-tenant
+    WIDGET = "widget"        # Read-only, query-only, per-tenant (admin-generated, hash-validated)
+    PUBLIC_CHAT = "chat"     # Ephemeral, server-issued for /chat page (JWT-only validation)
 
 
 # ── Password ───────────────────────────────────────────────────────────────────
@@ -89,6 +90,18 @@ def create_widget_token(tenant_id: str) -> str:
         "scope": TokenScope.WIDGET.value,
         "iat": now,
         "exp": now + timedelta(days=settings.jwt_widget_expire_days),
+    }
+    return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
+
+
+def create_public_chat_token(tenant_id: str) -> str:
+    """Short-lived token for the public /chat page. No hash stored in DB — JWT-only validation."""
+    now = datetime.now(timezone.utc)
+    payload = {
+        "tenant_id": tenant_id,
+        "scope": TokenScope.PUBLIC_CHAT.value,
+        "iat": now,
+        "exp": now + timedelta(hours=2),
     }
     return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
@@ -165,6 +178,19 @@ async def get_widget_user(token: str = Depends(oauth2_scheme)) -> CurrentUser:
     if stored_hash is None or stored_hash != token_hash:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Widget token revocado o inválido")
 
+    return user
+
+
+async def get_widget_or_chat_user(token: str = Depends(oauth2_scheme)) -> CurrentUser:
+    """Dependency: accepts both admin widget tokens (hash-validated) and ephemeral public-chat tokens."""
+    user = _get_current_user_from_token(token)
+    if user.scope == TokenScope.WIDGET:
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        stored_hash = await _get_widget_token_hash(user.tenant_id)
+        if stored_hash is None or stored_hash != token_hash:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Widget token revocado o inválido")
+    elif user.scope != TokenScope.PUBLIC_CHAT:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Widget or chat token required")
     return user
 
 
