@@ -820,7 +820,10 @@ function EditUserModal({ tenantId, user, onClose, onSaved }: {
       ...(password ? { password } : {}),
     }),
     onSuccess: () => { toast({ title: "Usuario actualizado", variant: "success" }); onSaved(); },
-    onError: (e: any) => setError(e?.response?.data?.detail ?? "Error al guardar"),
+    onError: (e: any) => {
+      const detail = e?.response?.data?.detail;
+      setError(typeof detail === "string" ? detail : "Error al guardar. Verificá los datos.");
+    },
   });
 
   return (
