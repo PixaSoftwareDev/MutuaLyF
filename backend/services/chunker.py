@@ -794,6 +794,24 @@ def _extract_pdf(content: bytes, filename: str) -> str:
         return ""
 
 
+def _dedup_cell(s: str) -> str:
+    """If s is the same string repeated N≥2 times consecutively, return one copy.
+
+    Word exports table cells via lxml in a way that repeats each cell's text
+    once per XML run/paragraph nesting level, producing "EliteEliteElite".
+    This function detects and collapses any such N-repetition.
+    """
+    n = len(s)
+    if n < 2:
+        return s
+    for period in range(1, n // 2 + 1):
+        if n % period == 0:
+            candidate = s[:period]
+            if candidate * (n // period) == s:
+                return candidate
+    return s
+
+
 def _extract_docx(content: bytes, filename: str) -> str:
     try:
         import io
@@ -829,12 +847,12 @@ def _extract_docx(content: bytes, filename: str) -> str:
 
             elif tag == TAG_TBL:
                 for row in child.iter(TAG_TR):
-                    cells = [
-                        tc.text_content().strip() if hasattr(tc, "text_content") else
-                        "".join(n.text or "" for n in tc.iter() if n.text)
-                        for tc in row.iter(TAG_TC)
-                    ]
-                    cells = [c for c in cells if c]
+                    cells = []
+                    for tc in row.iter(TAG_TC):
+                        raw = "".join(n.text or "" for n in tc.iter() if n.text).strip()
+                        cell_text = _dedup_cell(raw)
+                        if cell_text:
+                            cells.append(cell_text)
                     if cells:
                         parts.append(" | ".join(cells))
 

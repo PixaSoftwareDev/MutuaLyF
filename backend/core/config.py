@@ -182,7 +182,7 @@ class Settings(BaseSettings):
     bm25_limit: int = 20                # BM25 candidates from PostgreSQL
     rrf_k: int = 60                     # RRF constant (standard value, rarely changed)
     skipped_chunk_score_penalty: float = 0.85  # score multiplier for quality_gate_status=skipped
-    low_confidence_fallback_chunks: int = 2    # chunks to include when all below min_score
+    low_confidence_fallback_chunks: int = 4    # chunks to include when all below min_score
     max_context_chunks: int = 15        # max chunks sent to LLM in a single query
 
     # ── Conversation history ───────────────────────────────────────────────────

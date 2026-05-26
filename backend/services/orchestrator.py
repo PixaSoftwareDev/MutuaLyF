@@ -372,9 +372,11 @@ async def handle_query(
 
     if context_parts and low_confidence_fallback:
         context_block = (
-            "ADVERTENCIA: La información disponible tiene baja relevancia para esta consulta. "
-            "Usala solo si es claramente pertinente; si no, indicá que no encontraste información suficiente.\n\n"
-            "Contexto disponible (baja confianza):\n" + "\n\n---\n\n".join(context_parts[:2])
+            "NOTA: La relevancia semántica de los fragmentos recuperados es baja para esta consulta exacta, "
+            "pero pueden contener información relacionada. "
+            "Revisá si algún fragmento responde parcialmente la pregunta con sinónimos o términos alternativos. "
+            "Si ninguno aplica, indicá que no encontraste la información — NO digas que la pregunta está fuera de alcance.\n\n"
+            "Contexto disponible:\n" + "\n\n---\n\n".join(context_parts[:4])
         )
     elif context_parts:
         context_block = "Contexto disponible:\n" + "\n\n---\n\n".join(context_parts[:settings.max_context_chunks])

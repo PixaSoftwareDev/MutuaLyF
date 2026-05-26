@@ -125,6 +125,19 @@ Reglas:
 - No inventes datos que no estén en la consulta ni en el historial.
 - No respondas la pregunta, solo reformulala.
 - Si la consulta ya es específica y autosuficiente (>20 palabras), la main = query original.
+- Usá SINÓNIMOS SECTORIALES cuando corresponda. Ejemplos de expansión:
+  * "tercerizar IT" → "contratar soporte IT externo mesa de ayuda servicio administrado"
+  * "hosting" → "servidor cloud infraestructura nube alojamiento"
+  * "reportar brecha/vulnerabilidad de seguridad" → "incidente seguridad contacto equipo crisis emergencia"
+  * "presencia internacional" → "oficinas en el exterior representación comercial global"
+  * "prueba gratis / trial" → "período de prueba demo gratuito plan free"
+  * "programadores / devs" → "desarrolladores NovaDev equipo de desarrollo"
+  * "contratar devs / programación" → "desarrollo de software a medida cotización proyecto"
+  * "capacitar equipo" → "certificaciones cursos academia formación tecnológica"
+  * "escalar ticket urgente" → "prioridad alta incidente crítico escalado soporte urgente"
+  * "número de emergencia 24/7" → "contacto crisis teléfono emergencia línea guardia"
+  * "cancelar contrato / servicio" → "política de cancelación baja de servicio reembolso"
+  * "cómo me uno / convierto en partner" → "inscripción programa de partners requisitos niveles"
 
 Formato de salida: JSON exacto, sin texto adicional, sin markdown:
 {{"main": "...", "variants": ["...", "..."]}}
