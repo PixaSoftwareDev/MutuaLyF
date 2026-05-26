@@ -288,7 +288,12 @@ function EditSectorsDialog({
       toast({ title: `Sectores de ${operator.name} actualizados`, variant: "success" });
       onOpenChange(false);
     },
-    onError: () => toast({ title: "Error al guardar", variant: "destructive" }),
+    onError: (err: unknown) => {
+      const detail =
+        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+        ?? "Error al guardar";
+      toast({ title: detail, variant: "destructive" });
+    },
   });
 
   const toggle = (id: string) => {
@@ -337,15 +342,15 @@ function EditSectorsDialog({
             </div>
           )}
           {selected.size === 0 && activeSectors.length > 0 && (
-            <p className="text-xs text-muted-foreground mt-3">
-              Si no asignás ningún sector, solo va a recibir consultas de "Consultas Generales".
+            <p className="text-xs text-amber-600 mt-3">
+              Tenés que asignar al menos un sector. Sin sectores el operador no recibe ninguna consulta.
             </p>
           )}
         </div>
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
-          <Button onClick={() => saveM.mutate()} disabled={!dirty || saveM.isPending}>
+          <Button onClick={() => saveM.mutate()} disabled={!dirty || saveM.isPending || selected.size === 0}>
             {saveM.isPending
               ? <Loader2 className="h-4 w-4 mr-1 animate-spin" />
               : <Check className="h-4 w-4 mr-1" />}

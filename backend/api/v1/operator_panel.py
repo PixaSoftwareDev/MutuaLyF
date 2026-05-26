@@ -939,6 +939,15 @@ async def assign_sectors(
     current_user: CurrentUser = Depends(require_admin),
 ):
     _assert_tenant_access(current_user, tenant_id)
+    # Guardar sin sectores deja al operador invisible para el widget
+    # (operators-online filtra por operador_sectores). Rechazar explicitamente
+    # para que el admin tome una decision consciente — la UI puede sugerir
+    # "Consultas Generales" como default.
+    if not body.sector_ids:
+        raise HTTPException(
+            status_code=400,
+            detail="Debes asignar al menos un sector al operador",
+        )
     async with get_pg_session(tenant_id) as session:
         await session.execute(
             text("DELETE FROM operador_sectores WHERE operador_id = :uid"),
@@ -1041,7 +1050,22 @@ async def create_operator(
             "pwd": hash_password(body.password),
         })
 
-    logger.info("operator_created id=%s email=%s tenant=%s by=%s", new_id, body.email, tenant_id, current_user.user_id)
+        # Asignar sector por defecto ("Consultas Generales" en el schema base).
+        # Sin esto el operador queda invisible para el widget — operators-online
+        # filtra por operador_sectores y un JOIN vacio no devuelve nada.
+        default_sector = await session.execute(text(
+            "SELECT id FROM sectores WHERE is_default = TRUE AND is_active = TRUE LIMIT 1"
+        ))
+        default_sector_id = default_sector.scalar_one_or_none()
+        if default_sector_id:
+            await session.execute(text(
+                "INSERT INTO operador_sectores (operador_id, sector_id) VALUES (:uid, :sid)"
+            ), {"uid": new_id, "sid": str(default_sector_id)})
+        else:
+            logger.warning("operator_created_no_default_sector tenant=%s operator=%s", tenant_id, new_id)
+
+    logger.info("operator_created id=%s email=%s tenant=%s by=%s default_sector=%s",
+                new_id, body.email, tenant_id, current_user.user_id, default_sector_id)
     import asyncio
     from core.audit import record as audit
     asyncio.ensure_future(audit(
