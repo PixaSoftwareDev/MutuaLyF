@@ -62,10 +62,15 @@ _CHITCHAT_RE = re.compile(
 
 _MIN_WORDS_FOR_INSUFFICIENT = 4  # queries with fewer words are treated as chitchat
 
-# Frases que el LLM emite (según el template anti-alucinación) cuando no pudo
-# responder con el contexto disponible. Detectarlas es la señal autoritativa
-# de insuficiencia: el propio modelo declara que no tiene la información.
+# Frases que el LLM emite cuando no pudo responder con el contexto disponible.
+# Cualquiera de estos substrings hace que el turno cuente como "insuficiente"
+# (suma al contador y eventualmente dispara el cartel amarillo).
+#
+# Lista extendida con paráfrasis observadas en produccion. Si el bot empieza
+# a generar nuevas variantes que no estan aca, hay que agregarlas — sino el
+# usuario queda atrapado preguntando sin que nunca aparezca el cartel.
 _BOT_NO_INFO_PATTERNS = (
+    # Declaraciones directas de no tener informacion
     "no encontré esa información",
     "no encontré información",
     "no tengo información sobre",
@@ -74,8 +79,32 @@ _BOT_NO_INFO_PATTERNS = (
     "no cuento con información",
     "no puedo responder con la información disponible",
     "no figura en los documentos",
-    "consultar directamente con el área",
-    "te sugiero consultar",
+    "no figura información",
+    "no se encuentra en los documentos",
+    # Fuera de scope / dominio
+    "fuera de mi área",
+    "fuera de mi alcance",
+    "está fuera de",
+    "fuera del alcance",
+    "no es de mi competencia",
+    # Capacidad / posibilidad
+    "no tengo la capacidad",
+    "no tengo acceso",
+    "no puedo conectarte",
+    "no puedo derivarte",
+    "no estoy en condiciones de",
+    # Recomendaciones a canales externos (el bot intenta cerrar punteandote afuera)
+    "te recomiendo",
+    "te sugiero",
+    "consultá directamente",
+    "consultar directamente",
+    "comuníquese con",
+    "comunicate con",
+    "contactá a",
+    "podés comunicarte con",
+    "podes comunicarte con",
+    "te recomiendo que llames",
+    "te recomiendo que contactes",
 )
 
 
