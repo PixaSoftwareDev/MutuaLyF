@@ -231,11 +231,14 @@ async def send_message(
             handoff_message = signal.offer_message
             conv_status = ConvStatus.HANDOFF_REQUESTED
         else:
-            # Rules 1 & 3: offer handoff, wait for afiliado confirmation
+            # Rules 1 & 3: offer handoff, wait for afiliado confirmation.
+            # is_handoff_offer=true marca el mensaje como "card con boton" para
+            # que el frontend lo identifique sin comparar texto (que se rompia
+            # en el polling).
             async with get_pg_session(tenant_id) as session:
                 await session.execute(text("""
-                    INSERT INTO mensajes (conversation_id, sender_type, content)
-                    VALUES (:cid, 'system', :msg)
+                    INSERT INTO mensajes (conversation_id, sender_type, content, is_handoff_offer)
+                    VALUES (:cid, 'system', :msg, TRUE)
                 """), {"cid": conversation_id, "msg": signal.offer_message})
             handoff_message = signal.offer_message
 
@@ -274,7 +277,7 @@ async def _read_conversation_snapshot(tenant_id: str, conversation_id: str) -> d
             return None
 
         msg_rows = (await session.execute(text("""
-            SELECT id, sender_type, content, created_at
+            SELECT id, sender_type, content, is_handoff_offer, created_at
             FROM mensajes
             WHERE conversation_id = :cid
             ORDER BY created_at ASC
@@ -286,6 +289,7 @@ async def _read_conversation_snapshot(tenant_id: str, conversation_id: str) -> d
                 "id": str(r["id"]),
                 "sender_type": r["sender_type"],
                 "content": r["content"],
+                "is_handoff_offer": bool(r["is_handoff_offer"]),
                 "created_at": r["created_at"].isoformat(),
             }
             for r in msg_rows
@@ -421,7 +425,11 @@ async def confirm_handoff(
 
     from services.handoff import _get_handoff_config
     config = await _get_handoff_config(tenant_id)
-    msg = config["transition_messages"]["handoff_auto"]
+    # Caso "afiliado confirmo la oferta del bot" — usa handoff_confirmed,
+    # distinto del handoff_auto que se muestra cuando el sistema deriva sin
+    # preguntar (regla 2 / boton "pedir humano").
+    messages = config["transition_messages"]
+    msg = messages.get("handoff_confirmed") or messages["handoff_auto"]
     await request_handoff(conversation_id, tenant_id, msg)
     return {"status": ConvStatus.HANDOFF_REQUESTED, "message": msg}
 

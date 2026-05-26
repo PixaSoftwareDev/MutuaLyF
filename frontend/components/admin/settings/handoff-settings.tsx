@@ -13,13 +13,30 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "@/components/ui/toast";
 
-const MESSAGE_KEYS: Array<{ key: string; label: string }> = [
-  { key: "handoff_offer",           label: "Bot no puede ayudar" },
-  { key: "handoff_auto",            label: "Pide operador explícitamente" },
-  { key: "human_assigned",          label: "Operador conectado" },
-  { key: "sector_transferred",      label: "Derivado a otro sector" },
-  { key: "operator_inactive_alert", label: "Espera prolongada" },
-  { key: "conversation_closed",     label: "Conversación cerrada" },
+// Solo incluimos keys que el backend realmente lee. Antes habia 3 keys de adorno
+// (human_assigned, sector_transferred, conversation_closed) que se podian editar
+// pero nunca afectaban nada. Quedan en la columna JSONB por compat, salen del UI.
+const MESSAGE_KEYS: Array<{ key: string; label: string; hint: string }> = [
+  {
+    key: "handoff_offer",
+    label: "Bot no puede ayudar",
+    hint: "Aparece cuando el bot no encontró respuesta tras varios intentos o el usuario pide hablar con un operador.",
+  },
+  {
+    key: "handoff_auto",
+    label: "Pide operador explícitamente",
+    hint: "Mensaje del sistema cuando el usuario pide humano dos veces seguidas — derivación automática sin confirmar.",
+  },
+  {
+    key: "handoff_confirmed",
+    label: "Confirmando derivación",
+    hint: "Aparece cuando el afiliado confirma la oferta del bot tras completar nombre y DNI.",
+  },
+  {
+    key: "operator_inactive_alert",
+    label: "Espera prolongada",
+    hint: "Recordatorio automático que se le manda al afiliado si lleva 15+ min en cola sin atención.",
+  },
 ];
 
 export function HandoffSettings() {
@@ -145,9 +162,12 @@ export function HandoffSettings() {
           <h2 className="font-semibold text-sm">Mensajes durante la transición</h2>
         </CardHeader>
         <CardContent className="space-y-2.5">
-          {MESSAGE_KEYS.map(({ key, label }) => (
-            <div key={key} className="grid grid-cols-1 sm:grid-cols-[200px,1fr] items-center gap-2">
-              <Label className="text-xs text-muted-foreground">{label}</Label>
+          {MESSAGE_KEYS.map(({ key, label, hint }) => (
+            <div key={key} className="grid grid-cols-1 sm:grid-cols-[200px,1fr] items-start gap-2">
+              <div className="pt-2">
+                <Label className="text-xs text-foreground">{label}</Label>
+                <p className="text-[11px] text-muted-foreground mt-0.5 leading-snug">{hint}</p>
+              </div>
               <Input
                 value={messages[key] || ""}
                 onChange={e => setMessage(key, e.target.value)}

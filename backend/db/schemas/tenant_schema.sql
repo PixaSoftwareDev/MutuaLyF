@@ -128,12 +128,13 @@ CREATE INDEX IF NOT EXISTS ix_conversaciones_status  ON conversaciones (status, 
 CREATE INDEX IF NOT EXISTS ix_conversaciones_sector  ON conversaciones (sector_id, status);
 
 CREATE TABLE IF NOT EXISTS mensajes (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    conversation_id UUID NOT NULL REFERENCES conversaciones(id) ON DELETE CASCADE,
-    sender_type     VARCHAR(20) NOT NULL,
-    content         TEXT NOT NULL,
-    read_at         TIMESTAMPTZ,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    conversation_id  UUID NOT NULL REFERENCES conversaciones(id) ON DELETE CASCADE,
+    sender_type      VARCHAR(20) NOT NULL,
+    content          TEXT NOT NULL,
+    is_handoff_offer BOOLEAN NOT NULL DEFAULT FALSE,
+    read_at          TIMESTAMPTZ,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS ix_mensajes_conversation ON mensajes (conversation_id, created_at);
 
@@ -142,7 +143,7 @@ CREATE TABLE IF NOT EXISTS handoff_config (
     inactivity_timeout_minutes      INTEGER NOT NULL DEFAULT 15,
     consecutive_insufficient_count  INTEGER NOT NULL DEFAULT 3,
     frustration_phrases             JSONB NOT NULL DEFAULT '["no me ayuda","no sirve","mal servicio","quiero quejarme","esto no funciona","necesito hablar con alguien"]',
-    transition_messages             JSONB NOT NULL DEFAULT '{"handoff_offer":"Veo que tengo dificultades para resolver tu consulta. ¿Querés que te conecte con un operador?","handoff_auto":"Te estoy conectando con un operador. En breve alguien te atenderá.","human_assigned":"Un operador se ha unido a la conversación.","sector_transferred":"Tu consulta fue derivada al área correspondiente.","operator_inactive_alert":"Todavía estás en cola. Un operador te atenderá a la brevedad.","conversation_closed":"La conversación fue cerrada. Gracias por contactarnos."}',
+    transition_messages             JSONB NOT NULL DEFAULT '{"handoff_offer":"Veo que tengo dificultades para resolver tu consulta. ¿Querés que te conecte con un operador?","handoff_auto":"Te estoy conectando con un operador. En breve alguien te atenderá.","handoff_confirmed":"Listo, tu solicitud fue recibida. Un operador te atenderá en breve.","operator_inactive_alert":"Todavía estás en cola. Un operador te atenderá a la brevedad."}',
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 INSERT INTO handoff_config DEFAULT VALUES ON CONFLICT DO NOTHING;

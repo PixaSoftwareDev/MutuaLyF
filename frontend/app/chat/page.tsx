@@ -218,11 +218,6 @@ function ChatInner() {
   const [resolvedToken, setResolvedToken]   = useState(token);
   const [operatorsOnline, setOperatorsOnline] = useState<{ count: number; names: string[] } | null>(null);
   const [handoffConfirmed, setHandoffConfirmed] = useState(false);
-  // Texto del handoff offer pendiente. Lo seteamos cuando el backend devuelve
-  // handoff_offered=true en el response del send-message. Lo usamos en el
-  // polling para volver a marcar el mensaje correcto como "offer" (el polling
-  // reescribe los mensajes y pierde el flag local).
-  const [pendingHandoffOfferText, setPendingHandoffOfferText] = useState<string | null>(null);
   const bottomRef                           = useRef<HTMLDivElement>(null);
   const inputRef                            = useRef<HTMLInputElement>(null);
   const sessionId                           = useRef<string>("");
@@ -297,26 +292,23 @@ function ChatInner() {
       const r = await fetch(url, { headers: getHeaders() });
       if (!r.ok) return;
       const data = await r.json();
-      const offerActive = data.status === "bot_active" && pendingHandoffOfferText !== null;
-      const msgs = (data.messages || []).map((m: { id: string; sender_type: string; content: string }) => ({
+      // El flag handoffOffer ahora viene de la DB (is_handoff_offer). El cliente
+      // solo lo respeta mientras la conversacion siga en bot_active — si ya
+      // paso a handoff_requested, la tarjeta deja de ofrecer accion.
+      const isStillBot = data.status === "bot_active";
+      const msgs = (data.messages || []).map((m: { id: string; sender_type: string; content: string; is_handoff_offer?: boolean }) => ({
         id:   m.id,
         role: m.sender_type as Message["role"],
         content: m.content,
-        handoffOffer:
-          offerActive &&
-          m.sender_type === "system" &&
-          m.content === pendingHandoffOfferText,
+        handoffOffer: isStillBot && Boolean(m.is_handoff_offer),
       }));
       setMessages(msgs);
       if (msgs.length > 0) lastMessageIdRef.current = msgs[msgs.length - 1].id;
       setStatus(data.status);
       setOperatorName(data.operator_name ?? null);
-      if (data.status !== "bot_active") {
-        setPendingHandoffOfferText(null);
-      }
     } catch { /* ignore */ }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resolvedToken, tenantId, pendingHandoffOfferText]);
+  }, [resolvedToken, tenantId]);
 
   // Long-polling loop: server holds the request up to ~25s and replies as soon
   // as there's news. We chain the next fetch right after each response so the
@@ -380,15 +372,12 @@ function ChatInner() {
       if (data.bot_response)
         setMessages(prev => [...prev, { id: Date.now().toString() + "b", role: "bot", content: data.bot_response }]);
       if (data.handoff_offered && data.handoff_message) {
-        // Guardar el texto del offer para que el polling lo re-marque sobre
-        // el mensaje real del backend (sin esto el botón desaparece a los 4s).
-        setPendingHandoffOfferText(data.handoff_message);
+        // Eco optimista — el polling siguiente trae el mismo mensaje desde DB
+        // con is_handoff_offer=true. El cliente compara por id para no duplicar.
         setMessages(prev => [...prev, { id: Date.now().toString() + "h", role: "system", content: data.handoff_message, handoffOffer: true }]);
       }
       if (data.handoff_activated && data.handoff_message) {
         setMessages(prev => [...prev, { id: Date.now().toString() + "ha", role: "system", content: data.handoff_message }]);
-        // Handoff ya disparado automáticamente — el offer pendiente ya no aplica
-        setPendingHandoffOfferText(null);
       }
     } catch {
       setMessages(prev => [...prev, { id: Date.now().toString() + "e", role: "system", content: "Error al enviar. Intentá de nuevo." }]);
@@ -418,8 +407,6 @@ function ChatInner() {
   async function confirmHandoff(identif?: { afiliado_nombre: string; afiliado_dni: string }) {
     if (!conversationId) return;
     setHandoffConfirmed(true);
-    // Una vez confirmado, el offer ya no debe seguir activo en el polling
-    setPendingHandoffOfferText(null);
     try {
       const headers: Record<string, string> = { ...getHeaders() };
       let body: string | undefined;

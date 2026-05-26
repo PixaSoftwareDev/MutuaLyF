@@ -24,6 +24,14 @@ logger = logging.getLogger(__name__)
 _REDIS_PREFIX = "handoff:"
 _SIGNAL_TTL = 3600 * 24  # 24h
 
+# Cooldown anti-duplicado: si ya se ofrecio handoff (Regla 1 o 3) y todavia
+# esta vigente, no volver a ofrecer en cada turno hasta que pase la ventana.
+# El afiliado puede ignorar la primera oferta y seguir chateando — no queremos
+# inundarlo con la misma tarjeta. Si confirma o si la situacion cambia
+# (frustracion explicita), igual se evalua en _try_offer_again_after.
+_OFFER_COOLDOWN_KEY = "handoff_offer_pending:"
+_OFFER_COOLDOWN_TTL = 90  # seconds — match conversational rhythm
+
 
 class ConvStatus(str, Enum):
     BOT_ACTIVE         = "bot_active"
@@ -160,6 +168,35 @@ async def _save_signals(conversation_id: str, signals: dict) -> None:
         logger.debug("handoff_redis_write_error error=%s", exc)
 
 
+async def _is_offer_pending(conversation_id: str) -> bool:
+    """True si ya hay una oferta de handoff vigente para esta conversacion."""
+    try:
+        from core.database import get_redis_cache
+        redis = get_redis_cache()
+        return bool(await redis.get(f"{_OFFER_COOLDOWN_KEY}{conversation_id}"))
+    except Exception:
+        return False
+
+
+async def _mark_offer_pending(conversation_id: str) -> None:
+    try:
+        from core.database import get_redis_cache
+        redis = get_redis_cache()
+        await redis.setex(f"{_OFFER_COOLDOWN_KEY}{conversation_id}", _OFFER_COOLDOWN_TTL, "1")
+    except Exception as exc:
+        logger.debug("handoff_offer_mark_error error=%s", exc)
+
+
+async def clear_offer_pending(conversation_id: str) -> None:
+    """Llamar al confirmar/aceptar/declinar la oferta para liberar el cooldown."""
+    try:
+        from core.database import get_redis_cache
+        redis = get_redis_cache()
+        await redis.delete(f"{_OFFER_COOLDOWN_KEY}{conversation_id}")
+    except Exception:
+        pass
+
+
 # ── Main evaluation ───────────────────────────────────────────────────────────
 
 async def evaluate_handoff(
@@ -173,22 +210,33 @@ async def evaluate_handoff(
     """Evaluate handoff rules after each bot turn. Returns a HandoffSignal."""
     config = await _get_handoff_config(tenant_id)
     signals = await _get_signals(conversation_id)
+    offer_pending = await _is_offer_pending(conversation_id)
 
     async def _reset_insufficient_if_needed() -> None:
         if signals.get("insufficient_count", 0) > 0:
             signals["insufficient_count"] = 0
             await _save_signals(conversation_id, signals)
 
-    # ── Rule 3: Frustration signal ─────────────────────────────────────────────
-    if _is_frustrated(user_message, config["frustration_phrases"]):
-        logger.info("handoff_rule3_frustration conversation_id=%s", conversation_id)
-        # Frustración supera al contador acumulado — limpiarlo para no encadenar ofertas.
-        await _reset_insufficient_if_needed()
+    async def _fire_offer(trigger: HandoffTrigger) -> HandoffSignal:
+        """Emite una oferta (no auto-activate), reseteando el contador para
+        no re-disparar en el siguiente turno y marcando cooldown."""
+        signals["insufficient_count"] = 0
+        await _save_signals(conversation_id, signals)
+        await _mark_offer_pending(conversation_id)
         return HandoffSignal(
-            trigger=HandoffTrigger.FRUSTRATION,
+            trigger=trigger,
             auto_activate=False,
             offer_message=config["transition_messages"]["handoff_offer"],
         )
+
+    # ── Rule 3: Frustration signal ─────────────────────────────────────────────
+    if _is_frustrated(user_message, config["frustration_phrases"]):
+        logger.info("handoff_rule3_frustration conversation_id=%s", conversation_id)
+        await _reset_insufficient_if_needed()
+        if offer_pending:
+            # Ya hay una oferta vigente — no apilar otra.
+            return HandoffSignal(trigger=HandoffTrigger.NONE, auto_activate=False, offer_message="")
+        return await _fire_offer(HandoffTrigger.FRUSTRATION)
 
     # ── Rule 2: Human request tracking ────────────────────────────────────────
     if _is_human_request(user_message):
@@ -196,17 +244,17 @@ async def evaluate_handoff(
         await _save_signals(conversation_id, signals)
         if signals["human_request_count"] >= 2:
             logger.info("handoff_rule2_repeated conversation_id=%s count=%d", conversation_id, signals["human_request_count"])
+            # Auto-activate es independiente del cooldown: el usuario lo pidio
+            # explicito dos veces, derivamos ya.
+            await clear_offer_pending(conversation_id)
             return HandoffSignal(
                 trigger=HandoffTrigger.HUMAN_REQUEST,
                 auto_activate=True,
                 offer_message=config["transition_messages"]["handoff_auto"],
             )
-        # First request — offer but don't auto-activate
-        return HandoffSignal(
-            trigger=HandoffTrigger.HUMAN_REQUEST,
-            auto_activate=False,
-            offer_message=config["transition_messages"]["handoff_offer"],
-        )
+        if offer_pending:
+            return HandoffSignal(trigger=HandoffTrigger.NONE, auto_activate=False, offer_message="")
+        return await _fire_offer(HandoffTrigger.HUMAN_REQUEST)
 
     # ── Rule 1: Insufficient responses ────────────────────────────────────────
     if _is_response_insufficient(sources, intent_confidence, user_message, bot_answer):
@@ -218,11 +266,9 @@ async def evaluate_handoff(
                 "handoff_rule1_insufficient conversation_id=%s count=%d threshold=%d",
                 conversation_id, signals["insufficient_count"], threshold,
             )
-            return HandoffSignal(
-                trigger=HandoffTrigger.INSUFFICIENT,
-                auto_activate=False,
-                offer_message=config["transition_messages"]["handoff_offer"],
-            )
+            if offer_pending:
+                return HandoffSignal(trigger=HandoffTrigger.NONE, auto_activate=False, offer_message="")
+            return await _fire_offer(HandoffTrigger.INSUFFICIENT)
     else:
         # Cualquier turno no-insuficiente (respuesta exitosa, chitchat, follow-up
         # resuelto por historial) resetea el contador. Sin esto, una respuesta
@@ -251,6 +297,10 @@ async def request_handoff(conversation_id: str, tenant_id: str, message: str) ->
         """), {"cid": conversation_id, "msg": message})
 
     logger.info("handoff_requested conversation_id=%s tenant=%s", conversation_id, tenant_id)
+
+    # La oferta dejo de estar vigente: o el usuario confirmo, o el sistema
+    # activo auto-handoff. En cualquier caso, liberamos el cooldown.
+    await clear_offer_pending(conversation_id)
 
     # Notify all connected operators in real time
     import asyncio

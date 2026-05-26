@@ -416,8 +416,15 @@
         if (data.bot_response) _appendMessage("bot", data.bot_response);
         convStatus = data.status;
         _updateStatus();
-        if (data.handoff_offered && data.handoff_message) _showHandoffBar(data.handoff_message);
-        if (data.handoff_activated && data.handoff_message) _appendMessage("system", data.handoff_message);
+        // Mutuamente excluyentes: si el sistema auto-activo el handoff, mostramos
+        // el mensaje en linea y nunca la barra. Si solo es oferta, mostramos la
+        // barra y el polling siguiente la persiste leyendo is_handoff_offer.
+        if (data.handoff_activated && data.handoff_message) {
+          handoffBar.style.display = "none";
+          _appendMessage("system", data.handoff_message);
+        } else if (data.handoff_offered && data.handoff_message) {
+          _showHandoffBar(data.handoff_message);
+        }
       })
       .catch(function (err) {
         typing.remove();
@@ -500,7 +507,9 @@
       .then(function (data) {
         convStatus = data.status;
         _updateStatus();
+        var pendingOffer = null;
         (data.messages || []).forEach(function (m) {
+          if (m.is_handoff_offer) pendingOffer = m.content;
           if (lastMessageId === m.id) return;
           _appendMessage(m.sender_type, m.content);
           lastMessageId = m.id;
@@ -509,6 +518,14 @@
             badge.textContent = "!";
           }
         });
+        // La oferta solo sigue vigente mientras el bot este activo. Si paso a
+        // handoff_requested/human_attending/closed, la barra desaparece sin
+        // depender de que el cliente "se acuerde" del estado anterior.
+        if (pendingOffer && convStatus === "bot_active") {
+          _showHandoffBar(pendingOffer);
+        } else {
+          handoffBar.style.display = "none";
+        }
       })
       .catch(function () {});
   }
