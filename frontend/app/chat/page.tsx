@@ -306,6 +306,13 @@ function ChatInner() {
       if (msgs.length > 0) lastMessageIdRef.current = msgs[msgs.length - 1].id;
       setStatus(data.status);
       setOperatorName(data.operator_name ?? null);
+      // Resetear handoffConfirmed cuando la conversacion vuelve a bot_active
+      // (operador la cerro / la devolvio al bot / acepto el handoff y termino).
+      // Sin esto, un cartel nuevo en un ciclo posterior aparece ya en modo
+      // "Buscando operador disponible..." sin boton.
+      if (data.status === "bot_active") {
+        setHandoffConfirmed(false);
+      }
     } catch { /* ignore */ }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resolvedToken, tenantId]);
@@ -367,6 +374,14 @@ function ChatInner() {
         method: "POST", headers: getHeaders(),
         body: JSON.stringify({ content: text, widget_session_id: sessionId.current }),
       });
+      // 410 = conversacion cerrada por el operador. Arrancar una nueva
+      // automaticamente y reenviar el mensaje del usuario.
+      if (r.status === 410 && selectedSector) {
+        // Limpiar el "user" optimista para que no quede duplicado en la nueva conv
+        setMessages(prev => prev.filter(m => m.content !== text || m.role !== "user"));
+        await startChat(selectedSector, text);
+        return;
+      }
       const data = await r.json();
       setStatus(data.status);
       if (data.bot_response)

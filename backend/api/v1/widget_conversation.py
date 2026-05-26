@@ -141,7 +141,7 @@ async def send_message(
     """Send a user message. Routes to bot (RAG) or operator queue based on conversation status."""
     async with get_pg_session(tenant_id) as session:
         result = await session.execute(
-            text("SELECT status, insufficient_count, human_request_count FROM conversaciones WHERE id = :id"),
+            text("SELECT status FROM conversaciones WHERE id = :id"),
             {"id": conversation_id},
         )
         conv = result.mappings().fetchone()
@@ -150,6 +150,12 @@ async def send_message(
         raise HTTPException(status_code=404, detail="Conversation not found")
 
     conv_status = conv["status"]
+
+    # Conversacion cerrada (operador cerro o timeout): rechazar con 410 para
+    # que el frontend abra una nueva conv. Sin esto el bot respondia normal
+    # sobre una conv "muerta" y el state local quedaba en un limbo raro.
+    if conv_status == ConvStatus.CLOSED:
+        raise HTTPException(status_code=410, detail="La conversación fue cerrada. Iniciá una nueva.")
 
     # Store user message
     msg_id = str(uuid.uuid4())
