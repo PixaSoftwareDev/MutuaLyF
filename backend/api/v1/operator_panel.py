@@ -847,8 +847,12 @@ async def widget_list_sectors(
 @router.get("/admin/sectors")
 async def list_sectors(
     tenant_id: str = Depends(get_tenant_id),
-    current_user: CurrentUser = Depends(require_admin),
+    current_user: CurrentUser = Depends(require_operator),
 ):
+    """Lista de sectores. Los operadores la necesitan para transferir
+    conversaciones a otros sectores, asi que el endpoint acepta tanto
+    operadores como admins. operator_count y open_conversations no son
+    info confidencial — todos los operadores del tenant la ven."""
     async with get_pg_session(tenant_id) as session:
         result = await session.execute(text("""
             SELECT s.id, s.nombre, s.descripcion, s.is_active, s.is_default, s.created_at,
