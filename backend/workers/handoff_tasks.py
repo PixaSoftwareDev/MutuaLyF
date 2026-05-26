@@ -123,6 +123,13 @@ async def _run_close_stale() -> dict:
     return {"tenants": len(tenant_ids), "closed": total}
 
 
+_TIMEOUT_MESSAGES = {
+    "bot_active":        "La conversación se cerró por inactividad. Si necesitás ayuda, iniciá una nueva consulta.",
+    "handoff_requested": "La derivación se canceló porque no hubo operador disponible. Podés volver a intentar más tarde.",
+    "human_attending":   "La conversación se cerró por inactividad prolongada.",
+}
+
+
 async def _close_stale_tenant(tenant_id: str) -> int:
     """Cierra conversaciones inactivas por estado, con thresholds distintos:
 
@@ -130,60 +137,76 @@ async def _close_stale_tenant(tenant_id: str) -> int:
     handoff_requested   → 2 h     (espera de operador muy larga)
     human_attending     → 12 h    (operador atendio, user abandono el chat)
 
-    Sin esto, conversaciones quedan abiertas para siempre y el operador
-    puede mandar mensajes a 'sesiones fantasma' (afiliado ya cerro el browser).
+    Para cada cierre: UPDATE + INSERT mensaje system + publish SSE. Sin
+    el publish el operador queda con UI stale (panel mostrando conv en
+    "atendiendo" cuando en realidad fue cerrada por timeout).
     """
+    import asyncio
     from core.database import get_worker_pg_session
+    from services.events import publish
     from sqlalchemy import text
 
+    async def _close_batch(session, where_clause: str, from_status: str) -> list[str]:
+        result = await session.execute(text(f"""
+            UPDATE conversaciones
+            SET status = 'closed', updated_at = NOW(), closed_at = NOW()
+            WHERE {where_clause}
+            RETURNING id
+        """))
+        ids = [str(r[0]) for r in result.fetchall()]
+        if not ids:
+            return []
+        # Insertar mensaje system en cada conv cerrada
+        msg = _TIMEOUT_MESSAGES[from_status]
+        for cid in ids:
+            await session.execute(text("""
+                INSERT INTO mensajes (conversation_id, sender_type, content)
+                VALUES (:cid, 'system', :msg)
+            """), {"cid": cid, "msg": msg})
+        return ids
+
     async with get_worker_pg_session(tenant_id) as session:
-        # bot_active sin actividad > 30 min
-        result = await session.execute(text("""
-            UPDATE conversaciones
-            SET status = 'closed', updated_at = NOW(), closed_at = NOW()
-            WHERE status = 'bot_active'
-              AND updated_at < NOW() - INTERVAL '30 minutes'
-            RETURNING id
-        """))
-        bot_closed = result.fetchall()
+        bot_ids = await _close_batch(
+            session,
+            "status = 'bot_active' AND updated_at < NOW() - INTERVAL '30 minutes'",
+            "bot_active",
+        )
+        handoff_ids = await _close_batch(
+            session,
+            "status = 'handoff_requested' AND updated_at < NOW() - INTERVAL '2 hours'",
+            "handoff_requested",
+        )
+        # human_attending: usamos last user message, no updated_at, porque
+        # updated_at se renueva con cada mensaje del operador y eso enmascararia
+        # el abandono del afiliado.
+        human_ids = await _close_batch(
+            session,
+            """status = 'human_attending'
+               AND id IN (
+                 SELECT c.id FROM conversaciones c
+                 LEFT JOIN LATERAL (
+                   SELECT MAX(created_at) AS last_user_msg
+                   FROM mensajes
+                   WHERE conversation_id = c.id AND sender_type = 'user'
+                 ) m ON TRUE
+                 WHERE c.status = 'human_attending'
+                   AND COALESCE(m.last_user_msg, c.created_at) < NOW() - INTERVAL '12 hours'
+               )""",
+            "human_attending",
+        )
 
-        # handoff_requested sin operador aceptando > 2 h
-        result = await session.execute(text("""
-            UPDATE conversaciones
-            SET status = 'closed', updated_at = NOW(), closed_at = NOW()
-            WHERE status = 'handoff_requested'
-              AND updated_at < NOW() - INTERVAL '2 hours'
-            RETURNING id
-        """))
-        handoff_closed = result.fetchall()
+    # Publish SSE despues del commit. Si el publish falla, el cierre ya quedo
+    # persistido — el operador lo va a ver via polling de respaldo (~6s).
+    for cid in (*bot_ids, *handoff_ids, *human_ids):
+        asyncio.ensure_future(publish(tenant_id, "conversation_updated", {
+            "conversation_id": cid,
+            "status": "closed",
+        }))
 
-        # human_attending sin mensajes nuevos del usuario > 12 h
-        # (la conversacion sigue tecnicamente activa pero el afiliado ya
-        # cerro el browser — el operador no debe seguir respondiendo).
-        # Usamos LAST(mensaje del user), no updated_at, porque updated_at
-        # se renueva con cada mensaje del operador y eso enmascararia el abandono.
-        result = await session.execute(text("""
-            UPDATE conversaciones
-            SET status = 'closed', updated_at = NOW(), closed_at = NOW()
-            WHERE status = 'human_attending'
-              AND id IN (
-                SELECT c.id FROM conversaciones c
-                LEFT JOIN LATERAL (
-                  SELECT MAX(created_at) AS last_user_msg
-                  FROM mensajes
-                  WHERE conversation_id = c.id AND sender_type = 'user'
-                ) m ON TRUE
-                WHERE c.status = 'human_attending'
-                  AND COALESCE(m.last_user_msg, c.created_at) < NOW() - INTERVAL '12 hours'
-              )
-            RETURNING id
-        """))
-        human_closed = result.fetchall()
-
-    total = len(bot_closed) + len(handoff_closed) + len(human_closed)
+    total = len(bot_ids) + len(handoff_ids) + len(human_ids)
     if total:
         logger.info(
             "stale_conversations_closed tenant=%s bot=%d handoff=%d human=%d total=%d",
-            tenant_id, len(bot_closed), len(handoff_closed), len(human_closed), total,
+            tenant_id, len(bot_ids), len(handoff_ids), len(human_ids), total,
         )
     return total
