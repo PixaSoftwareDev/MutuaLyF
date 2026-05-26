@@ -989,6 +989,55 @@ async def list_tenant_users(
     ]
 
 
+# ── Update user (super_admin only) ───────────────────────────────────────────
+
+class UserUpdate(BaseModel):
+    name: str | None = Field(None, min_length=1, max_length=120)
+    role: str | None = Field(None, pattern="^(admin|operator|user)$")
+    is_active: bool | None = None
+    password: str | None = Field(None, min_length=8, max_length=200)
+
+
+@router.patch("/{tenant_id}/users/{user_id}")
+async def update_tenant_user(
+    tenant_id: str,
+    user_id: str,
+    body: UserUpdate,
+    current_user: CurrentUser = Depends(require_super_admin),
+):
+    """Update a tenant user's name, role, active status or password. Super-admin only."""
+    from core.security import hash_password
+
+    updates: dict = {}
+    if body.name is not None:
+        updates["name"] = body.name.strip()
+    if body.role is not None:
+        updates["role"] = body.role
+    if body.is_active is not None:
+        updates["is_active"] = body.is_active
+    if body.password is not None:
+        updates["hashed_password"] = hash_password(body.password)
+
+    if not updates:
+        raise HTTPException(status_code=400, detail="Nada que actualizar")
+
+    set_clause = ", ".join(f"{k} = :{k}" for k in updates)
+    updates["user_id"] = user_id
+
+    async with get_pg_session(tenant_id) as session:
+        result = await session.execute(
+            text(f"UPDATE usuarios SET {set_clause} WHERE id = :user_id RETURNING id, email, name, role, is_active"),
+            updates,
+        )
+        row = result.mappings().fetchone()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+    logger.info("tenant_user_updated tenant=%s user=%s by=%s", tenant_id, user_id, current_user.user_id)
+    return {"id": str(row["id"]), "email": row["email"], "name": row["name"], "role": row["role"], "is_active": row["is_active"]}
+
+
 # ── Create / replace admin for an existing tenant (super_admin only) ──────────
 
 class AdminCreate(BaseModel):

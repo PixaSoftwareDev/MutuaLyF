@@ -7,7 +7,7 @@ import {
   ArrowLeft, RefreshCw, Loader2, AlertTriangle, CheckCircle2,
   PauseCircle, PlayCircle, Settings2, UserPlus, Building2,
   TrendingUp, FileText, Zap, Clock, Database, Shield,
-  MessageSquare, Target, Activity, ChevronRight, Bot, X, Users,
+  MessageSquare, Target, Activity, ChevronRight, Bot, X, Users, Eye, EyeOff,
 } from "lucide-react";
 import { api, apiClient } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -76,6 +76,7 @@ export default function TenantDetailPage() {
   const [showCreateAdmin, setShowCreateAdmin]   = useState(false);
   const [editPlan, setEditPlan]                 = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [editingUser, setEditingUser] = useState<{ id: string; email: string; name: string; role: string; is_active: boolean } | null>(null);
 
   const inv = () => {
     qc.invalidateQueries({ queryKey: ["tenant-metrics", tenantId] });
@@ -222,10 +223,6 @@ export default function TenantDetailPage() {
                 </Button>
               )}
 
-              <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs" onClick={() => setShowCreateAdmin(true)}>
-                <UserPlus className="h-3.5 w-3.5" />Crear admin
-              </Button>
-
               {isActive ? (
                 <Button
                   size="sm" variant="outline"
@@ -260,44 +257,71 @@ export default function TenantDetailPage() {
           </div>
 
           {/* ── Usuarios ─────────────────────────────────────────────── */}
-          <SectionTitle icon={Users} label="Usuarios" sublabel={`${tenantUsers.length} en total`} />
+          <div className="flex items-center justify-between">
+            <SectionTitle icon={Users} label="Usuarios" sublabel={`${tenantUsers.length} en total`} />
+            <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs" onClick={() => setShowCreateAdmin(true)}>
+              <UserPlus className="h-3.5 w-3.5" />Nuevo usuario
+            </Button>
+          </div>
           {usersLoading ? (
             <div className="space-y-2">
-              {[1,2,3].map(i => <Skeleton key={i} className="h-12 w-full rounded-lg" />)}
+              {[1,2,3].map(i => <Skeleton key={i} className="h-16 w-full rounded-xl" />)}
             </div>
           ) : tenantUsers.length === 0 ? (
-            <div className="rounded-xl border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
+            <div className="rounded-xl border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
               Sin usuarios registrados.
             </div>
           ) : (
-            <div className="rounded-xl border bg-card shadow-sm divide-y overflow-hidden">
-              {tenantUsers.map(u => (
-                <div key={u.id} className="flex items-center gap-3 px-4 py-3">
-                  <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                    <span className="text-xs font-bold text-primary uppercase">{u.name?.[0] ?? u.email[0]}</span>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{u.name}</p>
-                    <p className="text-xs text-muted-foreground truncate">{u.email}</p>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <span className={cn(
-                      "text-xs px-2 py-0.5 rounded-full font-medium",
-                      u.role === "admin"    ? "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300" :
-                      u.role === "operator" ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300" :
-                      "bg-muted text-muted-foreground"
-                    )}>
-                      {u.role}
-                    </span>
-                    <span className={cn(
-                      "text-xs px-2 py-0.5 rounded-full",
-                      u.is_active ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" : "bg-muted text-muted-foreground"
-                    )}>
-                      {u.is_active ? "activo" : "inactivo"}
-                    </span>
-                  </div>
-                </div>
-              ))}
+            <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-muted/40">
+                    <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Usuario</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground hidden sm:table-cell">Email</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Rol</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Estado</th>
+                    <th className="px-4 py-2.5" />
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {tenantUsers.map(u => (
+                    <tr key={u.id} className="hover:bg-muted/20 transition-colors">
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                            <span className="text-xs font-bold text-primary uppercase">{u.name?.[0] ?? u.email[0]}</span>
+                          </div>
+                          <span className="font-medium truncate max-w-[120px]">{u.name}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground text-xs hidden sm:table-cell">{u.email}</td>
+                      <td className="px-4 py-3">
+                        <span className={cn(
+                          "text-xs px-2 py-1 rounded-full font-medium",
+                          u.role === "admin"    ? "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300" :
+                          u.role === "operator" ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300" :
+                          "bg-muted text-muted-foreground"
+                        )}>
+                          {u.role === "admin" ? "Admin" : u.role === "operator" ? "Operador" : u.role}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={cn(
+                          "text-xs px-2 py-1 rounded-full font-medium",
+                          u.is_active ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" : "bg-rose-100 text-rose-600 dark:bg-rose-900/30 dark:text-rose-400"
+                        )}>
+                          {u.is_active ? "Activo" : "Inactivo"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <Button size="sm" variant="ghost" className="h-7 text-xs gap-1" onClick={() => setEditingUser(u)}>
+                          <Settings2 className="h-3.5 w-3.5" />Editar
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
 
@@ -492,6 +516,15 @@ export default function TenantDetailPage() {
           tenantName={t.name}
           onClose={() => setShowCreateAdmin(false)}
           onCreated={inv}
+        />
+      )}
+
+      {editingUser && (
+        <EditUserModal
+          tenantId={tenantId}
+          user={editingUser}
+          onClose={() => setEditingUser(null)}
+          onSaved={() => { setEditingUser(null); qc.invalidateQueries({ queryKey: ["tenant-users", tenantId] }); }}
         />
       )}
 
@@ -764,6 +797,115 @@ function BotSelector({ allTemplates, bots, activeBot, activateBotM, deactivateBo
     </div>
   );
 }
+
+// ── Modal editar usuario ──────────────────────────────────────────────────────
+function EditUserModal({ tenantId, user, onClose, onSaved }: {
+  tenantId: string;
+  user: { id: string; email: string; name: string; role: string; is_active: boolean };
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [name, setName]           = useState(user.name);
+  const [role, setRole]           = useState(user.role);
+  const [isActive, setIsActive]   = useState(user.is_active);
+  const [password, setPassword]   = useState("");
+  const [showPwd, setShowPwd]     = useState(false);
+  const [error, setError]         = useState("");
+
+  const saveM = useMutation({
+    mutationFn: () => api.tenants.updateUser(tenantId, user.id, {
+      name: name.trim(),
+      role,
+      is_active: isActive,
+      ...(password ? { password } : {}),
+    }),
+    onSuccess: () => { toast({ title: "Usuario actualizado", variant: "success" }); onSaved(); },
+    onError: (e: any) => setError(e?.response?.data?.detail ?? "Error al guardar"),
+  });
+
+  return (
+    <Dialog open onOpenChange={v => !v && onClose()}>
+      <DialogContent className="w-full max-w-md mx-4 sm:mx-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Users className="h-4 w-4 text-primary" />
+            Editar usuario
+          </DialogTitle>
+          <p className="text-xs text-muted-foreground pt-0.5">{user.email}</p>
+        </DialogHeader>
+
+        <div className="space-y-4 py-2">
+          <div className="space-y-1.5">
+            <Label htmlFor="eu-name">Nombre</Label>
+            <Input id="eu-name" value={name} onChange={e => setName(e.target.value)} placeholder="Nombre completo" />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="eu-role">Rol</Label>
+            <select
+              id="eu-role"
+              className="w-full text-sm border rounded-md px-3 py-2 bg-background h-9"
+              value={role}
+              onChange={e => setRole(e.target.value)}
+            >
+              <option value="admin">Admin</option>
+              <option value="operator">Operador</option>
+            </select>
+          </div>
+
+          <div className="flex items-center justify-between rounded-lg border px-4 py-3">
+            <div>
+              <p className="text-sm font-medium">Estado</p>
+              <p className="text-xs text-muted-foreground">{isActive ? "El usuario puede iniciar sesión" : "Acceso bloqueado"}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsActive(v => !v)}
+              className={cn(
+                "relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none",
+                isActive ? "bg-emerald-500" : "bg-muted-foreground/30"
+              )}
+            >
+              <span className={cn("inline-block h-4 w-4 rounded-full bg-white shadow transition-transform", isActive ? "translate-x-6" : "translate-x-1")} />
+            </button>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="eu-pwd">Nueva contraseña <span className="text-muted-foreground font-normal">(dejar vacío para no cambiar)</span></Label>
+            <div className="relative">
+              <Input
+                id="eu-pwd"
+                type={showPwd ? "text" : "password"}
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                placeholder="Mínimo 8 caracteres"
+                className="pr-10"
+              />
+              <button
+                type="button"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                onClick={() => setShowPwd(v => !v)}
+              >
+                {showPwd ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
+          </div>
+
+          {error && <p className="text-xs text-destructive">{error}</p>}
+        </div>
+
+        <DialogFooter className="gap-2">
+          <Button variant="outline" onClick={onClose}>Cancelar</Button>
+          <Button onClick={() => saveM.mutate()} disabled={saveM.isPending || !name.trim()}>
+            {saveM.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
+            Guardar cambios
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 
 // ── Modal crear admin ─────────────────────────────────────────────────────────
 function CreateAdminModal({ tenantId, tenantName, onClose, onCreated }: {

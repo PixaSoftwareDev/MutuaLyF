@@ -655,6 +655,10 @@ export const api = {
       const { data } = await apiClient.get(`/tenants/${tenantId}/users`);
       return data;
     },
+    updateUser: async (tenantId: string, userId: string, payload: { name?: string; role?: string; is_active?: boolean; password?: string }) => {
+      const { data } = await apiClient.patch(`/tenants/${tenantId}/users/${userId}`, payload);
+      return data;
+    },
     createAdmin: async (tenantId: string, payload: { email: string; name: string; password: string }) => {
       const { data } = await apiClient.post(`/tenants/${tenantId}/admin`, payload);
       return data;
