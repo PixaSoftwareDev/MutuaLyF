@@ -421,8 +421,7 @@ def extract_text_from_bytes(content: bytes, mime_type: str, filename: str) -> st
     Supports: text/plain, application/pdf, .docx, text/html.
     """
     if mime_type == "text/plain":
-        raw = content.decode("utf-8", errors="replace")
-        return _naturalize_pipe_tables(raw)
+        return content.decode("utf-8", errors="replace")
     if mime_type == "application/pdf":
         return _extract_pdf(content, filename)
     if mime_type in (
@@ -911,8 +910,6 @@ def _extract_docx(content: bytes, filename: str) -> str:
                     parts.append(text)
 
             elif tag == TAG_TBL:
-                # Collect all rows first to detect header
-                table_rows: list[list[str]] = []
                 for row in child.iter(TAG_TR):
                     cells = []
                     for tc in row.iter(TAG_TC):
@@ -921,17 +918,7 @@ def _extract_docx(content: bytes, filename: str) -> str:
                         if cell_text:
                             cells.append(cell_text)
                     if cells:
-                        table_rows.append(cells)
-
-                if not table_rows:
-                    continue
-
-                # First row = column headers; remaining rows = data
-                headers = table_rows[0]
-                parts.append(" | ".join(headers))  # preserve header for keyword search
-                for data_cells in table_rows[1:]:
-                    natural = _row_to_natural(headers, data_cells)
-                    parts.append(natural)
+                        parts.append(" | ".join(cells))
 
         return "\n\n".join(parts)
 
