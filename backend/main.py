@@ -4,7 +4,8 @@ import uuid
 from contextlib import asynccontextmanager
 
 import structlog
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
+from sqlalchemy import text
 from fastapi.middleware.cors import CORSMiddleware
 
 from core.config import settings
@@ -129,4 +130,69 @@ app.mount("/uploads", StaticFiles(directory=str(_uploads_dir)), name="uploads")
 
 @app.get("/health", tags=["health"])
 async def health() -> dict:
+    """Liveness probe basico. NO chequea dependencias — uso para Docker
+    healthcheck rapido (cada 30s). Si necesitas saber si el backend puede
+    realmente atender requests, usa /health/ready."""
     return {"status": "ok", "environment": settings.environment}
+
+
+@app.get("/health/ready", tags=["health"])
+async def health_ready(response: Response) -> dict:
+    """Readiness probe: chequea que las dependencias criticas respondan.
+    Devuelve 503 si alguna esta caida — Docker/Kubernetes pueden usar este
+    endpoint para sacar el container del load balancer sin matarlo.
+
+    Cada check con timeout de 2s para que el endpoint nunca tarde >10s en
+    total (5 deps x 2s peor caso). En la practica suele tomar <100ms si
+    todas responden.
+    """
+    import asyncio
+    from core.database import get_pg_session, get_redis_cache, get_qdrant_client, get_neo4j_driver
+
+    checks: dict[str, str] = {}
+
+    async def _check_pg() -> str:
+        try:
+            async with get_pg_session() as session:
+                await asyncio.wait_for(session.execute(text("SELECT 1")), timeout=2.0)
+            return "ok"
+        except Exception as exc:
+            return f"fail: {type(exc).__name__}: {str(exc)[:80]}"
+
+    async def _check_redis() -> str:
+        try:
+            redis = get_redis_cache()
+            await asyncio.wait_for(redis.ping(), timeout=2.0)
+            return "ok"
+        except Exception as exc:
+            return f"fail: {type(exc).__name__}: {str(exc)[:80]}"
+
+    async def _check_qdrant() -> str:
+        try:
+            client = get_qdrant_client()
+            await asyncio.wait_for(client.get_collections(), timeout=2.0)
+            return "ok"
+        except Exception as exc:
+            return f"fail: {type(exc).__name__}: {str(exc)[:80]}"
+
+    async def _check_neo4j() -> str:
+        try:
+            driver = get_neo4j_driver()
+            async with driver.session() as session:
+                await asyncio.wait_for(session.run("RETURN 1"), timeout=2.0)
+            return "ok"
+        except Exception as exc:
+            return f"fail: {type(exc).__name__}: {str(exc)[:80]}"
+
+    pg_res, redis_res, qdrant_res, neo4j_res = await asyncio.gather(
+        _check_pg(), _check_redis(), _check_qdrant(), _check_neo4j(),
+        return_exceptions=False,
+    )
+    checks["postgres"] = pg_res
+    checks["redis"]    = redis_res
+    checks["qdrant"]   = qdrant_res
+    checks["neo4j"]    = neo4j_res
+
+    all_ok = all(v == "ok" for v in checks.values())
+    response.status_code = 200 if all_ok else 503
+    return {"status": "ok" if all_ok else "degraded", "checks": checks}
