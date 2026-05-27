@@ -82,23 +82,23 @@ export function applyBrandingVars(branding: Pick<TenantBranding, "primary_color"
 
 /**
  * Resolves the active tenant from (in order):
- *   1. ?tenant= query param
- *   2. NEXT_PUBLIC_DEFAULT_TENANT env var
- *   3. localStorage 'tenant_id' (set after login)
- *   4. null → caller falls back to generic branding
+ *   1. localStorage 'tenant_id' (set after login, fuente de verdad de la sesion)
+ *   2. ?tenant= query param (override manual: previews, soporte)
+ *   3. null → caller falls back to generic branding
+ *
+ * Antes mirabamos NEXT_PUBLIC_DEFAULT_TENANT (env var hardcoded en build prod
+ * = "mutual") con prioridad sobre localStorage, lo que pisaba el tenant del
+ * usuario logueado. Sacado: el branding viene SIEMPRE del JWT del usuario.
  */
 function resolveTenantId(): string | null {
   if (typeof window === "undefined") return null;
 
+  const fromStorage = localStorage.getItem("tenant_id");
+  if (fromStorage && fromStorage !== "__platform__") return fromStorage;
+
   const params = new URLSearchParams(window.location.search);
   const fromQuery = params.get("tenant");
   if (fromQuery) return fromQuery;
-
-  const fromEnv = process.env.NEXT_PUBLIC_DEFAULT_TENANT;
-  if (fromEnv) return fromEnv;
-
-  const fromStorage = localStorage.getItem("tenant_id");
-  if (fromStorage && fromStorage !== "__platform__") return fromStorage;
 
   return null;
 }
