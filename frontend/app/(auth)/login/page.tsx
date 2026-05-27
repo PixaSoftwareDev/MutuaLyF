@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -20,21 +20,22 @@ const PLATFORM_ACCENT = DEFAULT_PRIMARY;
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { setAuth } = useAuthStore();
 
   const [email, setEmail]               = useState("");
   const [password, setPassword]         = useState("");
   const [showPwd, setShowPwd]           = useState(false);
   const [tenantInput, setTenantInput]   = useState("");
-  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  const isSuperAdmin                    = searchParams.get("platform") === "1";
   const [error, setError]               = useState<string | null>(null);
   const [loading, setLoading]           = useState(false);
 
-  const doLogin = async (em: string, pw: string, tenant: string, superAdmin: boolean) => {
+  const doLogin = async (em: string, pw: string, tenant: string) => {
     setError(null);
     setLoading(true);
     try {
-      const effectiveTenant = superAdmin ? "" : toSlug(tenant);
+      const effectiveTenant = isSuperAdmin ? "" : toSlug(tenant);
       const data = await api.auth.login(em, pw, effectiveTenant);
       const payload = JSON.parse(atob(data.access_token.split(".")[1]));
       const role = payload.role as string;
@@ -57,7 +58,7 @@ export default function LoginPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    await doLogin(email, password, tenantInput, isSuperAdmin);
+    await doLogin(email, password, tenantInput);
   };
 
   return (
@@ -188,27 +189,6 @@ export default function LoginPage() {
               {loading ? "Ingresando..." : "Ingresar"}
             </Button>
 
-            {isSuperAdmin && (
-              <button
-                type="button"
-                onClick={() => {
-                  setEmail("pixs@platform.local");
-                  setPassword("pixs1234!");
-                  setError(null);
-                }}
-                className="w-full text-xs text-violet-600 hover:text-violet-800 transition-colors text-center border border-violet-200 rounded-md py-2 bg-violet-50 hover:bg-violet-100"
-              >
-                Rellenar credenciales de prueba
-              </button>
-            )}
-
-            <button
-              type="button"
-              onClick={() => { setIsSuperAdmin(v => !v); setError(null); }}
-              className="w-full text-xs text-muted-foreground hover:text-foreground transition-colors text-center pt-1"
-            >
-              {isSuperAdmin ? "← Volver al login de organización" : "Soy administrador de la plataforma"}
-            </button>
           </form>
 
           <p className="text-[11px] text-center text-muted-foreground/70 mt-8">
