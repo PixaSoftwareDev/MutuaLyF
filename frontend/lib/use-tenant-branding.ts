@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, type TenantBranding } from "./api";
 
-const DEFAULT_PRIMARY = "#99323D";
+export const DEFAULT_PRIMARY = "#99323D";
 
 /** Darken (negative) or lighten (positive) a hex color by `pct` percent. */
 function shade(hex: string, pct: number): string {
@@ -103,9 +103,9 @@ function resolveTenantId(): string | null {
   return null;
 }
 
-const GENERIC_BRANDING: TenantBranding = {
+export const GENERIC_BRANDING: TenantBranding = {
   tenant_id:        "",
-  display_name:     "Plataforma",
+  display_name:     "Plataforma IA",
   logo_url:         null,
   primary_color:    DEFAULT_PRIMARY,
   secondary_color:  null,

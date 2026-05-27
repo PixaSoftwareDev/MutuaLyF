@@ -1,21 +1,26 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
-import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuthStore } from "@/lib/store";
 import { api } from "@/lib/api";
 import { toSlug } from "@/lib/utils";
-import { useTenantBranding } from "@/lib/use-tenant-branding";
-import { Loader2, AlertTriangle, Shield, Eye, EyeOff } from "lucide-react";
+import { GENERIC_BRANDING, DEFAULT_PRIMARY } from "@/lib/use-tenant-branding";
+import { Loader2, AlertTriangle, Shield, Eye, EyeOff, Sparkles } from "lucide-react";
+
+// El login NUNCA muestra branding del tenant. Es la cara de la plataforma:
+// los colores y el nombre son siempre los mismos sin importar desde donde
+// se acceda (IP, subdominio, query param). El branding del cliente aparece
+// despues del login en navbar, sidebar y chatbot.
+const PLATFORM_NAME = GENERIC_BRANDING.display_name;
+const PLATFORM_ACCENT = DEFAULT_PRIMARY;
 
 export default function LoginPage() {
   const router = useRouter();
   const { setAuth } = useAuthStore();
-  const { branding } = useTenantBranding();
 
   const [email, setEmail]               = useState("");
   const [password, setPassword]         = useState("");
@@ -24,28 +29,6 @@ export default function LoginPage() {
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const [error, setError]               = useState<string | null>(null);
   const [loading, setLoading]           = useState(false);
-
-  // Pre-fill tenant field once with whatever the branding resolved (env / URL / storage).
-  // Using a ref so editing the field never re-triggers the fill.
-  const tenantPrefilled = useRef(false);
-  useEffect(() => {
-    if (branding.tenant_id && !tenantPrefilled.current) {
-      tenantPrefilled.current = true;
-      setTenantInput(branding.tenant_id);
-    }
-  }, [branding.tenant_id]);
-
-  // Push favicon if branding has one
-  useEffect(() => {
-    if (!branding.favicon_url || typeof document === "undefined") return;
-    let link = document.querySelector("link[rel~='icon']") as HTMLLinkElement | null;
-    if (!link) {
-      link = document.createElement("link");
-      link.rel = "icon";
-      document.head.appendChild(link);
-    }
-    link.href = branding.favicon_url;
-  }, [branding.favicon_url]);
 
   const doLogin = async (em: string, pw: string, tenant: string, superAdmin: boolean) => {
     setError(null);
@@ -77,23 +60,20 @@ export default function LoginPage() {
     await doLogin(email, password, tenantInput, isSuperAdmin);
   };
 
-  const accent = branding.primary_color;
-  const orgName = isSuperAdmin ? "Consola de plataforma" : branding.display_name;
-
   return (
     <div className="min-h-screen flex flex-col lg:flex-row bg-slate-50">
       {/* ── LEFT: hero / brand ─────────────────────────────────────────────── */}
       <aside
         className="hidden lg:flex lg:w-1/2 relative overflow-hidden text-white"
         style={{
-          background: `linear-gradient(135deg, ${accent} 0%, ${shade(accent, -30)} 100%)`,
+          background: `linear-gradient(135deg, ${PLATFORM_ACCENT} 0%, ${shade(PLATFORM_ACCENT, -30)} 100%)`,
         }}
       >
         <div className="absolute inset-0 opacity-10 bg-[radial-gradient(circle_at_top_right,white_0%,transparent_50%)]" />
         <div className="relative z-10 flex flex-col justify-between p-12 w-full">
           <div className="flex items-center gap-3">
-            <BrandLogo logoUrl={branding.logo_url} fallbackText={branding.display_name} size="lg" />
-            <span className="font-semibold text-lg">{branding.display_name}</span>
+            <PlatformLogo size="lg" />
+            <span className="font-semibold text-lg">{PLATFORM_NAME}</span>
           </div>
 
           <div className="space-y-4 max-w-md">
@@ -117,14 +97,16 @@ export default function LoginPage() {
         <div className="w-full max-w-sm">
           {/* Mobile logo */}
           <div className="lg:hidden flex items-center justify-center gap-2 mb-8">
-            <BrandLogo logoUrl={branding.logo_url} fallbackText={branding.display_name} size="md" accent={accent} />
-            <span className="font-semibold text-lg">{branding.display_name}</span>
+            <PlatformLogo size="md" accent={PLATFORM_ACCENT} />
+            <span className="font-semibold text-lg">{PLATFORM_NAME}</span>
           </div>
 
           <div className="space-y-1 mb-6">
             <h2 className="text-2xl font-bold tracking-tight">Iniciar sesión</h2>
             <p className="text-sm text-muted-foreground">
-              {isSuperAdmin ? "Acceso de plataforma" : `Accedé a ${orgName}`}
+              {isSuperAdmin
+                ? "Acceso de plataforma"
+                : "Ingresá con la cuenta de tu organización"}
             </p>
           </div>
 
@@ -201,7 +183,7 @@ export default function LoginPage() {
             <Button
               type="submit"
               className="w-full h-10 font-medium"
-              style={{ backgroundColor: accent }}
+              style={{ backgroundColor: PLATFORM_ACCENT }}
               disabled={loading}
             >
               {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
@@ -242,43 +224,20 @@ export default function LoginPage() {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function BrandLogo({
-  logoUrl, fallbackText, size, accent,
-}: {
-  logoUrl: string | null;
-  fallbackText: string;
-  size: "md" | "lg";
-  accent?: string;
-}) {
+/** Logo fijo de la plataforma — nunca el del tenant. Ese aparece post-login. */
+function PlatformLogo({ size, accent }: { size: "md" | "lg"; accent?: string }) {
   const px = size === "lg" ? 56 : 36;
-  const initial = (fallbackText.trim()[0] ?? "?").toUpperCase();
-
-  if (logoUrl) {
-    return (
-      <Image
-        src={logoUrl}
-        alt={fallbackText}
-        width={px}
-        height={px}
-        className="object-contain shrink-0"
-        style={{ width: px, height: px }}
-        unoptimized
-      />
-    );
-  }
-
   return (
     <div
-      className="rounded-2xl flex items-center justify-center font-bold shrink-0"
+      className="rounded-2xl flex items-center justify-center shrink-0"
       style={{
         width: px,
         height: px,
         background: accent ?? "rgba(255,255,255,0.15)",
-        color: accent ? "white" : "white",
-        fontSize: size === "lg" ? 24 : 16,
+        color: "white",
       }}
     >
-      {initial}
+      <Sparkles className={size === "lg" ? "h-7 w-7" : "h-5 w-5"} />
     </div>
   );
 }
