@@ -74,6 +74,16 @@ async def start_conversation(
 ):
     """Create a new conversation or resume existing active one for this session."""
     async with get_pg_session(tenant_id) as session:
+        # Advisory lock por widget_session_id para serializar requests
+        # concurrentes del mismo afiliado (2 tabs abriendo a la vez). Sin esto,
+        # ambas tabs hacian SELECT (vacio) -> INSERT -> 2 conversaciones
+        # duplicadas para el mismo afiliado. El lock se libera al COMMIT/ROLLBACK
+        # automaticamente (xact = transaction-scoped).
+        await session.execute(
+            text("SELECT pg_advisory_xact_lock(hashtextextended(:sid, 0))"),
+            {"sid": body.widget_session_id},
+        )
+
         # Check for existing open conversation
         result = await session.execute(text("""
             SELECT id, status, sector_id FROM conversaciones

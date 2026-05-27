@@ -381,16 +381,28 @@ async def accept_handoff(
     config = await _get_handoff_config(tenant_id)
 
     async with get_pg_session(tenant_id) as session:
-        result = await session.execute(text("""
+        # UPDATE conditional: si dos operadores aceptan a la vez, Postgres aplica
+        # row lock — uno gana, el otro recibe RETURNING vacio y obtiene 400.
+        # AND sector_id IN (sectores del operador) impide aceptar convs de
+        # sectores ajenos aunque el JWT tenga otro rol o el conv_id este expuesto.
+        # Admins/super-admins saltean el filtro de sector.
+        is_admin = current_user.role in (Role.ADMIN, Role.SUPER_ADMIN)
+        sector_filter = "" if is_admin else (
+            " AND sector_id IN (SELECT sector_id FROM operador_sectores WHERE operador_id = :op_id)"
+        )
+        result = await session.execute(text(f"""
             UPDATE conversaciones
             SET status = 'human_attending',
                 assigned_operator_id = :op_id,
                 updated_at = NOW()
-            WHERE id = :id AND status = 'handoff_requested'
+            WHERE id = :id AND status = 'handoff_requested'{sector_filter}
             RETURNING id
         """), {"id": conversation_id, "op_id": current_user.user_id})
         if not result.fetchone():
-            raise HTTPException(status_code=400, detail="Conversation not in handoff_requested state")
+            raise HTTPException(
+                status_code=400,
+                detail="Conversación no disponible (ya fue tomada o no pertenece a tus sectores).",
+            )
 
         # human_assigned es key legacy que sacamos del panel admin pero algunos
         # tenants la tienen en DB y otros no. .get() con fallback evita KeyError.
