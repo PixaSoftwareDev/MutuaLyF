@@ -42,6 +42,9 @@ export const useAuthStore = create<AuthState>()(
         if (typeof window !== "undefined") {
           localStorage.removeItem("access_token");
           localStorage.removeItem("tenant_id");
+          // Limpiar el branding cacheado del tenant anterior para que al
+          // loguearse otro usuario no aparezca el logo viejo brevemente.
+          localStorage.removeItem("tenant_branding_cache");
           // Clear edge-middleware cookies
           document.cookie = "ia_role=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
           document.cookie = "ia_tenant=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";

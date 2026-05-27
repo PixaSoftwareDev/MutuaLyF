@@ -114,6 +114,33 @@ export const GENERIC_BRANDING: TenantBranding = {
   greeting_message: null,
 };
 
+// Cache sincronico del branding en localStorage para evitar flash al refrescar.
+// React Query trae el branding async (~100-300ms) — durante ese tiempo el navbar
+// renderizaba con GENERIC_BRANDING y despues saltaba al del tenant. Persistimos
+// la ultima respuesta para usarla como placeholder instantaneo.
+const BRANDING_CACHE_KEY = "tenant_branding_cache";
+
+function readCachedBranding(tenantId: string): TenantBranding | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(BRANDING_CACHE_KEY);
+    if (!raw) return null;
+    const cached = JSON.parse(raw) as { tenant_id: string; branding: TenantBranding };
+    return cached.tenant_id === tenantId ? cached.branding : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedBranding(tenantId: string, branding: TenantBranding): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(BRANDING_CACHE_KEY, JSON.stringify({ tenant_id: tenantId, branding }));
+  } catch {
+    /* localStorage full or disabled — flash en proximo refresh, no es critico */
+  }
+}
+
 /**
  * Loads the tenant's branding (logo, colors, display name) and applies the
  * primary color as a CSS variable `--brand-primary` on <html>.
@@ -126,10 +153,17 @@ export function useTenantBranding(): { branding: TenantBranding; isLoading: bool
 
   const { data, isLoading } = useQuery({
     queryKey: ["tenant-branding", tenantId],
-    queryFn: () => api.branding.get(tenantId!),
+    queryFn: async () => {
+      const fresh = await api.branding.get(tenantId!);
+      writeCachedBranding(tenantId!, fresh);
+      return fresh;
+    },
     enabled: !!tenantId,
     staleTime: 5 * 60 * 1000,
     retry: 1,
+    // placeholderData hace que el primer render no parpadee: usa el branding
+    // cacheado del refresh anterior (sincronico) hasta que el fetch confirme.
+    placeholderData: tenantId ? readCachedBranding(tenantId) ?? undefined : undefined,
   });
 
   const branding = data ?? GENERIC_BRANDING;
