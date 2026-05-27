@@ -367,21 +367,23 @@ services:
   # ─── Backup ───────────────────────────────────────────────────────────────────
 
   pgbackrest:
-    image: woblerr/pgbackrest:2.51
+    # Cambio de woblerr/pgbackrest → postgres:16-alpine para usar pg_dump.
+    # pgBackRest requiere repo-host mode con SSH o instalar binary en el container
+    # postgres (custom image). Para nuestra escala (DB chica, piloto controlado),
+    # pg_dump es mas simple y suficiente: full daily/weekly con retencion + rotacion
+    # via cron. Cuando la DB crezca >5GB o necesitemos PITR, migramos a pgBackRest
+    # real con imagen postgres custom.
+    image: postgres:16-alpine
     container_name: ia_pgbackrest
     restart: unless-stopped
-    # In dev: stay alive as a sidecar so the volume mount persists.
-    # In prod: replace with a cron schedule (e.g., daily full backup + WAL archiving).
-    entrypoint: ["/bin/sh", "-c", "echo 'pgBackRest sidecar ready' && sleep infinity"]
+    entrypoint: ["/bin/sh", "/usr/local/bin/entrypoint.sh"]
     environment:
-      PGBACKREST_STANZA: main
-      PGBACKREST_PG1_PATH: /var/lib/postgresql/data
-      PGBACKREST_REPO1_PATH: /var/lib/pgbackrest
-      PGBACKREST_REPO1_RETENTION_FULL: 7
-      PGBACKREST_LOG_LEVEL_CONSOLE: info
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
-      - postgres_data:/var/lib/postgresql/data:ro
       - pgbackrest_data:/var/lib/pgbackrest
+      - ./pgbackrest/entrypoint.sh:/usr/local/bin/entrypoint.sh:ro
     depends_on:
       postgres:
         condition: service_healthy
