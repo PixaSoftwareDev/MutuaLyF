@@ -611,7 +611,7 @@ async def _arerank_tei(query: str, chunks: list[RetrievedChunk], top_k: int) -> 
     # Sending > 8 triggers multiple sequential batches: 30 candidates = 4 batches ≈ 9s.
     # 8 candidates = 1 batch ≈ 1.5-2s. Sweet spot: rerank the top 8 by Qdrant score.
     # The value of cross-encoder reranking is highest on the top candidates anyway.
-    _TEI_MAX_BATCH = 8
+    _TEI_MAX_BATCH = 20
     _MAX_RERANK_CHARS = 900
     candidates = sorted(chunks, key=lambda c: c.score, reverse=True)[:_TEI_MAX_BATCH]
     truncated_texts = [c.text[:_MAX_RERANK_CHARS] for c in candidates]

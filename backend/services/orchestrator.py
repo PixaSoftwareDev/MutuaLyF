@@ -15,6 +15,7 @@ Execution flow:
 """
 
 import asyncio
+import re
 import hashlib
 import json
 import logging
@@ -29,6 +30,29 @@ from core.database import get_redis_cache
 
 logger = logging.getLogger(__name__)
 
+
+
+_KW_STOPWORDS = {
+    "de", "la", "el", "en", "un", "una", "los", "las", "del",
+    "para", "por", "con", "que", "es", "se", "su", "al", "le",
+    "da", "lo", "si", "te", "no", "fue", "son", "hay", "pero",
+    "como", "cuando", "donde", "cuanto", "cuantos", "tiene",
+}
+
+
+def _keyword_overlap(query: str, text: str) -> float:
+    """Fraction of meaningful query tokens (len>=3, not stopwords) found in text.
+
+    Model-free ranking signal used when the TEI reranker is unavailable.
+    """
+    tokens = {
+        t for t in re.findall(r"\w+", query.lower())
+        if len(t) >= 3 and t not in _KW_STOPWORDS
+    }
+    if not tokens:
+        return 0.0
+    text_lower = text.lower()
+    return sum(1 for t in tokens if t in text_lower) / len(tokens)
 
 async def handle_query(
     question: str,
@@ -221,17 +245,32 @@ async def handle_query(
     if neo4j_records:
         from services.retrieval import retrieve_by_ids
         neo4j_chunk_ids = {r["chunk_id"] for r in neo4j_records}
-        # Boost already-retrieved chunks that Neo4j confirms contain named entities
         qdrant_list = list(qdrant_chunks or [])
+
+        # Store pre-boost scores for relevance ordering after the hard 1.0 override.
+        # Without this, all Neo4j-boosted chunks tie at 1.0 and the context builder
+        # falls back to chunk_index order, always sending intro/contact chunks first
+        # regardless of which section the query is about.
+        for chunk in qdrant_list:
+            chunk.metadata["_pre_neo4j_score"] = chunk.score
+
+        # Hard boost to 1.0: ensures entity-confirmed chunks pass min_score=0.55
+        # (after BM25+RRF, all scores are tiny ~0.01-0.03, below the filter threshold).
         for chunk in qdrant_list:
             if chunk.chunk_id in neo4j_chunk_ids:
                 chunk.score = 1.0
-        # Fetch chunks that Qdrant didn't retrieve at all
+
+        # Cap new_ids to 3 to avoid inflating context with sibling-child
+        # duplicates from hierarchical chunking (same parent content, different child IDs).
         existing_ids = {c.chunk_id for c in qdrant_list}
-        new_ids = [cid for cid in neo4j_chunk_ids if cid not in existing_ids]
+        new_ids = [cid for cid in neo4j_chunk_ids if cid not in existing_ids][:3]
         if new_ids:
             entity_chunks = await retrieve_by_ids(new_ids, tenant_id)
+            for ec in entity_chunks:
+                ec.metadata["_pre_neo4j_score"] = 0.0  # no prior semantic score
+                ec.score = 1.0
             qdrant_list.extend(entity_chunks)
+
         if neo4j_chunk_ids:
             logger.info(
                 "neo4j_entity_boost tenant_id=%s entity_chunk_ids=%d new_fetched=%d",
@@ -321,16 +360,28 @@ async def handle_query(
             c for c in all_chunks
             if any(s["chunk_id"] == c.chunk_id for s in sources)
         ]
-        # Best score per document determines document order
-        doc_best: dict[str, float] = {}
-        for c in passed_chunks:
-            doc_best[c.document_id] = max(doc_best.get(c.document_id, 0.0), c.score)
-        # Sort: primary = doc rank (best score desc), secondary = chunk_index asc
+        # Sort by pre-Neo4j relevance score (TEI reranker / Qdrant cosine) so the
+        # most semantically relevant chunk leads context, regardless of its position
+        # in the document. chunk_index is a tiebreaker for chunks with equal scores.
+        # We use _pre_neo4j_score instead of c.score because Neo4j boosted many chunks
+        # to 1.0, erasing the fine-grained relevance signal from the reranker.
+        # Primary: keyword overlap (surfaces exact-term matches when reranker off).
+        # Secondary: raw semantic score before Neo4j 1.0 boost.
+        # Tiebreaker: document order.
+        kw_scores = {
+            c.chunk_id: _keyword_overlap(normalized_question, c.text)
+            for c in passed_chunks
+        }
         passed_chunks.sort(
-            key=lambda c: (-doc_best[c.document_id], c.metadata.get("chunk_index", 0))
+            key=lambda c: (
+                -kw_scores.get(c.chunk_id, 0.0),
+                -c.metadata.get("_pre_neo4j_score", c.score),
+                c.metadata.get("chunk_index", 0),
+            )
         )
         context_parts = []
         sources = []
+        included_ids: set[str] = set()
         for chunk in passed_chunks[:15]:
             doc_name = chunk.metadata.get("filename", "")
             chunk_text = f"Fuente: {doc_name}\n{chunk.text}" if doc_name else chunk.text
@@ -342,6 +393,33 @@ async def handle_query(
                 "content_excerpt": chunk.text[:200],
                 "score": round(chunk.score, 4),
             })
+            included_ids.add(chunk.chunk_id)
+
+        # Semantic safety net: always include top-3 chunks by raw semantic score
+        # not already in context. Prevents min_score from silently filtering the
+        # most relevant chunk when it has no Neo4j entity link.
+        by_semantic = sorted(
+            all_chunks,
+            key=lambda c: -c.metadata.get("_pre_neo4j_score", c.score),
+        )
+        extras_added = 0
+        for chunk in by_semantic:
+            if chunk.chunk_id in included_ids or extras_added >= 3:
+                continue
+            if len(context_parts) >= 18:
+                break
+            doc_name = chunk.metadata.get("filename", "")
+            chunk_text = f"Fuente: {doc_name}\n{chunk.text}" if doc_name else chunk.text
+            context_parts.append(chunk_text)
+            sources.append({
+                "chunk_id": chunk.chunk_id,
+                "document_id": chunk.document_id,
+                "document_title": chunk.metadata.get("filename", chunk.document_id),
+                "content_excerpt": chunk.text[:200],
+                "score": round(chunk.score, 4),
+            })
+            included_ids.add(chunk.chunk_id)
+            extras_added += 1
 
     if not context_parts:
         logger.info(
@@ -372,11 +450,9 @@ async def handle_query(
 
     if context_parts and low_confidence_fallback:
         context_block = (
-            "NOTA: La relevancia semántica de los fragmentos recuperados es baja para esta consulta exacta, "
-            "pero pueden contener información relacionada. "
-            "Revisá si algún fragmento responde parcialmente la pregunta con sinónimos o términos alternativos. "
-            "Si ninguno aplica, indicá que no encontraste la información — NO digas que la pregunta está fuera de alcance.\n\n"
-            "Contexto disponible:\n" + "\n\n---\n\n".join(context_parts[:4])
+            "ADVERTENCIA: La información disponible tiene baja relevancia para esta consulta. "
+            "Usala solo si es claramente pertinente; si no, indicá que no encontraste información suficiente.\n\n"
+            "Contexto disponible (baja confianza):\n" + "\n\n---\n\n".join(context_parts[:2])
         )
     elif context_parts:
         context_block = "Contexto disponible:\n" + "\n\n---\n\n".join(context_parts[:settings.max_context_chunks])

@@ -182,7 +182,7 @@ class Settings(BaseSettings):
     bm25_limit: int = 20                # BM25 candidates from PostgreSQL
     rrf_k: int = 60                     # RRF constant (standard value, rarely changed)
     skipped_chunk_score_penalty: float = 0.85  # score multiplier for quality_gate_status=skipped
-    low_confidence_fallback_chunks: int = 4    # chunks to include when all below min_score
+    low_confidence_fallback_chunks: int = 2    # chunks to include when all below min_score
     max_context_chunks: int = 15        # max chunks sent to LLM in a single query
 
     # ── Conversation history ───────────────────────────────────────────────────
@@ -199,7 +199,7 @@ class Settings(BaseSettings):
     # no aporta calidad pero si latencia. Con >= N docs hay overlap tematico entre
     # fuentes distintas y el reranker empieza a discriminar mejor que coseno puro.
     # 5 docs ≈ 180 chunks — punto de inflexion validado empiricamente.
-    reranker_auto_min_docs: int = 5
+    reranker_auto_min_docs: int = 1
     # Minimo de candidatos de Qdrant para correr el reranker en esa query.
     # Si Qdrant devuelve menos de este numero, skipear (sin calidad real a ganar).
     reranker_min_candidates: int = 5
@@ -208,7 +208,7 @@ class Settings(BaseSettings):
 
     # ── Cache ─────────────────────────────────────────────────────────────────
     cache_ttl_seconds: int = 3600
-    semantic_cache_threshold: float = 0.93   # cosine similarity to consider a semantic hit
+    semantic_cache_threshold: float = 0.97   # cosine similarity to consider a semantic hit
     semantic_cache_enabled: bool = True
 
     # ── Intent classifier ─────────────────────────────────────────────────────
