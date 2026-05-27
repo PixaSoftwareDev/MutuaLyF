@@ -48,7 +48,12 @@ services:
     # (intentamos --admin-password-file pero hay un bug en 2.21.4: el hash
     # se acepta pero el login falla con "Invalid credentials").
     ports:
-      - "0.0.0.0:9000:9000"
+      # Solo loopback. Acceso desde fuera via SSH tunnel:
+      #   ssh -L 9000:127.0.0.1:9000 root@vps -p 2251
+      #   luego http://localhost:9000 en el browser.
+      # Antes era 0.0.0.0 → Docker daemon expuesto sin auth obligatoria
+      # (Portainer 2.21.4 tiene bug en --admin-password-file).
+      - "127.0.0.1:9000:9000"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - portainer_data:/data
@@ -70,7 +75,11 @@ services:
       PGADMIN_CONFIG_SERVER_MODE: "False"
       PGADMIN_LISTEN_PORT: 80
     ports:
-      - "0.0.0.0:5050:80"
+      # Solo loopback. Acceso desde fuera via SSH tunnel:
+      #   ssh -L 5050:127.0.0.1:5050 root@vps -p 2251
+      #   luego http://localhost:5050 en el browser.
+      # Antes era 0.0.0.0 → DB admin expuesta publicamente.
+      - "127.0.0.1:5050:80"
     volumes:
       - pgadmin_data:/var/lib/pgadmin
     networks:
