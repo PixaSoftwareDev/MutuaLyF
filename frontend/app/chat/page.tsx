@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 import { Loader2, Send, Bot, ChevronLeft, UserCheck } from "lucide-react";
 import { api, type TenantBranding } from "@/lib/api";
-import { applyBrandingVars } from "@/lib/use-tenant-branding";
+import { applyBrandingVars, readCachedBranding, writeCachedBranding } from "@/lib/use-tenant-branding";
 import { renderWithLinks } from "@/lib/render-with-links";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
@@ -203,7 +203,12 @@ function ChatInner() {
   const tenantId = params.get("tenant") || "";
 
   const [sectors, setSectors]               = useState<Sector[]>([]);
-  const [branding, setBranding]             = useState<TenantBranding | null>(null);
+  // Inicializamos el branding desde el cache sincronicamente para evitar
+  // el flash al refrescar (el fetch a /public/tenant-branding tarda
+  // ~100-300ms y mientras tanto se veia el rojo default + "Asistente").
+  const [branding, setBranding]             = useState<TenantBranding | null>(() =>
+    tenantId ? readCachedBranding(tenantId) : null
+  );
   const [greeting, setGreeting]             = useState<string>("¡Hola! 👋 Soy tu asistente virtual. ¿En qué área puedo ayudarte?");
   const [sectorsLoading, setSectorsLoading] = useState(true);
   const [selectedSector, setSelectedSector] = useState<Sector | null>(null);
@@ -254,12 +259,21 @@ function ChatInner() {
       .catch(e => { setError(`No se pudo conectar: ${e.message}`); setSectorsLoading(false); });
   }, [token, tenantId]);
 
-  // Load tenant branding (public endpoint) + apply CSS variables
+  // Load tenant branding (public endpoint) + apply CSS variables.
+  // Si el cache sincronico ya nos dio un branding inicial, igual revalidamos
+  // contra el server por si cambio (logo, color). Guardamos lo fresco al cache
+  // para el proximo refresh.
   useEffect(() => {
     if (!tenantId) return;
+    const cached = readCachedBranding(tenantId);
+    if (cached) applyBrandingVars(cached);
     api.branding.get(tenantId)
-      .then(b => { setBranding(b); applyBrandingVars(b); })
-      .catch(() => { /* keep generic defaults */ });
+      .then(b => {
+        setBranding(b);
+        applyBrandingVars(b);
+        writeCachedBranding(tenantId, b);
+      })
+      .catch(() => { /* keep cached or generic defaults */ });
   }, [tenantId]);
 
   useEffect(() => {

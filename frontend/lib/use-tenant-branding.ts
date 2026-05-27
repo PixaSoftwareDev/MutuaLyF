@@ -118,24 +118,44 @@ export const GENERIC_BRANDING: TenantBranding = {
 // React Query trae el branding async (~100-300ms) — durante ese tiempo el navbar
 // renderizaba con GENERIC_BRANDING y despues saltaba al del tenant. Persistimos
 // la ultima respuesta para usarla como placeholder instantaneo.
+//
+// El cache es un mapa { tenant_id -> branding }: el chat publico abre /chat
+// con distintos tenants en el mismo browser (admin de novatech prueba mientras
+// otro tab tiene mutual abierto) — si guardamos solo un branding pisamos al
+// del tab anterior y aparece el flash igual.
 const BRANDING_CACHE_KEY = "tenant_branding_cache";
 
-function readCachedBranding(tenantId: string): TenantBranding | null {
-  if (typeof window === "undefined") return null;
+type BrandingCacheV2 = Record<string, TenantBranding>;
+
+function readCacheMap(): BrandingCacheV2 {
+  if (typeof window === "undefined") return {};
   try {
     const raw = localStorage.getItem(BRANDING_CACHE_KEY);
-    if (!raw) return null;
-    const cached = JSON.parse(raw) as { tenant_id: string; branding: TenantBranding };
-    return cached.tenant_id === tenantId ? cached.branding : null;
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    // Backward compat: si el cache viejo (v1) tenia forma { tenant_id, branding },
+    // lo migramos a mapa. Si ya es mapa, lo devolvemos tal cual.
+    if (parsed && typeof parsed === "object" && "tenant_id" in parsed && "branding" in parsed) {
+      return { [parsed.tenant_id]: parsed.branding };
+    }
+    return parsed as BrandingCacheV2;
   } catch {
-    return null;
+    return {};
   }
 }
 
-function writeCachedBranding(tenantId: string, branding: TenantBranding): void {
-  if (typeof window === "undefined") return;
+export function readCachedBranding(tenantId: string): TenantBranding | null {
+  if (!tenantId) return null;
+  const map = readCacheMap();
+  return map[tenantId] ?? null;
+}
+
+export function writeCachedBranding(tenantId: string, branding: TenantBranding): void {
+  if (typeof window === "undefined" || !tenantId) return;
   try {
-    localStorage.setItem(BRANDING_CACHE_KEY, JSON.stringify({ tenant_id: tenantId, branding }));
+    const map = readCacheMap();
+    map[tenantId] = branding;
+    localStorage.setItem(BRANDING_CACHE_KEY, JSON.stringify(map));
   } catch {
     /* localStorage full or disabled — flash en proximo refresh, no es critico */
   }
