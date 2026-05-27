@@ -122,6 +122,13 @@ class Settings(BaseSettings):
     jwt_refresh_expire_days: int = 30
     jwt_widget_expire_days: int = 90
 
+    # ── Login brute-force protection ──────────────────────────────────────────
+    # Despues de N fallos en la ventana, todos los intentos para ese email
+    # reciben 429 sin pasar por bcrypt (que es caro). La ventana se renueva
+    # con cada fallo nuevo (cada intento extiende el lockout otros TTL segundos).
+    login_max_fails: int = 10            # intentos antes de bloquear
+    login_lockout_window_s: int = 600    # ventana de 10 min
+
     # ── App ───────────────────────────────────────────────────────────────────
     environment: str = "development"
     log_level: str = "INFO"

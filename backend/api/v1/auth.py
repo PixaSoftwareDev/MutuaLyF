@@ -111,9 +111,30 @@ async def login(
     # ── Tenant user login ─────────────────────────────────────────────────────
     from db.tenant_models import User
 
+    # Brute-force lockout per email: chequear ANTES de bcrypt (que es caro).
+    # Si Redis cae, fail-open: permitir el login (mejor que bloquear todos los
+    # logins si Redis tiene un hiccup) pero loguear warning.
+    email_norm = form.username.lower().strip()
+    fail_key = f"{tenant_id}:login_failed:{email_norm}"
+    try:
+        from core.database import get_redis_cache as _redis_for_lock
+        _r = _redis_for_lock()
+        _current = await _r.get(fail_key)
+        if _current is not None and int(_current) >= settings.login_max_fails:
+            _ttl = await _r.ttl(fail_key)
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=f"Demasiados intentos fallidos. Probá de nuevo en {max(_ttl, 60)} segundos.",
+                headers={"Retry-After": str(max(_ttl, 60))},
+            )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.warning("login_lockout_check_unavailable tenant=%s error=%s", tenant_id, exc)
+
     async with get_pg_session(tenant_id) as session:
         result = await session.execute(
-            select(User).where(User.email == form.username.lower().strip(), User.is_active == True)
+            select(User).where(User.email == email_norm, User.is_active == True)
         )
         user = result.scalar_one_or_none()
 
@@ -125,9 +146,8 @@ async def login(
         fails: int = 0
         try:
             redis = get_redis_cache()
-            key = f"{tenant_id}:login_failed:{form.username.lower().strip()}"
-            fails = await redis.incr(key)
-            await redis.expire(key, 600)  # ventana de 10 min
+            fails = await redis.incr(fail_key)
+            await redis.expire(fail_key, settings.login_lockout_window_s)
         except Exception as exc:
             logger.warning("brute_force_counter_unavailable tenant=%s error=%s", tenant_id, exc)
         detail_extra: dict = {"reason": "invalid_credentials", "attempt": int(fails)}
@@ -150,7 +170,10 @@ async def login(
     # Login exitoso → limpiar contador de fallos
     from core.database import get_redis_cache
     redis = get_redis_cache()
-    await redis.delete(f"{tenant_id}:login_failed:{form.username.lower().strip()}")
+    try:
+        await redis.delete(fail_key)
+    except Exception:
+        pass  # no crítico, el TTL eventualmente limpia
 
     role = Role(user.role) if user.role in Role._value2member_map_ else Role.OPERATOR
     access_token = create_access_token(str(user.id), tenant_id, role, email=user.email)
