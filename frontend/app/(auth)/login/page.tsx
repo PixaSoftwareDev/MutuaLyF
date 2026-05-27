@@ -8,14 +8,14 @@ import { Label } from "@/components/ui/label";
 import { useAuthStore } from "@/lib/store";
 import { api } from "@/lib/api";
 import { toSlug } from "@/lib/utils";
-import { GENERIC_BRANDING, DEFAULT_PRIMARY } from "@/lib/use-tenant-branding";
-import { Loader2, AlertTriangle, Shield, Eye, EyeOff, Sparkles } from "lucide-react";
+import { DEFAULT_PRIMARY } from "@/lib/use-tenant-branding";
+import { Loader2, AlertTriangle, Shield, Eye, EyeOff } from "lucide-react";
 
 // El login NUNCA muestra branding del tenant. Es la cara de la plataforma:
 // los colores y el nombre son siempre los mismos sin importar desde donde
 // se acceda (IP, subdominio, query param). El branding del cliente aparece
 // despues del login en navbar, sidebar y chatbot.
-const PLATFORM_NAME = GENERIC_BRANDING.display_name;
+const PLATFORM_NAME = "IA Inteligent";
 const PLATFORM_ACCENT = DEFAULT_PRIMARY;
 
 export default function LoginPage() {
@@ -72,7 +72,6 @@ export default function LoginPage() {
         <div className="absolute inset-0 opacity-10 bg-[radial-gradient(circle_at_top_right,white_0%,transparent_50%)]" />
         <div className="relative z-10 flex flex-col justify-between p-12 w-full">
           <div className="flex items-center gap-3">
-            <PlatformLogo size="lg" />
             <span className="font-semibold text-lg">{PLATFORM_NAME}</span>
           </div>
 
@@ -95,9 +94,8 @@ export default function LoginPage() {
       {/* ── RIGHT: form ────────────────────────────────────────────────────── */}
       <main className="flex-1 flex items-center justify-center p-6 sm:p-10">
         <div className="w-full max-w-sm">
-          {/* Mobile logo */}
+          {/* Mobile brand */}
           <div className="lg:hidden flex items-center justify-center gap-2 mb-8">
-            <PlatformLogo size="md" accent={PLATFORM_ACCENT} />
             <span className="font-semibold text-lg">{PLATFORM_NAME}</span>
           </div>
 
@@ -223,24 +221,6 @@ export default function LoginPage() {
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
-
-/** Logo fijo de la plataforma — nunca el del tenant. Ese aparece post-login. */
-function PlatformLogo({ size, accent }: { size: "md" | "lg"; accent?: string }) {
-  const px = size === "lg" ? 56 : 36;
-  return (
-    <div
-      className="rounded-2xl flex items-center justify-center shrink-0"
-      style={{
-        width: px,
-        height: px,
-        background: accent ?? "rgba(255,255,255,0.15)",
-        color: "white",
-      }}
-    >
-      <Sparkles className={size === "lg" ? "h-7 w-7" : "h-5 w-5"} />
-    </div>
-  );
-}
 
 /** Darken (negative) or lighten (positive) a hex color by `pct` percent. */
 function shade(hex: string, pct: number): string {
