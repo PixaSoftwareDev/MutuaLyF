@@ -23,9 +23,9 @@ build/
 # TypeScript incremental build cache
 *.tsbuildinfo
 
-# Env
+# Env (.env real ignorado, .env.example commiteado como template)
 .env
-.env.example
+!.env.example
 .env.local
 .env.development
 .env.test
