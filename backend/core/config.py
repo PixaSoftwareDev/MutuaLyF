@@ -265,3 +265,44 @@ class Settings(BaseSettings):
 
 
 settings = Settings()  # type: ignore[call-arg]
+
+
+def _assert_production_secrets_safe() -> None:
+    """Validar al startup que en produccion no se usan defaults inseguros.
+    Si environment=production y algun secret es un valor obvio de dev
+    ('changeme', 'admin', 'minioadmin', el secret de dev), aborta el boot.
+
+    Sin esto: un deploy a prod que se olvido de configurar las env vars
+    arranca con passwords default y la BD queda accesible con credenciales
+    publicamente conocidas.
+    """
+    if not settings.is_production:
+        return
+
+    DEV_DEFAULTS = {
+        "changeme", "admin", "minioadmin", "minioadmin123",
+        "dev_secret_key_min_32_chars_aqui_ok", "secret", "password",
+    }
+    checks = [
+        ("POSTGRES_PASSWORD",       settings.postgres_password),
+        ("NEO4J_PASSWORD",          settings.neo4j_password),
+        ("JWT_SECRET_KEY",          settings.jwt_secret_key),
+        ("MINIO_ROOT_PASSWORD",     settings.minio_root_password),
+    ]
+    failures = [name for name, value in checks if (value or "").strip().lower() in DEV_DEFAULTS]
+    if failures:
+        raise RuntimeError(
+            f"ENVIRONMENT=production pero los siguientes secrets usan valores default de dev: "
+            f"{', '.join(failures)}. Rotalos antes de arrancar."
+        )
+    if len(settings.jwt_secret_key) < 32:
+        raise RuntimeError(
+            "JWT_SECRET_KEY es muy corto (<32 chars). Generar con `openssl rand -hex 32`."
+        )
+    if "*" in settings.allowed_origins:
+        raise RuntimeError(
+            "ALLOWED_ORIGINS contiene '*' en produccion. Listar dominios especificos."
+        )
+
+
+_assert_production_secrets_safe()
