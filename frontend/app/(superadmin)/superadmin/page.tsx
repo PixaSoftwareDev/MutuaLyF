@@ -538,29 +538,29 @@ function CreateTenantModal({ open, onClose, onCreated }: { open: boolean; onClos
 
   const canSubmit = !createM.isPending && form.id && form.name && form.admin_email && form.admin_password && form.personality_id;
 
-  const extraFields = [
-    { key: "admin_email",    label: "Email del admin",  placeholder: "admin@mi-empresa.com", type: "email"    },
-    { key: "admin_name",     label: "Nombre del admin", placeholder: "Nombre Apellido",      type: "text"     },
-    { key: "admin_password", label: "Contraseña inicial", placeholder: "Mínimo 8 caracteres", type: "password" },
-  ] as const;
+  const selectedPersonality = availablePersonalities.find((x: any) => x.id === form.personality_id);
 
   return (
     <Dialog open={open} onOpenChange={v => !v && handleClose()}>
-      <DialogContent className="w-full max-w-md mx-4 sm:mx-auto flex flex-col max-h-[90dvh]">
-        <DialogHeader className="shrink-0">
-          <DialogTitle className="flex items-center gap-2">
+      <DialogContent className="flex flex-col p-0 gap-0 w-[calc(100%-2rem)] sm:w-full sm:max-w-lg">
+
+        {/* Header */}
+        <DialogHeader className="shrink-0 px-5 pt-5 pb-4 border-b">
+          <DialogTitle className="flex items-center gap-2 text-base">
             <Building2 className="h-4 w-4 text-primary" />Nueva organización
           </DialogTitle>
         </DialogHeader>
-        <div className="space-y-3 py-1 overflow-y-auto flex-1 min-h-0 pr-1">
 
-          {/* Nombre → genera slug automáticamente */}
-          <div className="space-y-1">
+        {/* Scrollable body */}
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 py-4 space-y-4">
+
+          {/* Nombre + slug */}
+          <div className="space-y-1.5">
             <Label className="text-xs font-medium">Nombre de la organización</Label>
             <Input placeholder="Mi Empresa S.A." value={form.name} onChange={handleNameChange} className="h-9" />
             {form.id && (
-              <div className="flex items-center gap-1.5 mt-1">
-                <span className="text-[11px] text-muted-foreground shrink-0">Identificador:</span>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11px] text-muted-foreground shrink-0">ID:</span>
                 <input
                   value={form.id}
                   onChange={handleSlugChange}
@@ -570,38 +570,60 @@ function CreateTenantModal({ open, onClose, onCreated }: { open: boolean; onClos
             )}
           </div>
 
-          {extraFields.map(f => (
-            <div key={f.key} className="space-y-1">
-              <Label className="text-xs font-medium">{f.label}</Label>
-              <Input type={f.type} placeholder={f.placeholder} value={(form as any)[f.key]} onChange={set(f.key)} className="h-9" />
+          {/* Admin — 2 cols en sm+ */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium">Email del admin</Label>
+              <Input type="email" placeholder="admin@mi-empresa.com" value={form.admin_email} onChange={set("admin_email")} className="h-9" />
             </div>
-          ))}
-
-          <div className="space-y-1">
-            <Label className="text-xs font-medium">Plan</Label>
-            <select className="w-full text-sm border rounded-md px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-ring" value={form.plan} onChange={e => { set("plan")(e); setForm(f => ({ ...f, plan: e.target.value, personality_id: "" })); }}>
-              <option value="starter">Starter — 5 usuarios, 500 docs, 5K consultas/mes</option>
-              <option value="professional">Professional — 50 usuarios, 10K docs, 100K consultas/mes</option>
-              <option value="enterprise">Enterprise — Sin límites</option>
-            </select>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium">Nombre del admin</Label>
+              <Input type="text" placeholder="Nombre Apellido" value={form.admin_name} onChange={set("admin_name")} className="h-9" />
+            </div>
           </div>
 
-          <div className="space-y-1">
+          {/* Contraseña + Plan — 2 cols en sm+ */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium">Contraseña inicial</Label>
+              <Input type="password" placeholder="Mínimo 8 caracteres" value={form.admin_password} onChange={set("admin_password")} className="h-9" />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium">Plan</Label>
+              <select
+                className="w-full h-9 text-sm border rounded-md px-3 bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+                value={form.plan}
+                onChange={e => { set("plan")(e); setForm(f => ({ ...f, plan: e.target.value, personality_id: "" })); }}
+              >
+                <option value="starter">Starter</option>
+                <option value="professional">Professional</option>
+                <option value="enterprise">Enterprise</option>
+              </select>
+              <p className="text-[10px] text-muted-foreground leading-tight">
+                {form.plan === "starter" && "5 usuarios · 500 docs · 5K consultas/mes"}
+                {form.plan === "professional" && "50 usuarios · 10K docs · 100K consultas/mes"}
+                {form.plan === "enterprise" && "Sin límites"}
+              </p>
+            </div>
+          </div>
+
+          {/* Personalidad */}
+          <div className="space-y-1.5">
             <Label className="text-xs font-medium flex items-center gap-1">
               <Bot className="h-3.5 w-3.5 text-primary" />
               Personalidad del bot <span className="text-destructive ml-0.5">*</span>
             </Label>
             {loadingP ? (
               <div className="h-9 border rounded-md flex items-center px-3 gap-2 text-sm text-muted-foreground">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Cargando personalidades…
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Cargando…
               </div>
             ) : availablePersonalities.length === 0 ? (
               <div className="h-9 border rounded-md flex items-center px-3 text-sm text-muted-foreground bg-muted/40">
-                No hay personalidades disponibles para este plan
+                No hay personalidades para este plan
               </div>
             ) : (
               <select
-                className="w-full text-sm border rounded-md px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+                className="w-full h-9 text-sm border rounded-md px-3 bg-background focus:outline-none focus:ring-2 focus:ring-ring"
                 value={form.personality_id}
                 onChange={set("personality_id")}
               >
@@ -611,20 +633,20 @@ function CreateTenantModal({ open, onClose, onCreated }: { open: boolean; onClos
                 ))}
               </select>
             )}
-            {form.personality_id && (() => {
-              const p = availablePersonalities.find((x: any) => x.id === form.personality_id);
-              return p?.descripcion ? (
-                <p className="text-[11px] text-muted-foreground pl-1">{p.descripcion}</p>
-              ) : null;
-            })()}
-            <p className="text-[11px] text-muted-foreground">
-              Se puede cambiar o agregar más personalidades desde el panel de la organización.
-            </p>
+            {selectedPersonality?.descripcion && (
+              <p className="text-[11px] text-muted-foreground leading-snug pl-0.5">{selectedPersonality.descripcion}</p>
+            )}
           </div>
 
-          {error && <div className="rounded-md bg-destructive/10 border border-destructive/20 px-3 py-2"><p className="text-xs text-destructive">{error}</p></div>}
+          {error && (
+            <div className="rounded-md bg-destructive/10 border border-destructive/20 px-3 py-2">
+              <p className="text-xs text-destructive">{error}</p>
+            </div>
+          )}
         </div>
-        <DialogFooter className="flex-col sm:flex-row gap-2 shrink-0 pt-2 border-t">
+
+        {/* Footer pegado abajo */}
+        <DialogFooter className="shrink-0 px-5 py-4 border-t flex-col sm:flex-row gap-2">
           <Button variant="outline" className="w-full sm:w-auto" onClick={handleClose}>Cancelar</Button>
           <Button className="w-full sm:w-auto" disabled={!canSubmit} onClick={() => { setError(""); createM.mutate(); }}>
             {createM.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
