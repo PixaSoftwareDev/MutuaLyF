@@ -828,20 +828,20 @@ function EditUserModal({ tenantId, user, onClose, onSaved }: {
 
   return (
     <Dialog open onOpenChange={v => !v && onClose()}>
-      <DialogContent className="w-full max-w-sm mx-4 sm:mx-auto">
-        <DialogHeader>
+      <DialogContent className="w-full max-w-sm mx-4 sm:mx-auto p-6">
+        <DialogHeader className="mb-2">
           <DialogTitle>Editar usuario</DialogTitle>
           <p className="text-xs text-muted-foreground">{user.email}</p>
         </DialogHeader>
 
-        <div className="space-y-3">
+        <div className="space-y-4">
           <div className="space-y-1.5">
-            <Label htmlFor="eu-name" className="text-xs">Nombre</Label>
+            <Label htmlFor="eu-name" className="text-xs font-medium">Nombre</Label>
             <Input id="eu-name" value={name} onChange={e => setName(e.target.value)} placeholder="Nombre completo" />
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="eu-role" className="text-xs">Rol</Label>
+            <Label htmlFor="eu-role" className="text-xs font-medium">Rol</Label>
             <select
               id="eu-role"
               className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -853,8 +853,8 @@ function EditUserModal({ tenantId, user, onClose, onSaved }: {
             </select>
           </div>
 
-          <div className="flex items-center justify-between rounded-md border px-3 py-2.5">
-            <div>
+          <div className="flex items-center justify-between rounded-lg border px-4 py-3 bg-muted/30">
+            <div className="space-y-0.5">
               <p className="text-sm font-medium">Activo</p>
               <p className="text-xs text-muted-foreground">{isActive ? "Puede iniciar sesión" : "Acceso bloqueado"}</p>
             </div>
@@ -874,7 +874,7 @@ function EditUserModal({ tenantId, user, onClose, onSaved }: {
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="eu-pwd" className="text-xs">
+            <Label htmlFor="eu-pwd" className="text-xs font-medium">
               Nueva contraseña <span className="text-muted-foreground font-normal">(opcional)</span>
             </Label>
             <div className="relative">
@@ -902,7 +902,7 @@ function EditUserModal({ tenantId, user, onClose, onSaved }: {
           )}
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="mt-2">
           <Button variant="outline" onClick={onClose}>Cancelar</Button>
           <Button onClick={() => saveM.mutate()} disabled={saveM.isPending || !name.trim()}>
             {saveM.isPending && <Loader2 className="h-4 w-4 animate-spin mr-1.5" />}
