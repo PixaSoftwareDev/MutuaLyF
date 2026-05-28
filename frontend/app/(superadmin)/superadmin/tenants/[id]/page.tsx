@@ -828,59 +828,41 @@ function EditUserModal({ tenantId, user, onClose, onSaved }: {
 
   return (
     <Dialog open onOpenChange={v => !v && onClose()}>
-      <DialogContent className="w-full max-w-md mx-4 sm:mx-auto">
+      <DialogContent className="w-full max-w-sm mx-4 sm:mx-auto">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Users className="h-4 w-4 text-primary" />
-            Editar usuario
-          </DialogTitle>
-          <p className="text-xs text-muted-foreground pt-0.5">{user.email}</p>
+          <DialogTitle>Editar usuario</DialogTitle>
+          <p className="text-xs text-muted-foreground">{user.email}</p>
         </DialogHeader>
 
-        <div className="space-y-4 py-1">
-          {/* Nombre */}
+        <div className="space-y-3">
           <div className="space-y-1.5">
-            <Label htmlFor="eu-name" className="text-xs font-medium">Nombre</Label>
-            <Input id="eu-name" value={name} onChange={e => setName(e.target.value)} placeholder="Nombre completo" className="h-9" />
+            <Label htmlFor="eu-name" className="text-xs">Nombre</Label>
+            <Input id="eu-name" value={name} onChange={e => setName(e.target.value)} placeholder="Nombre completo" />
           </div>
 
-          {/* Rol */}
           <div className="space-y-1.5">
-            <Label className="text-xs font-medium">Rol</Label>
-            <div className="grid grid-cols-2 gap-2">
-              {[
-                { value: "admin",    label: "Admin",    desc: "Acceso completo al panel" },
-                { value: "operator", label: "Operador", desc: "Solo consultas e historial" },
-              ].map(opt => (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() => setRole(opt.value)}
-                  className={cn(
-                    "flex flex-col items-start gap-0.5 rounded-lg border px-3 py-2.5 text-left transition-colors",
-                    role === opt.value
-                      ? "border-primary bg-primary/5 ring-1 ring-primary/20"
-                      : "border-border hover:bg-muted/50"
-                  )}
-                >
-                  <span className={cn("text-sm font-medium", role === opt.value ? "text-primary" : "")}>{opt.label}</span>
-                  <span className="text-[11px] text-muted-foreground leading-tight">{opt.desc}</span>
-                </button>
-              ))}
-            </div>
+            <Label htmlFor="eu-role" className="text-xs">Rol</Label>
+            <select
+              id="eu-role"
+              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              value={role}
+              onChange={e => setRole(e.target.value)}
+            >
+              <option value="admin">Admin</option>
+              <option value="operator">Operador</option>
+            </select>
           </div>
 
-          {/* Estado */}
-          <div className="flex items-center justify-between rounded-lg border px-3 py-2.5">
+          <div className="flex items-center justify-between rounded-md border px-3 py-2.5">
             <div>
-              <p className="text-sm font-medium">Estado</p>
+              <p className="text-sm font-medium">Activo</p>
               <p className="text-xs text-muted-foreground">{isActive ? "Puede iniciar sesión" : "Acceso bloqueado"}</p>
             </div>
             <button
               type="button"
               onClick={() => setIsActive(v => !v)}
               className={cn(
-                "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors",
                 isActive ? "bg-emerald-500" : "bg-muted-foreground/30"
               )}
             >
@@ -891,11 +873,9 @@ function EditUserModal({ tenantId, user, onClose, onSaved }: {
             </button>
           </div>
 
-          {/* Contraseña */}
           <div className="space-y-1.5">
-            <Label htmlFor="eu-pwd" className="text-xs font-medium">
-              Nueva contraseña{" "}
-              <span className="text-muted-foreground font-normal">(dejar vacío para no cambiar)</span>
+            <Label htmlFor="eu-pwd" className="text-xs">
+              Nueva contraseña <span className="text-muted-foreground font-normal">(opcional)</span>
             </Label>
             <div className="relative">
               <Input
@@ -904,7 +884,7 @@ function EditUserModal({ tenantId, user, onClose, onSaved }: {
                 value={password}
                 onChange={e => setPassword(e.target.value)}
                 placeholder="Mínimo 8 caracteres"
-                className="h-9 pr-9"
+                className="pr-9"
               />
               <button
                 type="button"
@@ -918,17 +898,15 @@ function EditUserModal({ tenantId, user, onClose, onSaved }: {
           </div>
 
           {error && (
-            <div className="flex items-center gap-2 rounded-md bg-destructive/10 border border-destructive/20 px-3 py-2">
-              <AlertTriangle className="h-3.5 w-3.5 text-destructive shrink-0" />
-              <p className="text-xs text-destructive">{error}</p>
-            </div>
+            <p className="text-xs text-destructive">{error}</p>
           )}
         </div>
 
-        <DialogFooter className="gap-2 pt-2">
-          <Button className="flex-1 sm:flex-none" onClick={() => saveM.mutate()} disabled={saveM.isPending || !name.trim()}>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancelar</Button>
+          <Button onClick={() => saveM.mutate()} disabled={saveM.isPending || !name.trim()}>
             {saveM.isPending && <Loader2 className="h-4 w-4 animate-spin mr-1.5" />}
-            Guardar cambios
+            Guardar
           </Button>
         </DialogFooter>
       </DialogContent>
