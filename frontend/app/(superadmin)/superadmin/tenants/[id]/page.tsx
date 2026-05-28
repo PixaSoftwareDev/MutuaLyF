@@ -926,7 +926,6 @@ function EditUserModal({ tenantId, user, onClose, onSaved }: {
         </div>
 
         <DialogFooter className="gap-2 pt-2">
-          <Button variant="outline" className="flex-1 sm:flex-none" onClick={onClose}>Cancelar</Button>
           <Button className="flex-1 sm:flex-none" onClick={() => saveM.mutate()} disabled={saveM.isPending || !name.trim()}>
             {saveM.isPending && <Loader2 className="h-4 w-4 animate-spin mr-1.5" />}
             Guardar cambios
