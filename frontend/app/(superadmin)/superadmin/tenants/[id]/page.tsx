@@ -805,12 +805,12 @@ function EditUserModal({ tenantId, user, onClose, onSaved }: {
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const [name, setName]           = useState(user.name);
-  const [role, setRole]           = useState(user.role);
-  const [isActive, setIsActive]   = useState(user.is_active);
-  const [password, setPassword]   = useState("");
-  const [showPwd, setShowPwd]     = useState(false);
-  const [error, setError]         = useState("");
+  const [name, setName]         = useState(user.name);
+  const [role, setRole]         = useState(user.role);
+  const [isActive, setIsActive] = useState(user.is_active);
+  const [password, setPassword] = useState("");
+  const [showPwd, setShowPwd]   = useState(false);
+  const [error, setError]       = useState("");
 
   const saveM = useMutation({
     mutationFn: () => api.tenants.updateUser(tenantId, user.id, {
@@ -837,44 +837,66 @@ function EditUserModal({ tenantId, user, onClose, onSaved }: {
           <p className="text-xs text-muted-foreground pt-0.5">{user.email}</p>
         </DialogHeader>
 
-        <div className="space-y-4 py-2">
+        <div className="space-y-4 py-1">
+          {/* Nombre */}
           <div className="space-y-1.5">
-            <Label htmlFor="eu-name">Nombre</Label>
-            <Input id="eu-name" value={name} onChange={e => setName(e.target.value)} placeholder="Nombre completo" />
+            <Label htmlFor="eu-name" className="text-xs font-medium">Nombre</Label>
+            <Input id="eu-name" value={name} onChange={e => setName(e.target.value)} placeholder="Nombre completo" className="h-9" />
           </div>
 
+          {/* Rol */}
           <div className="space-y-1.5">
-            <Label htmlFor="eu-role">Rol</Label>
-            <select
-              id="eu-role"
-              className="w-full text-sm border rounded-md px-3 py-2 bg-background h-9"
-              value={role}
-              onChange={e => setRole(e.target.value)}
-            >
-              <option value="admin">Admin</option>
-              <option value="operator">Operador</option>
-            </select>
+            <Label className="text-xs font-medium">Rol</Label>
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { value: "admin",    label: "Admin",    desc: "Acceso completo al panel" },
+                { value: "operator", label: "Operador", desc: "Solo consultas e historial" },
+              ].map(opt => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setRole(opt.value)}
+                  className={cn(
+                    "flex flex-col items-start gap-0.5 rounded-lg border px-3 py-2.5 text-left transition-colors",
+                    role === opt.value
+                      ? "border-primary bg-primary/5 ring-1 ring-primary/20"
+                      : "border-border hover:bg-muted/50"
+                  )}
+                >
+                  <span className={cn("text-sm font-medium", role === opt.value ? "text-primary" : "")}>{opt.label}</span>
+                  <span className="text-[11px] text-muted-foreground leading-tight">{opt.desc}</span>
+                </button>
+              ))}
+            </div>
           </div>
 
-          <div className="flex items-center justify-between rounded-lg border px-4 py-3">
+          {/* Estado */}
+          <div className="flex items-center justify-between rounded-lg border px-3 py-2.5">
             <div>
               <p className="text-sm font-medium">Estado</p>
-              <p className="text-xs text-muted-foreground">{isActive ? "El usuario puede iniciar sesión" : "Acceso bloqueado"}</p>
+              <p className="text-xs text-muted-foreground">{isActive ? "Puede iniciar sesión" : "Acceso bloqueado"}</p>
             </div>
             <button
               type="button"
               onClick={() => setIsActive(v => !v)}
               className={cn(
-                "relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none",
+                "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 isActive ? "bg-emerald-500" : "bg-muted-foreground/30"
               )}
             >
-              <span className={cn("inline-block h-4 w-4 rounded-full bg-white shadow transition-transform", isActive ? "translate-x-6" : "translate-x-1")} />
+              <span className={cn(
+                "inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform",
+                isActive ? "translate-x-6" : "translate-x-1"
+              )} />
             </button>
           </div>
 
+          {/* Contraseña */}
           <div className="space-y-1.5">
-            <Label htmlFor="eu-pwd">Nueva contraseña <span className="text-muted-foreground font-normal">(dejar vacío para no cambiar)</span></Label>
+            <Label htmlFor="eu-pwd" className="text-xs font-medium">
+              Nueva contraseña{" "}
+              <span className="text-muted-foreground font-normal">(dejar vacío para no cambiar)</span>
+            </Label>
             <div className="relative">
               <Input
                 id="eu-pwd"
@@ -882,25 +904,31 @@ function EditUserModal({ tenantId, user, onClose, onSaved }: {
                 value={password}
                 onChange={e => setPassword(e.target.value)}
                 placeholder="Mínimo 8 caracteres"
-                className="pr-10"
+                className="h-9 pr-9"
               />
               <button
                 type="button"
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                 onClick={() => setShowPwd(v => !v)}
+                tabIndex={-1}
               >
                 {showPwd ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
               </button>
             </div>
           </div>
 
-          {error && <p className="text-xs text-destructive">{error}</p>}
+          {error && (
+            <div className="flex items-center gap-2 rounded-md bg-destructive/10 border border-destructive/20 px-3 py-2">
+              <AlertTriangle className="h-3.5 w-3.5 text-destructive shrink-0" />
+              <p className="text-xs text-destructive">{error}</p>
+            </div>
+          )}
         </div>
 
-        <DialogFooter className="gap-2">
-          <Button variant="outline" onClick={onClose}>Cancelar</Button>
-          <Button onClick={() => saveM.mutate()} disabled={saveM.isPending || !name.trim()}>
-            {saveM.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
+        <DialogFooter className="gap-2 pt-2">
+          <Button variant="outline" className="flex-1 sm:flex-none" onClick={onClose}>Cancelar</Button>
+          <Button className="flex-1 sm:flex-none" onClick={() => saveM.mutate()} disabled={saveM.isPending || !name.trim()}>
+            {saveM.isPending && <Loader2 className="h-4 w-4 animate-spin mr-1.5" />}
             Guardar cambios
           </Button>
         </DialogFooter>
