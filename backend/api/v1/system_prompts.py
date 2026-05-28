@@ -165,7 +165,7 @@ async def list_templates(
                    COUNT(a.id) FILTER (WHERE a.is_active) AS active_count
             FROM system_prompt_templates t
             LEFT JOIN tenant_prompt_assignments a ON a.template_id = t.id
-            WHERE t.is_system = FALSE
+            WHERE t.is_system = FALSE AND t.is_active = TRUE
             GROUP BY t.id
             ORDER BY t.created_at DESC
         """))
@@ -293,21 +293,20 @@ async def delete_template(
     template_id: str,
     current_user: CurrentUser = Depends(require_super_admin),
 ):
-    """Soft-delete: marks inactive and deactivates all assignments."""
+    """Hard-delete: removes template and all its assignments."""
     async with get_pg_session(None) as session:
         # Collect tenants to invalidate before deleting
         active = await session.execute(text("""
             SELECT tenant_id FROM tenant_prompt_assignments
-            WHERE template_id = :tid AND is_active = TRUE
+            WHERE template_id = :tid
         """), {"tid": template_id})
         affected_tenants = [r["tenant_id"] for r in active.mappings().all()]
 
         await session.execute(text("""
-            UPDATE system_prompt_templates SET is_active = FALSE, updated_at = NOW()
-            WHERE id = :id
+            DELETE FROM tenant_prompt_assignments WHERE template_id = :id
         """), {"id": template_id})
         await session.execute(text("""
-            UPDATE tenant_prompt_assignments SET is_active = FALSE WHERE template_id = :id
+            DELETE FROM system_prompt_templates WHERE id = :id AND is_system = FALSE
         """), {"id": template_id})
 
     for tid in affected_tenants:
