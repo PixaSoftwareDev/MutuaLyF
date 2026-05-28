@@ -187,6 +187,11 @@ async def handle_query(
     is_ambiguous = intent_result is not None and getattr(intent_result, "is_ambiguous", False)
     second_label = getattr(intent_result, "second_label", None) if intent_result else None
 
+    # Load tenant config early — needed by rewriter (bot_description) and context builder.
+    # Redis-cached: <5ms, safe to load here before retrieval.
+    tenant_config = await _get_tenant_config(tenant_id)
+    bot_description: str = tenant_config.get("bot_description") or ""
+
     # ── Step 3a: Conversational query enrichment (legacy keyword merge) ────────
     # Short/elliptical queries ("¿y para el primer año?", "¿cuánto?", "¿sí?")
     # are semantically empty out of context. Append the last user question and
@@ -206,8 +211,13 @@ async def handle_query(
     # Si feature flag off o LLM falla → fallback a query original (degraded).
     if settings.query_rewriting_enabled:
         from services.query_rewriter import rewrite_query
-        rewrite_result = await rewrite_query(retrieval_question, conversation_history)
+        rewrite_result = await rewrite_query(
+            retrieval_question,
+            conversation_history,
+            bot_description=bot_description or None,
+        )
         all_queries = rewrite_result.all_queries
+        rewriter_expanded = not rewrite_result.skipped and not rewrite_result.fallback and len(all_queries) > 1
         if rewrite_result.skipped:
             logger.debug("query_rewrite_skipped_heuristic query=%r", retrieval_question[:80])
         elif rewrite_result.used_cache:
@@ -216,13 +226,13 @@ async def handle_query(
             logger.warning("query_rewrite_fallback_to_original query=%r", retrieval_question[:80])
         else:
             logger.info(
-                "query_rewrite_applied original=%r main=%r variants=%d",
-                retrieval_question[:60], rewrite_result.main[:80], len(rewrite_result.variants),
+                "query_rewrite_applied original=%r main=%r variants=%d expanded=%s",
+                retrieval_question[:60], rewrite_result.main[:80],
+                len(rewrite_result.variants), rewriter_expanded,
             )
-        # Si fue skipped o fallback, all_queries = [retrieval_question] (single query) →
-        # retrieve_multi_query delega a retrieve() directamente, sin overhead.
         retrieval_task = retrieve_multi_query(all_queries, tenant_id)
     else:
+        rewriter_expanded = False
         retrieval_task = retrieve(retrieval_question, tenant_id)
 
     neo4j_task = query_entities(tenant_id, entity_names) if use_neo4j else _empty_list()
@@ -278,11 +288,10 @@ async def handle_query(
             )
         qdrant_chunks = qdrant_list
 
-    # ── Step 4: Load configs + personality template (all Redis-cached) ──────────
-    tenant_config = await _get_tenant_config(tenant_id)
+    # ── Step 4: Load remaining configs + personality template ────────────────────
+    # tenant_config already loaded above (before rewriter). Extract remaining fields.
     min_score: float = tenant_config.get("min_retrieval_score", 0.55)
-    bot_scope: str       = tenant_config.get("bot_scope") or ""
-    bot_description: str = tenant_config.get("bot_description") or ""
+    bot_scope: str   = tenant_config.get("bot_scope") or ""
 
     personality, anti_hallucination = await asyncio.gather(
         _get_active_template(tenant_id),
@@ -588,9 +597,16 @@ async def handle_query(
     QUERIES_TOTAL.labels(tenant_id=tenant_id, complexity=complexity, from_cache="false").inc()
     QUERY_DURATION.labels(tenant_id=tenant_id, complexity=complexity).observe(latency_ms)
 
+    # ── Feature value metrics ─────────────────────────────────────────────────
+    neo4j_contributed = bool(neo4j_records) and any(
+        c.score == 1.0 and c.metadata.get("_pre_neo4j_score", -1) != 1.0
+        for c in (qdrant_chunks or [])
+    )
     logger.info(
-        "query_complete tenant_id=%s latency_ms=%d complexity=%s intent=%s",
+        "query_complete tenant_id=%s latency_ms=%d complexity=%s intent=%s "
+        "sources=%d neo4j_contributed=%s rewriter_expanded=%s low_confidence=%s",
         tenant_id, latency_ms, complexity, response["intent_label"],
+        len(sources), neo4j_contributed, rewriter_expanded, low_confidence_fallback,
     )
     return response
 

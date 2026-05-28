@@ -20,6 +20,9 @@ async def query(
     current_user: CurrentUser = Depends(get_current_user),
 ):
     """Process a natural language question against the tenant's knowledge base."""
+    from core.plan_limits import enforce_query_limit
+    await enforce_query_limit(tenant_id)
+
     from services.orchestrator import handle_query
 
     result = await handle_query(

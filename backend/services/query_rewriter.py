@@ -107,6 +107,8 @@ def should_rewrite(query: str) -> bool:
 
 
 # ── Prompt template (genérico, multi-tenant, multi-idioma) ─────────────────
+# Sin ejemplos sectoriales hardcodeados — el contexto de la organización
+# se inyecta dinámicamente vía bot_description cuando está disponible.
 
 _REWRITE_SYSTEM_PROMPT = """\
 Sos un módulo de reformulación de queries para un sistema de búsqueda semántica
@@ -114,34 +116,23 @@ sobre documentos institucionales.
 
 Tu tarea: dado una consulta del usuario y el historial de la conversación, devolver:
 1. Una versión REESCRITA y ENRIQUECIDA de la consulta, agregando contexto del
-   historial si la consulta es elíptica (ej: "¿dónde está?" + history sobre Mutual X
-   → "¿dónde está la Mutual X?").
+   historial si la consulta es elíptica (ej: "¿dónde está?" sin contexto
+   → "¿dónde está la sede de la organización?").
 2. Hasta {n} VARIANTES con sinónimos y formas alternativas de expresar la misma
-   intención. Cada variante debe ser una query autosuficiente, sin pronombres ni
-   referencias ambiguas.
+   intención. Cada variante debe ser autosuficiente, sin pronombres ni referencias ambiguas.
 
 Reglas:
 - Mantené el idioma de la consulta original.
 - No inventes datos que no estén en la consulta ni en el historial.
 - No respondas la pregunta, solo reformulala.
 - Si la consulta ya es específica y autosuficiente (>20 palabras), la main = query original.
-- Usá SINÓNIMOS SECTORIALES cuando corresponda. Ejemplos de expansión:
-  * "tercerizar IT" → "contratar soporte IT externo mesa de ayuda servicio administrado"
-  * "hosting" → "servidor cloud infraestructura nube alojamiento"
-  * "reportar brecha/vulnerabilidad de seguridad" → "incidente seguridad contacto equipo crisis emergencia"
-  * "presencia internacional" → "oficinas en el exterior representación comercial global"
-  * "prueba gratis / trial" → "período de prueba demo gratuito plan free"
-  * "programadores / devs" → "desarrolladores NovaDev equipo de desarrollo"
-  * "contratar devs / programación" → "desarrollo de software a medida cotización proyecto"
-  * "capacitar equipo" → "certificaciones cursos academia formación tecnológica"
-  * "escalar ticket urgente" → "prioridad alta incidente crítico escalado soporte urgente"
-  * "número de emergencia 24/7" → "contacto crisis teléfono emergencia línea guardia"
-  * "cancelar contrato / servicio" → "política de cancelación baja de servicio reembolso"
-  * "cómo me uno / convierto en partner" → "inscripción programa de partners requisitos niveles"
+- Para las variantes: usá sinónimos naturales del dominio de la organización descrita abajo.{org_context}
 
 Formato de salida: JSON exacto, sin texto adicional, sin markdown:
 {{"main": "...", "variants": ["...", "..."]}}
 """
+
+_ORG_CONTEXT_BLOCK = "\n\nContexto de la organización (usalo para generar sinónimos relevantes):\n{bot_description}"
 
 
 def _build_history_block(history: list[tuple[str, str]] | None, max_turns: int = 3) -> str:
@@ -217,6 +208,7 @@ def _parse_llm_response(raw: str) -> dict | None:
 async def rewrite_query(
     query: str,
     history: list[tuple[str, str]] | None = None,
+    bot_description: str | None = None,
 ) -> RewriteResult:
     """Reescribe la query con contexto del historial + variantes para multi-query retrieval.
 
@@ -250,7 +242,12 @@ async def rewrite_query(
 
     # LLM rewrite
     n_variants = settings.query_rewriting_num_variants
-    system_prompt = _REWRITE_SYSTEM_PROMPT.format(n=n_variants)
+    org_context = (
+        _ORG_CONTEXT_BLOCK.format(bot_description=bot_description[:400])
+        if bot_description and bot_description.strip()
+        else ""
+    )
+    system_prompt = _REWRITE_SYSTEM_PROMPT.format(n=n_variants, org_context=org_context)
     history_block = _build_history_block(history)
     user_msg = (
         f"Historial reciente:\n{history_block}\n\n"

@@ -638,6 +638,10 @@ async def ingest_document(
             detail=f"File exceeds maximum allowed size of {_MAX_FILE_BYTES // (1024*1024)} MB",
         )
 
+    # Plan limit: document count + per-file size cap
+    from core.plan_limits import enforce_document_limit
+    await enforce_document_limit(tenant_id, len(content))
+
     # ── Compute file hashes for duplicate detection ───────────────────────────
     # Run in thread pool — PDF/DOCX parsing is CPU-bound and would block the event loop.
     import asyncio as _asyncio
