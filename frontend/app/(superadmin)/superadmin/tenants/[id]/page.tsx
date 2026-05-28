@@ -828,7 +828,7 @@ function EditUserModal({ tenantId, user, onClose, onSaved }: {
 
   return (
     <Dialog open onOpenChange={v => !v && onClose()}>
-      <DialogContent className="w-full max-w-sm mx-4 sm:mx-auto p-6">
+      <DialogContent className="sm:max-w-sm p-6 w-[calc(100%-2rem)]">
         <DialogHeader className="mb-2">
           <DialogTitle>Editar usuario</DialogTitle>
           <p className="text-xs text-muted-foreground">{user.email}</p>
