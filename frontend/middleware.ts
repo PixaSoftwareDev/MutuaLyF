@@ -11,7 +11,7 @@ const ROLE_PREFIXES: Record<string, string[]> = {
 // Nota: /api/ entero es público porque la auth de las APIs vive en el backend
 // (JWT Bearer header). Si el middleware bloqueara /api/v1/auth/login el frontend
 // nunca podría loguearse en una sesión nueva sin cookie todavía.
-const PUBLIC_PREFIXES = ["/login", "/chat", "/forbidden", "/_next", "/favicon", "/api/"];
+const PUBLIC_PREFIXES = ["/login", "/loginSuperadmin", "/chat", "/forbidden", "/_next", "/favicon", "/api/"];
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
