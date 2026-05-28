@@ -119,3 +119,4 @@ backend/tests/quality/reingest/
 
 # Portainer admin password bcrypt hash (generated on VPS)
 .portainer_admin_password
+report_*.json

@@ -240,7 +240,7 @@ def _ms_color(ms):
     if ms < 4000: return YELLOW
     return RED
 
-def _row(i, r, label=""):
+def _row(i, r, label="", show_answer=False):
     ms   = r.get("ms", 0)
     err_ = "error" in r
     if err_:
@@ -256,19 +256,39 @@ def _row(i, r, label=""):
         icon  = _c(GREEN,  " OK")
         ms_s  = _c(_ms_color(ms), f"{ms:>5}ms")
     cache = _c(BLUE, "CACHE") if r.get("cache") else "     "
-    q     = r["q"][:62] + ("…" if len(r["q"]) > 62 else "")
+    q     = r["q"][:65] + ("…" if len(r["q"]) > 65 else "")
     extra = f"  {_c(DIM, label)}" if label else ""
     print(f"  {i:>2}. [{icon}] {ms_s} {cache}  {q}{extra}")
     if err_:
         print(f"       {_c(RED, str(r.get('detail',''))[:80])}")
+    elif show_answer:
+        answer = (r.get("answer") or "").strip()
+        if not answer:
+            print(f"       {_c(YELLOW,'(sin respuesta)')}")
+        else:
+            # Mostrar respuesta en líneas de max 70 chars con indent
+            words = answer.split()
+            line, lines = [], []
+            for w in words:
+                if sum(len(x)+1 for x in line) + len(w) > 70:
+                    lines.append(" ".join(line))
+                    line = [w]
+                else:
+                    line.append(w)
+            if line: lines.append(" ".join(line))
+            for l in lines[:4]:   # máx 4 líneas por respuesta
+                print(f"       {_c(DIM, l)}")
+            if len(lines) > 4:
+                print(f"       {_c(DIM,'[…]')}")
+        print()
 
 
-def _print_round(title, results, label_fn=None):
+def _print_round(title, results, label_fn=None, show_answers=False):
     sep()
     print(f"  {_c(BOLD+WHITE, title)}")
     sep()
     for i, r in enumerate(results, 1):
-        _row(i, r, label_fn(r) if label_fn else "")
+        _row(i, r, label_fn(r) if label_fn else "", show_answer=show_answers)
     sep()
     st = _stats(results)
     if not st:
@@ -391,7 +411,7 @@ def main():
     for i, q in enumerate(questions, 1):
         print(f"  {i}/{n}…", end="\r", flush=True)
         cold.append(_query_one(args.url, token, args.tenant, q))
-    cold_st = _print_round(f"COLD CACHE — {label}", cold)
+    cold_st = _print_round(f"COLD CACHE — {label}", cold, show_answers=True)
 
     # ── 4b. Carga concurrente ─────────────────────────────────────────────────
     print(f"\n  {_c(RED+BOLD,'⚡ RONDA 2 — CARGA CONCURRENTE')}  "
