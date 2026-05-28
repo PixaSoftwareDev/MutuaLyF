@@ -59,10 +59,15 @@ echo "▶ 5/5  Migraciones Alembic en staging..."
 docker exec ia_backend_staging alembic -c /app/db/alembic.ini upgrade head
 
 # Provisionar tenant "staging" solo si no existe
+# Leemos las credenciales del .env y consultamos directamente a postgres
 echo ""
 echo "       Verificando tenant 'staging'..."
-TENANT_EXISTS=$(docker exec ia_postgres psql -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-platform}" -tAc \
-    "SELECT COUNT(*) FROM tenants WHERE id='staging'" 2>/dev/null || echo "0")
+PG_USER=$(grep -E '^POSTGRES_USER=' .env | cut -d= -f2 | tr -d '"' | tr -d "'")
+PG_DB=$(grep -E '^POSTGRES_DB=' .env | cut -d= -f2 | tr -d '"' | tr -d "'")
+PG_USER="${PG_USER:-postgres}"
+PG_DB="${PG_DB:-platform}"
+TENANT_EXISTS=$(docker exec ia_postgres psql -U "$PG_USER" -d "$PG_DB" -tAc \
+    "SELECT COUNT(*) FROM tenants WHERE id='staging'" 2>/dev/null | tr -d ' ' || echo "0")
 
 if [ "$TENANT_EXISTS" = "0" ]; then
     echo "       Provisionando tenant 'staging' por primera vez..."
