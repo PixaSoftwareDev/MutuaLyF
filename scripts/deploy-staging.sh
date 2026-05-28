@@ -58,30 +58,32 @@ echo ""
 echo "▶ 5/5  Migraciones Alembic en staging..."
 docker exec ia_backend_staging alembic -c /app/db/alembic.ini upgrade head
 
-# Provisionar tenant "staging" solo si no existe
-# Leemos las credenciales del .env y consultamos directamente a postgres
+# Provisionar tenant "staging" — idempotente: si ya existe lo ignora
 echo ""
-echo "       Verificando tenant 'staging'..."
-PG_USER=$(grep -E '^POSTGRES_USER=' .env | cut -d= -f2 | tr -d '"' | tr -d "'")
-PG_DB=$(grep -E '^POSTGRES_DB=' .env | cut -d= -f2 | tr -d '"' | tr -d "'")
-PG_USER="${PG_USER:-postgres}"
-PG_DB="${PG_DB:-platform}"
-TENANT_EXISTS=$(docker exec ia_postgres psql -U "$PG_USER" -d "$PG_DB" -tAc \
-    "SELECT COUNT(*) FROM tenants WHERE id='staging'" 2>/dev/null | tr -d ' ' || echo "0")
+echo "       Provisionando tenant 'staging' (idempotente)..."
+PROV_EXIT=0
+docker exec ia_backend_staging python provision_tenant.py \
+    --id staging \
+    --name "Staging" \
+    --plan professional \
+    --admin-email staging@interno.local \
+    --admin-password "StagingPass123!" \
+    --admin-name "Admin Staging" 2>&1 || PROV_EXIT=$?
 
-if [ "$TENANT_EXISTS" = "0" ]; then
-    echo "       Provisionando tenant 'staging' por primera vez..."
-    docker exec ia_backend_staging python provision_tenant.py \
-        --id staging \
-        --name "Staging" \
-        --plan professional \
-        --admin-email staging@interno.local \
-        --admin-password "StagingPass123!" \
-        --admin-name "Admin Staging"
+if [ "$PROV_EXIT" -eq 0 ]; then
     echo "       ✓ Tenant 'staging' creado"
-    echo "       ✓ Login staging: staging@interno.local / StagingPass123!"
+    echo "       ✓ Login: staging@interno.local / StagingPass123!"
 else
-    echo "       ✓ Tenant 'staging' ya existe, saltando"
+    # exit != 0 puede ser "ya existe" — lo verificamos
+    PG_USER=$(grep -E '^POSTGRES_USER=' .env | head -1 | cut -d= -f2 | xargs)
+    PG_DB=$(grep -E '^POSTGRES_DB=' .env | head -1 | cut -d= -f2 | xargs)
+    if docker exec ia_postgres psql -U "$PG_USER" -d "$PG_DB" -tAc \
+           "SELECT 1 FROM tenants WHERE id='staging'" 2>/dev/null | grep -q 1; then
+        echo "       ✓ Tenant 'staging' ya existía, saltando"
+    else
+        echo "  ✗ Error provisionando tenant staging (exit $PROV_EXIT)"
+        exit "$PROV_EXIT"
+    fi
 fi
 
 # ── Resumen ───────────────────────────────────────
