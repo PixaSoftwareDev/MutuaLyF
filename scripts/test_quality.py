@@ -1,29 +1,40 @@
 #!/usr/bin/env python3
 """
-test_quality.py — Test de velocidad y calidad de respuestas sobre un documento real.
+test_quality.py — Benchmark completo de velocidad, calidad y concurrencia.
 
-Qué hace:
-  1. Login con las credenciales que pasás
-  2. Sube el documento al tenant que elegís
-  3. Espera hasta que esté indexado
-  4. Genera automáticamente N preguntas relevantes usando Groq (basadas en el texto real del doc)
-  5. Ronda 1 (cold cache): lanza todas las preguntas y mide latencia + calidad
-  6. Ronda 2 (warm cache): repite las mismas preguntas y mide cache hits
-  7. Imprime un reporte completo con stats de velocidad y calidad
+Qué mide:
+  • Latencia p50 / p95 / p99 / max
+  • Calidad: % con fuentes, % baja confianza, % sin respuesta
+  • Cache: hit rate y speedup real
+  • Concurrencia: qué pasa con N queries simultáneas
+  • Ingesta: tiempo real y chunks generados
 
-Uso:
-  python3 scripts/test_quality.py \\
-    --url http://localhost:8080 \\
-    --email admin@miempresa.com \\
-    --password MiPassword123! \\
-    --tenant miempresa \\
-    --file /ruta/al/documento.pdf \\
-    --n-queries 20
+Flujo:
+  1. Login + upload + esperar indexación
+  2. Generar preguntas con Groq (o cargar desde --questions)
+  3. Ronda COLD  — queries secuenciales, sin cache previo
+  4. Ronda CARGA — N queries concurrentes (default: 5)
+  5. Ronda WARM  — mismas queries secuenciales, mide cache
+  6. Reporte final + SLA pass/fail + JSON exportado
 
-  # Con preguntas propias (una por línea en un .txt):
-  python3 scripts/test_quality.py ... --questions mis_preguntas.txt
+Uso típico (dos consolas simultáneas):
 
-Requisitos: pip install httpx groq (ya están en requirements.txt del proyecto)
+  Consola 1 — staging:
+    python3 scripts/test_quality.py \\
+      --url http://localhost:8080 \\
+      --email staging@interno.local --password StagingPass123! \\
+      --tenant staging --file doc.pdf \\
+      --save-questions /tmp/preguntas.txt
+
+  Consola 2 — producción (mismas preguntas):
+    python3 scripts/test_quality.py \\
+      --url http://200.58.109.110 \\
+      --email admin@mutual.com --password AdminPass123! \\
+      --tenant mutual \\
+      --questions /tmp/preguntas.txt
+
+  → Corrés ambas al mismo tiempo. La diferencia de latencia en prod
+    muestra el impacto real de tener staging en el mismo VPS.
 """
 
 import argparse
@@ -31,396 +42,484 @@ import json
 import os
 import sys
 import time
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from statistics import mean, median, stdev
+from statistics import mean, median, stdev, quantiles
 
 # ── colores ANSI ──────────────────────────────────────────────────────────────
-G  = "\033[92m"   # verde
-Y  = "\033[93m"   # amarillo
-R  = "\033[91m"   # rojo
-B  = "\033[94m"   # azul
-W  = "\033[97m"   # blanco
-DIM = "\033[2m"   # gris
-RST = "\033[0m"   # reset
+GREEN  = "\033[92m"
+YELLOW = "\033[93m"
+RED    = "\033[91m"
+BLUE   = "\033[94m"
+CYAN   = "\033[96m"
+WHITE  = "\033[97m"
+DIM    = "\033[2m"
+BOLD   = "\033[1m"
+RST    = "\033[0m"
 
-def _c(color: str, text: str) -> str:
-    return f"{color}{text}{RST}"
+def _c(col, txt): return f"{col}{txt}{RST}"
+def ok(m):   print(f"  {_c(GREEN,'✓')} {m}")
+def warn(m): print(f"  {_c(YELLOW,'!')} {m}")
+def err(m):  print(f"  {_c(RED,'✗')} {m}", file=sys.stderr)
+def hdr(m):  print(f"\n{_c(CYAN,'▶')} {_c(BOLD+WHITE, m)}")
+def sep():   print(f"  {'─'*70}")
+def info(m): print(f"  {_c(DIM,'·')} {m}")
 
-def ok(msg):   print(f"  {_c(G,'✓')} {msg}")
-def warn(msg): print(f"  {_c(Y,'!')} {msg}")
-def err(msg):  print(f"  {_c(R,'✗')} {msg}", file=sys.stderr)
-def hdr(msg):  print(f"\n{_c(B,'══')} {_c(W, msg)} {_c(B,'══')}")
-def info(msg): print(f"  {_c(DIM,'·')} {msg}")
+ENV_LABEL = ""  # se setea en main()
 
 
-# ── HTTP helpers ──────────────────────────────────────────────────────────────
+# ── HTTP ──────────────────────────────────────────────────────────────────────
 
-def _login(session, base_url: str, email: str, password: str, tenant_id: str) -> str:
-    """Devuelve access_token."""
+def _login(base_url, email, password, tenant_id):
     import httpx
-    headers = {"X-Tenant-ID": tenant_id}
-    r = session.post(
+    r = httpx.post(
         f"{base_url}/api/v1/auth/login",
         data={"username": email, "password": password},
-        headers=headers,
-        timeout=30,
+        headers={"X-Tenant-ID": tenant_id},
+        timeout=30, verify=False,
     )
     if r.status_code != 200:
-        err(f"Login fallido ({r.status_code}): {r.text[:300]}")
+        err(f"Login fallido {r.status_code}: {r.text[:300]}")
         sys.exit(1)
     return r.json()["access_token"]
 
 
-def _upload(session, base_url: str, token: str, tenant_id: str, file_path: Path) -> str:
-    """Sube el documento y devuelve document_id."""
+def _upload(base_url, token, tenant_id, file_path):
     import httpx
     headers = {"Authorization": f"Bearer {token}", "X-Tenant-ID": tenant_id}
     with open(file_path, "rb") as f:
-        r = session.post(
+        r = httpx.post(
             f"{base_url}/api/v1/ingest",
             headers=headers,
             files={"file": (file_path.name, f)},
-            timeout=60,
+            timeout=60, verify=False,
         )
+    if r.status_code == 409:
+        dup = r.json().get("detail", {}).get("duplicate_of", {})
+        doc_id = dup.get("id")
+        if doc_id:
+            warn(f"Ya existe → reutilizando {doc_id[:8]}…")
+            return doc_id, True
     if r.status_code not in (200, 202):
-        if r.status_code == 409:
-            doc_id = r.json().get("detail", {}).get("duplicate_of", {}).get("id")
-            if doc_id:
-                warn(f"Documento ya existe → usando existente: {doc_id}")
-                return doc_id
-        err(f"Upload fallido ({r.status_code}): {r.text[:400]}")
+        err(f"Upload fallido {r.status_code}: {r.text[:400]}")
         sys.exit(1)
-    return r.json()["document_id"]
+    return r.json()["document_id"], False
 
 
-def _wait_ready(session, base_url: str, token: str, tenant_id: str, doc_id: str, timeout: int = 300) -> dict:
-    """Espera hasta que el doc esté listo. Devuelve el status final."""
+def _poll_ready(base_url, token, tenant_id, doc_id, timeout=300):
     import httpx
     headers = {"Authorization": f"Bearer {token}", "X-Tenant-ID": tenant_id}
     deadline = time.monotonic() + timeout
-    last_status = "pending"
-    dots = 0
+    n = 0
     while time.monotonic() < deadline:
-        r = session.get(
-            f"{base_url}/api/v1/documents/{doc_id}/status",
-            headers=headers,
-            timeout=10,
-        )
+        r = httpx.get(f"{base_url}/api/v1/documents/{doc_id}/status",
+                      headers=headers, timeout=10, verify=False)
         if r.status_code == 200:
-            data = r.json()
-            last_status = data.get("status", "pending")
-            if last_status == "ready":
-                return data
-            if last_status == "failed":
-                err(f"Ingesta falló para documento {doc_id}")
-                sys.exit(1)
-        dots += 1
-        print(f"\r  {_c(Y,'⏳')} Procesando{'.' * (dots % 4)}   ", end="", flush=True)
+            st = r.json()
+            status = st.get("status", "pending")
+            if status == "ready":   return st
+            if status == "failed":
+                err("La ingesta falló en el servidor"); sys.exit(1)
+        n += 1
+        print(f"\r  {_c(YELLOW,'⏳')} procesando{'.'*(n%4)}   ", end="", flush=True)
         time.sleep(3)
-    err(f"Timeout esperando ingesta ({timeout}s). Último estado: {last_status}")
-    sys.exit(1)
+    err(f"Timeout ({timeout}s) esperando indexación"); sys.exit(1)
 
 
-def _query(session, base_url: str, token: str, tenant_id: str, question: str) -> dict:
-    """Lanza una consulta y devuelve el resultado con latencia medida localmente."""
+def _query_one(base_url, token, tenant_id, question):
+    """Lanza una query y devuelve dict con métricas."""
     import httpx
     headers = {"Authorization": f"Bearer {token}", "X-Tenant-ID": tenant_id}
     t0 = time.monotonic()
-    r = session.post(
-        f"{base_url}/api/v1/query",
-        headers=headers,
-        json={"question": question, "language": "es"},
-        timeout=60,
-    )
-    elapsed_ms = int((time.monotonic() - t0) * 1000)
-    if r.status_code != 200:
-        return {"error": r.status_code, "detail": r.text[:200], "elapsed_ms": elapsed_ms}
-    data = r.json()
-    data["elapsed_ms"] = elapsed_ms
-    return data
+    try:
+        r = httpx.post(
+            f"{base_url}/api/v1/query",
+            headers=headers,
+            json={"question": question, "language": "es"},
+            timeout=60, verify=False,
+        )
+        elapsed = int((time.monotonic() - t0) * 1000)
+        if r.status_code != 200:
+            return {"q": question, "error": r.status_code, "ms": elapsed,
+                    "detail": r.text[:200]}
+        d = r.json()
+        return {
+            "q":          question,
+            "ms":         elapsed,
+            "server_ms":  d.get("latency_ms", elapsed),
+            "sources":    len(d.get("sources") or []),
+            "cache":      d.get("from_cache", False),
+            "low_conf":   d.get("low_confidence", False),
+            "answer":     (d.get("answer") or "")[:300],
+            "intent":     d.get("intent_label"),
+        }
+    except Exception as exc:
+        elapsed = int((time.monotonic() - t0) * 1000)
+        return {"q": question, "error": str(exc), "ms": elapsed}
 
 
-# ── Generación automática de preguntas con Groq ───────────────────────────────
+# ── Generación de preguntas ───────────────────────────────────────────────────
 
-def _generate_questions(text: str, n: int, groq_key: str) -> list[str]:
-    """Usa Groq para generar N preguntas variadas sobre el documento."""
+def _read_text(file_path):
+    try:
+        if file_path.suffix.lower() == ".pdf":
+            import fitz
+            return "\n".join(p.get_text() for p in fitz.open(str(file_path)))
+        if file_path.suffix.lower() == ".docx":
+            import docx
+            return "\n".join(p.text for p in docx.Document(str(file_path)).paragraphs)
+        return file_path.read_text(errors="ignore")
+    except Exception:
+        return f"Documento: {file_path.name}"
+
+
+def _generate_questions(text, n, groq_key):
     from groq import Groq
     client = Groq(api_key=groq_key)
-
-    excerpt = text[:6000]  # primeros ~6000 chars son suficientes para generar preguntas
-
-    system = (
-        "Sos un evaluador de sistemas de búsqueda de información institucional. "
-        "Tu tarea es generar preguntas de prueba variadas y realistas sobre el documento dado."
-    )
-    user = f"""Documento (fragmento):
----
-{excerpt}
----
-
-Generá exactamente {n} preguntas de prueba en español. Deben ser:
-- Variadas: mezcla de preguntas simples (1 dato puntual), preguntas de relación (A y B), \
-preguntas de procedimiento (¿cómo se hace X?), preguntas de lista (¿cuáles son los...?), \
-y 2-3 preguntas que probablemente NO tengan respuesta en el documento (para probar que el bot no alucina).
-- Realistas: como las haría un empleado o cliente de la organización.
-- Específicas: sin pronombres vagos, autosuficientes.
-
-Respondé SOLO con un JSON array de strings, sin texto adicional:
-["pregunta 1", "pregunta 2", ...]"""
-
-    r = client.chat.completions.create(
+    excerpt = text[:6000]
+    resp = client.chat.completions.create(
         model="llama-3.3-70b-versatile",
-        messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
-        temperature=0.7,
-        max_tokens=1500,
+        messages=[
+            {"role": "system", "content":
+             "Sos un evaluador experto de sistemas de búsqueda institucional. "
+             "Generás preguntas de prueba realistas y variadas."},
+            {"role": "user", "content":
+             f"Documento (fragmento):\n---\n{excerpt}\n---\n\n"
+             f"Generá exactamente {n} preguntas de prueba en español. Criterios:\n"
+             f"- 40% preguntas directas sobre datos concretos del documento\n"
+             f"- 20% preguntas de proceso/procedimiento ('¿cómo se hace...?')\n"
+             f"- 20% preguntas de lista ('¿cuáles son los...?')\n"
+             f"- 10% preguntas ambiguas o con sinónimos distintos a los del texto\n"
+             f"- 10% preguntas que NO tienen respuesta en el documento "
+             f"(para medir si el bot alucina)\n\n"
+             f"Respondé SOLO con JSON array de strings:\n"
+             f'["pregunta 1", "pregunta 2", ...]'},
+        ],
+        temperature=0.7, max_tokens=1500,
     )
-    raw = r.choices[0].message.content.strip()
-    # tolerar markdown code blocks
+    raw = resp.choices[0].message.content.strip()
     if raw.startswith("```"):
         raw = raw.split("```")[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
+        if raw.startswith("json"): raw = raw[4:]
     try:
-        questions = json.loads(raw)
-        return [str(q).strip() for q in questions if str(q).strip()][:n]
+        qs = json.loads(raw)
+        return [str(q).strip() for q in qs if str(q).strip()][:n]
     except Exception:
-        err(f"No pude parsear las preguntas generadas:\n{raw[:500]}")
+        err(f"No pude parsear las preguntas:\n{raw[:400]}")
         sys.exit(1)
 
 
-# ── Reporte ───────────────────────────────────────────────────────────────────
+# ── Análisis de una ronda ─────────────────────────────────────────────────────
 
-def _latency_color(ms: int) -> str:
-    if ms < 500:   return G
-    if ms < 2000:  return G
-    if ms < 5000:  return Y
-    return R
-
-def _quality_icon(result: dict) -> str:
-    if "error" in result:    return _c(R, "ERR")
-    n_sources = len(result.get("sources") or [])
-    low_conf  = result.get("low_confidence", False)
-    if n_sources == 0:       return _c(Y, " ∅ ")  # sin fuentes
-    if low_conf:             return _c(Y, "LOW")   # baja confianza
-    return _c(G, " OK")
-
-
-def _print_round(label: str, results: list[dict], questions: list[str]) -> dict:
-    latencies = [r.get("elapsed_ms", 0) for r in results if "error" not in r]
-    cache_hits = sum(1 for r in results if r.get("from_cache"))
-    errors     = sum(1 for r in results if "error" in r)
-    no_sources = sum(1 for r in results if not r.get("sources") and "error" not in r)
-    low_conf   = sum(1 for r in results if r.get("low_confidence"))
-
-    print(f"\n{'─'*64}")
-    print(f"  {_c(W, label)}")
-    print(f"{'─'*64}")
-
-    for i, (q, r) in enumerate(zip(questions, results), 1):
-        ms = r.get("elapsed_ms", 0)
-        icon = _quality_icon(r)
-        cache = _c(B, "CACHE") if r.get("from_cache") else "     "
-        ms_str = _c(_latency_color(ms), f"{ms:>5}ms")
-        q_short = q[:65] + ("…" if len(q) > 65 else "")
-        print(f"  {i:>2}. [{icon}] {ms_str} {cache}  {q_short}")
-        if "error" in r:
-            print(f"       {_c(R, str(r.get('detail',''))[:80])}")
-
-    print(f"{'─'*64}")
-    if latencies:
-        p50 = sorted(latencies)[len(latencies)//2]
-        p95 = sorted(latencies)[int(len(latencies)*0.95)]
-        avg = int(mean(latencies))
-        print(f"  Latencia   avg={_c(W,f'{avg}ms')}  p50={_c(W,f'{p50}ms')}  p95={_c(W,f'{p95}ms')}  min={min(latencies)}ms  max={max(latencies)}ms")
-    print(f"  Cache hits  {_c(B, str(cache_hits))}/{len(results)}")
-    print(f"  Sin fuentes {_c(Y if no_sources else G, str(no_sources))}/{len(results)}")
-    print(f"  Baja conf   {_c(Y if low_conf else G, str(low_conf))}/{len(results)}")
-    if errors:
-        print(f"  Errores     {_c(R, str(errors))}/{len(results)}")
-
+def _stats(results):
+    latencies = [r["ms"] for r in results if "error" not in r]
+    if not latencies:
+        return {}
+    s = sorted(latencies)
+    n = len(s)
     return {
-        "total": len(results),
-        "latency_avg_ms": int(mean(latencies)) if latencies else 0,
-        "latency_p50_ms": sorted(latencies)[len(latencies)//2] if latencies else 0,
-        "latency_p95_ms": sorted(latencies)[int(len(latencies)*0.95)] if latencies else 0,
-        "latency_min_ms": min(latencies) if latencies else 0,
-        "latency_max_ms": max(latencies) if latencies else 0,
-        "cache_hits": cache_hits,
-        "no_sources": no_sources,
-        "low_confidence": low_conf,
-        "errors": errors,
+        "n":       n,
+        "avg":     int(mean(s)),
+        "median":  int(median(s)),
+        "p75":     s[int(n*0.75)],
+        "p95":     s[int(n*0.95)],
+        "p99":     s[min(int(n*0.99), n-1)],
+        "min":     s[0],
+        "max":     s[-1],
+        "stddev":  int(stdev(s)) if n > 1 else 0,
+        "cache":   sum(1 for r in results if r.get("cache")),
+        "no_src":  sum(1 for r in results if not r.get("sources") and "error" not in r),
+        "low_conf":sum(1 for r in results if r.get("low_confidence")),
+        "errors":  sum(1 for r in results if "error" in r),
     }
+
+
+def _ms_color(ms):
+    if ms < 1500: return GREEN
+    if ms < 4000: return YELLOW
+    return RED
+
+def _row(i, r, label=""):
+    ms   = r.get("ms", 0)
+    err_ = "error" in r
+    if err_:
+        icon  = _c(RED,    "ERR")
+        ms_s  = _c(RED,    f"{ms:>5}ms")
+    elif not r.get("sources"):
+        icon  = _c(YELLOW, " ∅ ")
+        ms_s  = _c(_ms_color(ms), f"{ms:>5}ms")
+    elif r.get("low_conf"):
+        icon  = _c(YELLOW, "LOW")
+        ms_s  = _c(_ms_color(ms), f"{ms:>5}ms")
+    else:
+        icon  = _c(GREEN,  " OK")
+        ms_s  = _c(_ms_color(ms), f"{ms:>5}ms")
+    cache = _c(BLUE, "CACHE") if r.get("cache") else "     "
+    q     = r["q"][:62] + ("…" if len(r["q"]) > 62 else "")
+    extra = f"  {_c(DIM, label)}" if label else ""
+    print(f"  {i:>2}. [{icon}] {ms_s} {cache}  {q}{extra}")
+    if err_:
+        print(f"       {_c(RED, str(r.get('detail',''))[:80])}")
+
+
+def _print_round(title, results, label_fn=None):
+    sep()
+    print(f"  {_c(BOLD+WHITE, title)}")
+    sep()
+    for i, r in enumerate(results, 1):
+        _row(i, r, label_fn(r) if label_fn else "")
+    sep()
+    st = _stats(results)
+    if not st:
+        print(f"  {_c(RED,'Sin resultados válidos')}")
+        return st
+    n = len(results)
+    avg_s  = _c(WHITE,       f"{st['avg']}ms")
+    p50_s  = _c(WHITE,       f"{st['median']}ms")
+    p95_s  = _c(_ms_color(st['p95']), f"{st['p95']}ms")
+    p99_s  = _c(_ms_color(st['p99']), f"{st['p99']}ms")
+    max_s  = _c(_ms_color(st['max']), f"{st['max']}ms")
+    print(f"  Latencia   avg={avg_s}  p50={p50_s}  p75={st['p75']}ms  "
+          f"p95={p95_s}  p99={p99_s}  max={max_s}")
+    print(f"  Dispersión stddev={st['stddev']}ms  min={st['min']}ms")
+    print(f"  Cache hits {_c(BLUE, str(st['cache']))}/{n}  "
+          f"Sin fuentes {_c(YELLOW if st['no_src'] else GREEN, str(st['no_src']))}/{n}  "
+          f"Baja conf {_c(YELLOW if st['low_conf'] else GREEN, str(st['low_conf']))}/{n}  "
+          f"Errores {_c(RED if st['errors'] else GREEN, str(st['errors']))}/{n}")
+    return st
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
-    parser = argparse.ArgumentParser(description="Test de velocidad y calidad del bot")
-    parser.add_argument("--url",        default="http://localhost:8080", help="Base URL del ambiente (default: staging via tunnel)")
-    parser.add_argument("--email",      required=True,  help="Email del admin del tenant")
-    parser.add_argument("--password",   required=True,  help="Password")
-    parser.add_argument("--tenant",     required=True,  help="tenant_id")
-    parser.add_argument("--file",       required=True,  help="Archivo a ingestar (.pdf, .docx, .txt)")
-    parser.add_argument("--n-queries",  type=int, default=20, help="Cantidad de preguntas a generar (default: 20)")
-    parser.add_argument("--questions",  help="Archivo .txt con preguntas propias (una por línea) — reemplaza la generación automática")
-    parser.add_argument("--groq-key",   default=os.environ.get("GROQ_API_KEY", ""), help="API key de Groq (o GROQ_API_KEY env var)")
-    parser.add_argument("--output",     help="Guardar reporte JSON en este archivo")
+    parser = argparse.ArgumentParser(
+        description="Benchmark de velocidad, calidad y concurrencia del bot",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument("--url",      default="http://localhost:8080",
+                        help="URL base (default: staging via SSH tunnel)")
+    parser.add_argument("--email",    required=True)
+    parser.add_argument("--password", required=True)
+    parser.add_argument("--tenant",   required=True)
+    parser.add_argument("--file",     help="Documento a ingestar (.pdf/.docx/.txt)")
+    parser.add_argument("--n-queries",type=int, default=20,
+                        help="Cantidad de preguntas a generar (default: 20)")
+    parser.add_argument("--questions",help="Archivo .txt con preguntas propias (una por línea)")
+    parser.add_argument("--save-questions", metavar="FILE",
+                        help="Guardar preguntas generadas en un .txt para reutilizar en la otra consola")
+    parser.add_argument("--concurrent", type=int, default=5,
+                        help="Queries simultáneas en la ronda de carga (default: 5)")
+    parser.add_argument("--groq-key", default=os.environ.get("GROQ_API_KEY",""))
+    parser.add_argument("--output",  help="Guardar reporte JSON (default: auto-nombre)")
+    parser.add_argument("--label",   default="", help="Etiqueta del ambiente (ej: 'STAGING' o 'PROD')")
     args = parser.parse_args()
 
-    file_path = Path(args.file)
-    if not file_path.exists():
-        err(f"Archivo no encontrado: {args.file}")
-        sys.exit(1)
-
-    try:
-        import httpx
-    except ImportError:
-        err("Falta httpx: pip install httpx")
-        sys.exit(1)
+    label = args.label or ("STAGING" if "8080" in args.url else "PROD")
+    print(f"\n{'═'*72}")
+    print(f"  {_c(BOLD+CYAN,'TEST BOT')}  ambiente={_c(BOLD+WHITE,label)}  "
+          f"url={args.url}  tenant={args.tenant}")
+    print(f"{'═'*72}")
 
     # ── 1. Login ──────────────────────────────────────────────────────────────
-    hdr("1 / 5   LOGIN")
-    with httpx.Client(verify=False) as session:
-        token = _login(session, args.url, args.email, args.password, args.tenant)
-    ok(f"Autenticado como {args.email} en tenant {args.tenant}")
+    hdr(f"1 / 5   LOGIN  [{label}]")
+    token = _login(args.url, args.email, args.password, args.tenant)
+    ok(f"Autenticado → {args.email}")
 
-    # ── 2. Subir documento ────────────────────────────────────────────────────
-    hdr("2 / 5   UPLOAD")
-    with httpx.Client(verify=False) as session:
-        doc_id = _upload(session, args.url, token, args.tenant, file_path)
-    ok(f"Documento subido: {file_path.name} → {doc_id}")
+    # ── 2. Documento ──────────────────────────────────────────────────────────
+    hdr(f"2 / 5   DOCUMENTO  [{label}]")
+    ingest_time = 0
+    chunk_count = "?"
+    quality_gate = "?"
+    already_existed = False
 
-    # ── 3. Esperar indexación ─────────────────────────────────────────────────
-    hdr("3 / 5   INDEXACIÓN")
-    info("Esperando a que el documento esté listo para consultas...")
-    t_ingest_start = time.monotonic()
-    with httpx.Client(verify=False) as session:
-        status = _wait_ready(session, args.url, token, args.tenant, doc_id)
-    ingest_time = int((time.monotonic() - t_ingest_start))
-    print()
-    ok(f"Documento listo — {status.get('chunk_count', '?')} chunks  |  quality: {status.get('quality_gate_status','?')}  |  tiempo: {ingest_time}s")
+    if args.file:
+        file_path = Path(args.file)
+        if not file_path.exists():
+            err(f"Archivo no encontrado: {args.file}"); sys.exit(1)
+        ok(f"Subiendo {file_path.name} ({file_path.stat().st_size//1024} KB)…")
+        doc_id, already_existed = _upload(args.url, token, args.tenant, file_path)
+        if already_existed:
+            info("Documento ya indexado — saltando espera de ingesta")
+            chunk_count = "?"
+        else:
+            info("Esperando indexación…")
+            t0 = time.monotonic()
+            st = _poll_ready(args.url, token, args.tenant, doc_id)
+            print()
+            ingest_time = int(time.monotonic() - t0)
+            chunk_count  = st.get("chunk_count", "?")
+            quality_gate = st.get("quality_gate_status", "?")
+            ok(f"Listo — {chunk_count} chunks  quality={quality_gate}  tiempo={ingest_time}s")
+    else:
+        warn("--file no especificado. Usando documentos ya existentes en el tenant.")
 
-    # ── 4. Generar o cargar preguntas ─────────────────────────────────────────
-    hdr("4 / 5   PREGUNTAS")
+    # ── 3. Preguntas ──────────────────────────────────────────────────────────
+    hdr(f"3 / 5   PREGUNTAS  [{label}]")
     if args.questions:
         questions = [l.strip() for l in Path(args.questions).read_text().splitlines() if l.strip()]
         ok(f"Cargadas {len(questions)} preguntas desde {args.questions}")
     else:
         if not args.groq_key:
-            err("Se necesita --groq-key o la env var GROQ_API_KEY para generar preguntas automáticamente.")
-            err("Alternativa: pasá tus propias preguntas con --questions archivo.txt")
+            err("Necesitás --groq-key o GROQ_API_KEY para generar preguntas.")
+            err("Alternativa: --questions archivo.txt")
             sys.exit(1)
-        info(f"Generando {args.n_queries} preguntas automáticas con Groq...")
-        try:
-            from groq import Groq
+        try: from groq import Groq
         except ImportError:
-            err("Falta groq: pip install groq")
-            sys.exit(1)
-        # Leer texto del archivo para generar preguntas relevantes
-        text = ""
-        try:
-            if file_path.suffix.lower() == ".pdf":
-                import fitz  # PyMuPDF
-                doc = fitz.open(str(file_path))
-                text = "\n".join(page.get_text() for page in doc)
-            elif file_path.suffix.lower() == ".docx":
-                import docx
-                d = docx.Document(str(file_path))
-                text = "\n".join(p.text for p in d.paragraphs)
-            else:
-                text = file_path.read_text(errors="ignore")
-        except Exception as exc:
-            warn(f"No pude leer el texto del archivo localmente ({exc}), usando nombre del archivo como contexto")
-            text = f"Documento: {file_path.name}"
-
+            err("pip install groq"); sys.exit(1)
+        text = _read_text(file_path) if args.file else "Documento institucional"
+        info(f"Generando {args.n_queries} preguntas con Groq…")
         questions = _generate_questions(text, args.n_queries, args.groq_key)
         ok(f"Generadas {len(questions)} preguntas")
+
+    if args.save_questions:
+        Path(args.save_questions).write_text("\n".join(questions))
+        ok(f"Preguntas guardadas en {args.save_questions} — copiá este archivo a la otra consola")
 
     print()
     for i, q in enumerate(questions, 1):
         print(f"  {_c(DIM, str(i).rjust(2)+'.')} {q}")
 
-    # ── 5. Queries ────────────────────────────────────────────────────────────
-    hdr("5 / 5   QUERIES")
+    n = len(questions)
 
-    # Ronda 1 — cold cache
-    print(f"\n  {_c(Y,'⚡ Ronda 1 — cold cache (sin caché previo)')}")
-    cold_results = []
-    with httpx.Client(verify=False) as session:
-        for i, q in enumerate(questions, 1):
-            print(f"  {i}/{len(questions)} enviando...", end="\r", flush=True)
-            cold_results.append(_query(session, args.url, token, args.tenant, q))
+    # ── 4. Rondas de queries ──────────────────────────────────────────────────
+    hdr(f"4 / 5   QUERIES  [{label}]")
 
-    cold_stats = _print_round("RONDA 1 — COLD CACHE", cold_results, questions)
+    # ── 4a. Cold cache ────────────────────────────────────────────────────────
+    print(f"\n  {_c(YELLOW+BOLD,'⚡ RONDA 1 — COLD CACHE')}  (secuencial, sin caché previo)")
+    cold = []
+    for i, q in enumerate(questions, 1):
+        print(f"  {i}/{n}…", end="\r", flush=True)
+        cold.append(_query_one(args.url, token, args.tenant, q))
+    cold_st = _print_round(f"COLD CACHE — {label}", cold)
 
-    # Ronda 2 — warm cache
-    print(f"\n  {_c(B,'⚡ Ronda 2 — warm cache (mismas preguntas)')}")
-    warm_results = []
-    with httpx.Client(verify=False) as session:
-        for i, q in enumerate(questions, 1):
-            print(f"  {i}/{len(questions)} enviando...", end="\r", flush=True)
-            warm_results.append(_query(session, args.url, token, args.tenant, q))
+    # ── 4b. Carga concurrente ─────────────────────────────────────────────────
+    print(f"\n  {_c(RED+BOLD,'⚡ RONDA 2 — CARGA CONCURRENTE')}  "
+          f"({args.concurrent} queries simultáneas)")
+    info(f"Enviando {n} queries en batches de {args.concurrent}…")
+    conc = []
+    t_conc_start = time.monotonic()
+    with ThreadPoolExecutor(max_workers=args.concurrent) as ex:
+        futures = {ex.submit(_query_one, args.url, token, args.tenant, q): q
+                   for q in questions}
+        done = 0
+        for fut in as_completed(futures):
+            conc.append(fut.result())
+            done += 1
+            print(f"  {done}/{n}…", end="\r", flush=True)
+    t_conc_total = int((time.monotonic() - t_conc_start) * 1000)
+    qps = round(n / (t_conc_total / 1000), 2)
 
-    warm_stats = _print_round("RONDA 2 — WARM CACHE", warm_results, questions)
+    conc_st = _print_round(f"CARGA CONCURRENTE — {label}", conc,
+                           label_fn=lambda r: f"server={r.get('server_ms','?')}ms")
+    print(f"  Throughput total={t_conc_total}ms  qps={_c(WHITE,str(qps))}")
 
-    # ── Resumen final ─────────────────────────────────────────────────────────
-    hdr("RESUMEN")
+    # ── 4c. Warm cache ────────────────────────────────────────────────────────
+    print(f"\n  {_c(BLUE+BOLD,'⚡ RONDA 3 — WARM CACHE')}  (mismas preguntas, mide cache)")
+    warm = []
+    for i, q in enumerate(questions, 1):
+        print(f"  {i}/{n}…", end="\r", flush=True)
+        warm.append(_query_one(args.url, token, args.tenant, q))
+    warm_st = _print_round(f"WARM CACHE — {label}", warm)
+
+    # ── 5. Resumen ────────────────────────────────────────────────────────────
+    hdr(f"5 / 5   RESUMEN  [{label}]")
+    sep()
+
+    cache_rate  = (warm_st.get("cache",0) / n * 100) if n else 0
+    speedup     = cold_st["avg"] / max(warm_st["avg"],1) if cold_st and warm_st else 1
+    quality_pct = 100 - (
+        (cold_st.get("no_src",0)/n*40) +
+        (cold_st.get("low_conf",0)/n*20) +
+        (cold_st.get("errors",0)/n*40)
+    ) if cold_st else 0
+
+    print(f"  {'Ambiente':<34} {_c(BOLD+WHITE, label)}")
+    print(f"  {'URL':<34} {args.url}")
+    print(f"  {'Tenant':<34} {args.tenant}")
+    if args.file:
+        print(f"  {'Documento':<34} {Path(args.file).name}")
+        print(f"  {'Chunks indexados':<34} {chunk_count}")
+        print(f"  {'Quality gate':<34} {quality_gate}")
+        print(f"  {'Tiempo de ingesta':<34} {ingest_time}s")
+    print()
+    print(f"  {'─── LATENCIA (cold / sin cache) ─'}")
+    print(f"  {'  avg':<34} {_c(_ms_color(cold_st.get('avg',0)), str(cold_st.get('avg','?'))+'ms')}")
+    print(f"  {'  p50':<34} {cold_st.get('median','?')}ms")
+    print(f"  {'  p75':<34} {cold_st.get('p75','?')}ms")
+    print(f"  {'  p95':<34} {_c(_ms_color(cold_st.get('p95',0)), str(cold_st.get('p95','?'))+'ms')}")
+    print(f"  {'  p99':<34} {_c(_ms_color(cold_st.get('p99',0)), str(cold_st.get('p99','?'))+'ms')}")
+    print(f"  {'  max':<34} {_c(_ms_color(cold_st.get('max',0)), str(cold_st.get('max','?'))+'ms')}")
+    print(f"  {'  stddev':<34} {cold_st.get('stddev','?')}ms  ← variabilidad")
+    print()
+    print(f"  {'─── LATENCIA (carga concurrente) ─'}")
+    print(f"  {'  avg':<34} {_c(_ms_color(conc_st.get('avg',0)), str(conc_st.get('avg','?'))+'ms')}")
+    print(f"  {'  p95':<34} {_c(_ms_color(conc_st.get('p95',0)), str(conc_st.get('p95','?'))+'ms')}")
+    print(f"  {'  throughput':<34} {_c(WHITE, str(qps))} queries/seg")
+    conc_penalty = conc_st.get('avg',0) - cold_st.get('avg',0) if cold_st and conc_st else 0
+    print(f"  {'  penalidad vs secuencial':<34} {_c(YELLOW if conc_penalty>500 else GREEN, f'+{conc_penalty}ms')}")
+    print()
+    print(f"  {'─── CACHE ─'}")
+    print(f"  {'  hit rate':<34} {_c(GREEN if cache_rate>=60 else YELLOW, f'{cache_rate:.0f}%')}")
+    print(f"  {'  avg warm':<34} {_c(GREEN, str(warm_st.get('avg','?'))+'ms')}")
+    print(f"  {'  speedup':<34} {_c(GREEN, f'{speedup:.1f}x más rápido con cache')}")
+    print()
+    print(f"  {'─── CALIDAD ─'}")
+    print(f"  {'  con fuentes':<34} {n - cold_st.get('no_src',0)}/{n}  ({100-cold_st.get('no_src',0)/n*100:.0f}%)")
+    print(f"  {'  baja confianza':<34} {cold_st.get('low_conf',0)}/{n}")
+    print(f"  {'  errores':<34} {cold_st.get('errors',0)}/{n}")
+    print(f"  {'  score calidad':<34} {_c(GREEN if quality_pct>=80 else YELLOW if quality_pct>=65 else RED, f'{quality_pct:.0f}%')}")
     print()
 
-    cache_rate = warm_stats["cache_hits"] / len(questions) * 100 if questions else 0
-    speedup = cold_stats["latency_avg_ms"] / max(warm_stats["latency_avg_ms"], 1)
+    # SLA
+    sla = {
+        "latencia_p95_le_8s": cold_st.get("p95",9999) <= 8000,
+        "calidad_ge_75pct":   quality_pct >= 75,
+        "cache_ge_40pct":     cache_rate >= 40,
+        "sin_errores":        cold_st.get("errors",0) == 0,
+        "carga_p95_le_12s":   conc_st.get("p95",9999) <= 12000,
+    }
+    print(f"  {'─── SLA ─'}")
+    for sla_name, passed in sla.items():
+        icon = _c(GREEN,"PASS") if passed else _c(RED,"FAIL")
+        print(f"  [{icon}]  {sla_name}")
+    sep()
 
-    quality_score = 100 - (
-        (cold_stats["no_sources"] / len(questions) * 40) +
-        (cold_stats["low_confidence"] / len(questions) * 20) +
-        (cold_stats["errors"] / len(questions) * 40)
-    )
-
-    print(f"  {'Tiempo de ingesta':<30} {ingest_time}s")
-    print(f"  {'Chunks indexados':<30} {status.get('chunk_count','?')}")
-    print(f"  {'Quality gate':<30} {status.get('quality_gate_status','?')}")
-    print()
-    print(f"  {'Latencia cold (avg/p95)':<30} {cold_stats['latency_avg_ms']}ms / {cold_stats['latency_p95_ms']}ms")
-    print(f"  {'Latencia warm (avg/p95)':<30} {warm_stats['latency_avg_ms']}ms / {warm_stats['latency_p95_ms']}ms")
-    print(f"  {'Cache hit rate':<30} {_c(G if cache_rate>60 else Y, f'{cache_rate:.0f}%')}")
-    print(f"  {'Speedup con cache':<30} {_c(G, f'{speedup:.1f}x más rápido')}")
-    print()
-    print(f"  {'Respuestas con fuentes':<30} {_c(G if cold_stats['no_sources']==0 else Y, str(len(questions)-cold_stats['no_sources']))}/{len(questions)}")
-    print(f"  {'Baja confianza':<30} {_c(Y if cold_stats['low_confidence']>0 else G, str(cold_stats['low_confidence']))}/{len(questions)}")
-    print(f"  {'Errores':<30} {_c(R if cold_stats['errors']>0 else G, str(cold_stats['errors']))}/{len(questions)}")
-    print()
-
-    # SLA checks
-    sla_latency = cold_stats["latency_p95_ms"] <= 8000
-    sla_quality = quality_score >= 75
-    sla_cache   = cache_rate >= 40
-
-    print(f"  {'SLA latencia p95 ≤ 8s':<30} {_c(G,'PASS') if sla_latency else _c(R,'FAIL')}  ({cold_stats['latency_p95_ms']}ms)")
-    print(f"  {'SLA calidad ≥ 75%':<30}  {_c(G,'PASS') if sla_quality else _c(R,'FAIL')}  ({quality_score:.0f}%)")
-    print(f"  {'SLA cache ≥ 40%':<30}  {_c(G,'PASS') if sla_cache else _c(R,'FAIL')}  ({cache_rate:.0f}%)")
-
-    overall = all([sla_latency, sla_quality, sla_cache])
-    print()
+    overall = all(sla.values())
     if overall:
-        print(f"  {_c(G, '✓ LISTO PARA PROMOVER A PRODUCCIÓN')}")
+        print(f"\n  {_c(GREEN+BOLD, '✓ TODO OK — listo para promover a producción')}\n")
     else:
-        print(f"  {_c(R, '✗ NO LISTO — revisar los SLAs que fallaron')}")
+        failed = [k for k,v in sla.items() if not v]
+        print(f"\n  {_c(RED+BOLD, f'✗ FALLÓ: {chr(44).join(failed)}')}\n")
 
-    # ── Guardar reporte ───────────────────────────────────────────────────────
+    # ── Guardar JSON ──────────────────────────────────────────────────────────
+    ts    = time.strftime("%Y%m%d_%H%M%S")
+    out   = args.output or f"report_{label.lower()}_{ts}.json"
     report = {
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "config": {"url": args.url, "tenant": args.tenant, "file": str(file_path)},
-        "ingestion": {"time_s": ingest_time, "chunk_count": status.get("chunk_count"), "quality": status.get("quality_gate_status")},
-        "cold": cold_stats,
-        "warm": warm_stats,
-        "sla": {"latency": sla_latency, "quality": sla_quality, "cache": sla_cache, "overall": overall},
+        "label":     label,
+        "config":    {"url": args.url, "tenant": args.tenant,
+                      "file": str(args.file or ""), "concurrent": args.concurrent},
+        "ingestion": {"time_s": ingest_time, "chunks": chunk_count, "quality": quality_gate},
+        "cold":      cold_st,
+        "concurrent":{"stats": conc_st, "total_ms": t_conc_total, "qps": qps,
+                      "concurrency": args.concurrent},
+        "warm":      warm_st,
+        "cache_rate_pct": round(cache_rate,1),
+        "speedup_x":      round(speedup,2),
+        "quality_pct":    round(quality_pct,1),
+        "sla":       sla,
+        "overall_pass": overall,
         "questions": questions,
-        "cold_answers": [{"q": q, "a": r.get("answer","")[:200], "sources": len(r.get("sources") or []), "ms": r.get("elapsed_ms"), "cache": r.get("from_cache"), "low_conf": r.get("low_confidence")} for q, r in zip(questions, cold_results)],
+        "cold_detail": [
+            {"q": r["q"], "ms": r.get("ms"), "sources": r.get("sources"),
+             "cache": r.get("cache"), "low_conf": r.get("low_conf"),
+             "intent": r.get("intent"), "answer": r.get("answer","")[:200]}
+            for r in cold
+        ],
     }
-
-    out_path = args.output or f"report_{args.tenant}_{time.strftime('%Y%m%d_%H%M%S')}.json"
-    Path(out_path).write_text(json.dumps(report, ensure_ascii=False, indent=2))
-    print(f"\n  Reporte guardado en: {_c(W, out_path)}\n")
+    Path(out).write_text(json.dumps(report, ensure_ascii=False, indent=2))
+    ok(f"Reporte JSON → {out}")
 
 
 if __name__ == "__main__":
