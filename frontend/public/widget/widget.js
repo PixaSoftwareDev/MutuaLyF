@@ -7,9 +7,23 @@
   })();
 
   var WIDGET_TOKEN = scriptTag ? scriptTag.getAttribute("data-token") : null;
-  var API_BASE     = scriptTag ? (scriptTag.getAttribute("data-api-url") || "") : "";
+  // API_BASE: si no se especifica data-api-url, lo inferimos del origin del
+  // propio src del script. Sin esto, fetch("/api/v1/...") va a una URL relativa
+  // al sitio donde se embebio el widget — falla con "Error al cargar sectores"
+  // si el sitio no es el propio servidor del bot.
+  var API_BASE = "";
+  if (scriptTag) {
+    API_BASE = scriptTag.getAttribute("data-api-url") || "";
+    if (!API_BASE && scriptTag.src) {
+      try { API_BASE = new URL(scriptTag.src).origin; } catch (_e) { API_BASE = ""; }
+    }
+  }
   var PLACEHOLDER  = scriptTag ? (scriptTag.getAttribute("data-placeholder") || "Hacé una pregunta...") : "Hacé una pregunta...";
   var TITLE        = scriptTag ? (scriptTag.getAttribute("data-title") || "MutualBot") : "MutualBot";
+  // Tamaño del panel — overridable por data-attrs. Default subido de
+  // 360x560 a 400x640 para que se vea mas comodo en pantallas modernas.
+  var PANEL_WIDTH  = scriptTag ? (scriptTag.getAttribute("data-width")  || "400") : "400";
+  var PANEL_HEIGHT = scriptTag ? (scriptTag.getAttribute("data-height") || "640") : "640";
 
   // Lucide-style Bot icon (inline SVG, currentColor stroke)
   var BOT_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>';
@@ -43,7 +57,7 @@
     "#ia-widget-btn{position:fixed;bottom:24px;right:24px;width:56px;height:56px;border-radius:50%;background:#99323D;color:#fff;border:none;cursor:pointer;font-size:24px;box-shadow:0 4px 12px rgba(0,0,0,.2);z-index:9998;display:flex;align-items:center;justify-content:center;transition:transform .2s;}",
     "#ia-widget-btn:hover{transform:scale(1.05);}",
     "#ia-widget-badge{position:absolute;top:-4px;right:-4px;background:#ef4444;color:#fff;border-radius:50%;width:18px;height:18px;font-size:11px;display:none;align-items:center;justify-content:center;font-weight:700;}",
-    "#ia-widget-panel{position:fixed;bottom:92px;right:24px;width:360px;max-height:560px;border-radius:12px;background:#fff;box-shadow:0 8px 32px rgba(0,0,0,.15);z-index:9999;display:none;flex-direction:column;font-family:system-ui,sans-serif;overflow:hidden;}",
+    "#ia-widget-panel{position:fixed;bottom:92px;right:24px;width:" + PANEL_WIDTH + "px;max-width:calc(100vw - 32px);height:" + PANEL_HEIGHT + "px;max-height:calc(100vh - 120px);border-radius:12px;background:#fff;box-shadow:0 8px 32px rgba(0,0,0,.15);z-index:9999;display:none;flex-direction:column;font-family:system-ui,sans-serif;overflow:hidden;}",
     "#ia-widget-panel.open{display:flex;}",
     // Header
     "#ia-widget-header{padding:12px 16px;background:#99323D;color:#fff;border-radius:12px 12px 0 0;display:flex;align-items:center;justify-content:space-between;gap:8px;}",

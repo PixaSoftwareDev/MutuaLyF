@@ -137,8 +137,11 @@ export function GeneralSettings() {
     toast({ title: "Copiado", description: "Token copiado al portapapeles.", variant: "success" });
   };
 
+  // data-api-url explicito: aunque el widget tambien lo infiere del src del
+  // script, dejarlo en el snippet ayuda a que se vea de donde viene la API
+  // (debugging, transparencia con clientes que quieren saber a donde apunta).
   const widgetScript = widgetToken
-    ? `<script\n  src="${window.location.origin}/widget/widget.js"\n  data-token="${widgetToken}"\n  data-title="Asistente"\n  data-placeholder="Hacé tu consulta..."\n></script>`
+    ? `<script\n  src="${window.location.origin}/widget/widget.js"\n  data-api-url="${window.location.origin}"\n  data-token="${widgetToken}"\n  data-title="Asistente"\n  data-placeholder="Hacé tu consulta..."\n></script>`
     : null;
 
   const templates = botsData?.templates ?? [];
