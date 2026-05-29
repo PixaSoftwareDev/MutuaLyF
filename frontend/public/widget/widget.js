@@ -45,6 +45,26 @@
 
   // Lucide-style Bot icon (inline SVG, currentColor stroke)
   var BOT_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>';
+  // Version pequeña para el header (igual icono, menor tamaño)
+  var BOT_SVG_SMALL = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>';
+
+  // Helper para shade hex (oscurecer/aclarar). Usado para generar variantes
+  // del color primario (--ia-w-primary-dark, --ia-w-primary-light) que el
+  // gradient del header consume.
+  function _shadeColor(hex, percent) {
+    hex = hex.replace("#", "");
+    if (hex.length !== 6) return hex;
+    var num = parseInt(hex, 16);
+    var r = Math.max(0, Math.min(255, (num >> 16) + Math.round(2.55 * percent)));
+    var g = Math.max(0, Math.min(255, ((num >> 8) & 0xff) + Math.round(2.55 * percent)));
+    var b = Math.max(0, Math.min(255, (num & 0xff) + Math.round(2.55 * percent)));
+    return "#" + ((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1);
+  }
+  function _applyPrimaryColor(hex) {
+    document.documentElement.style.setProperty("--ia-w-primary", hex);
+    document.documentElement.style.setProperty("--ia-w-primary-dark", _shadeColor(hex, -20));
+    document.documentElement.style.setProperty("--ia-w-primary-light", _shadeColor(hex, 18));
+  }
 
   if (!WIDGET_TOKEN) { console.error("[IA Widget] data-token is required"); return; }
 
@@ -77,11 +97,21 @@
     "#ia-widget-badge{position:absolute;top:-4px;right:-4px;background:#ef4444;color:#fff;border-radius:50%;width:18px;height:18px;font-size:11px;display:none;align-items:center;justify-content:center;font-weight:700;}",
     "#ia-widget-panel{position:fixed;bottom:92px;right:24px;width:" + PANEL_WIDTH + "px;max-width:calc(100vw - 32px);height:" + PANEL_HEIGHT + "px;max-height:calc(100vh - 120px);border-radius:12px;background:#fff;box-shadow:0 8px 32px rgba(0,0,0,.15);z-index:9999;display:none;flex-direction:column;font-family:system-ui,sans-serif;overflow:hidden;}",
     "#ia-widget-panel.open{display:flex;}",
-    // Header
-    "#ia-widget-header{padding:12px 16px;background:var(--ia-w-primary, #99323D);color:#fff;border-radius:12px 12px 0 0;display:flex;align-items:center;justify-content:space-between;gap:8px;}",
-    "#ia-widget-title{font-weight:600;font-size:15px;flex:1;}",
-    "#ia-widget-status{font-size:11px;opacity:.85;background:rgba(255,255,255,.2);padding:2px 8px;border-radius:10px;white-space:nowrap;}",
-    "#ia-widget-close{background:none;border:none;color:#fff;cursor:pointer;font-size:20px;line-height:1;padding:0;}",
+    // Header con gradient (igual look que el chat publico)
+    "#ia-widget-header{padding:14px 16px;background:linear-gradient(135deg, var(--ia-w-primary-dark, #6e2330) 0%, var(--ia-w-primary, #99323D) 50%, var(--ia-w-primary-light, #b84656) 100%);color:#fff;border-radius:12px 12px 0 0;display:flex;align-items:center;gap:10px;box-shadow:0 2px 8px rgba(0,0,0,.15);}",
+    "#ia-widget-header.handoff{background:linear-gradient(135deg, #b45309 0%, #d97706 50%, #f59e0b 100%);}",
+    "#ia-widget-header.attending{background:linear-gradient(135deg, #047857 0%, #059669 50%, #10b981 100%);}",
+    "#ia-widget-bot-avatar{width:36px;height:36px;border-radius:10px;background:rgba(255,255,255,.2);backdrop-filter:blur(4px);border:1px solid rgba(255,255,255,.3);display:flex;align-items:center;justify-content:center;flex-shrink:0;overflow:hidden;}",
+    "#ia-widget-bot-avatar img{width:100%;height:100%;object-fit:cover;}",
+    "#ia-widget-titlewrap{flex:1;min-width:0;}",
+    "#ia-widget-title{font-weight:600;font-size:14px;line-height:1.2;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}",
+    "#ia-widget-substatus{display:flex;align-items:center;gap:5px;margin-top:3px;font-size:11px;color:rgba(255,255,255,.85);}",
+    ".ia-status-dot{width:6px;height:6px;border-radius:50%;background:#4ade80;box-shadow:0 0 0 0 rgba(74,222,128,.6);animation:ia-pulse 2s infinite;}",
+    ".ia-status-dot.amber{background:#fbbf24;}",
+    ".ia-status-dot.gray{background:#94a3b8;animation:none;}",
+    "@keyframes ia-pulse{0%{box-shadow:0 0 0 0 rgba(74,222,128,.6);}70%{box-shadow:0 0 0 6px rgba(74,222,128,0);}100%{box-shadow:0 0 0 0 rgba(74,222,128,0);}}",
+    "#ia-widget-close{background:none;border:none;color:#fff;cursor:pointer;font-size:22px;line-height:1;padding:4px 6px;border-radius:6px;opacity:.8;}",
+    "#ia-widget-close:hover{opacity:1;background:rgba(255,255,255,.15);}",
     // Sector picker
     "#ia-sector-picker{flex:1;display:flex;flex-direction:column;overflow:hidden;}",
     "#ia-sector-intro{padding:16px;background:#f8fafc;border-bottom:1px solid #e2e8f0;}",
@@ -142,7 +172,11 @@
   panel.setAttribute("aria-label", TITLE);
   panel.innerHTML = [
     '<div id="ia-widget-header">',
-    '  <span id="ia-widget-title">' + _escape(TITLE) + '</span>',
+    '  <div id="ia-widget-bot-avatar">' + BOT_SVG_SMALL + '</div>',
+    '  <div id="ia-widget-titlewrap">',
+    '    <span id="ia-widget-title">' + _escape(TITLE) + '</span>',
+    '    <div id="ia-widget-substatus"><span class="ia-status-dot" id="ia-widget-status-dot"></span><span id="ia-widget-substatus-text">En línea</span></div>',
+    '  </div>',
     '  <span id="ia-widget-status" style="display:none">Bot IA</span>',
     '  <button id="ia-sector-change" style="display:none">Cambiar área</button>',
     '  <button id="ia-widget-close" aria-label="Cerrar">&times;</button>',
@@ -195,7 +229,7 @@
       .then(function(b) {
         if (!b) return;
         if (b.primary_color) {
-          document.documentElement.style.setProperty("--ia-w-primary", b.primary_color);
+          _applyPrimaryColor(b.primary_color);
         }
         if (b.bot_name) {
           var titleEl = document.getElementById("ia-widget-title");
@@ -205,10 +239,15 @@
         if (b.greeting_message) GREETING = b.greeting_message;
         if (b.logo_url) {
           LOGO_URL = b.logo_url.indexOf("http") === 0 ? b.logo_url : (API_BASE + b.logo_url);
-          // Reemplazar el icono del boton flotante por el logo del cliente
+          // Logo en el boton flotante
           var btnEl = document.getElementById("ia-widget-btn");
           if (btnEl) {
             btnEl.innerHTML = '<img src="' + LOGO_URL + '" alt="" style="width:32px;height:32px;border-radius:50%;object-fit:cover;" />';
+          }
+          // Logo tambien en el avatar del header (reemplaza el icono SVG)
+          var avatarEl = document.getElementById("ia-widget-bot-avatar");
+          if (avatarEl) {
+            avatarEl.innerHTML = '<img src="' + LOGO_URL + '" alt="" />';
           }
         }
       })
@@ -646,24 +685,32 @@
 
   function _updateStatus() {
     var labels = {
-      "bot_active":        "Bot IA",
-      "handoff_requested": "En espera…",
+      "bot_active":        "En línea",
+      "handoff_requested": "Esperando operador…",
       "human_attending":   "Operador conectado",
-      "closed":            "Cerrado",
+      "closed":            "Conversación cerrada",
     };
     statusEl.textContent = labels[convStatus] || convStatus;
-    var colors = {
-      "bot_active":        "var(--ia-w-primary, #99323D)",
-      "handoff_requested": "#d97706",
-      "human_attending":   "#059669",
-      "closed":            "#64748b",
-    };
-    document.getElementById("ia-widget-header").style.background = colors[convStatus] || "var(--ia-w-primary, #99323D)";
+
+    // Header: clases CSS por status (el gradient esta en CSS, no inline).
+    var header = document.getElementById("ia-widget-header");
+    header.classList.remove("handoff", "attending");
+    if (convStatus === "handoff_requested") header.classList.add("handoff");
+    else if (convStatus === "human_attending") header.classList.add("attending");
+
+    // Substatus text + status dot (mismo estilo que chat publico)
+    var subEl = document.getElementById("ia-widget-substatus-text");
+    var dotEl = document.getElementById("ia-widget-status-dot");
+    if (subEl) subEl.textContent = labels[convStatus] || convStatus;
+    if (dotEl) {
+      dotEl.className = "ia-status-dot";
+      if (convStatus === "handoff_requested") dotEl.classList.add("amber");
+      else if (convStatus === "closed") dotEl.classList.add("gray");
+    }
+
     var closed = convStatus === "closed";
     inputEl.disabled = closed;
     sendBtn.disabled = closed;
-    document.getElementById("ia-widget-human-btn").style.display =
-      (convStatus === "bot_active") ? "block" : "none";
   }
 
   function _escape(str) {
