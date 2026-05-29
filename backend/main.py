@@ -27,7 +27,10 @@ logger = structlog.get_logger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("startup_begin", environment=settings.environment)
-    setup_tracing(app)
+    # setup_tracing se mueve a antes del app.add_middleware: FastAPI no permite
+    # registrar middlewares despues de que la app empezo a recibir requests
+    # (lifespan se ejecuta despues), y el FastAPIInstrumentor de OTEL agrega
+    # un middleware bajo el capot.
     await connect_all()
 
     # Default ThreadPoolExecutor en Python es min(32, cpu+4)=10 threads.
@@ -71,6 +74,12 @@ app = FastAPI(
     redoc_url="/redoc" if not settings.is_production else None,
     lifespan=lifespan,
 )
+
+# OTEL setup ANTES de los add_middleware: FastAPIInstrumentor agrega un
+# middleware propio bajo el capot y FastAPI lo rechaza si la app ya esta
+# en marcha (lifespan). Antes esto vivia adentro del lifespan y tiraba
+# "Cannot add middleware after an application has started".
+setup_tracing(app)
 
 
 # ── Request-ID middleware ──────────────────────────────────────────────────────
