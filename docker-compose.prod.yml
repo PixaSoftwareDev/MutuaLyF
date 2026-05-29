@@ -23,12 +23,17 @@ services:
     command: []
     volumes: []
 
-  # ── Nginx con conf de prod (HTTP-only, tenant mutual) ────────────────────
+  # ── Nginx con conf de prod (HTTPS Let's Encrypt + redirect HTTP→HTTPS) ────
   nginx:
     volumes:
       - ./nginx/nginx.prod.conf:/etc/nginx/nginx.conf:ro
+      # Webroot para el ACME HTTP-01 challenge de Let's Encrypt
+      - /var/www/certbot:/var/www/certbot:ro
+      # Certificados reales (renovados por certbot en el host)
+      - /etc/letsencrypt:/etc/letsencrypt:ro
     ports:
       - "80:80"
+      - "443:443"
 
   # ── Grafana queda en 127.0.0.1:3001 (acceso via SSH tunnel o nginx proxy) ──
   # No se redeclara aqui porque compose hace merge aditivo de ports y
