@@ -420,6 +420,7 @@ services:
       - "--web.enable-lifecycle"
     volumes:
       - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/prometheus/rules:/etc/prometheus/rules:ro
       - prometheus_data:/prometheus
     ports:
       - "127.0.0.1:9090:9090"
@@ -504,6 +505,70 @@ services:
       - internal
     logging: *default-logging
 
+  # Alertmanager: recibe alertas de Prometheus y las despacha a Telegram.
+  # El token del bot vive en el secret-file montado abajo (no en compose para
+  # no commitearlo); el chat_id va en el yml directamente porque no es secreto.
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: ia_alertmanager
+    restart: unless-stopped
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+    volumes:
+      - ./observability/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      # Token de Telegram en un archivo aparte (montado solo si existe).
+      # Crear en VPS: echo "BOT_TOKEN" > /opt/mutualyf/secrets/telegram_token
+      - /opt/mutualyf/secrets/telegram_token:/etc/alertmanager/telegram_token:ro
+      - alertmanager_data:/alertmanager
+    networks:
+      - internal
+    logging: *default-logging
+
+  # Blackbox: probe HTTP externo del endpoint público — cubre el caso
+  # "backend OK pero nginx caído" que las métricas internas no detectan.
+  blackbox-exporter:
+    image: prom/blackbox-exporter:v0.25.0
+    container_name: ia_blackbox_exporter
+    restart: unless-stopped
+    networks:
+      - internal
+    logging: *default-logging
+
+  # cAdvisor: métricas por container (CPU, mem, network) para correlacionar
+  # con alertas. Sin esto, sabés "RAM al 90%" pero no qué container.
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    container_name: ia_cadvisor
+    restart: unless-stopped
+    privileged: true
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    devices:
+      - /dev/kmsg:/dev/kmsg
+    networks:
+      - internal
+    logging: *default-logging
+
+  # Node exporter: métricas del host (disco, RAM total, load avg).
+  # Para alerts DiskAlmostFull, LowMemory, HighCpuLoad.
+  node-exporter:
+    image: prom/node-exporter:v1.8.0
+    container_name: ia_node_exporter
+    restart: unless-stopped
+    command:
+      - "--path.rootfs=/host"
+    pid: host
+    volumes:
+      - /:/host:ro,rslave
+    networks:
+      - internal
+    logging: *default-logging
+
 volumes:
   postgres_data:
   pgbackrest_data:
@@ -517,6 +582,7 @@ volumes:
   uploads_data:
   branding_data:
   prometheus_data:
+  alertmanager_data:
   grafana_data:
   loki_data:
   frontend_nm:

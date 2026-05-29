@@ -2,6 +2,16 @@ global:
   scrape_interval: 15s
   evaluation_interval: 15s
 
+# Reglas de alerta — todas las queries corren cada 15s; las que disparan se
+# envian a Alertmanager (notificacion Telegram, configurada abajo).
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
 scrape_configs:
   - job_name: "ia_backend"
     static_configs:
@@ -20,3 +30,30 @@ scrape_configs:
   - job_name: "postgres"
     static_configs:
       - targets: ["postgres-exporter:9187"]
+
+  # Cadvisor — métricas de containers Docker (CPU, mem por container).
+  - job_name: "cadvisor"
+    static_configs:
+      - targets: ["cadvisor:8080"]
+
+  # Node exporter — métricas del host (disco, RAM total, load).
+  - job_name: "node"
+    static_configs:
+      - targets: ["node-exporter:9100"]
+
+  # Blackbox — chequea externamente que el endpoint público anda (cubre el
+  # caso "backend OK, nginx caído" que las métricas internas no detectan).
+  - job_name: "blackbox_health"
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+          - https://intellix.com.ar/health
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115

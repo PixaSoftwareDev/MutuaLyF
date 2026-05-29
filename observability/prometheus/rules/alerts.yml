@@ -1,0 +1,128 @@
+groups:
+  - name: platform_critical
+    interval: 30s
+    rules:
+
+      # ── Backend muerto desde afuera (cubre nginx + backend) ─────────────────
+      - alert: PlatformDown
+        expr: probe_success{job="blackbox_health"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Plataforma caída — /health no responde"
+          description: "https://intellix.com.ar/health no devuelve 2xx hace 2 min."
+
+      # ── Backend interno no responde ─────────────────────────────────────────
+      - alert: BackendDown
+        expr: up{job="ia_backend"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Backend Prometheus target down"
+          description: "El backend no expone /metrics hace 2 min."
+
+      # ── Latencia RAG explotada ──────────────────────────────────────────────
+      # http_request_duration_seconds_bucket viene de prometheus-fastapi-instrumentator.
+      - alert: HighRagLatencyP95
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le) (rate(http_request_duration_seconds_bucket{handler=~".*query.*|.*conversation.*"}[5m]))
+          ) > 8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "p95 RAG > 8s sostenido"
+          description: "El bot está respondiendo lento. Ver Jaeger para identificar el span dominante."
+
+      # ── Tasa de error 5xx ───────────────────────────────────────────────────
+      - alert: HighErrorRate5xx
+        expr: |
+          (
+            sum(rate(http_requests_total{status=~"5.."}[5m]))
+            /
+            sum(rate(http_requests_total[5m]))
+          ) > 0.01
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Tasa de 5xx > 1% sostenida"
+          description: "Hay errores del backend. Revisar logs."
+
+      # ── PostgreSQL down ─────────────────────────────────────────────────────
+      - alert: PostgresDown
+        expr: pg_up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL no responde"
+          description: "Sin DB la plataforma no funciona. Ver runbook sección 2."
+
+      # ── Redis down ──────────────────────────────────────────────────────────
+      - alert: RedisDown
+        expr: redis_up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis no responde"
+          description: "Sin Redis: sin cache, sin rate limit, sin broker Celery. Ver runbook sección 3."
+
+  - name: host_resources
+    interval: 30s
+    rules:
+
+      # ── Disco lleno ─────────────────────────────────────────────────────────
+      - alert: DiskAlmostFull
+        expr: |
+          (
+            (node_filesystem_size_bytes{mountpoint="/"}
+             - node_filesystem_avail_bytes{mountpoint="/"})
+            / node_filesystem_size_bytes{mountpoint="/"}
+          ) > 0.85
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Disco del VPS > 85% usado"
+          description: "Limpiar imágenes/containers/logs. Ver runbook sección 9."
+
+      # ── RAM cerca de OOM ────────────────────────────────────────────────────
+      - alert: LowMemory
+        expr: |
+          (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) < 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "RAM disponible < 5%"
+          description: "Riesgo de OOM. Reiniciar containers que consumen mucho o escalar."
+
+      # ── CPU load alto sostenido ─────────────────────────────────────────────
+      - alert: HighCpuLoad
+        expr: node_load5 / count(node_cpu_seconds_total{mode="idle"}) without (cpu, mode) > 4
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Load average / core > 4 sostenido 10min"
+          description: "VPS saturado de CPU. Ver qué container consume."
+
+  - name: ssl
+    interval: 1h
+    rules:
+
+      # ── SSL próximo a vencer ────────────────────────────────────────────────
+      - alert: SslCertExpiringSoon
+        expr: probe_ssl_earliest_cert_expiry{job="blackbox_health"} - time() < 14 * 24 * 3600
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "Certificado SSL vence en <14 días"
+          description: "Verificar que el renovador automático corre. Ver runbook sección 10."
