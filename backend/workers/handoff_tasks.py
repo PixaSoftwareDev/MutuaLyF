@@ -9,6 +9,7 @@ Inserts a system alert message visible to the afiliado.
 import asyncio
 import logging
 
+from core.audit import fire_and_log
 from workers.celery_app import app
 
 logger = logging.getLogger(__name__)
@@ -141,7 +142,6 @@ async def _close_stale_tenant(tenant_id: str) -> int:
     el publish el operador queda con UI stale (panel mostrando conv en
     "atendiendo" cuando en realidad fue cerrada por timeout).
     """
-    import asyncio
     from core.database import get_worker_pg_session
     from services.events import publish
     from sqlalchemy import text
@@ -198,7 +198,7 @@ async def _close_stale_tenant(tenant_id: str) -> int:
     # Publish SSE despues del commit. Si el publish falla, el cierre ya quedo
     # persistido — el operador lo va a ver via polling de respaldo (~6s).
     for cid in (*bot_ids, *handoff_ids, *human_ids):
-        asyncio.ensure_future(publish(tenant_id, "conversation_updated", {
+        fire_and_log(publish(tenant_id, "conversation_updated", {
             "conversation_id": cid,
             "status": "closed",
         }))

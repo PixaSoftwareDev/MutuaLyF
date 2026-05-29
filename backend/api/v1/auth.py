@@ -73,9 +73,8 @@ async def login(
             pu = result.mappings().fetchone()
 
         if pu is None or not verify_password(form.password, pu["hashed_password"]):
-            import asyncio
-            from core.audit import record as audit
-            asyncio.ensure_future(audit(
+            from core.audit import record as audit, fire_and_log
+            fire_and_log(audit(
                 tenant_id="__platform__",
                 actor_id="unknown",
                 actor_email=form.username,
@@ -95,9 +94,8 @@ async def login(
         _set_refresh_cookie(response, refresh_tok)
 
         logger.info("superadmin_login email=%s", form.username)
-        import asyncio
-        from core.audit import record as audit
-        asyncio.ensure_future(audit(
+        from core.audit import record as audit, fire_and_log
+        fire_and_log(audit(
             tenant_id="__platform__",
             actor_id=str(pu["id"]),
             actor_email=form.username,
@@ -139,8 +137,7 @@ async def login(
         user = result.scalar_one_or_none()
 
     if user is None or not verify_password(form.password, user.hashed_password):
-        import asyncio
-        from core.audit import record as audit
+        from core.audit import record as audit, fire_and_log
         from core.database import get_redis_cache
         # Fail-open on Redis errors: a flaky cache must not turn a bad-password 401 into a 500.
         fails: int = 0
@@ -152,7 +149,7 @@ async def login(
             logger.warning("brute_force_counter_unavailable tenant=%s error=%s", tenant_id, exc)
         detail_extra: dict = {"reason": "invalid_credentials", "attempt": int(fails)}
         action = "auth.brute_force_alert" if fails >= 5 else "auth.login_failed"
-        asyncio.ensure_future(audit(
+        fire_and_log(audit(
             tenant_id=tenant_id,
             actor_id="unknown",
             actor_email=form.username,
@@ -181,9 +178,8 @@ async def login(
     _set_refresh_cookie(response, refresh_tok)
 
     logger.info("login_success user=%s tenant=%s role=%s", user.email, tenant_id, role)
-    import asyncio
-    from core.audit import record as audit
-    asyncio.ensure_future(audit(
+    from core.audit import record as audit, fire_and_log
+    fire_and_log(audit(
         tenant_id=tenant_id,
         actor_id=str(user.id),
         actor_email=user.email,
@@ -244,9 +240,8 @@ async def logout(request: Request, response: Response, current_user: CurrentUser
     """Invalidate session by clearing the refresh token cookie."""
     response.delete_cookie("refresh_token", httponly=True, samesite="strict")
 
-    import asyncio
-    from core.audit import record as audit
-    asyncio.ensure_future(audit(
+    from core.audit import record as audit, fire_and_log
+    fire_and_log(audit(
         tenant_id=current_user.tenant_id,
         actor_id=current_user.user_id,
         actor_email=current_user.email,
@@ -402,9 +397,8 @@ async def change_password(
             ), {"h": hash_password(body.new_password), "id": current_user.user_id})
             await session.commit()
 
-    import asyncio
-    from core.audit import record as audit
-    asyncio.ensure_future(audit(
+    from core.audit import record as audit, fire_and_log
+    fire_and_log(audit(
         tenant_id=current_user.tenant_id or "__platform__",
         actor_id=current_user.user_id,
         actor_email=current_user.email,

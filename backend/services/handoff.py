@@ -19,6 +19,8 @@ import re
 from dataclasses import dataclass
 from enum import Enum
 
+from core.audit import fire_and_log
+
 logger = logging.getLogger(__name__)
 
 _REDIS_PREFIX = "handoff:"
@@ -95,26 +97,46 @@ def _is_response_insufficient(
 
 
 # ── Signal accumulation in Redis ──────────────────────────────────────────────
+#
+# Antes: get → json.loads → setex. Race condition: dos turnos concurrentes leen
+# count=2, ambos suben a 3 con setex, ambos disparan handoff offer.
+# Ahora: INCR atomico (Redis garantiza atomicidad por comando). El TTL se renueva
+# con EXPIRE en el mismo round-trip via pipeline para no perder la ventana.
 
-async def _get_signals(conversation_id: str) -> dict:
+async def _incr_insufficient(conversation_id: str) -> int:
+    """Incremento atomico del contador. Devuelve el valor nuevo."""
+    try:
+        from core.database import get_redis_cache
+        redis = get_redis_cache()
+        key = f"{_REDIS_PREFIX}{conversation_id}"
+        pipe = redis.pipeline()
+        pipe.incr(key)
+        pipe.expire(key, _SIGNAL_TTL)
+        results = await pipe.execute()
+        return int(results[0])
+    except Exception as exc:
+        logger.debug("handoff_redis_incr_error error=%s", exc)
+        return 0
+
+
+async def _reset_insufficient(conversation_id: str) -> None:
+    try:
+        from core.database import get_redis_cache
+        redis = get_redis_cache()
+        await redis.delete(f"{_REDIS_PREFIX}{conversation_id}")
+    except Exception as exc:
+        logger.debug("handoff_redis_reset_error error=%s", exc)
+
+
+async def _get_insufficient(conversation_id: str) -> int:
     try:
         from core.database import get_redis_cache
         redis = get_redis_cache()
         raw = await redis.get(f"{_REDIS_PREFIX}{conversation_id}")
-        if raw:
-            return json.loads(raw)
+        return int(raw) if raw else 0
     except Exception as exc:
         logger.debug("handoff_redis_read_error error=%s", exc)
-    return {"insufficient_count": 0}
-
-
-async def _save_signals(conversation_id: str, signals: dict) -> None:
-    try:
-        from core.database import get_redis_cache
-        redis = get_redis_cache()
-        await redis.setex(f"{_REDIS_PREFIX}{conversation_id}", _SIGNAL_TTL, json.dumps(signals))
-    except Exception as exc:
-        logger.debug("handoff_redis_write_error error=%s", exc)
+        return 0
 
 
 async def _is_offer_pending(conversation_id: str) -> bool:
@@ -164,33 +186,31 @@ async def evaluate_handoff(
     primero y el bot sigue sin poder responder.
     """
     config = await _get_handoff_config(tenant_id)
-    signals = await _get_signals(conversation_id)
     offer_pending = await _is_offer_pending(conversation_id)
 
     if _is_response_insufficient(sources, user_message):
-        signals["insufficient_count"] = signals.get("insufficient_count", 0) + 1
-        await _save_signals(conversation_id, signals)
+        count = await _incr_insufficient(conversation_id)
         threshold = config["consecutive_insufficient_count"]
-        if signals["insufficient_count"] >= threshold:
+        if count >= threshold:
             logger.info(
                 "handoff_insufficient conversation_id=%s count=%d threshold=%d",
-                conversation_id, signals["insufficient_count"], threshold,
+                conversation_id, count, threshold,
             )
             if offer_pending:
                 return HandoffSignal(trigger=HandoffTrigger.NONE, auto_activate=False, offer_message="")
             # Disparar oferta: reset counter + cooldown 90s
-            signals["insufficient_count"] = 0
-            await _save_signals(conversation_id, signals)
+            await _reset_insufficient(conversation_id)
             await _mark_offer_pending(conversation_id)
             return HandoffSignal(
                 trigger=HandoffTrigger.INSUFFICIENT,
                 auto_activate=False,
                 offer_message=config["transition_messages"]["handoff_offer"],
             )
-    elif signals.get("insufficient_count", 0) > 0:
+    else:
         # Respuesta exitosa, chitchat o follow-up resuelto -> reset contador.
-        signals["insufficient_count"] = 0
-        await _save_signals(conversation_id, signals)
+        # Solo borrar si esta presente (evita round-trip innecesario).
+        if await _get_insufficient(conversation_id) > 0:
+            await _reset_insufficient(conversation_id)
 
     return HandoffSignal(trigger=HandoffTrigger.NONE, auto_activate=False, offer_message="")
 
@@ -220,9 +240,8 @@ async def request_handoff(conversation_id: str, tenant_id: str, message: str) ->
     await clear_offer_pending(conversation_id)
 
     # Notify all connected operators in real time
-    import asyncio
     from services.events import publish
-    asyncio.ensure_future(publish(tenant_id, "handoff_requested", {
+    fire_and_log(publish(tenant_id, "handoff_requested", {
         "conversation_id": conversation_id,
     }))
 

@@ -1,8 +1,9 @@
 """Audit log helpers. Fire-and-forget — never blocks the request."""
 
+import asyncio
 import json
 import logging
-from typing import Any
+from typing import Any, Awaitable
 
 from fastapi import Request
 from sqlalchemy import text
@@ -10,6 +11,37 @@ from sqlalchemy import text
 from core.database import get_pg_session
 
 logger = logging.getLogger(__name__)
+
+
+def fire_and_log(coro: Awaitable[Any], context: str = "") -> asyncio.Task:
+    """Lanza una corutina fire-and-forget pero logueando cualquier excepcion.
+
+    Reemplazo defensivo de `asyncio.ensure_future(...)` directo. Sin esto,
+    si la corutina falla (Redis caido, PG caido, error en el handler), la
+    excepcion se pierde silenciosamente y en produccion no hay traza.
+
+    Uso:
+        fire_and_log(audit(...), "auth.login")
+        fire_and_log(publish(tenant, "evt", {...}), "publish:handoff_accept")
+
+    Devuelve el Task por si el caller quiere encadenar algo (raro).
+    """
+    task = asyncio.ensure_future(coro)
+
+    def _done(t: asyncio.Task) -> None:
+        if t.cancelled():
+            return
+        exc = t.exception()
+        if exc is not None:
+            logger.warning(
+                "fire_and_log_failed context=%s error=%s: %s",
+                context or "<unspecified>",
+                type(exc).__name__,
+                exc,
+            )
+
+    task.add_done_callback(_done)
+    return task
 
 
 async def record(

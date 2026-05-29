@@ -37,4 +37,15 @@ ruler:
   alertmanager_url: http://localhost:9093
 
 limits_config:
-  retention_period: 168h   # 7 días de logs
+  retention_period: 720h   # 30 días — auditoría legal y trazabilidad incidentes
+  max_query_length: 721h   # permite queries del rango completo de retención
+
+# El compactor materializa la retención: sin esto, retention_period es solo
+# un setting declarado pero nada borra chunks antiguos del disco.
+compactor:
+  working_directory: /loki/compactor
+  compaction_interval: 10m
+  retention_enabled: true
+  retention_delete_delay: 2h
+  retention_delete_worker_count: 150
+  delete_request_store: filesystem

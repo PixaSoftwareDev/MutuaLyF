@@ -470,10 +470,9 @@ async def update_bot_config(
 
     logger.info("bot_config_updated tenant_id=%s by=%s", tenant_id, current_user.user_id)
 
-    import asyncio
-    from core.audit import record as audit
+    from core.audit import record as audit, fire_and_log
     changed = {k: v for k, v in body.model_dump().items() if v is not None}
-    asyncio.ensure_future(audit(
+    fire_and_log(audit(
         tenant_id=tenant_id,
         actor_id=current_user.user_id,
         actor_email=current_user.email,
@@ -910,9 +909,8 @@ async def onboarding_complete(
     except Exception:
         pass
 
-    import asyncio
-    from core.audit import record as audit
-    asyncio.ensure_future(audit(
+    from core.audit import record as audit, fire_and_log
+    fire_and_log(audit(
         tenant_id=tenant_id,
         actor_id=current_user.user_id,
         actor_email=current_user.email,

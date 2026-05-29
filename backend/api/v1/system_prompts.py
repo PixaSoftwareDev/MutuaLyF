@@ -568,9 +568,8 @@ async def activate_template(
 
     await _invalidate_tenant_cache(tenant_id)
 
-    import asyncio
-    from core.audit import record as audit
-    asyncio.ensure_future(audit(
+    from core.audit import record as audit, fire_and_log
+    fire_and_log(audit(
         tenant_id=tenant_id, actor_id=current_user.user_id, actor_email=current_user.email,
         actor_role=current_user.role.value, action="bot.template_activated",
         resource=template_id, request=request,
@@ -594,9 +593,8 @@ async def deactivate_all_templates(
 
     await _invalidate_tenant_cache(tenant_id)
 
-    import asyncio
-    from core.audit import record as audit
-    asyncio.ensure_future(audit(
+    from core.audit import record as audit, fire_and_log
+    fire_and_log(audit(
         tenant_id=tenant_id, actor_id=current_user.user_id, actor_email=current_user.email,
         actor_role=current_user.role.value, action="bot.template_deactivated",
         request=request,

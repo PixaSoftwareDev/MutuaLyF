@@ -284,7 +284,7 @@ async def edit_chunk_text(
     )
 
     import asyncio as _asyncio_audit
-    from core.audit import record as audit
+    from core.audit import record as audit, fire_and_log
     _asyncio_audit.ensure_future(audit(
         tenant_id=tenant_id,
         actor_id=current_user.user_id,
@@ -384,9 +384,8 @@ async def review_chunk(
         document_id, chunk_id, body.action, new_status, agg, current_user.email,
     )
 
-    import asyncio
-    from core.audit import record as audit
-    asyncio.ensure_future(audit(
+    from core.audit import record as audit, fire_and_log
+    fire_and_log(audit(
         tenant_id=tenant_id,
         actor_id=current_user.user_id,
         actor_email=current_user.email,
@@ -492,9 +491,8 @@ async def delete_document(
 
     logger.info("document_deleted document_id=%s tenant_id=%s user=%s", document_id, tenant_id, current_user.user_id)
 
-    import asyncio
-    from core.audit import record as audit
-    asyncio.ensure_future(audit(
+    from core.audit import record as audit, fire_and_log
+    fire_and_log(audit(
         tenant_id=tenant_id,
         actor_id=current_user.user_id,
         actor_email=current_user.email,
@@ -805,9 +803,8 @@ async def ingest_document(
         queue="ingest",
     )
 
-    import asyncio
-    from core.audit import record as audit
-    asyncio.ensure_future(audit(
+    from core.audit import record as audit, fire_and_log
+    fire_and_log(audit(
         tenant_id=tenant_id,
         actor_id=current_user.user_id,
         actor_email=current_user.email,

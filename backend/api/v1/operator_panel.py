@@ -413,13 +413,13 @@ async def accept_handoff(
         """), {"cid": conversation_id, "msg": msg})
 
     logger.info("handoff_accepted conversation_id=%s operator=%s", conversation_id, current_user.user_id)
-    from core.audit import record as audit
-    asyncio.ensure_future(audit(
+    from core.audit import record as audit, fire_and_log
+    fire_and_log(audit(
         tenant_id=tenant_id, actor_id=current_user.user_id, actor_email=current_user.email,
         actor_role=current_user.role.value, action="handoff.accepted",
         resource=conversation_id, request=request,
     ))
-    asyncio.ensure_future(publish(tenant_id, "conversation_updated", {
+    fire_and_log(publish(tenant_id, "conversation_updated", {
         "conversation_id": conversation_id, "status": ConvStatus.HUMAN_ATTENDING,
     }))
     return {"status": ConvStatus.HUMAN_ATTENDING, "system_message": msg}
@@ -481,7 +481,7 @@ async def reply(
             "UPDATE conversaciones SET updated_at = NOW() WHERE id = :id"
         ), {"id": conversation_id})
 
-    asyncio.ensure_future(publish(tenant_id, "new_message", {
+    fire_and_log(publish(tenant_id, "new_message", {
         "conversation_id": conversation_id, "sender": "operator",
     }))
     return {"status": "sent"}
@@ -518,13 +518,13 @@ async def transfer(
         """), {"cid": conversation_id, "msg": msg})
 
     logger.info("conversation_transferred id=%s to_sector=%s by=%s", conversation_id, body.sector_id, current_user.user_id)
-    from core.audit import record as audit
-    asyncio.ensure_future(audit(
+    from core.audit import record as audit, fire_and_log
+    fire_and_log(audit(
         tenant_id=tenant_id, actor_id=current_user.user_id, actor_email=current_user.email,
         actor_role=current_user.role.value, action="handoff.transferred",
         resource=conversation_id, detail={"to_sector": body.sector_id}, request=request,
     ))
-    asyncio.ensure_future(publish(tenant_id, "conversation_updated", {
+    fire_and_log(publish(tenant_id, "conversation_updated", {
         "conversation_id": conversation_id, "status": ConvStatus.HANDOFF_REQUESTED,
     }))
     return {"status": ConvStatus.HANDOFF_REQUESTED, "system_message": msg}
@@ -575,13 +575,13 @@ async def release_to_queue(
         """), {"cid": conversation_id, "msg": msg})
 
     logger.info("handoff_released conversation_id=%s operator=%s", conversation_id, current_user.user_id)
-    from core.audit import record as audit
-    asyncio.ensure_future(audit(
+    from core.audit import record as audit, fire_and_log
+    fire_and_log(audit(
         tenant_id=tenant_id, actor_id=current_user.user_id, actor_email=current_user.email,
         actor_role=current_user.role.value, action="handoff.released",
         resource=conversation_id, request=request,
     ))
-    asyncio.ensure_future(publish(tenant_id, "conversation_updated", {
+    fire_and_log(publish(tenant_id, "conversation_updated", {
         "conversation_id": conversation_id, "status": ConvStatus.HANDOFF_REQUESTED,
     }))
     return {"status": ConvStatus.HANDOFF_REQUESTED, "system_message": msg}
@@ -636,13 +636,13 @@ async def return_to_bot(
 
     logger.info("handoff_returned_to_bot conversation_id=%s operator=%s",
                 conversation_id, current_user.user_id)
-    from core.audit import record as audit
-    asyncio.ensure_future(audit(
+    from core.audit import record as audit, fire_and_log
+    fire_and_log(audit(
         tenant_id=tenant_id, actor_id=current_user.user_id, actor_email=current_user.email,
         actor_role=current_user.role.value, action="handoff.returned_to_bot",
         resource=conversation_id, request=request,
     ))
-    asyncio.ensure_future(publish(tenant_id, "conversation_updated", {
+    fire_and_log(publish(tenant_id, "conversation_updated", {
         "conversation_id": conversation_id, "status": ConvStatus.BOT_ACTIVE,
     }))
     return {"status": ConvStatus.BOT_ACTIVE, "system_message": msg}
@@ -671,13 +671,13 @@ async def close_conversation(
             VALUES (:cid, 'system', :msg)
         """), {"cid": conversation_id, "msg": msg})
 
-    from core.audit import record as audit
-    asyncio.ensure_future(audit(
+    from core.audit import record as audit, fire_and_log
+    fire_and_log(audit(
         tenant_id=tenant_id, actor_id=current_user.user_id, actor_email=current_user.email,
         actor_role=current_user.role.value, action="handoff.closed",
         resource=conversation_id, request=request,
     ))
-    asyncio.ensure_future(publish(tenant_id, "conversation_updated", {
+    fire_and_log(publish(tenant_id, "conversation_updated", {
         "conversation_id": conversation_id, "status": ConvStatus.CLOSED,
     }))
     return {"status": ConvStatus.CLOSED}
@@ -910,9 +910,8 @@ async def create_sector(
             RETURNING id, nombre
         """), {"nombre": body.nombre, "desc": body.descripcion})
         row = result.fetchone()
-    import asyncio
-    from core.audit import record as audit
-    asyncio.ensure_future(audit(
+    from core.audit import record as audit, fire_and_log
+    fire_and_log(audit(
         tenant_id=tenant_id, actor_id=current_user.user_id, actor_email=current_user.email,
         actor_role=current_user.role.value, action="sector.created",
         resource=str(row[0]), detail={"nombre": body.nombre}, request=request,
@@ -946,9 +945,8 @@ async def delete_sector(
             text("UPDATE sectores SET is_active = FALSE WHERE id = :id"),
             {"id": sector_id},
         )
-    import asyncio
-    from core.audit import record as audit
-    asyncio.ensure_future(audit(
+    from core.audit import record as audit, fire_and_log
+    fire_and_log(audit(
         tenant_id=tenant_id, actor_id=current_user.user_id, actor_email=current_user.email,
         actor_role=current_user.role.value, action="sector.deleted",
         resource=sector_id, request=request,
@@ -1096,9 +1094,8 @@ async def create_operator(
 
     logger.info("operator_created id=%s email=%s tenant=%s by=%s default_sector=%s",
                 new_id, body.email, tenant_id, current_user.user_id, default_sector_id)
-    import asyncio
-    from core.audit import record as audit
-    asyncio.ensure_future(audit(
+    from core.audit import record as audit, fire_and_log
+    fire_and_log(audit(
         tenant_id=tenant_id, actor_id=current_user.user_id, actor_email=current_user.email,
         actor_role=current_user.role.value, action="user.created",
         resource=new_id, detail={"email": body.email.lower().strip(), "name": body.name.strip()}, request=request,
@@ -1127,9 +1124,8 @@ async def deactivate_operator(
             raise HTTPException(status_code=404, detail="Usuario no encontrado o sin permiso")
 
     logger.info("operator_deactivated id=%s tenant=%s by=%s", operator_id, tenant_id, current_user.user_id)
-    import asyncio
-    from core.audit import record as audit
-    asyncio.ensure_future(audit(
+    from core.audit import record as audit, fire_and_log
+    fire_and_log(audit(
         tenant_id=tenant_id, actor_id=current_user.user_id, actor_email=current_user.email,
         actor_role=current_user.role.value, action="user.deactivated",
         resource=operator_id, request=request,
