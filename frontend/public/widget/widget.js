@@ -92,24 +92,34 @@
   // ── Styles ─────────────────────────────────────────────────────────────────
   var style = document.createElement("style");
   style.textContent = [
-    "#ia-widget-btn{position:fixed;bottom:24px;right:24px;width:56px;height:56px;border-radius:50%;background:var(--ia-w-primary, #99323D);color:#fff;border:none;cursor:pointer;font-size:24px;box-shadow:0 4px 12px rgba(0,0,0,.2);z-index:9998;display:flex;align-items:center;justify-content:center;transition:transform .2s;}",
-    "#ia-widget-btn:hover{transform:scale(1.05);}",
-    "#ia-widget-badge{position:absolute;top:-4px;right:-4px;background:#ef4444;color:#fff;border-radius:50%;width:18px;height:18px;font-size:11px;display:none;align-items:center;justify-content:center;font-weight:700;}",
-    // Importar Inter (la misma fuente que usa /chat) directo de Google Fonts.
-    // 'swap' permite render inmediato con system-ui hasta que Inter cargue.
+    // Importar Inter de Google Fonts (debe ir primero en el stylesheet).
     "@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');",
-    "#ia-widget-panel{position:fixed;bottom:92px;right:24px;width:" + PANEL_WIDTH + "px;max-width:calc(100vw - 32px);height:" + PANEL_HEIGHT + "px;max-height:calc(100vh - 120px);border-radius:12px;background:#fff;box-shadow:0 8px 32px rgba(0,0,0,.15);z-index:9999;display:none;flex-direction:column;font-family:'Inter',system-ui,-apple-system,sans-serif;overflow:hidden;}",
+    // Boton flotante: 64x64 default, 72x72 en monitores grandes.
+    "#ia-widget-btn{position:fixed;bottom:24px;right:24px;width:64px;height:64px;border-radius:50%;background:var(--ia-w-primary, #99323D);color:#fff;border:none;cursor:pointer;font-size:24px;box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:9998;display:flex;align-items:center;justify-content:center;transition:transform .2s,box-shadow .2s;}",
+    "#ia-widget-btn:hover{transform:scale(1.08);box-shadow:0 8px 28px rgba(0,0,0,.3);}",
+    "#ia-widget-badge{position:absolute;top:-4px;right:-4px;background:#ef4444;color:#fff;border-radius:50%;width:20px;height:20px;font-size:11px;display:none;align-items:center;justify-content:center;font-weight:700;border:2px solid #fff;}",
+    // Panel — tamaño escala con el viewport. El data-width/data-height del
+    // snippet (si esta) gana sobre el default, pero los media queries de
+    // abajo overridean para no quedar comicamente chico en monitores grandes.
+    "#ia-widget-panel{position:fixed;bottom:100px;right:24px;width:" + PANEL_WIDTH + "px;max-width:calc(100vw - 32px);height:" + PANEL_HEIGHT + "px;max-height:calc(100vh - 130px);border-radius:16px;background:#fff;box-shadow:0 12px 40px rgba(0,0,0,.18);z-index:9999;display:none;flex-direction:column;font-family:'Inter',system-ui,-apple-system,sans-serif;overflow:hidden;}",
     "#ia-widget-panel.open{display:flex;animation:ia-slideup .25s cubic-bezier(.16,1,.3,1);}",
     "@keyframes ia-slideup{from{opacity:0;transform:translateY(20px);}to{opacity:1;transform:translateY(0);}}",
-    // Mobile fullscreen: en pantallas <640px (telefonos en portrait), el widget
-    // ocupa toda la pantalla. Sin esto quedaba un panel chico en la esquina
-    // que era incomodo de usar con el teclado virtual abierto.
-    "@media (max-width:640px){#ia-widget-panel{bottom:0;right:0;left:0;top:0;width:100vw;height:100vh;max-width:100vw;max-height:100vh;border-radius:0;}#ia-widget-btn{bottom:16px;right:16px;}#ia-widget-panel.open ~ #ia-widget-btn{display:none;}#ia-widget-header{border-radius:0;}}",
+    // ── Mobile (<640px): pantalla completa ──
+    "@media (max-width:640px){#ia-widget-panel{bottom:0;right:0;left:0;top:0;width:100vw;height:100vh;max-width:100vw;max-height:100vh;border-radius:0;}#ia-widget-btn{bottom:16px;right:16px;width:56px;height:56px;}#ia-widget-panel.open ~ #ia-widget-btn{display:none;}#ia-widget-header{border-radius:0;}}",
+    // ── Tablet (641-1024px): tamaño intermedio ──
+    "@media (min-width:641px) and (max-width:1024px){#ia-widget-panel{width:420px;height:660px;}}",
+    // ── Desktop estandar (1025-1440px): mas grande ──
+    "@media (min-width:1025px) and (max-width:1440px){#ia-widget-panel{width:440px;height:700px;}}",
+    // ── Monitores grandes (>1440px): widget protagonista ──
+    "@media (min-width:1441px){#ia-widget-panel{width:480px;height:740px;bottom:110px;right:32px;}#ia-widget-btn{width:72px;height:72px;bottom:32px;right:32px;}}",
+    // ── Monitores ultra grandes (>1920px): aun mas ──
+    "@media (min-width:1921px){#ia-widget-panel{width:520px;height:780px;}}",
     // Header con gradient (igual look que el chat publico)
     "#ia-widget-header{padding:14px 16px;background:linear-gradient(135deg, var(--ia-w-primary-dark, #6e2330) 0%, var(--ia-w-primary, #99323D) 50%, var(--ia-w-primary-light, #b84656) 100%);color:#fff;border-radius:12px 12px 0 0;display:flex;align-items:center;gap:10px;box-shadow:0 2px 8px rgba(0,0,0,.15);}",
     "#ia-widget-header.handoff{background:linear-gradient(135deg, #b45309 0%, #d97706 50%, #f59e0b 100%);}",
     "#ia-widget-header.attending{background:linear-gradient(135deg, #047857 0%, #059669 50%, #10b981 100%);}",
-    "#ia-widget-bot-avatar{width:36px;height:36px;border-radius:12px;background:rgba(255,255,255,.2);backdrop-filter:blur(4px);border:1px solid rgba(255,255,255,.3);display:flex;align-items:center;justify-content:center;flex-shrink:0;overflow:hidden;}",
+    "#ia-widget-bot-avatar{width:40px;height:40px;border-radius:12px;background:rgba(255,255,255,.2);backdrop-filter:blur(4px);border:1px solid rgba(255,255,255,.3);display:flex;align-items:center;justify-content:center;flex-shrink:0;overflow:hidden;}",
+    "@media (min-width:1441px){#ia-widget-bot-avatar{width:44px;height:44px;}#ia-widget-title{font-size:16px;}}",
     "#ia-widget-bot-avatar img{width:100%;height:100%;object-fit:cover;}",
     "#ia-widget-titlewrap{flex:1;min-width:0;}",
     "#ia-widget-title{font-weight:600;font-size:15px;line-height:1.2;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}",
