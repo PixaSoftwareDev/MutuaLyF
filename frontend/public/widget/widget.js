@@ -101,7 +101,23 @@
     // Panel — tamaño escala con el viewport. El data-width/data-height del
     // snippet (si esta) gana sobre el default, pero los media queries de
     // abajo overridean para no quedar comicamente chico en monitores grandes.
-    "#ia-widget-panel{position:fixed;bottom:100px;right:24px;width:" + PANEL_WIDTH + "px;max-width:calc(100vw - 32px);height:" + PANEL_HEIGHT + "px;max-height:calc(100vh - 130px);border-radius:16px;background:#fff;box-shadow:0 12px 40px rgba(0,0,0,.18);z-index:9999;display:none;flex-direction:column;font-family:'Inter',system-ui,-apple-system,sans-serif;overflow:hidden;}",
+    // color-scheme:light fuerza al browser a renderizar inputs, scrollbars y
+    // controles en light mode aunque el sitio host este en dark. Sin esto, en
+    // un sitio con dark mode el textarea se veia con letra blanca (invisible)
+    // y el scroll heredaba colores del tema del host.
+    "#ia-widget-panel{position:fixed;bottom:100px;right:24px;width:" + PANEL_WIDTH + "px;max-width:calc(100vw - 32px);height:" + PANEL_HEIGHT + "px;max-height:calc(100vh - 130px);border-radius:16px;background:#fff;color:#1e293b;color-scheme:light;box-shadow:0 12px 40px rgba(0,0,0,.18);z-index:9999;display:none;flex-direction:column;font-family:'Inter',system-ui,-apple-system,sans-serif;overflow:hidden;}",
+    // Aislamiento total: todos los elementos dentro del panel se renderizan
+    // en light mode sin importar el tema del sitio host. Forzar color y
+    // caret-color en inputs y textareas asegura que el texto siempre se vea.
+    "#ia-widget-panel *,#ia-widget-panel *::before,#ia-widget-panel *::after{box-sizing:border-box;color-scheme:light;}",
+    "#ia-widget-panel input,#ia-widget-panel textarea,#ia-widget-panel button{color:#1e293b;caret-color:#1e293b;-webkit-text-fill-color:#1e293b;}",
+    "#ia-widget-panel .ia-msg.user,#ia-widget-panel button[style*='color:#fff'],#ia-widget-panel #ia-widget-send,#ia-widget-panel #ia-widget-handoff-bar button,#ia-widget-panel #ia-widget-identify-form .ia-identify-submit{-webkit-text-fill-color:#fff;color:#fff;}",
+    // Scrollbar custom (light, sutil) para que no herede el del sitio host.
+    "#ia-widget-panel ::-webkit-scrollbar{width:8px;height:8px;}",
+    "#ia-widget-panel ::-webkit-scrollbar-track{background:transparent;}",
+    "#ia-widget-panel ::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:8px;border:2px solid transparent;background-clip:content-box;}",
+    "#ia-widget-panel ::-webkit-scrollbar-thumb:hover{background:#94a3b8;background-clip:content-box;border:2px solid transparent;}",
+    "#ia-widget-panel{scrollbar-width:thin;scrollbar-color:#cbd5e1 transparent;}",
     "#ia-widget-panel.open{display:flex;animation:ia-slideup .25s cubic-bezier(.16,1,.3,1);}",
     "@keyframes ia-slideup{from{opacity:0;transform:translateY(20px);}to{opacity:1;transform:translateY(0);}}",
     // ── Mobile (<640px): pantalla completa ──
