@@ -21,6 +21,42 @@ function shade(hex: string, pct: number): string {
 }
 
 /**
+ * Calcula luminancia relativa segun WCAG (https://www.w3.org/TR/WCAG21/#dfn-relative-luminance).
+ * 0 = negro, 1 = blanco.
+ */
+function relativeLuminance(hex: string): number {
+  const h = hex.replace("#", "");
+  if (h.length !== 6) return 1;
+  const channel = (c: number) => {
+    const s = c / 255;
+    return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+  };
+  const r = channel(parseInt(h.slice(0, 2), 16));
+  const g = channel(parseInt(h.slice(2, 4), 16));
+  const b = channel(parseInt(h.slice(4, 6), 16));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+export function contrastRatio(hex1: string, hex2: string): number {
+  const L1 = relativeLuminance(hex1);
+  const L2 = relativeLuminance(hex2);
+  const [bright, dark] = L1 > L2 ? [L1, L2] : [L2, L1];
+  return (bright + 0.05) / (dark + 0.05);
+}
+
+/**
+ * Devuelve "#ffffff" o "#0f172a" segun cual contrasta mejor con el primary.
+ * Garantiza que texto puesto encima del color de marca cumpla WCAG AA (>=4.5:1)
+ * cuando es posible — si el primary es tan medio que ninguno cumple, devuelve
+ * el menos malo y dejamos que el panel admin avise al usuario.
+ */
+export function pickReadableTextColor(primary: string): "#ffffff" | "#0f172a" {
+  const whiteRatio = contrastRatio(primary, "#ffffff");
+  const darkRatio  = contrastRatio(primary, "#0f172a");
+  return whiteRatio >= darkRatio ? "#ffffff" : "#0f172a";
+}
+
+/**
  * Convert "#RRGGBB" to the tuple Tailwind expects inside `hsl(...)`: "H S% L%"
  * (sin envolver con hsl() — tailwind ya lo hace en tailwind.config.ts).
  */
@@ -73,6 +109,12 @@ export function applyBrandingVars(branding: Pick<TenantBranding, "primary_color"
   // Mantener también el HEX crudo para componentes que pintan inline
   // (style={{ backgroundColor: accent }} en login/topbar/widget).
   root.style.setProperty("--brand-primary", primary);
+
+  // Color de texto WCAG-safe para encima del primary. Sin esto, si el cliente
+  // elige un primary claro (#ffe000, #b9f6ca) los botones quedaban con texto
+  // blanco sobre claro = ilegibles. Componentes que necesiten "texto sobre brand"
+  // deben usar var(--brand-foreground).
+  root.style.setProperty("--brand-foreground", pickReadableTextColor(primary));
 
   if (branding.secondary_color) {
     const secHsl = hexToHslTuple(branding.secondary_color);

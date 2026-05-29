@@ -19,6 +19,7 @@ import { toast } from "@/components/ui/toast";
 import { PageShell } from "@/components/layout/page-shell";
 import { PageHeader } from "@/components/layout/page-header";
 import { cn } from "@/lib/utils";
+import { contrastRatio, pickReadableTextColor } from "@/lib/use-tenant-branding";
 
 const DEFAULT_COLOR = "#99323D";
 const PALETTE_PRESETS = [
@@ -213,6 +214,7 @@ export default function BrandingPage() {
                       presets={PALETTE_PRESETS}
                       required
                     />
+                    <ContrastFeedback primary={primary} />
                     <div className="flex gap-2 pt-3">
                       <Button
                         size="sm"
@@ -388,3 +390,47 @@ function ColorField({
   );
 }
 
+
+// ── Contraste WCAG ────────────────────────────────────────────────────────────
+// Avisa al admin si el color elegido no cumple AA (>=4.5:1) contra blanco y
+// contra texto oscuro. Sin esto, el cliente puede elegir #ffe000 y termina con
+// botones primarios ilegibles en su propia plataforma. Mostramos:
+//   - el contraste medido
+//   - sample en vivo con el color de texto que el sistema usaria
+//   - badge AA / AA Large / Insuficiente
+function ContrastFeedback({ primary }: { primary: string }) {
+  const textColor   = pickReadableTextColor(primary);
+  const ratio       = contrastRatio(primary, textColor);
+  const aaNormal    = ratio >= 4.5;
+  const aaLarge     = ratio >= 3.0;
+  const badge       = aaNormal
+    ? { label: "AA ✓",       cls: "bg-emerald-50 text-emerald-700 border-emerald-200" }
+    : aaLarge
+    ? { label: "AA Large",   cls: "bg-amber-50 text-amber-700 border-amber-200" }
+    : { label: "Insuficiente", cls: "bg-rose-50 text-rose-700 border-rose-200" };
+  return (
+    <div className="mt-3 rounded-md border bg-muted/30 p-3 text-xs">
+      <div className="flex items-center gap-2">
+        <span
+          className="inline-flex items-center rounded px-2.5 py-1 text-xs font-medium"
+          style={{ backgroundColor: primary, color: textColor }}
+        >
+          Acción primaria
+        </span>
+        <span className={cn("rounded border px-2 py-0.5 text-[11px] font-medium", badge.cls)}>
+          {badge.label}
+        </span>
+        <span className="text-muted-foreground">
+          Contraste: <code className="font-mono">{ratio.toFixed(2)}:1</code>
+        </span>
+      </div>
+      {!aaNormal && (
+        <p className="mt-2 text-muted-foreground">
+          {aaLarge
+            ? "Sirve solo para texto grande (≥18px). El texto chico en este color puede leerse mal."
+            : "Este color no tiene suficiente contraste con texto blanco ni oscuro. Probá un tono más oscuro o más claro."}
+        </p>
+      )}
+    </div>
+  );
+}

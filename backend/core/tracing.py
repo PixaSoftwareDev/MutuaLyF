@@ -28,6 +28,7 @@ def setup_tracing(app=None) -> None:
         from opentelemetry import trace
         from opentelemetry.sdk.trace import TracerProvider
         from opentelemetry.sdk.trace.export import BatchSpanProcessor
+        from opentelemetry.sdk.trace.sampling import ParentBased, TraceIdRatioBased
         from opentelemetry.sdk.resources import Resource
         from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
         from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
@@ -36,9 +37,19 @@ def setup_tracing(app=None) -> None:
 
         service_name = os.getenv("OTEL_SERVICE_NAME", "ia-platform-backend")
         otlp_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://jaeger:4317")
+        sample_ratio = float(os.getenv("OTEL_SAMPLE_RATIO", "0.1"))  # 10% por default
+        sample_ratio = max(0.0, min(1.0, sample_ratio))
+
+        # Sampling: full sampling agrega ~10-15ms por request al RAG. Con 10% el
+        # overhead amortizado es ~1-2ms y seguimos teniendo visibilidad de cola
+        # larga (cualquier query >2s genera suficiente volumen para ser muestreada).
+        # ParentBased respeta el sampling decision del request si ya viene con
+        # trace context — clave para no romper trazas distribuidas que el
+        # gateway/cliente ya inicio con sampling propio.
+        sampler = ParentBased(root=TraceIdRatioBased(sample_ratio))
 
         resource = Resource.create({"service.name": service_name})
-        provider = TracerProvider(resource=resource)
+        provider = TracerProvider(resource=resource, sampler=sampler)
         exporter = OTLPSpanExporter(endpoint=otlp_endpoint, insecure=True)
         provider.add_span_processor(BatchSpanProcessor(exporter))
         trace.set_tracer_provider(provider)
@@ -54,7 +65,10 @@ def setup_tracing(app=None) -> None:
         if app is not None:
             FastAPIInstrumentor.instrument_app(app)
 
-        logger.info("tracing_enabled service=%s endpoint=%s", service_name, otlp_endpoint)
+        logger.info(
+            "tracing_enabled service=%s endpoint=%s sample_ratio=%.2f",
+            service_name, otlp_endpoint, sample_ratio,
+        )
 
     except ImportError as exc:
         logger.warning("tracing_import_failed error=%s — install opentelemetry packages", exc)

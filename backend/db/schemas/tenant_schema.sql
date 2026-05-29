@@ -114,8 +114,6 @@ CREATE TABLE IF NOT EXISTS conversaciones (
     sector_id               UUID REFERENCES sectores(id),
     status                  VARCHAR(30) NOT NULL DEFAULT 'bot_active',
     assigned_operator_id    UUID REFERENCES usuarios(id),
-    insufficient_count      INTEGER NOT NULL DEFAULT 0,
-    human_request_count     INTEGER NOT NULL DEFAULT 0,
     afiliado_nombre         VARCHAR(200),
     afiliado_email          VARCHAR(320),
     afiliado_dni            VARCHAR(20),

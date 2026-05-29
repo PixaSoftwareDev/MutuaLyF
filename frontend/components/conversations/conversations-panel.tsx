@@ -188,26 +188,80 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
 
   // ── Mutations ──────────────────────────────────────────────────────────────
 
+  // Helper para mutaciones optimistas en la lista de conversaciones.
+  // El cache es { sectors: [{ conversations: [...] }] } — clonamos y mutamos
+  // la conv que matchea por id. Si el backend rechaza, restauramos el snapshot.
+  const _patchConv = (id: string, patch: Partial<ConversationRow>) => {
+    qc.setQueryData(["operator-conversations"], (old: any) => {
+      if (!old) return old;
+      return {
+        ...old,
+        sectors: old.sectors.map((s: any) => ({
+          ...s,
+          conversations: s.conversations.map((c: ConversationRow) =>
+            c.id === id ? { ...c, ...patch } : c
+          ),
+        })),
+      };
+    });
+  };
+  const _removeConv = (id: string) => {
+    qc.setQueryData(["operator-conversations"], (old: any) => {
+      if (!old) return old;
+      return {
+        ...old,
+        sectors: old.sectors.map((s: any) => ({
+          ...s,
+          conversations: s.conversations.filter((c: ConversationRow) => c.id !== id),
+        })),
+      };
+    });
+  };
+
   const acceptM = useMutation({
     mutationFn: (id: string) => api.operator.accept(id),
-    onSuccess: (_, id) => {
-      inv();
+    onMutate: async (id) => {
+      // Optimistic: marca atendiendo + selecciona al instante. Si falla,
+      // onError revierte. Sin esto el operador veia 200-400ms de "nada pasa"
+      // tras clickear "Atender".
+      await qc.cancelQueries({ queryKey: ["operator-conversations"] });
+      const snapshot = qc.getQueryData(["operator-conversations"]);
+      _patchConv(id, { status: "human_attending" as any });
+      const prevSelected = selectedId;
       setSelectedId(id);
+      return { snapshot, prevSelected };
+    },
+    onError: (_e, _id, ctx) => {
+      if (ctx?.snapshot !== undefined) qc.setQueryData(["operator-conversations"], ctx.snapshot);
+      if (ctx?.prevSelected !== undefined) setSelectedId(ctx.prevSelected);
+      toast({ title: "No se pudo aceptar la conversación", variant: "destructive" });
+    },
+    onSuccess: () => {
       toast({ title: "Conversación aceptada — ya podés responder", variant: "success" });
     },
+    onSettled: () => inv(),
   });
 
   const closeM = useMutation({
     mutationFn: (id: string) => api.operator.close(id),
-    onSuccess: () => {
-      // Deseleccionar la conv recien cerrada para volver a la bandeja.
-      // Sin esto, el operador seguia viendo el chat cerrado en el panel
-      // derecho como si nada hubiese pasado.
+    onMutate: async (id) => {
+      await qc.cancelQueries({ queryKey: ["operator-conversations"] });
+      const snapshot = qc.getQueryData(["operator-conversations"]);
+      _removeConv(id);
+      const prevSelected = selectedId;
+      const prevReply    = replyText;
       setSelectedId(null);
       setReplyText("");
-      inv();
-      toast({ title: "Conversación cerrada" });
+      return { snapshot, prevSelected, prevReply };
     },
+    onError: (_e, _id, ctx) => {
+      if (ctx?.snapshot !== undefined) qc.setQueryData(["operator-conversations"], ctx.snapshot);
+      if (ctx?.prevSelected !== undefined) setSelectedId(ctx.prevSelected);
+      if (ctx?.prevReply !== undefined) setReplyText(ctx.prevReply);
+      toast({ title: "No se pudo cerrar la conversación", variant: "destructive" });
+    },
+    onSuccess: () => toast({ title: "Conversación cerrada" }),
+    onSettled: () => inv(),
   });
 
   const returnToBotM = useMutation({
@@ -232,13 +286,26 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
 
   const releaseM = useMutation({
     mutationFn: (id: string) => api.operator.release(id),
-    onSuccess: () => {
-      inv();
+    onMutate: async (id) => {
+      await qc.cancelQueries({ queryKey: ["operator-conversations"] });
+      const snapshot = qc.getQueryData(["operator-conversations"]);
+      // Vuelve a "esperando operador": status handoff_requested + se saca del slot
+      // de este operador. La UI re-renderiza al instante.
+      // assigned_operator_id no esta en el type — pasamos solo status (suficiente para
+      // que el conv salga del slot del operador en la UI).
+      _patchConv(id, { status: "handoff_requested" as any });
+      const prevSelected = selectedId;
       setSelectedId(null);
       setConfirmRelease(false);
-      toast({ title: "Conversación devuelta a la cola", variant: "success" });
+      return { snapshot, prevSelected };
     },
-    onError: () => toast({ title: "Error al devolver", variant: "destructive" }),
+    onError: (_e, _id, ctx) => {
+      if (ctx?.snapshot !== undefined) qc.setQueryData(["operator-conversations"], ctx.snapshot);
+      if (ctx?.prevSelected !== undefined) setSelectedId(ctx.prevSelected);
+      toast({ title: "Error al devolver", variant: "destructive" });
+    },
+    onSuccess: () => toast({ title: "Conversación devuelta a la cola", variant: "success" }),
+    onSettled: () => inv(),
   });
 
   const replyM = useMutation({
