@@ -119,12 +119,49 @@ app.include_router(export.router, prefix="/api/v1", tags=["export"])
 
 
 # ── Static: tenant uploads (logos, favicons) ──────────────────────────────────
-# Mounted under /uploads so the frontend can reference them via the API origin.
+# Handler restrictivo en lugar de StaticFiles. Razones:
+#   1. Anti path-traversal: validamos formato del path antes de tocar fs.
+#   2. Solo extensiones whitelisted (logos/favicons) — si alguien crea otros
+#      archivos en /uploads se ignoran.
+#   3. Force Content-Disposition: inline + X-Content-Type-Options: nosniff
+#      para que un archivo .png cuyo contenido sea HTML/JS no se ejecute.
+import re as _re
 from pathlib import Path as _Path
-from fastapi.staticfiles import StaticFiles
+from fastapi import Path as _PathParam
+from fastapi.responses import FileResponse, Response as _R
 _uploads_dir = _Path("/uploads")
 _uploads_dir.mkdir(parents=True, exist_ok=True)
-app.mount("/uploads", StaticFiles(directory=str(_uploads_dir)), name="uploads")
+
+_UPLOADS_FILENAME_RE = _re.compile(r"^(logo|favicon)-[a-f0-9]{4,16}\.(png|jpg|jpeg|svg|webp|ico)$")
+_UPLOADS_TENANT_RE   = _re.compile(r"^[a-z0-9-]{1,50}$")
+_UPLOADS_MIME = {
+    "png":  "image/png", "jpg":  "image/jpeg", "jpeg": "image/jpeg",
+    "svg":  "image/svg+xml", "webp": "image/webp", "ico":  "image/vnd.microsoft.icon",
+}
+
+
+@app.get("/uploads/{tenant_id}/{filename}", include_in_schema=False)
+async def serve_upload(tenant_id: str = _PathParam(...), filename: str = _PathParam(...)) -> _R:
+    if not _UPLOADS_TENANT_RE.match(tenant_id) or not _UPLOADS_FILENAME_RE.match(filename):
+        return _R(status_code=404)
+    path = _uploads_dir / tenant_id / filename
+    try:
+        # Ancla anti-traversal: el resolved path debe estar dentro de /uploads
+        path.resolve().relative_to(_uploads_dir.resolve())
+    except (ValueError, RuntimeError):
+        return _R(status_code=404)
+    if not path.is_file():
+        return _R(status_code=404)
+    ext = filename.rsplit(".", 1)[-1].lower()
+    return FileResponse(
+        path,
+        media_type=_UPLOADS_MIME.get(ext, "application/octet-stream"),
+        headers={
+            "Cache-Control":          "public, max-age=604800, immutable",
+            "Content-Disposition":    "inline",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 # ── Health ────────────────────────────────────────────────────────────────────

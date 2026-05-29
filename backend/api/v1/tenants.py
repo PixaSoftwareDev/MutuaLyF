@@ -305,6 +305,11 @@ async def suspend_tenant(
         )
         if not result.fetchone():
             raise HTTPException(status_code=404, detail="Tenant not found")
+    # Invalidar cache de status para que JWTs vigentes empiecen a fallar al
+    # instante en lugar de esperar el TTL de 60s. Sin esto, una cuenta
+    # comprometida tenia hasta 60s + 60min de uso del JWT actual.
+    from core.security import invalidate_tenant_status_cache_sync
+    invalidate_tenant_status_cache_sync(tenant_id)
     logger.info("tenant_suspended id=%s by=%s", tenant_id, current_user.user_id)
     return {"id": tenant_id, "status": "suspended"}
 
@@ -322,6 +327,8 @@ async def activate_tenant(
         )
         if not result.fetchone():
             raise HTTPException(status_code=404, detail="Tenant not found")
+    from core.security import invalidate_tenant_status_cache_sync
+    invalidate_tenant_status_cache_sync(tenant_id)
     logger.info("tenant_activated id=%s by=%s", tenant_id, current_user.user_id)
     return {"id": tenant_id, "status": "active"}
 

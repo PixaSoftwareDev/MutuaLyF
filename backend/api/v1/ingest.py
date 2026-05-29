@@ -283,9 +283,8 @@ async def edit_chunk_text(
         document_id, chunk_id, parent_id, len(new_text), current_user.email,
     )
 
-    import asyncio as _asyncio_audit
     from core.audit import record as audit, fire_and_log
-    _asyncio_audit.ensure_future(audit(
+    fire_and_log(audit(
         tenant_id=tenant_id,
         actor_id=current_user.user_id,
         actor_email=current_user.email,
@@ -512,6 +511,20 @@ ALLOWED_MIME_TYPES = {
     "application/octet-stream",  # Some browsers send this for .docx — detected by extension below
 }
 
+# MIME types reales que libmagic reporta sobre el contenido. python-magic mira
+# magic numbers en los primeros bytes — un .exe renombrado a .pdf NO va a pasar.
+# DOCX es un zip por dentro: libmagic reporta application/zip o el subtype OOXML
+# segun la version. Aceptamos ambos y revalidamos el extension below.
+ALLOWED_REAL_MIME_TYPES = {
+    "application/pdf",
+    "text/plain",
+    "text/html",
+    "application/json",
+    "application/zip",  # DOCX detectado como zip
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/x-empty",  # se rechaza arriba por len(content)==0
+}
+
 _EXTENSION_MIME_MAP = {
     ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     ".pdf":  "application/pdf",
@@ -634,6 +647,33 @@ async def ingest_document(
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             detail=f"File exceeds maximum allowed size of {_MAX_FILE_BYTES // (1024*1024)} MB",
+        )
+
+    # ── Validar MIME real con libmagic ────────────────────────────────────────
+    # file.content_type viene del cliente y es trivial de spoofear: cualquier
+    # script puede mandar Content-Type: application/pdf sobre un .exe. libmagic
+    # mira los magic bytes del contenido real — si el archivo no tiene la
+    # signature de pdf/docx/etc, lo rechazamos antes de tocar Qdrant/Celery.
+    try:
+        import magic
+        real_mime = magic.from_buffer(content[:8192], mime=True)
+    except Exception as exc:
+        # Si libmagic no esta disponible (dev sin libmagic1), no bloqueamos
+        # el upload — solo loguamos. En produccion el Dockerfile lo instala.
+        logger.warning("magic_unavailable_skipping_check error=%s", exc)
+        real_mime = None
+
+    if real_mime is not None and real_mime not in ALLOWED_REAL_MIME_TYPES:
+        logger.warning(
+            "ingest_mime_spoof_detected tenant=%s filename=%s declared=%s real=%s",
+            tenant_id, file.filename, mime_type, real_mime,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail=(
+                f"El archivo no tiene el contenido esperado (detectado: {real_mime}). "
+                "Solo aceptamos PDF, DOCX, TXT, HTML o JSON."
+            ),
         )
 
     # Plan limit: document count + per-file size cap

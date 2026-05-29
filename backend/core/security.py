@@ -159,11 +159,92 @@ def _get_current_user_from_token(token: str) -> CurrentUser:
     )
 
 
+async def _assert_tenant_active(tenant_id: str) -> None:
+    """Bloquea cualquier token cuyo tenant esta suspendido/eliminado.
+
+    Sin esto, suspender un tenant via panel super-admin no surte efecto hasta
+    que cada JWT activo expire (60 min). Con tenants comprometidos eso es una
+    ventana inaceptable. Lookup esta cacheado en Redis 60s para no agregar
+    overhead por request — el costo de "tarda hasta 60s en aplicar el suspend"
+    es aceptable. Si Redis cae: fail-open (no bloquea), igual el JWT expira.
+    """
+    if not tenant_id or tenant_id == "__platform__":
+        return
+
+    cache_key = f"{tenant_id}:tenant_status"
+    try:
+        from core.database import get_redis_cache
+        redis = get_redis_cache()
+        cached = await redis.get(cache_key)
+        if cached is not None:
+            cached_str = cached.decode() if isinstance(cached, bytes) else str(cached)
+            if cached_str != "active":
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Tenant suspendido. Contactá al administrador.",
+                )
+            return
+    except HTTPException:
+        raise
+    except Exception:
+        pass
+
+    try:
+        from core.database import get_pg_session
+        from sqlalchemy import text
+        async with get_pg_session(None) as session:
+            result = await session.execute(
+                text("SELECT status FROM tenants WHERE id = :tid"),
+                {"tid": tenant_id},
+            )
+            row = result.fetchone()
+        if row is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Tenant no encontrado",
+            )
+        tenant_status = row[0]
+        try:
+            from core.database import get_redis_cache
+            redis = get_redis_cache()
+            await redis.setex(cache_key, 60, tenant_status)
+        except Exception:
+            pass
+        if tenant_status != "active":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Tenant suspendido. Contactá al administrador.",
+            )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        # Fail-open: si PG no responde, no bloqueamos (mejor que tirar 500
+        # global). El log queda para deteccion.
+        logger.warning("tenant_status_check_failed tenant=%s error=%s", tenant_id, exc)
+
+
+def invalidate_tenant_status_cache_sync(tenant_id: str) -> None:
+    """Llamar desde suspend/activate para que el cambio surta efecto al instante."""
+    import asyncio
+    async def _do() -> None:
+        try:
+            from core.database import get_redis_cache
+            redis = get_redis_cache()
+            await redis.delete(f"{tenant_id}:tenant_status")
+        except Exception:
+            pass
+    try:
+        asyncio.get_running_loop().create_task(_do())
+    except RuntimeError:
+        asyncio.run(_do())
+
+
 async def get_current_user(token: str = Depends(oauth2_scheme)) -> CurrentUser:
     """Dependency: returns authenticated user. Scope must be 'full'."""
     user = _get_current_user_from_token(token)
     if user.scope != TokenScope.FULL:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid token scope")
+    await _assert_tenant_active(user.tenant_id)
     return user
 
 
@@ -178,6 +259,7 @@ async def get_widget_user(token: str = Depends(oauth2_scheme)) -> CurrentUser:
     if stored_hash is None or stored_hash != token_hash:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Widget token revocado o inválido")
 
+    await _assert_tenant_active(user.tenant_id)
     return user
 
 
@@ -191,6 +273,7 @@ async def get_widget_or_chat_user(token: str = Depends(oauth2_scheme)) -> Curren
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Widget token revocado o inválido")
     elif user.scope != TokenScope.PUBLIC_CHAT:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Widget or chat token required")
+    await _assert_tenant_active(user.tenant_id)
     return user
 
 
