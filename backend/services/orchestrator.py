@@ -148,40 +148,27 @@ async def handle_query(
 
     # ── Step 2: Parallel classification + NLU ─────────────────────────────────
     from services.classifier import classify_intent
-    from services.nlu import extract_entities
+    # ENTITIES_DISABLED: from services.nlu import extract_entities
 
     intent_task = asyncio.create_task(classify_intent(normalized_question, tenant_id))
-    # NLU runs in a thread to avoid blocking the event loop (CPU-bound)
-    loop = asyncio.get_running_loop()
-    nlu_timeout = settings.nlu_timeout_ms / 1000
+    # ENTITIES_DISABLED: NLU entity extraction desactivado
+    # loop = asyncio.get_running_loop()
+    # nlu_timeout = settings.nlu_timeout_ms / 1000
+    # async def _extract_with_timeout() -> list: ...
+    # entity_task = asyncio.create_task(_extract_with_timeout())
 
-    async def _extract_with_timeout() -> list:
-        try:
-            return await asyncio.wait_for(
-                loop.run_in_executor(None, extract_entities, normalized_question),
-                timeout=nlu_timeout,
-            )
-        except asyncio.TimeoutError:
-            logger.warning("nlu_timeout_exceeded tenant_id=%s", tenant_id)
-            return []
-
-    entity_task = asyncio.create_task(_extract_with_timeout())
-
-    intent_result, entities = await asyncio.gather(intent_task, entity_task, return_exceptions=True)
+    (intent_result,) = await asyncio.gather(intent_task, return_exceptions=True)
 
     if isinstance(intent_result, Exception):
         logger.warning("intent_classification_failed error=%s", intent_result)
         intent_result = None
-    if isinstance(entities, Exception):
-        logger.warning("nlu_extraction_failed error=%s", entities)
-        entities = []
+    entities = []  # ENTITIES_DISABLED
 
-    # ── Step 3: Retrieve from Qdrant + Neo4j in parallel ──────────────────────
+    # ── Step 3: Retrieve from Qdrant ──────────────────────────────────────────
     from services.retrieval import retrieve, retrieve_multi_query
-    from services.neo4j_client import query_entities
+    # ENTITIES_DISABLED: from services.neo4j_client import query_entities
 
-    entity_names = [e.text for e in (entities or [])]
-    use_neo4j = bool(entity_names)
+    entity_names = []  # ENTITIES_DISABLED: [e.text for e in (entities or [])]
 
     # Detect ambiguity from classifier result
     is_ambiguous = intent_result is not None and getattr(intent_result, "is_ambiguous", False)
@@ -235,58 +222,16 @@ async def handle_query(
         rewriter_expanded = False
         retrieval_task = retrieve(retrieval_question, tenant_id)
 
-    neo4j_task = query_entities(tenant_id, entity_names) if use_neo4j else _empty_list()
-
-    qdrant_chunks, neo4j_records = await asyncio.gather(retrieval_task, neo4j_task, return_exceptions=True)
+    # ENTITIES_DISABLED: neo4j_task desactivado
+    (qdrant_chunks,) = await asyncio.gather(retrieval_task, return_exceptions=True)
+    neo4j_records = []  # ENTITIES_DISABLED
 
     if isinstance(qdrant_chunks, Exception):
         logger.error("retrieval_failed tenant_id=%s error=%s", tenant_id, qdrant_chunks)
         qdrant_chunks = []
-    if isinstance(neo4j_records, Exception):
-        logger.warning("neo4j_retrieval_failed error=%s", neo4j_records)
-        neo4j_records = []
 
-    # ── Step 3b: Merge Neo4j entity chunks into Qdrant results ───────────────
-    # Neo4j returns chunk_ids that contain named entities from the query.
-    # Two cases:
-    # 1. Chunk already in qdrant_chunks but score below min_score threshold →
-    #    boost its score to 1.0 (entity match is always relevant).
-    # 2. Chunk not in qdrant_chunks at all → fetch from Qdrant and add with score=1.0.
-    if neo4j_records:
-        from services.retrieval import retrieve_by_ids
-        neo4j_chunk_ids = {r["chunk_id"] for r in neo4j_records}
-        qdrant_list = list(qdrant_chunks or [])
-
-        # Store pre-boost scores for relevance ordering after the hard 1.0 override.
-        # Without this, all Neo4j-boosted chunks tie at 1.0 and the context builder
-        # falls back to chunk_index order, always sending intro/contact chunks first
-        # regardless of which section the query is about.
-        for chunk in qdrant_list:
-            chunk.metadata["_pre_neo4j_score"] = chunk.score
-
-        # Hard boost to 1.0: ensures entity-confirmed chunks pass min_score=0.55
-        # (after BM25+RRF, all scores are tiny ~0.01-0.03, below the filter threshold).
-        for chunk in qdrant_list:
-            if chunk.chunk_id in neo4j_chunk_ids:
-                chunk.score = 1.0
-
-        # Cap new_ids to 3 to avoid inflating context with sibling-child
-        # duplicates from hierarchical chunking (same parent content, different child IDs).
-        existing_ids = {c.chunk_id for c in qdrant_list}
-        new_ids = [cid for cid in neo4j_chunk_ids if cid not in existing_ids][:3]
-        if new_ids:
-            entity_chunks = await retrieve_by_ids(new_ids, tenant_id)
-            for ec in entity_chunks:
-                ec.metadata["_pre_neo4j_score"] = 0.0  # no prior semantic score
-                ec.score = 1.0
-            qdrant_list.extend(entity_chunks)
-
-        if neo4j_chunk_ids:
-            logger.info(
-                "neo4j_entity_boost tenant_id=%s entity_chunk_ids=%d new_fetched=%d",
-                tenant_id, len(neo4j_chunk_ids), len(new_ids),
-            )
-        qdrant_chunks = qdrant_list
+    # ENTITIES_DISABLED: Neo4j entity boost desactivado
+    # if neo4j_records: ...
 
     # ── Step 4: Load remaining configs + personality template ────────────────────
     # tenant_config already loaded above (before rewriter). Extract remaining fields.

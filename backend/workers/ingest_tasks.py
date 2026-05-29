@@ -357,12 +357,12 @@ async def _run_ingest_pipeline(
     await _log_usage_event(tenant_id, "ingest", len(points))
     await _invalidate_tenant_cache(tenant_id)
 
-    # ── 9. Enqueue NLU + Neo4j as background task ─────────────────────────────
-    chunk_texts_and_ids = [(chunk.id, chunk.text) for chunk, _ in valid]
-    enrich_document_entities.apply_async(
-        args=[document_id, tenant_id, chunk_texts_and_ids],
-        countdown=0,
-    )
+    # ENTITIES_DISABLED: NLU + Neo4j enrichment desactivado
+    # chunk_texts_and_ids = [(chunk.id, chunk.text) for chunk, _ in valid]
+    # enrich_document_entities.apply_async(
+    #     args=[document_id, tenant_id, chunk_texts_and_ids],
+    #     countdown=0,
+    # )
 
     # ── 10. Enqueue quality gate retries for chunks pending Groq response ──────
     pending_retry = [
@@ -384,65 +384,10 @@ async def _run_ingest_pipeline(
     return {"chunk_count": len(points), "status": "ready", "timings": timings}
 
 
-# ── enrich_document_entities ─────────────────────────────────────────────────
-
-@app.task(
-    bind=True,
-    name="workers.ingest_tasks.enrich_document_entities",
-    queue="ingest",
-    max_retries=2,
-    autoretry_for=(Exception,),
-    retry_backoff=True,
-)
-def enrich_document_entities(
-    self: Task,
-    document_id: str,
-    tenant_id: str,
-    chunk_texts_and_ids: list[tuple[str, str]],
-) -> dict:
-    """Run GLiNER NLU + write entities to Neo4j.
-
-    Runs after the document is already marked ready so users can query
-    immediately. Entity enrichment is a best-effort enhancement.
-    """
-    logger.info("nlu_enrich_start document_id=%s chunks=%d", document_id, len(chunk_texts_and_ids))
-    return asyncio.run(_run_entity_enrichment(document_id, tenant_id, chunk_texts_and_ids))
-
-
-async def _run_entity_enrichment(
-    document_id: str,
-    tenant_id: str,
-    chunk_texts_and_ids: list[tuple[str, str]],
-) -> dict:
-    from services.nlu import extract_entities
-    from services.neo4j_client import write_entities_for_chunk
-    from core.database import get_worker_neo4j_driver
-
-    loop = asyncio.get_running_loop()
-
-    entity_lists = await asyncio.gather(*[
-        loop.run_in_executor(None, extract_entities, text)
-        for _, text in chunk_texts_and_ids
-    ])
-
-    async with get_worker_neo4j_driver() as neo4j_driver:
-        neo4j_tasks = [
-            write_entities_for_chunk(
-                tenant_id=tenant_id,
-                chunk_id=chunk_id,
-                document_id=document_id,
-                entities=entities,
-                driver=neo4j_driver,
-            )
-            for (chunk_id, _), entities in zip(chunk_texts_and_ids, entity_lists)
-            if entities
-        ]
-        if neo4j_tasks:
-            await asyncio.gather(*neo4j_tasks, return_exceptions=True)
-
-    entity_count = sum(len(e) for e in entity_lists if e)
-    logger.info("nlu_enrich_done document_id=%s entities=%d", document_id, entity_count)
-    return {"document_id": document_id, "entity_count": entity_count}
+# ENTITIES_DISABLED: enrich_document_entities task desactivado
+# @app.task(name="workers.ingest_tasks.enrich_document_entities", ...)
+# def enrich_document_entities(...): ...
+# async def _run_entity_enrichment(...): ...
 
 
 # ── revalidate_chunk_quality ──────────────────────────────────────────────────

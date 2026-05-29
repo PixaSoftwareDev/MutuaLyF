@@ -42,11 +42,12 @@ def on_worker_process_init(**kwargs):
     except Exception:
         pass
 
-    try:
-        from services.nlu import _load_model as _warm_nlu
-        _warm_nlu()
-    except Exception:
-        pass
+    # ENTITIES_DISABLED: NLU warmup desactivado
+    # try:
+    #     from services.nlu import _load_model as _warm_nlu
+    #     _warm_nlu()
+    # except Exception:
+    #     pass
 
 
 app.conf.update(

@@ -65,8 +65,7 @@ const navGroups: NavGroup[] = [
         tooltip: "Documentos parecidos que conviene unificar para evitar respuestas contradictorias." },
       { href: "/admin/intentions", label: "Temas reconocidos", icon: Tags, adminOnly: true,
         tooltip: "Categorías de consulta que el bot identifica. Validá las que aprendió." },
-      { href: "/admin/entities",   label: "Entidades",  icon: Network, adminOnly: true,
-        tooltip: "Personas, departamentos y más extraídos automáticamente de tus documentos." },
+      // ENTITIES_DISABLED: { href: "/admin/entities", label: "Entidades", icon: Network, adminOnly: true }
     ],
   },
   {

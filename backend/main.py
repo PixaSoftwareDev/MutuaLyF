@@ -14,7 +14,8 @@ from core.database import connect_all, disconnect_all
 from core.tenant import TenantMiddleware
 from core.metrics import setup_metrics
 from core.tracing import setup_tracing
-from api.v1 import auth, query, ingest, intentions, tenants, widget_conversation, operator_panel, duplicates, audit_log, system_prompts, entities, branding, export
+from api.v1 import auth, query, ingest, intentions, tenants, widget_conversation, operator_panel, duplicates, audit_log, system_prompts, branding, export
+# ENTITIES_DISABLED: from api.v1 import entities
 
 # ── Logging — must be first, before any other import that logs ─────────────────
 configure_logging(settings.log_level, settings.is_production)
@@ -43,12 +44,12 @@ async def lifespan(app: FastAPI):
     try:
         from services.embeddings import _load_model as _warm_embed
         from services.retrieval import _load_reranker
-        from services.nlu import _load_model as _warm_nlu
+        # ENTITIES_DISABLED: from services.nlu import _load_model as _warm_nlu
         logger.info("model_warmup_start")
         await asyncio.gather(
             loop.run_in_executor(None, _warm_embed),
             loop.run_in_executor(None, _load_reranker),
-            loop.run_in_executor(None, _warm_nlu),
+            # ENTITIES_DISABLED: loop.run_in_executor(None, _warm_nlu),
         )
         logger.info("model_warmup_complete")
     except Exception as exc:
@@ -112,7 +113,7 @@ app.include_router(operator_panel.router, prefix="/api/v1", tags=["operator-pane
 app.include_router(duplicates.router, prefix="/api/v1", tags=["duplicates"])
 app.include_router(audit_log.router, prefix="/api/v1", tags=["audit"])
 app.include_router(system_prompts.router, prefix="/api/v1", tags=["system-prompts"])
-app.include_router(entities.router, prefix="/api/v1", tags=["entities"])
+# ENTITIES_DISABLED: app.include_router(entities.router, prefix="/api/v1", tags=["entities"])
 app.include_router(branding.router, prefix="/api/v1", tags=["branding"])
 app.include_router(export.router, prefix="/api/v1", tags=["export"])
 
@@ -147,7 +148,8 @@ async def health_ready(response: Response) -> dict:
     todas responden.
     """
     import asyncio
-    from core.database import get_pg_session, get_redis_cache, get_qdrant_client, get_neo4j_driver
+    from core.database import get_pg_session, get_redis_cache, get_qdrant_client
+    # ENTITIES_DISABLED: from core.database import get_neo4j_driver
 
     checks: dict[str, str] = {}
 
@@ -175,23 +177,16 @@ async def health_ready(response: Response) -> dict:
         except Exception as exc:
             return f"fail: {type(exc).__name__}: {str(exc)[:80]}"
 
-    async def _check_neo4j() -> str:
-        try:
-            driver = get_neo4j_driver()
-            async with driver.session() as session:
-                await asyncio.wait_for(session.run("RETURN 1"), timeout=2.0)
-            return "ok"
-        except Exception as exc:
-            return f"fail: {type(exc).__name__}: {str(exc)[:80]}"
+    # ENTITIES_DISABLED: Neo4j health check desactivado
+    # async def _check_neo4j() -> str: ...
 
-    pg_res, redis_res, qdrant_res, neo4j_res = await asyncio.gather(
-        _check_pg(), _check_redis(), _check_qdrant(), _check_neo4j(),
+    pg_res, redis_res, qdrant_res = await asyncio.gather(
+        _check_pg(), _check_redis(), _check_qdrant(),
         return_exceptions=False,
     )
     checks["postgres"] = pg_res
     checks["redis"]    = redis_res
     checks["qdrant"]   = qdrant_res
-    checks["neo4j"]    = neo4j_res
 
     all_ok = all(v == "ok" for v in checks.values())
     response.status_code = 200 if all_ok else 503
