@@ -19,11 +19,29 @@
     }
   }
   var PLACEHOLDER  = scriptTag ? (scriptTag.getAttribute("data-placeholder") || "Hacé una pregunta...") : "Hacé una pregunta...";
-  var TITLE        = scriptTag ? (scriptTag.getAttribute("data-title") || "MutualBot") : "MutualBot";
+  // TITLE y PRIMARY_COLOR son defaults; se sobreescriben con el branding del
+  // tenant que cargamos abajo (bot_name / primary_color de /public/tenant-branding).
+  // Asi el widget toma identidad del cliente sin que el admin tenga que
+  // configurar nada en el snippet.
+  var TITLE        = scriptTag ? (scriptTag.getAttribute("data-title") || "Asistente") : "Asistente";
+  var PRIMARY_COLOR = "#99323D"; // default; se overridea por branding del tenant
+  var LOGO_URL    = null;
+  var GREETING    = null;        // saludo inicial del tenant si esta configurado
   // Tamaño del panel — overridable por data-attrs. Default subido de
   // 360x560 a 400x640 para que se vea mas comodo en pantallas modernas.
   var PANEL_WIDTH  = scriptTag ? (scriptTag.getAttribute("data-width")  || "400") : "400";
   var PANEL_HEIGHT = scriptTag ? (scriptTag.getAttribute("data-height") || "640") : "640";
+
+  // Decodificar el JWT (sin verificar firma, solo para leer el claim tenant_id).
+  // El widget no verifica firmas — eso lo hace el backend cuando recibe el token
+  // en cada request. Aca solo necesitamos el tenant_id para cargar el branding.
+  function _decodeTenantFromToken(token) {
+    try {
+      var payload = JSON.parse(atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));
+      return payload && payload.tenant_id ? payload.tenant_id : null;
+    } catch (_e) { return null; }
+  }
+  var TENANT_ID = WIDGET_TOKEN ? _decodeTenantFromToken(WIDGET_TOKEN) : null;
 
   // Lucide-style Bot icon (inline SVG, currentColor stroke)
   var BOT_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>';
@@ -54,13 +72,13 @@
   // ── Styles ─────────────────────────────────────────────────────────────────
   var style = document.createElement("style");
   style.textContent = [
-    "#ia-widget-btn{position:fixed;bottom:24px;right:24px;width:56px;height:56px;border-radius:50%;background:#99323D;color:#fff;border:none;cursor:pointer;font-size:24px;box-shadow:0 4px 12px rgba(0,0,0,.2);z-index:9998;display:flex;align-items:center;justify-content:center;transition:transform .2s;}",
+    "#ia-widget-btn{position:fixed;bottom:24px;right:24px;width:56px;height:56px;border-radius:50%;background:var(--ia-w-primary, #99323D);color:#fff;border:none;cursor:pointer;font-size:24px;box-shadow:0 4px 12px rgba(0,0,0,.2);z-index:9998;display:flex;align-items:center;justify-content:center;transition:transform .2s;}",
     "#ia-widget-btn:hover{transform:scale(1.05);}",
     "#ia-widget-badge{position:absolute;top:-4px;right:-4px;background:#ef4444;color:#fff;border-radius:50%;width:18px;height:18px;font-size:11px;display:none;align-items:center;justify-content:center;font-weight:700;}",
     "#ia-widget-panel{position:fixed;bottom:92px;right:24px;width:" + PANEL_WIDTH + "px;max-width:calc(100vw - 32px);height:" + PANEL_HEIGHT + "px;max-height:calc(100vh - 120px);border-radius:12px;background:#fff;box-shadow:0 8px 32px rgba(0,0,0,.15);z-index:9999;display:none;flex-direction:column;font-family:system-ui,sans-serif;overflow:hidden;}",
     "#ia-widget-panel.open{display:flex;}",
     // Header
-    "#ia-widget-header{padding:12px 16px;background:#99323D;color:#fff;border-radius:12px 12px 0 0;display:flex;align-items:center;justify-content:space-between;gap:8px;}",
+    "#ia-widget-header{padding:12px 16px;background:var(--ia-w-primary, #99323D);color:#fff;border-radius:12px 12px 0 0;display:flex;align-items:center;justify-content:space-between;gap:8px;}",
     "#ia-widget-title{font-weight:600;font-size:15px;flex:1;}",
     "#ia-widget-status{font-size:11px;opacity:.85;background:rgba(255,255,255,.2);padding:2px 8px;border-radius:10px;white-space:nowrap;}",
     "#ia-widget-close{background:none;border:none;color:#fff;cursor:pointer;font-size:20px;line-height:1;padding:0;}",
@@ -71,20 +89,20 @@
     "#ia-sector-intro strong{color:#1e293b;}",
     "#ia-sector-list{flex:1;overflow-y:auto;padding:8px;}",
     ".ia-sector-btn{width:100%;text-align:left;padding:10px 14px;border-radius:8px;border:1px solid #e2e8f0;background:#fff;cursor:pointer;margin-bottom:6px;transition:all .15s;display:flex;align-items:center;justify-content:space-between;}",
-    ".ia-sector-btn:hover{border-color:#99323D;background:#FBEEF0;}",
+    ".ia-sector-btn:hover{border-color:var(--ia-w-primary, #99323D);background:#FBEEF0;}",
     ".ia-sector-btn .ia-sector-name{font-size:14px;font-weight:500;color:#1e293b;}",
     ".ia-sector-btn .ia-sector-desc{font-size:12px;color:#64748b;margin-top:2px;}",
     ".ia-sector-btn .ia-sector-default{font-size:11px;color:#94a3b8;margin-left:6px;}",
     ".ia-sector-btn .ia-sector-arrow{color:#cbd5e1;font-size:16px;}",
-    ".ia-sector-btn:hover .ia-sector-arrow{color:#99323D;}",
+    ".ia-sector-btn:hover .ia-sector-arrow{color:var(--ia-w-primary, #99323D);}",
     "#ia-sector-input-wrap{padding:10px 8px 8px;border-top:1px solid #e2e8f0;}",
     "#ia-sector-direct{width:100%;padding:9px 12px;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;outline:none;font-family:inherit;box-sizing:border-box;}",
-    "#ia-sector-direct:focus{border-color:#99323D;}",
+    "#ia-sector-direct:focus{border-color:var(--ia-w-primary, #99323D);}",
     "#ia-sector-hint{text-align:center;font-size:11px;color:#94a3b8;padding:4px 8px 8px;}",
     // Chat
     "#ia-widget-messages{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:8px;min-height:200px;}",
     ".ia-msg{max-width:85%;padding:8px 12px;border-radius:8px;font-size:14px;line-height:1.5;word-break:break-word;}",
-    ".ia-msg.user{align-self:flex-end;background:#99323D;color:#fff;border-bottom-right-radius:2px;}",
+    ".ia-msg.user{align-self:flex-end;background:var(--ia-w-primary, #99323D);color:#fff;border-bottom-right-radius:2px;}",
     ".ia-msg.bot,.ia-msg.operator{align-self:flex-start;background:#f1f5f9;color:#1e293b;border-bottom-left-radius:2px;}",
     ".ia-msg.operator{background:#ecfdf5;border-left:3px solid #10b981;}",
     ".ia-msg.system{align-self:center;background:#fef9c3;color:#854d0e;font-size:12px;border-radius:20px;padding:4px 12px;max-width:90%;text-align:center;}",
@@ -106,8 +124,8 @@
     "#ia-sector-change:hover{background:rgba(255,255,255,.15);}",
     "#ia-widget-form{padding:8px 12px;border-top:1px solid #e2e8f0;display:flex;gap:8px;align-items:flex-end;}",
     "#ia-widget-input{flex:1;border:1px solid #cbd5e1;border-radius:6px;padding:8px 10px;font-size:14px;outline:none;resize:none;min-height:36px;max-height:80px;font-family:inherit;}",
-    "#ia-widget-input:focus{border-color:#99323D;}",
-    "#ia-widget-send{background:#99323D;color:#fff;border:none;border-radius:6px;padding:8px 12px;cursor:pointer;font-size:14px;white-space:nowrap;}",
+    "#ia-widget-input:focus{border-color:var(--ia-w-primary, #99323D);}",
+    "#ia-widget-send{background:var(--ia-w-primary, #99323D);color:#fff;border:none;border-radius:6px;padding:8px 12px;cursor:pointer;font-size:14px;white-space:nowrap;}",
     "#ia-widget-send:disabled{opacity:.5;cursor:not-allowed;}",
   ].join("");
   document.head.appendChild(style);
@@ -166,6 +184,39 @@
 
   document.body.appendChild(btn);
   document.body.appendChild(panel);
+
+  // ── Cargar branding del tenant (color, logo, bot_name) ──────────────────────
+  // Async: no bloquea el render del widget. Cuando llega, hace override de
+  // CSS variables y del titulo. Si falla, el widget queda con los defaults.
+  function _loadBranding() {
+    if (!TENANT_ID) return;
+    fetch(API_BASE + "/api/v1/public/tenant-branding?tenant_id=" + encodeURIComponent(TENANT_ID))
+      .then(function(r) { return r.ok ? r.json() : null; })
+      .then(function(b) {
+        if (!b) return;
+        if (b.primary_color) {
+          document.documentElement.style.setProperty("--ia-w-primary", b.primary_color);
+        }
+        if (b.bot_name) {
+          var titleEl = document.getElementById("ia-widget-title");
+          if (titleEl) titleEl.textContent = b.bot_name;
+          TITLE = b.bot_name;
+        }
+        if (b.greeting_message) GREETING = b.greeting_message;
+        if (b.logo_url) {
+          LOGO_URL = b.logo_url.indexOf("http") === 0 ? b.logo_url : (API_BASE + b.logo_url);
+          // Reemplazar el icono del boton flotante por el logo del cliente
+          var btnEl = document.getElementById("ia-widget-btn");
+          if (btnEl) {
+            btnEl.innerHTML = '<img src="' + LOGO_URL + '" alt="" style="width:32px;height:32px;border-radius:50%;object-fit:cover;" />';
+          }
+        }
+      })
+      .catch(function(err) {
+        console.warn("[IA Widget] no se pudo cargar branding:", err);
+      });
+  }
+  _loadBranding();
 
   var sectorPicker   = document.getElementById("ia-sector-picker");
   var sectorList     = document.getElementById("ia-sector-list");
@@ -296,14 +347,25 @@
   // ── Sector logic ────────────────────────────────────────────────────────────
   function _loadSectors() {
     fetch(API_BASE + "/api/v1/widget/sectors", { headers: _headers() })
-      .then(function(r) { return r.json(); })
+      .then(function(r) {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.json();
+      })
       .then(function(data) {
-        sectors = data;
+        // El endpoint devuelve {sectors: [...], greeting_message: "..."}.
+        // Backward compat: si todavía devuelve un array plano lo aceptamos.
+        if (Array.isArray(data)) {
+          sectors = data;
+        } else {
+          sectors = (data && Array.isArray(data.sectors)) ? data.sectors : [];
+          if (data && data.greeting_message) GREETING = data.greeting_message;
+        }
         _renderSectorList();
         var def = sectors.find(function(s) { return s.is_default; }) || sectors[0];
         if (def) sectorHint.textContent = "Si no elegís, te asignamos a «" + def.nombre + "»";
       })
-      .catch(function() {
+      .catch(function(err) {
+        console.error("[IA Widget] error al cargar sectores:", err);
         sectorList.innerHTML = '<div style="padding:20px;text-align:center;color:#94a3b8;font-size:13px;">Error al cargar sectores.</div>';
       });
   }
@@ -374,7 +436,10 @@
         if (data.resumed) {
           _loadHistory();
         } else {
-          _appendMessage("system", "¡Hola! Soy " + _escape(TITLE) + ", asistente de " + _escape(selectedSector ? selectedSector.nombre : TITLE) + ". ¿En qué te puedo ayudar?");
+          // Saludo: usar el greeting_message del tenant si existe; sino fallback
+          // generico con el bot_name + sector elegido.
+          var greeting = GREETING || ("¡Hola! Soy " + _escape(TITLE) + ", asistente de " + _escape(selectedSector ? selectedSector.nombre : TITLE) + ". ¿En qué te puedo ayudar?");
+          _appendMessage("system", greeting);
           if (pendingMessage) _sendMessage(pendingMessage);
         }
         _startPolling();
@@ -588,12 +653,12 @@
     };
     statusEl.textContent = labels[convStatus] || convStatus;
     var colors = {
-      "bot_active":        "#99323D",
+      "bot_active":        "var(--ia-w-primary, #99323D)",
       "handoff_requested": "#d97706",
       "human_attending":   "#059669",
       "closed":            "#64748b",
     };
-    document.getElementById("ia-widget-header").style.background = colors[convStatus] || "#99323D";
+    document.getElementById("ia-widget-header").style.background = colors[convStatus] || "var(--ia-w-primary, #99323D)";
     var closed = convStatus === "closed";
     inputEl.disabled = closed;
     sendBtn.disabled = closed;
