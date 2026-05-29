@@ -16,7 +16,7 @@ Flow:
 import logging
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 
@@ -68,6 +68,7 @@ class ConfirmHandoffRequest(BaseModel):
 
 @router.post("/widget/conversation/start")
 async def start_conversation(
+    request: Request,
     body: StartConversationRequest,
     tenant_id: str = Depends(get_tenant_id),
     widget_user: CurrentUser = Depends(get_widget_or_chat_user),
@@ -116,16 +117,20 @@ async def start_conversation(
                 sector_name = sector_row[0]
 
         conv_id = str(uuid.uuid4())
+        # IP: X-Forwarded-For (Nginx) tiene prioridad; fallback al IP directo
+        forwarded = request.headers.get("X-Forwarded-For")
+        afiliado_ip = forwarded.split(",")[0].strip() if forwarded else (request.client.host if request.client else None)
         await session.execute(text("""
             INSERT INTO conversaciones
-              (id, widget_session_id, sector_id, afiliado_nombre, afiliado_email)
-            VALUES (:id, :sid, :sector_id, :nombre, :email)
+              (id, widget_session_id, sector_id, afiliado_nombre, afiliado_email, afiliado_ip)
+            VALUES (:id, :sid, :sector_id, :nombre, :email, :ip)
         """), {
             "id": conv_id,
             "sid": body.widget_session_id,
             "sector_id": sector_id,
             "nombre": body.afiliado_nombre,
             "email": body.afiliado_email,
+            "ip": afiliado_ip,
         })
 
         # Insert greeting as first bot message so it survives polling
