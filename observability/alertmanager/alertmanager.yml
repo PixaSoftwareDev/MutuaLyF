@@ -1,31 +1,39 @@
 global:
   resolve_timeout: 5m
 
+# El default es 'null' (no-op) para que Alertmanager pueda arrancar sin que el
+# operador haya completado el setup de Telegram. Cuando esté listo: comentar
+# 'receiver: null' y descomentar 'receiver: telegram' + completar chat_id.
 route:
-  receiver: telegram
+  receiver: "null"
+  # receiver: telegram      # ← Descomentar después de configurar telegram_token + chat_id
   group_by: ["alertname", "severity"]
-  group_wait: 30s        # primer batch tras 30s — agrupa alertas en lote inicial
-  group_interval: 5m     # 5 min entre batches de la misma agrupacion
-  repeat_interval: 4h    # re-notifica una alerta resolviendo cada 4h si sigue activa
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
 
-# Inhibición: si la plataforma entera está caída, no spammear con cada subcausa.
 inhibit_rules:
   - source_matchers: [alertname="PlatformDown"]
     target_matchers: [severity="warning"]
     equal: ["alertname"]
 
 receivers:
-  - name: telegram
-    telegram_configs:
-      - bot_token_file: /etc/alertmanager/telegram_token
-        chat_id: TELEGRAM_CHAT_ID_PLACEHOLDER
-        parse_mode: HTML
-        send_resolved: true
-        message: |
-          {{ if eq .Status "firing" }}🚨 <b>ALERTA</b>{{ else }}✅ <b>RESUELTA</b>{{ end }}
-          <b>{{ .CommonLabels.alertname }}</b> ({{ .CommonLabels.severity }})
+  # Receiver vacío — Alertmanager loguea las alertas pero no las despacha.
+  # Suficiente para arrancar sin tener Telegram listo aún.
+  - name: "null"
 
-          {{ range .Alerts -}}
-          {{ .Annotations.summary }}
-          <i>{{ .Annotations.description }}</i>
-          {{ end }}
+  # Activar editando este bloque y cambiando 'route.receiver' arriba.
+  # - name: telegram
+  #   telegram_configs:
+  #     - bot_token_file: /etc/alertmanager/telegram_token
+  #       chat_id: 123456789       # ← REEMPLAZAR con el chat_id real (entero, sin comillas)
+  #       parse_mode: HTML
+  #       send_resolved: true
+  #       message: |
+  #         {{ if eq .Status "firing" }}🚨 <b>ALERTA</b>{{ else }}✅ <b>RESUELTA</b>{{ end }}
+  #         <b>{{ .CommonLabels.alertname }}</b> ({{ .CommonLabels.severity }})
+  #
+  #         {{ range .Alerts -}}
+  #         {{ .Annotations.summary }}
+  #         <i>{{ .Annotations.description }}</i>
+  #         {{ end }}

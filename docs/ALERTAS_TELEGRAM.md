@@ -33,13 +33,18 @@ echo "TU_TOKEN" > /opt/mutualyf/secrets/telegram_token
 chmod 600 /opt/mutualyf/secrets/telegram_token
 ```
 
-## 4. Poner el chat_id en alertmanager.yml
+## 4. Activar Telegram en alertmanager.yml
 
-```bash
-# Reemplazar el placeholder por tu chat_id real
-sed -i 's/TELEGRAM_CHAT_ID_PLACEHOLDER/TU_CHAT_ID/' \
-  /opt/mutualyf/observability/alertmanager/alertmanager.yml
-```
+Editar `/opt/mutualyf/observability/alertmanager/alertmanager.yml`:
+
+1. Cambiar `route.receiver` de `"null"` a `telegram`.
+2. Descomentar el bloque `- name: telegram ... message: |` (líneas comentadas con `#`).
+3. Reemplazar `chat_id: 123456789` por tu chat_id real (entero, sin comillas).
+4. Recargar:
+   ```bash
+   docker compose -f docker-compose.yml -f docker-compose.prod.yml restart alertmanager
+   docker logs ia_alertmanager --tail 5    # debe decir "Listening on :9093"
+   ```
 
 ## 5. Levantar Alertmanager + exporters
 
