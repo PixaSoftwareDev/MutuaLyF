@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { useAuthStore } from "@/lib/store";
 import { api, type LookupTenantMatch } from "@/lib/api";
 import { toSlug } from "@/lib/utils";
-import { pickReadableTextColor, pickLogoBackgroundColor } from "@/lib/use-tenant-branding";
+import { pickReadableTextColor, pickLogoBackgroundColor, shade } from "@/lib/use-tenant-branding";
 import { Loader2, AlertTriangle, Shield, Eye, EyeOff, ChevronLeft, ArrowRight, Lock } from "lucide-react";
 
 const PLATFORM_NAME = "Intellix";
@@ -166,6 +166,13 @@ function LoginForm() {
     ? { backgroundColor: accent, color: accentFg }
     : { backgroundImage: BRAND_GRADIENT, color: "#fff" };
 
+  // Linea superior del card: gradient sutil del color del tenant cuando esta
+  // en step password con branding (matchea botón + avatar), gradient Intellix
+  // en el resto de los steps o cuando el tenant no cargo identidad propia.
+  const topBorderStyle = (step === "password" && selected && tenantHasBranding)
+    ? { backgroundImage: `linear-gradient(135deg, ${shade(accent, 25)} 0%, ${accent} 50%, ${shade(accent, -20)} 100%)` }
+    : { backgroundImage: BRAND_GRADIENT };
+
   // ── Layout ───────────────────────────────────────────────────────────────
 
   return (
@@ -220,8 +227,9 @@ function LoginForm() {
       <main className="relative z-10 w-full max-w-[400px] sm:max-w-[420px] lg:max-w-[440px]">
         <div className="relative bg-white rounded-2xl shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_24px_rgba(15,23,42,0.06),0_24px_64px_rgba(15,23,42,0.08)] border border-slate-200/70 overflow-hidden">
 
-          {/* Borde superior con gradient de marca — detalle premium tipo Linear/Vercel */}
-          <div className="absolute top-0 inset-x-0 h-[2px]" style={{ backgroundImage: BRAND_GRADIENT }} />
+          {/* Borde superior — gradient del tenant si tiene branding y estamos en
+              step password (matchea botón + avatar), gradient Intellix en el resto. */}
+          <div className="absolute top-0 inset-x-0 h-[2px] transition-all duration-300" style={topBorderStyle} />
 
           {/* Padding asimetrico: horizontal moderado, vertical mas grande en
               breakpoints superiores. Eso hace que el card "respire" hacia

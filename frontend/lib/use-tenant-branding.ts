@@ -7,7 +7,7 @@ import { api, type TenantBranding } from "./api";
 export const DEFAULT_PRIMARY = "#99323D";
 
 /** Darken (negative) or lighten (positive) a hex color by `pct` percent. */
-function shade(hex: string, pct: number): string {
+export function shade(hex: string, pct: number): string {
   const h = hex.replace("#", "");
   if (h.length !== 6) return hex;
   const num = parseInt(h, 16);
