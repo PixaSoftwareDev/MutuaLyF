@@ -114,8 +114,14 @@ async def lookup_tenant(body: LookupTenantBody, request: Request) -> LookupTenan
     domain = email.split("@", 1)[1]
     candidate_tenants: set[str] = set()
     via_map: dict[str, str] = {}  # tenant_id -> 'domain' | 'email'
+    domain_candidates: set[str] = set()
 
-    # ── Lookup 1: por dominio (rapido) ────────────────────────────────────────
+    # ── Lookup 1: por dominio (rapido, pero NO definitivo) ────────────────────
+    # Si encontramos el dominio mapeado a un tenant, lo marcamos como candidato
+    # pero igual validamos abajo que el email exista en tenant_X.usuarios. Sin
+    # esa validacion, cualquier email del dominio (incluyendo basuras como
+    # noexiste@nexo.com.ar) daria match y el cliente quedaria en limbo al
+    # tipear el password.
     try:
         async with get_pg_session(None) as session:
             result = await session.execute(
@@ -123,40 +129,38 @@ async def lookup_tenant(body: LookupTenantBody, request: Request) -> LookupTenan
                 {"d": domain},
             )
             for row in result.fetchall():
-                tid = row[0]
-                candidate_tenants.add(tid)
-                via_map[tid] = "domain"
+                domain_candidates.add(row[0])
     except Exception as exc:
         logger.warning("lookup_tenant_domain_lookup_failed error=%s", exc)
 
-    # ── Lookup 2: por email exacto en cada tenant ─────────────────────────────
-    # Solo escanea si el dominio no nos dio match — para no agregar latencia
-    # en el caso comun (dominio mapeado). Si el cliente queremos cubrir el
-    # "Pedro corporativo de Nexo TAMBIEN es operador en Mutual con su mail
-    # corporativo de Nexo", sacar este shortcut.
-    if not candidate_tenants:
-        try:
-            async with get_pg_session(None) as session:
+    # ── Lookup 2: validar existencia del email ────────────────────────────────
+    # Si el dominio nos dio candidatos, validamos solo esos (rapido).
+    # Si no, escaneamos todos los tenants activos.
+    try:
+        async with get_pg_session(None) as session:
+            if domain_candidates:
+                tenant_ids = list(domain_candidates)
+            else:
                 tenants_result = await session.execute(
                     text("SELECT id FROM tenants WHERE status != 'suspended'")
                 )
                 tenant_ids = [r[0] for r in tenants_result.fetchall()]
 
-            for tid in tenant_ids:
-                try:
-                    async with get_pg_session(tid) as session:
-                        r = await session.execute(
-                            text("SELECT 1 FROM usuarios WHERE email = :e AND is_active = TRUE LIMIT 1"),
-                            {"e": email},
-                        )
-                        if r.scalar() is not None:
-                            candidate_tenants.add(tid)
-                            via_map[tid] = "email"
-                except Exception:
-                    # Schema puede no existir aun (tenant a medio provisionar)
-                    continue
-        except Exception as exc:
-            logger.warning("lookup_tenant_email_lookup_failed error=%s", exc)
+        for tid in tenant_ids:
+            try:
+                async with get_pg_session(tid) as session:
+                    r = await session.execute(
+                        text("SELECT 1 FROM usuarios WHERE email = :e AND is_active = TRUE LIMIT 1"),
+                        {"e": email},
+                    )
+                    if r.scalar() is not None:
+                        candidate_tenants.add(tid)
+                        via_map[tid] = "domain" if tid in domain_candidates else "email"
+            except Exception:
+                # Schema puede no existir aun (tenant a medio provisionar)
+                continue
+    except Exception as exc:
+        logger.warning("lookup_tenant_email_lookup_failed error=%s", exc)
 
     if not candidate_tenants:
         return LookupTenantResponse(matches=[])
