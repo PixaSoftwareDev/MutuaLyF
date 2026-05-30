@@ -57,9 +57,22 @@ function LoginForm() {
 
   // ── Handlers ─────────────────────────────────────────────────────────────
 
+  // Validacion minima de email. No usamos zod ni regex pesada — el patron de
+  // navegador (type=email) cubre la mayoria. Acá solo nos aseguramos de que
+  // haya algo razonable antes de hacer el roundtrip al backend.
+  const isValidEmail = (s: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.trim());
+
   const handleEmailSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    if (!email.trim()) {
+      setError("Ingresá tu email para continuar.");
+      return;
+    }
+    if (!isValidEmail(email)) {
+      setError("Revisá el email — falta el dominio o el @.");
+      return;
+    }
     setLoading(true);
     try {
       const data = await api.auth.lookupTenant(email);
@@ -106,6 +119,24 @@ function LoginForm() {
 
   const handlePasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError(null);
+    // Step fallback: si no hay tenant elegido ni tenantInput, lo pedimos.
+    if (!isSuperAdmin && !selected && !tenantInput.trim()) {
+      setError("Decinos a qué organización pertenecés.");
+      return;
+    }
+    if (step === "fallback" && !email.trim()) {
+      setError("Ingresá tu email.");
+      return;
+    }
+    if (step === "fallback" && email && !isValidEmail(email)) {
+      setError("Revisá el email — falta el dominio o el @.");
+      return;
+    }
+    if (!password) {
+      setError("Ingresá tu contraseña.");
+      return;
+    }
     const tenant = isSuperAdmin ? "" : (selected?.tenant_id ?? toSlug(tenantInput));
     await doLogin(tenant);
   };
@@ -200,7 +231,7 @@ function LoginForm() {
                     Ingresá tu email corporativo para acceder a la plataforma.
                   </p>
                 </div>
-                <form onSubmit={handleEmailSubmit} className="space-y-4">
+                <form onSubmit={handleEmailSubmit} className="space-y-4" noValidate>
                   <div className="space-y-1.5">
                     <Label htmlFor="email" className="text-[13px] font-medium text-slate-700">Email</Label>
                     <Input
@@ -208,18 +239,18 @@ function LoginForm() {
                       type="email"
                       placeholder="tu@empresa.com"
                       value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      required
+                      onChange={(e) => { setEmail(e.target.value); if (error) setError(null); }}
                       autoComplete="email"
                       autoFocus
                       className="h-11 text-[15px] focus-visible:ring-2 focus-visible:ring-indigo-500/30"
                     />
                   </div>
+                  {error && <ErrorBox text={error} />}
                   <Button
                     type="submit"
                     className="w-full h-11 font-medium text-[15px] group shadow-md hover:shadow-lg transition-shadow border-0"
                     style={primaryBtnStyle}
-                    disabled={loading || !email.trim()}
+                    disabled={loading}
                   >
                     {loading ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
@@ -307,7 +338,7 @@ function LoginForm() {
                     </div>
                   </div>
                 )}
-                <form onSubmit={handlePasswordSubmit} className="space-y-4">
+                <form onSubmit={handlePasswordSubmit} className="space-y-4" noValidate>
                   <div className="space-y-1.5">
                     <Label className="text-[13px] font-medium text-slate-700">Email</Label>
                     <div className="text-sm rounded-lg bg-slate-50 border border-slate-200 px-3 py-2.5 truncate text-slate-600">
@@ -321,8 +352,7 @@ function LoginForm() {
                         id="password"
                         type={showPwd ? "text" : "password"}
                         value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        required
+                        onChange={(e) => { setPassword(e.target.value); if (error) setError(null); }}
                         autoComplete="current-password"
                         autoFocus
                         className="h-11 pr-10 text-[15px] focus-visible:ring-2"
@@ -344,7 +374,7 @@ function LoginForm() {
                     type="submit"
                     className="w-full h-11 font-medium text-[15px] shadow-md hover:shadow-lg transition-shadow border-0"
                     style={primaryBtnStyle}
-                    disabled={loading || !password}
+                    disabled={loading}
                   >
                     {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Ingresar"}
                   </Button>
@@ -366,7 +396,7 @@ function LoginForm() {
                       : "No reconocemos tu dominio. Decinos a qué organización pertenecés."}
                   </p>
                 </div>
-                <form onSubmit={handlePasswordSubmit} className="space-y-4">
+                <form onSubmit={handlePasswordSubmit} className="space-y-4" noValidate>
                   {!isSuperAdmin && (
                     <div className="space-y-1.5">
                       <Label htmlFor="tenant" className="text-[13px] font-medium text-slate-700">Organización</Label>
@@ -374,8 +404,7 @@ function LoginForm() {
                         id="tenant"
                         placeholder="mi-empresa"
                         value={tenantInput}
-                        onChange={(e) => setTenantInput(e.target.value)}
-                        required
+                        onChange={(e) => { setTenantInput(e.target.value); if (error) setError(null); }}
                         autoComplete="organization"
                         autoFocus
                         className="h-11 text-[15px] focus-visible:ring-2 focus-visible:ring-indigo-500/30"
@@ -395,8 +424,7 @@ function LoginForm() {
                       type="email"
                       placeholder="tu@empresa.com"
                       value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      required
+                      onChange={(e) => { setEmail(e.target.value); if (error) setError(null); }}
                       autoComplete="email"
                       className="h-11 text-[15px] focus-visible:ring-2 focus-visible:ring-indigo-500/30"
                     />
@@ -408,8 +436,7 @@ function LoginForm() {
                         id="password-fb"
                         type={showPwd ? "text" : "password"}
                         value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        required
+                        onChange={(e) => { setPassword(e.target.value); if (error) setError(null); }}
                         autoComplete="current-password"
                         className="h-11 pr-10 text-[15px] focus-visible:ring-2 focus-visible:ring-indigo-500/30"
                       />
