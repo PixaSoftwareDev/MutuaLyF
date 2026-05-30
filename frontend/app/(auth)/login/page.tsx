@@ -196,27 +196,29 @@ function LoginForm() {
         }}
       />
 
-      {/* Wordmark oficial — incluye icono hexagonal + tipografía INTELLIX_
-          en una sola imagen. Width responsive: 200px desktop, 170px mobile. */}
-      <div className="relative z-10 mb-8">
+      {/* Wordmark oficial. Escala con el viewport: 170/200/220/240 px. */}
+      <div className="relative z-10 mb-8 lg:mb-10">
         <Image
           src="/brand/intellix-wordmark-white.png"
           alt={PLATFORM_NAME}
           width={520}
           height={170}
           priority
-          className="w-[170px] sm:w-[200px] h-auto"
+          className="w-[170px] sm:w-[200px] lg:w-[220px] xl:w-[240px] h-auto"
         />
       </div>
 
-      {/* Card — el contenedor principal del login */}
-      <main className="relative z-10 w-full max-w-[420px]">
+      {/* Card — width escalonado por viewport. Mobile estrecho para que entre
+          en una mano. Notebook un escalón mas. Monitor grande se respira
+          mejor con 520px + padding mayor (sin volverse "form gigante" — el
+          punto medio entre Linear (380px) y Vercel (480px)). */}
+      <main className="relative z-10 w-full max-w-[400px] sm:max-w-[440px] lg:max-w-[480px] xl:max-w-[520px]">
         <div className="relative bg-white rounded-2xl shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_24px_rgba(15,23,42,0.06),0_24px_64px_rgba(15,23,42,0.08)] border border-slate-200/70 overflow-hidden">
 
           {/* Borde superior con gradient de marca — detalle premium tipo Linear/Vercel */}
           <div className="absolute top-0 inset-x-0 h-[2px]" style={{ backgroundImage: BRAND_GRADIENT }} />
 
-          <div className="p-6 sm:p-8">
+          <div className="p-6 sm:p-8 lg:p-9 xl:p-10">
 
             {/* ── Step: email ─────────────────────────────────────────────── */}
             {step === "email" && (
@@ -242,13 +244,13 @@ function LoginForm() {
                       onChange={(e) => { setEmail(e.target.value); if (error) setError(null); }}
                       autoComplete="email"
                       autoFocus
-                      className="h-11 text-[15px] focus-visible:ring-2 focus-visible:ring-indigo-500/30"
+                      className="h-11 lg:h-12 text-[15px] focus-visible:ring-2 focus-visible:ring-indigo-500/30"
                     />
                   </div>
                   {error && <ErrorBox text={error} />}
                   <Button
                     type="submit"
-                    className="w-full h-11 font-medium text-[15px] group shadow-md hover:shadow-lg transition-shadow border-0"
+                    className="w-full h-11 lg:h-12 font-medium text-[15px] group shadow-md hover:shadow-lg transition-shadow border-0"
                     style={primaryBtnStyle}
                     disabled={loading}
                   >
@@ -355,7 +357,7 @@ function LoginForm() {
                         onChange={(e) => { setPassword(e.target.value); if (error) setError(null); }}
                         autoComplete="current-password"
                         autoFocus
-                        className="h-11 pr-10 text-[15px] focus-visible:ring-2"
+                        className="h-11 lg:h-12 pr-10 text-[15px] focus-visible:ring-2"
                         style={{ ["--tw-ring-color" as any]: `${accent}30` }}
                       />
                       <button
@@ -372,7 +374,7 @@ function LoginForm() {
                   {error && <ErrorBox text={error} />}
                   <Button
                     type="submit"
-                    className="w-full h-11 font-medium text-[15px] shadow-md hover:shadow-lg transition-shadow border-0"
+                    className="w-full h-11 lg:h-12 font-medium text-[15px] shadow-md hover:shadow-lg transition-shadow border-0"
                     style={primaryBtnStyle}
                     disabled={loading}
                   >
@@ -407,7 +409,7 @@ function LoginForm() {
                         onChange={(e) => { setTenantInput(e.target.value); if (error) setError(null); }}
                         autoComplete="organization"
                         autoFocus
-                        className="h-11 text-[15px] focus-visible:ring-2 focus-visible:ring-indigo-500/30"
+                        className="h-11 lg:h-12 text-[15px] focus-visible:ring-2 focus-visible:ring-indigo-500/30"
                       />
                     </div>
                   )}
@@ -426,7 +428,7 @@ function LoginForm() {
                       value={email}
                       onChange={(e) => { setEmail(e.target.value); if (error) setError(null); }}
                       autoComplete="email"
-                      className="h-11 text-[15px] focus-visible:ring-2 focus-visible:ring-indigo-500/30"
+                      className="h-11 lg:h-12 text-[15px] focus-visible:ring-2 focus-visible:ring-indigo-500/30"
                     />
                   </div>
                   <div className="space-y-1.5">
@@ -438,7 +440,7 @@ function LoginForm() {
                         value={password}
                         onChange={(e) => { setPassword(e.target.value); if (error) setError(null); }}
                         autoComplete="current-password"
-                        className="h-11 pr-10 text-[15px] focus-visible:ring-2 focus-visible:ring-indigo-500/30"
+                        className="h-11 lg:h-12 pr-10 text-[15px] focus-visible:ring-2 focus-visible:ring-indigo-500/30"
                       />
                       <button
                         type="button"
@@ -454,7 +456,7 @@ function LoginForm() {
                   {error && <ErrorBox text={error} />}
                   <Button
                     type="submit"
-                    className="w-full h-11 font-medium text-[15px] shadow-md hover:shadow-lg transition-shadow border-0"
+                    className="w-full h-11 lg:h-12 font-medium text-[15px] shadow-md hover:shadow-lg transition-shadow border-0"
                     style={primaryBtnStyle}
                     disabled={loading}
                   >
