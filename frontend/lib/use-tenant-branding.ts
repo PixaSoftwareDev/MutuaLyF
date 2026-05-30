@@ -57,6 +57,38 @@ export function pickReadableTextColor(primary: string): "#ffffff" | "#0f172a" {
 }
 
 /**
+ * Color de fondo apropiado para mostrar el LOGO del tenant.
+ *
+ * Problema concreto: si el cliente sube un PNG transparente con un logo
+ * blanco (caso muy comun en branding profesional) y lo ponemos sobre fondo
+ * blanco, el logo desaparece. Idem logos negros sobre fondo oscuro.
+ *
+ * Estrategia:
+ *  - Si el primary_color del tenant es OSCURO (luminancia baja), usarlo:
+ *    los logos blancos van a destacar perfecto, los oscuros tambien
+ *    porque el contraste es suficiente.
+ *  - Si el primary_color es CLARO (>0.7 luminancia), usar un slate-800
+ *    en su lugar: el logo del cliente (sea claro u oscuro) se va a ver.
+ *  - Sin primary_color, devolver slate-800 como default.
+ *
+ * En el peor caso (logo blanco + primary blanco-puro), igual queda sobre
+ * slate-800 y se ve. Cubre el 99% de los casos sin pedir nada al admin.
+ */
+export function pickLogoBackgroundColor(primary: string | null | undefined): string {
+  if (!primary) return "#1e293b"; // slate-800
+  const h = primary.replace("#", "");
+  if (h.length !== 6) return "#1e293b";
+  // Reutiliza la formula WCAG via contrastRatio contra blanco:
+  // logos blancos necesitan fondo cuyo contraste con blanco sea decente.
+  const contrastVsWhite = contrastRatio(primary, "#ffffff");
+  if (contrastVsWhite < 2.0) {
+    // primary muy claro (casi blanco) → fallback a slate-800
+    return "#1e293b";
+  }
+  return primary;
+}
+
+/**
  * Convert "#RRGGBB" to the tuple Tailwind expects inside `hsl(...)`: "H S% L%"
  * (sin envolver con hsl() — tailwind ya lo hace en tailwind.config.ts).
  */

@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { useAuthStore } from "@/lib/store";
 import { api, type LookupTenantMatch } from "@/lib/api";
 import { toSlug } from "@/lib/utils";
-import { pickReadableTextColor } from "@/lib/use-tenant-branding";
+import { pickReadableTextColor, pickLogoBackgroundColor } from "@/lib/use-tenant-branding";
 import { Loader2, AlertTriangle, Shield, Eye, EyeOff, ChevronLeft, ArrowRight, Lock } from "lucide-react";
 
 const PLATFORM_NAME = "Intellix";
@@ -284,6 +284,11 @@ function LoginForm() {
                   {matches.map((m) => {
                     const logo = fullLogoUrl(m.logo_url);
                     const color = m.primary_color || BRAND_INDIGO;
+                    // Si el logo es un PNG transparente blanco, sobre fondo
+                    // blanco desaparece. Usamos pickLogoBackgroundColor que
+                    // toma primary del tenant (oscuro=ok) o cae a slate-800
+                    // si el primary es muy claro.
+                    const logoBg = logo ? pickLogoBackgroundColor(m.primary_color) : color;
                     return (
                       <button
                         key={m.tenant_id}
@@ -293,7 +298,7 @@ function LoginForm() {
                       >
                         <div
                           className="flex items-center justify-center h-10 w-10 rounded-lg shrink-0 overflow-hidden ring-1 ring-slate-200/70"
-                          style={{ backgroundColor: logo ? "white" : color }}
+                          style={{ backgroundColor: logoBg }}
                         >
                           {logo ? (
                             <img src={logo} alt="" className="h-full w-full object-contain p-1" />
@@ -325,7 +330,11 @@ function LoginForm() {
                   <div className="flex flex-col items-center text-center gap-3 mb-6 lg:mb-7 xl:mb-8 pb-5 lg:pb-6 border-b border-slate-100">
                     <div
                       className="flex items-center justify-center h-14 w-14 lg:h-16 lg:w-16 rounded-2xl shrink-0 overflow-hidden ring-1 ring-slate-200/70 shadow-sm"
-                      style={{ backgroundColor: fullLogoUrl(selected.logo_url) ? "white" : accent }}
+                      style={{
+                        backgroundColor: fullLogoUrl(selected.logo_url)
+                          ? pickLogoBackgroundColor(selected.primary_color)
+                          : accent,
+                      }}
                     >
                       {fullLogoUrl(selected.logo_url) ? (
                         <img src={fullLogoUrl(selected.logo_url)!} alt="" className="h-full w-full object-contain p-2" />

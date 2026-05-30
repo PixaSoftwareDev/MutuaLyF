@@ -19,7 +19,7 @@ import { toast } from "@/components/ui/toast";
 import { PageShell } from "@/components/layout/page-shell";
 import { PageHeader } from "@/components/layout/page-header";
 import { cn } from "@/lib/utils";
-import { contrastRatio, pickReadableTextColor } from "@/lib/use-tenant-branding";
+import { contrastRatio, pickReadableTextColor, pickLogoBackgroundColor } from "@/lib/use-tenant-branding";
 
 const DEFAULT_COLOR = "#99323D";
 const PALETTE_PRESETS = [
@@ -252,9 +252,13 @@ export default function BrandingPage() {
             </CardHeader>
             <CardContent>
               <div className="flex items-center gap-4">
+                {/* Preview con el mismo tratamiento que en login/widget:
+                    fondo = primary del tenant si es oscuro, slate-800 si es
+                    claro. Asi el admin VE como se va a ver su logo en la
+                    plataforma — incluyendo el caso PNG transparente blanco. */}
                 <div
-                  className="w-20 h-20 rounded-lg border bg-muted/30 flex items-center justify-center shrink-0 overflow-hidden"
-                  style={{ background: !branding.logo_url ? primary : undefined }}
+                  className="w-20 h-20 rounded-lg border flex items-center justify-center shrink-0 overflow-hidden"
+                  style={{ background: branding.logo_url ? pickLogoBackgroundColor(primary) : primary }}
                 >
                   {branding.logo_url ? (
                     <Image
@@ -262,7 +266,7 @@ export default function BrandingPage() {
                       alt={branding.display_name}
                       width={80}
                       height={80}
-                      className="object-contain w-full h-full"
+                      className="object-contain w-full h-full p-1"
                       unoptimized
                     />
                   ) : (
