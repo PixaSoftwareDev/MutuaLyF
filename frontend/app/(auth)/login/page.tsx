@@ -208,22 +208,25 @@ function LoginForm() {
         />
       </div>
 
-      {/* Card — width escalonado por viewport. Mobile estrecho para que entre
-          en una mano. Notebook un escalón mas. Monitor grande se respira
-          mejor con 520px + padding mayor (sin volverse "form gigante" — el
-          punto medio entre Linear (380px) y Vercel (480px)). */}
-      <main className="relative z-10 w-full max-w-[400px] sm:max-w-[440px] lg:max-w-[480px] xl:max-w-[520px]">
+      {/* Card. El ancho casi no cambia — mantenemos forma vertical proporcionada.
+          Lo que escala fuerte es la altura interna (padding vertical, gaps
+          entre elementos, altura de inputs). Asi en monitor grande el form se
+          siente sustancial sin volverse "pancarta horizontal". */}
+      <main className="relative z-10 w-full max-w-[400px] sm:max-w-[420px] lg:max-w-[440px]">
         <div className="relative bg-white rounded-2xl shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_24px_rgba(15,23,42,0.06),0_24px_64px_rgba(15,23,42,0.08)] border border-slate-200/70 overflow-hidden">
 
           {/* Borde superior con gradient de marca — detalle premium tipo Linear/Vercel */}
           <div className="absolute top-0 inset-x-0 h-[2px]" style={{ backgroundImage: BRAND_GRADIENT }} />
 
-          <div className="p-6 sm:p-8 lg:p-9 xl:p-10">
+          {/* Padding asimetrico: horizontal moderado, vertical mas grande en
+              breakpoints superiores. Eso hace que el card "respire" hacia
+              arriba/abajo en vez de hacia los costados. */}
+          <div className="px-6 py-7 sm:px-8 sm:py-9 lg:px-9 lg:py-11 xl:py-12">
 
             {/* ── Step: email ─────────────────────────────────────────────── */}
             {step === "email" && (
               <>
-                <div className="space-y-1.5 mb-7">
+                <div className="space-y-1.5 mb-7 lg:mb-8 xl:mb-10">
                   <div className="flex items-center gap-2 mb-1">
                     <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
                       Bienvenido
@@ -233,7 +236,7 @@ function LoginForm() {
                     Ingresá tu email corporativo para acceder a la plataforma.
                   </p>
                 </div>
-                <form onSubmit={handleEmailSubmit} className="space-y-4" noValidate>
+                <form onSubmit={handleEmailSubmit} className="space-y-4 lg:space-y-5 xl:space-y-6" noValidate>
                   <div className="space-y-1.5">
                     <Label htmlFor="email" className="text-[13px] font-medium text-slate-700">Email</Label>
                     <Input
@@ -244,13 +247,13 @@ function LoginForm() {
                       onChange={(e) => { setEmail(e.target.value); if (error) setError(null); }}
                       autoComplete="email"
                       autoFocus
-                      className="h-11 lg:h-12 text-[15px] focus-visible:ring-2 focus-visible:ring-indigo-500/30"
+                      className="h-11 lg:h-12 xl:h-[52px] text-[15px] focus-visible:ring-2 focus-visible:ring-indigo-500/30"
                     />
                   </div>
                   {error && <ErrorBox text={error} />}
                   <Button
                     type="submit"
-                    className="w-full h-11 lg:h-12 font-medium text-[15px] group shadow-md hover:shadow-lg transition-shadow border-0"
+                    className="w-full h-11 lg:h-12 xl:h-[52px] font-medium text-[15px] group shadow-md hover:shadow-lg transition-shadow border-0"
                     style={primaryBtnStyle}
                     disabled={loading}
                   >
@@ -271,7 +274,7 @@ function LoginForm() {
             {step === "select" && (
               <>
                 <BackBtn onClick={goBackToEmail} />
-                <div className="space-y-1.5 mb-6">
+                <div className="space-y-1.5 mb-6 lg:mb-7 xl:mb-8">
                   <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
                     Elegí tu organización
                   </h1>
@@ -321,7 +324,7 @@ function LoginForm() {
               <>
                 <BackBtn onClick={goBackToEmail} />
                 {selected && (
-                  <div className="flex items-center gap-3 mb-6 pb-5 border-b border-slate-100">
+                  <div className="flex items-center gap-3 mb-6 lg:mb-7 xl:mb-8 pb-5 lg:pb-6 border-b border-slate-100">
                     <div
                       className="flex items-center justify-center h-12 w-12 rounded-xl shrink-0 overflow-hidden ring-1 ring-slate-200/70"
                       style={{ backgroundColor: fullLogoUrl(selected.logo_url) ? "white" : accent }}
@@ -340,7 +343,7 @@ function LoginForm() {
                     </div>
                   </div>
                 )}
-                <form onSubmit={handlePasswordSubmit} className="space-y-4" noValidate>
+                <form onSubmit={handlePasswordSubmit} className="space-y-4 lg:space-y-5 xl:space-y-6" noValidate>
                   <div className="space-y-1.5">
                     <Label className="text-[13px] font-medium text-slate-700">Email</Label>
                     <div className="text-sm rounded-lg bg-slate-50 border border-slate-200 px-3 py-2.5 truncate text-slate-600">
@@ -357,7 +360,7 @@ function LoginForm() {
                         onChange={(e) => { setPassword(e.target.value); if (error) setError(null); }}
                         autoComplete="current-password"
                         autoFocus
-                        className="h-11 lg:h-12 pr-10 text-[15px] focus-visible:ring-2"
+                        className="h-11 lg:h-12 xl:h-[52px] pr-10 text-[15px] focus-visible:ring-2"
                         style={{ ["--tw-ring-color" as any]: `${accent}30` }}
                       />
                       <button
@@ -374,7 +377,7 @@ function LoginForm() {
                   {error && <ErrorBox text={error} />}
                   <Button
                     type="submit"
-                    className="w-full h-11 lg:h-12 font-medium text-[15px] shadow-md hover:shadow-lg transition-shadow border-0"
+                    className="w-full h-11 lg:h-12 xl:h-[52px] font-medium text-[15px] shadow-md hover:shadow-lg transition-shadow border-0"
                     style={primaryBtnStyle}
                     disabled={loading}
                   >
@@ -388,7 +391,7 @@ function LoginForm() {
             {step === "fallback" && (
               <>
                 {!isSuperAdmin && <BackBtn onClick={goBackToEmail} />}
-                <div className="space-y-1.5 mb-6">
+                <div className="space-y-1.5 mb-6 lg:mb-7 xl:mb-8">
                   <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
                     {isSuperAdmin ? "Acceso de plataforma" : "Confirmá tu organización"}
                   </h1>
@@ -398,7 +401,7 @@ function LoginForm() {
                       : "No reconocemos tu dominio. Decinos a qué organización pertenecés."}
                   </p>
                 </div>
-                <form onSubmit={handlePasswordSubmit} className="space-y-4" noValidate>
+                <form onSubmit={handlePasswordSubmit} className="space-y-4 lg:space-y-5 xl:space-y-6" noValidate>
                   {!isSuperAdmin && (
                     <div className="space-y-1.5">
                       <Label htmlFor="tenant" className="text-[13px] font-medium text-slate-700">Organización</Label>
@@ -409,7 +412,7 @@ function LoginForm() {
                         onChange={(e) => { setTenantInput(e.target.value); if (error) setError(null); }}
                         autoComplete="organization"
                         autoFocus
-                        className="h-11 lg:h-12 text-[15px] focus-visible:ring-2 focus-visible:ring-indigo-500/30"
+                        className="h-11 lg:h-12 xl:h-[52px] text-[15px] focus-visible:ring-2 focus-visible:ring-indigo-500/30"
                       />
                     </div>
                   )}
@@ -428,7 +431,7 @@ function LoginForm() {
                       value={email}
                       onChange={(e) => { setEmail(e.target.value); if (error) setError(null); }}
                       autoComplete="email"
-                      className="h-11 lg:h-12 text-[15px] focus-visible:ring-2 focus-visible:ring-indigo-500/30"
+                      className="h-11 lg:h-12 xl:h-[52px] text-[15px] focus-visible:ring-2 focus-visible:ring-indigo-500/30"
                     />
                   </div>
                   <div className="space-y-1.5">
@@ -440,7 +443,7 @@ function LoginForm() {
                         value={password}
                         onChange={(e) => { setPassword(e.target.value); if (error) setError(null); }}
                         autoComplete="current-password"
-                        className="h-11 lg:h-12 pr-10 text-[15px] focus-visible:ring-2 focus-visible:ring-indigo-500/30"
+                        className="h-11 lg:h-12 xl:h-[52px] pr-10 text-[15px] focus-visible:ring-2 focus-visible:ring-indigo-500/30"
                       />
                       <button
                         type="button"
@@ -456,7 +459,7 @@ function LoginForm() {
                   {error && <ErrorBox text={error} />}
                   <Button
                     type="submit"
-                    className="w-full h-11 lg:h-12 font-medium text-[15px] shadow-md hover:shadow-lg transition-shadow border-0"
+                    className="w-full h-11 lg:h-12 xl:h-[52px] font-medium text-[15px] shadow-md hover:shadow-lg transition-shadow border-0"
                     style={primaryBtnStyle}
                     disabled={loading}
                   >
@@ -468,7 +471,7 @@ function LoginForm() {
           </div>
 
           {/* Footer interno del card — trust signals */}
-          <div className="border-t border-slate-100 bg-slate-50/60 px-6 sm:px-8 py-3 flex items-center justify-center gap-3 text-[11px] text-slate-500">
+          <div className="border-t border-slate-100 bg-slate-50/60 px-6 sm:px-8 lg:px-9 py-3 lg:py-3.5 xl:py-4 flex items-center justify-center gap-3 text-[11px] text-slate-500">
             <span className="inline-flex items-center gap-1">
               <Lock className="h-3 w-3" />
               TLS 1.3
