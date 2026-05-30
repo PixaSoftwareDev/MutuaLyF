@@ -154,10 +154,15 @@ function LoginForm() {
     setStep("password");
   };
 
-  // El botón principal usa BRAND_GRADIENT en los steps "neutros" (email,
-  // fallback, select) y color sólido del tenant en step "password" cuando
-  // ya elegimos org — así se transmite el contexto visualmente.
-  const primaryBtnStyle = (step === "password" && selected)
+  // El botón principal:
+  //   - Tenant CON branding propio (primary_color cargado) → color sólido del
+  //     tenant. El cliente "ve su marca" desde el botón.
+  //   - Tenant SIN branding configurado todavía → gradient de Intellix. La
+  //     plataforma asume el liderazgo visual hasta que el cliente cargue su
+  //     identidad. Mantiene el "wow" estético sin colores plomo.
+  //   - Steps neutros (email, select, fallback) → siempre gradient Intellix.
+  const tenantHasBranding = !!selected?.primary_color;
+  const primaryBtnStyle = (step === "password" && selected && tenantHasBranding)
     ? { backgroundColor: accent, color: accentFg }
     : { backgroundImage: BRAND_GRADIENT, color: "#fff" };
 
@@ -283,12 +288,16 @@ function LoginForm() {
                 <div className="space-y-2">
                   {matches.map((m) => {
                     const logo = fullLogoUrl(m.logo_url);
-                    const color = m.primary_color || BRAND_INDIGO;
-                    // Si el logo es un PNG transparente blanco, sobre fondo
-                    // blanco desaparece. Usamos pickLogoBackgroundColor que
-                    // toma primary del tenant (oscuro=ok) o cae a slate-800
-                    // si el primary es muy claro.
-                    const logoBg = logo ? pickLogoBackgroundColor(m.primary_color) : color;
+                    const hasBranding = !!m.primary_color;
+                    // Si tiene logo PNG transparente blanco, sobre fondo blanco
+                    // desaparece — pickLogoBackgroundColor usa primary del
+                    // tenant (oscuro=ok) o slate-800 si es muy claro.
+                    // Si no tiene logo ni branding, usamos gradient Intellix.
+                    const avatarStyle: React.CSSProperties = logo
+                      ? { backgroundColor: pickLogoBackgroundColor(m.primary_color) }
+                      : hasBranding
+                        ? { backgroundColor: m.primary_color! }
+                        : { backgroundImage: BRAND_GRADIENT };
                     return (
                       <button
                         key={m.tenant_id}
@@ -298,7 +307,7 @@ function LoginForm() {
                       >
                         <div
                           className="flex items-center justify-center h-10 w-10 rounded-lg shrink-0 overflow-hidden ring-1 ring-slate-200/70"
-                          style={{ backgroundColor: logoBg }}
+                          style={avatarStyle}
                         >
                           {logo ? (
                             <img src={logo} alt="" className="h-full w-full object-contain p-1" />
@@ -330,11 +339,13 @@ function LoginForm() {
                   <div className="flex flex-col items-center text-center gap-3 mb-6 lg:mb-7 xl:mb-8 pb-5 lg:pb-6 border-b border-slate-100">
                     <div
                       className="flex items-center justify-center h-14 w-14 lg:h-16 lg:w-16 rounded-2xl shrink-0 overflow-hidden ring-1 ring-slate-200/70 shadow-sm"
-                      style={{
-                        backgroundColor: fullLogoUrl(selected.logo_url)
-                          ? pickLogoBackgroundColor(selected.primary_color)
-                          : accent,
-                      }}
+                      style={
+                        fullLogoUrl(selected.logo_url)
+                          ? { backgroundColor: pickLogoBackgroundColor(selected.primary_color) }
+                          : tenantHasBranding
+                            ? { backgroundColor: accent }
+                            : { backgroundImage: BRAND_GRADIENT }
+                      }
                     >
                       {fullLogoUrl(selected.logo_url) ? (
                         <img src={fullLogoUrl(selected.logo_url)!} alt="" className="h-full w-full object-contain p-2" />
