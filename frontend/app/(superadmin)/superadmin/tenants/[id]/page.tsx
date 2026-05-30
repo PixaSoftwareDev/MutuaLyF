@@ -8,6 +8,7 @@ import {
   PauseCircle, PlayCircle, Settings2, UserPlus, Building2,
   TrendingUp, FileText, Zap, Clock, Database, Shield,
   MessageSquare, Target, Activity, ChevronRight, Bot, X, Users, Eye, EyeOff,
+  AtSign, Star, Plus, Trash2,
 } from "lucide-react";
 import { api, apiClient } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -255,6 +256,9 @@ export default function TenantDetailPage() {
               </Button>
             </div>
           </div>
+
+          {/* ── Dominios de email (email-first login) ───────────────────── */}
+          <EmailDomainsSection tenantId={tenantId} />
 
           {/* ── Usuarios ─────────────────────────────────────────────── */}
           <div className="flex items-center justify-between">
@@ -980,5 +984,139 @@ function CreateAdminModal({ tenantId, tenantName, onClose, onCreated }: {
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// ── EmailDomainsSection ─────────────────────────────────────────────────────
+//
+// Dominios de email asociados al tenant. Cuando un usuario ingresa
+// pedro@<dominio cargado aqui>, el sistema autocompleta la organizacion y
+// le muestra el branding sin pedir mas datos (email-first login).
+//
+// Sin dominios cargados, el login sigue funcionando — solo cae al fallback
+// de "pedinos tu organizacion".
+function EmailDomainsSection({ tenantId }: { tenantId: string }) {
+  const qc = useQueryClient();
+  const [newDomain, setNewDomain] = useState("");
+  const [isPrimary, setIsPrimary] = useState(false);
+  const [error, setError]         = useState<string | null>(null);
+
+  const { data: domains = [], isLoading } = useQuery({
+    queryKey: ["tenant-email-domains", tenantId],
+    queryFn:  () => api.tenants.listEmailDomains(tenantId),
+    staleTime: 30_000,
+  });
+
+  const addM = useMutation({
+    mutationFn: () => api.tenants.addEmailDomain(tenantId, newDomain.trim(), isPrimary),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["tenant-email-domains", tenantId] });
+      setNewDomain("");
+      setIsPrimary(false);
+      setError(null);
+      toast({ title: "Dominio agregado", variant: "success" });
+    },
+    onError: (err: any) => {
+      const detail = err?.response?.data?.detail ?? "No se pudo agregar el dominio";
+      setError(typeof detail === "string" ? detail : "Error desconocido");
+    },
+  });
+
+  const removeM = useMutation({
+    mutationFn: (domain: string) => api.tenants.removeEmailDomain(tenantId, domain),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["tenant-email-domains", tenantId] });
+      toast({ title: "Dominio eliminado" });
+    },
+    onError: () => toast({ title: "Error al eliminar", variant: "destructive" }),
+  });
+
+  const handleAdd = () => {
+    setError(null);
+    if (!newDomain.trim()) return;
+    addM.mutate();
+  };
+
+  return (
+    <div className="space-y-2">
+      <SectionTitle
+        icon={AtSign}
+        label="Dominios de email"
+        sublabel={domains.length === 0 ? "Opcional · email-first login" : `${domains.length} configurado${domains.length === 1 ? "" : "s"}`}
+      />
+
+      <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
+        {/* Lista */}
+        {isLoading ? (
+          <div className="p-4"><Skeleton className="h-8 w-full" /></div>
+        ) : domains.length === 0 ? (
+          <p className="px-4 py-6 text-center text-sm text-muted-foreground">
+            Sin dominios cargados. Los usuarios van a tener que tipear el nombre del tenant al loguearse.
+          </p>
+        ) : (
+          <ul className="divide-y">
+            {domains.map(d => (
+              <li key={d.domain} className="flex items-center gap-3 px-4 py-2.5">
+                <AtSign className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                <span className="font-mono text-sm flex-1 truncate">{d.domain}</span>
+                {d.is_primary && (
+                  <span className="inline-flex items-center gap-1 text-[11px] rounded-full bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5">
+                    <Star className="h-3 w-3" />Principal
+                  </span>
+                )}
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+                  onClick={() => removeM.mutate(d.domain)}
+                  disabled={removeM.isPending}
+                  aria-label={`Eliminar dominio ${d.domain}`}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {/* Add form */}
+        <div className="border-t bg-muted/30 px-4 py-3 space-y-2">
+          <div className="flex flex-col sm:flex-row gap-2">
+            <Input
+              value={newDomain}
+              onChange={e => setNewDomain(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter") handleAdd(); }}
+              placeholder="empresa.com.ar"
+              className="h-9 text-sm"
+              disabled={addM.isPending}
+            />
+            <Button
+              onClick={handleAdd}
+              disabled={addM.isPending || !newDomain.trim()}
+              className="h-9 shrink-0"
+              size="sm"
+            >
+              {addM.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4 mr-1" />}
+              Agregar
+            </Button>
+          </div>
+          <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
+            <input
+              type="checkbox"
+              checked={isPrimary}
+              onChange={e => setIsPrimary(e.target.checked)}
+              className="h-3.5 w-3.5"
+            />
+            Marcar como principal (un solo dominio por tenant)
+          </label>
+          {error && (
+            <p className="text-xs text-destructive">{error}</p>
+          )}
+          <p className="text-[11px] text-muted-foreground">
+            Solo dominios corporativos. No se aceptan @gmail.com, @hotmail.com, etc.
+          </p>
+        </div>
+      </div>
+    </div>
   );
 }

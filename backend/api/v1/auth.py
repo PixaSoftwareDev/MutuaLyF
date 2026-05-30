@@ -39,6 +39,189 @@ class TokenResponse(BaseModel):
     expires_in: int
 
 
+# ── Email-first lookup ────────────────────────────────────────────────────────
+
+class LookupTenantBody(BaseModel):
+    email: str = Field(..., max_length=320, min_length=3)
+
+
+class LookupTenantMatch(BaseModel):
+    tenant_id:     str
+    display_name:  str
+    logo_url:      str | None = None
+    primary_color: str | None = None
+    role:          str
+    # match_via: 'domain' | 'email' — solo para debug interno, el frontend
+    # no lo usa pero ayuda a entender en logs por qué se asocio.
+    match_via:     str
+
+
+class LookupTenantResponse(BaseModel):
+    matches: list[LookupTenantMatch]
+
+
+# Cache de rate limit en memoria, por IP. 5 lookups/min para frenar
+# enumeracion masiva (bot probando emails al azar para mapear tenants).
+_LOOKUP_RATE_CACHE: dict[str, list[float]] = {}
+_LOOKUP_RATE_MAX = 5
+_LOOKUP_RATE_WINDOW_S = 60
+
+
+def _check_lookup_rate(request: Request) -> bool:
+    import time as _t
+    forwarded = request.headers.get("X-Forwarded-For")
+    ip = forwarded.split(",")[0].strip() if forwarded else (request.client.host if request.client else "unknown")
+    now = _t.monotonic()
+    hits = [t for t in _LOOKUP_RATE_CACHE.get(ip, []) if now - t < _LOOKUP_RATE_WINDOW_S]
+    if len(hits) >= _LOOKUP_RATE_MAX:
+        return False
+    hits.append(now)
+    _LOOKUP_RATE_CACHE[ip] = hits
+    # Garbage collect lazy: si el cache crece mas de 10k IPs, lo achicamos.
+    if len(_LOOKUP_RATE_CACHE) > 10_000:
+        cutoff = now - _LOOKUP_RATE_WINDOW_S
+        _LOOKUP_RATE_CACHE.clear()
+    return True
+
+
+@router.post("/lookup-tenant", response_model=LookupTenantResponse)
+async def lookup_tenant(body: LookupTenantBody, request: Request) -> LookupTenantResponse:
+    """Recibe un email y devuelve los tenants donde existe ese usuario.
+
+    Para email-first login. Tres escenarios:
+      1. Dominio mapeado → devuelve ese tenant (rapido, ~1ms).
+      2. Dominio no mapeado (gmail, etc.) → escanea tenant_X.usuarios cross.
+      3. Email en multiples tenants → devuelve todos, frontend muestra selector.
+
+    Seguridad:
+      - Rate limit 5/min/IP para frenar enumeracion masiva.
+      - El endpoint NO indica si el email no existe vs si fue rate-limited —
+        igual responde 200 con matches=[]. El frontend muestra "verificá tu
+        email o contactá al admin" en ambos casos.
+      - El password no se valida aca; eso es /login.
+      - Super-admin NO aparece en los matches (esta en platform_users, no en
+        tenant_X.usuarios).
+    """
+    if not _check_lookup_rate(request):
+        # No 429 — devolvemos matches vacios para no diferenciar de "no existe".
+        # El frontend muestra mensaje generico.
+        return LookupTenantResponse(matches=[])
+
+    email = body.email.lower().strip()
+    if "@" not in email or len(email) > 320:
+        return LookupTenantResponse(matches=[])
+
+    domain = email.split("@", 1)[1]
+    candidate_tenants: set[str] = set()
+    via_map: dict[str, str] = {}  # tenant_id -> 'domain' | 'email'
+
+    # ── Lookup 1: por dominio (rapido) ────────────────────────────────────────
+    try:
+        async with get_pg_session(None) as session:
+            result = await session.execute(
+                text("SELECT tenant_id FROM tenant_email_domains WHERE domain = :d"),
+                {"d": domain},
+            )
+            for row in result.fetchall():
+                tid = row[0]
+                candidate_tenants.add(tid)
+                via_map[tid] = "domain"
+    except Exception as exc:
+        logger.warning("lookup_tenant_domain_lookup_failed error=%s", exc)
+
+    # ── Lookup 2: por email exacto en cada tenant ─────────────────────────────
+    # Solo escanea si el dominio no nos dio match — para no agregar latencia
+    # en el caso comun (dominio mapeado). Si el cliente queremos cubrir el
+    # "Pedro corporativo de Nexo TAMBIEN es operador en Mutual con su mail
+    # corporativo de Nexo", sacar este shortcut.
+    if not candidate_tenants:
+        try:
+            async with get_pg_session(None) as session:
+                tenants_result = await session.execute(
+                    text("SELECT id FROM tenants WHERE status != 'suspended'")
+                )
+                tenant_ids = [r[0] for r in tenants_result.fetchall()]
+
+            for tid in tenant_ids:
+                try:
+                    async with get_pg_session(tid) as session:
+                        r = await session.execute(
+                            text("SELECT 1 FROM usuarios WHERE email = :e AND is_active = TRUE LIMIT 1"),
+                            {"e": email},
+                        )
+                        if r.scalar() is not None:
+                            candidate_tenants.add(tid)
+                            via_map[tid] = "email"
+                except Exception:
+                    # Schema puede no existir aun (tenant a medio provisionar)
+                    continue
+        except Exception as exc:
+            logger.warning("lookup_tenant_email_lookup_failed error=%s", exc)
+
+    if not candidate_tenants:
+        return LookupTenantResponse(matches=[])
+
+    # ── Resolver branding + rol per tenant ────────────────────────────────────
+    matches: list[LookupTenantMatch] = []
+    for tid in candidate_tenants:
+        try:
+            async with get_pg_session(None) as session:
+                t_row = await session.execute(
+                    text(
+                        "SELECT id, name, status FROM tenants WHERE id = :tid AND status != 'suspended'"
+                    ),
+                    {"tid": tid},
+                )
+                t = t_row.mappings().fetchone()
+                if t is None:
+                    continue
+
+            # Branding (logo + color)
+            logo_url: str | None = None
+            primary_color: str | None = None
+            try:
+                async with get_pg_session(None) as session:
+                    b_row = await session.execute(
+                        text("SELECT logo_url, primary_color FROM tenants WHERE id = :tid"),
+                        {"tid": tid},
+                    )
+                    b = b_row.mappings().fetchone()
+                    if b is not None:
+                        logo_url = b["logo_url"]
+                        primary_color = b["primary_color"]
+            except Exception:
+                pass
+
+            # Rol del usuario en este tenant
+            role = "operator"
+            try:
+                async with get_pg_session(tid) as session:
+                    u_row = await session.execute(
+                        text("SELECT role FROM usuarios WHERE email = :e AND is_active = TRUE"),
+                        {"e": email},
+                    )
+                    u = u_row.fetchone()
+                    if u is not None:
+                        role = u[0] or "operator"
+            except Exception:
+                continue  # si no esta en la tabla, no se considera match valido
+
+            matches.append(LookupTenantMatch(
+                tenant_id=tid,
+                display_name=t["name"],
+                logo_url=logo_url,
+                primary_color=primary_color,
+                role=role,
+                match_via=via_map.get(tid, "email"),
+            ))
+        except Exception as exc:
+            logger.warning("lookup_tenant_resolve_failed tenant=%s error=%s", tid, exc)
+
+    # Sort: tenants con match por dominio primero, despues por display_name
+    matches.sort(key=lambda m: (m.match_via != "domain", m.display_name.lower()))
+    return LookupTenantResponse(matches=matches)
+
+
 @router.post("/login", response_model=TokenResponse)
 async def login(
     request: Request,

@@ -84,6 +84,19 @@ export interface LoginResponse {
   expires_in: number;
 }
 
+export interface LookupTenantMatch {
+  tenant_id:     string;
+  display_name:  string;
+  logo_url:      string | null;
+  primary_color: string | null;
+  role:          string;
+  match_via:     string;
+}
+
+export interface LookupTenantResponse {
+  matches: LookupTenantMatch[];
+}
+
 export interface MeResponse {
   id:         string;
   email:      string;
@@ -374,6 +387,18 @@ export interface DuplicatesResponse {
 
 export const api = {
   auth: {
+    /** Email-first lookup. Devuelve los tenants donde existe ese email. */
+    lookupTenant: async (email: string): Promise<LookupTenantResponse> => {
+      // El interceptor inyecta tenant_id stale del localStorage; lo limpiamos
+      // primero para que el lookup sea totalmente anonimo (sino el backend
+      // recibe un X-Tenant-ID basura del login previo).
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("access_token");
+        localStorage.removeItem("tenant_id");
+      }
+      const { data } = await apiClient.post<LookupTenantResponse>("/auth/lookup-tenant", { email });
+      return data;
+    },
     login: async (username: string, password: string, tenantId: string): Promise<LoginResponse> => {
       const form = new URLSearchParams();
       form.append("username", username);
@@ -665,6 +690,17 @@ export const api = {
     generateWidgetToken: async (tenantId: string): Promise<WidgetTokenResponse> => {
       const { data } = await apiClient.post<WidgetTokenResponse>(`/tenants/${tenantId}/widget-token`);
       return data;
+    },
+    listEmailDomains: async (tenantId: string): Promise<Array<{ domain: string; is_primary: boolean; created_at: string | null }>> => {
+      const { data } = await apiClient.get(`/tenants/${tenantId}/email-domains`);
+      return data;
+    },
+    addEmailDomain: async (tenantId: string, domain: string, is_primary = false) => {
+      const { data } = await apiClient.post(`/tenants/${tenantId}/email-domains`, { domain, is_primary });
+      return data;
+    },
+    removeEmailDomain: async (tenantId: string, domain: string) => {
+      await apiClient.delete(`/tenants/${tenantId}/email-domains/${encodeURIComponent(domain)}`);
     },
     getBotConfig: async (tenantId: string): Promise<BotConfig> => {
       const { data } = await apiClient.get<BotConfig>(`/tenants/${tenantId}/bot-config`);

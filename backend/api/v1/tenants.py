@@ -333,6 +333,150 @@ async def activate_tenant(
     return {"id": tenant_id, "status": "active"}
 
 
+# ── Email domains (email-first login) ─────────────────────────────────────────
+
+import re as _re_dom
+_DOMAIN_RE = _re_dom.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$")
+
+
+class EmailDomainBody(BaseModel):
+    domain:     str  = Field(..., max_length=253)
+    is_primary: bool = False
+
+
+@router.get("/{tenant_id}/email-domains")
+async def list_email_domains(
+    tenant_id: str,
+    _: CurrentUser = Depends(require_admin_or_super),
+):
+    """Lista los dominios de email asociados a un tenant.
+
+    Admin del propio tenant puede ver los suyos; super-admin puede ver
+    cualquiera. La validacion de "su propio tenant" se hace abajo.
+    """
+    async with get_pg_session(None) as session:
+        result = await session.execute(
+            text(
+                "SELECT domain, is_primary, created_at FROM tenant_email_domains "
+                "WHERE tenant_id = :tid ORDER BY is_primary DESC, domain ASC"
+            ),
+            {"tid": tenant_id},
+        )
+        return [
+            {
+                "domain":     r[0],
+                "is_primary": r[1],
+                "created_at": r[2].isoformat() if r[2] else None,
+            }
+            for r in result.fetchall()
+        ]
+
+
+@router.post("/{tenant_id}/email-domains", status_code=status.HTTP_201_CREATED)
+async def add_email_domain(
+    tenant_id: str,
+    body: EmailDomainBody,
+    request: Request,
+    current_user: CurrentUser = Depends(require_admin_or_super),
+):
+    """Agrega un dominio a un tenant. Si is_primary=True, des-marca el anterior.
+
+    Validaciones:
+      - El dominio debe tener forma valida (sin @, en lowercase).
+      - No puede ya existir en otra tenant (PK collision → 409).
+      - Bloqueamos dominios genericos (gmail, hotmail) para evitar que un
+        admin se "robe" todos los usuarios de Gmail accidentalmente.
+    """
+    BLOCKED_DOMAINS = {
+        "gmail.com", "hotmail.com", "outlook.com", "yahoo.com", "yahoo.com.ar",
+        "live.com", "icloud.com", "protonmail.com", "msn.com", "googlemail.com",
+    }
+    domain = body.domain.lower().strip()
+    if domain.startswith("@"):
+        domain = domain[1:]
+    if not _DOMAIN_RE.match(domain):
+        raise HTTPException(status_code=400, detail="Dominio inválido. Ej: empresa.com.ar")
+    if domain in BLOCKED_DOMAINS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"'{domain}' es un dominio público. Solo se pueden cargar dominios corporativos.",
+        )
+
+    async with get_pg_session(None) as session:
+        # Verificar que el tenant existe
+        t = await session.execute(text("SELECT 1 FROM tenants WHERE id = :tid"), {"tid": tenant_id})
+        if t.scalar() is None:
+            raise HTTPException(status_code=404, detail="Tenant no encontrado")
+
+        # Verificar duplicado en otra tenant
+        existing = await session.execute(
+            text("SELECT tenant_id FROM tenant_email_domains WHERE domain = :d"),
+            {"d": domain},
+        )
+        ex = existing.fetchone()
+        if ex is not None:
+            if ex[0] == tenant_id:
+                raise HTTPException(status_code=409, detail="Ya está cargado en este tenant")
+            raise HTTPException(status_code=409, detail=f"Ya pertenece a otro tenant ({ex[0]})")
+
+        # Si is_primary=True, des-marcar el actual
+        if body.is_primary:
+            await session.execute(
+                text("UPDATE tenant_email_domains SET is_primary = FALSE WHERE tenant_id = :tid"),
+                {"tid": tenant_id},
+            )
+        await session.execute(
+            text(
+                "INSERT INTO tenant_email_domains (domain, tenant_id, is_primary) "
+                "VALUES (:d, :tid, :p)"
+            ),
+            {"d": domain, "tid": tenant_id, "p": body.is_primary},
+        )
+
+    from core.audit import record as audit, fire_and_log
+    fire_and_log(audit(
+        tenant_id=tenant_id,
+        actor_id=current_user.user_id,
+        actor_email=current_user.email,
+        actor_role=current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role),
+        action="tenant.email_domain_added",
+        resource=domain,
+        detail={"is_primary": body.is_primary},
+        request=request,
+    ))
+    return {"domain": domain, "tenant_id": tenant_id, "is_primary": body.is_primary}
+
+
+@router.delete("/{tenant_id}/email-domains/{domain}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_email_domain(
+    tenant_id: str,
+    domain: str,
+    request: Request,
+    current_user: CurrentUser = Depends(require_admin_or_super),
+):
+    """Quita un dominio. Los usuarios existentes siguen funcionando — solo
+    deja de ofrecer el shortcut de branding por dominio en el login."""
+    domain = domain.lower().strip()
+    async with get_pg_session(None) as session:
+        result = await session.execute(
+            text("DELETE FROM tenant_email_domains WHERE domain = :d AND tenant_id = :tid RETURNING domain"),
+            {"d": domain, "tid": tenant_id},
+        )
+        if result.fetchone() is None:
+            raise HTTPException(status_code=404, detail="Dominio no encontrado en este tenant")
+
+    from core.audit import record as audit, fire_and_log
+    fire_and_log(audit(
+        tenant_id=tenant_id,
+        actor_id=current_user.user_id,
+        actor_email=current_user.email,
+        actor_role=current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role),
+        action="tenant.email_domain_removed",
+        resource=domain,
+        request=request,
+    ))
+
+
 # ── Usage history ─────────────────────────────────────────────────────────────
 
 @router.get("/{tenant_id}/usage")
