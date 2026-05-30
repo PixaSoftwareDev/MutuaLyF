@@ -2,7 +2,6 @@
 
 import { useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -140,17 +139,11 @@ function LoginForm() {
         }}
       />
 
-      {/* Logo arriba del card — la marca vive afuera, no dentro */}
-      <div className="relative z-10 mb-8 flex items-center gap-2.5">
-        <Image
-          src="/Logo.png"
-          alt={PLATFORM_NAME}
-          width={32}
-          height={32}
-          className="rounded-md"
-          priority
-        />
-        <span className="font-semibold text-lg tracking-tight text-foreground">
+      {/* Marca arriba del card. Solo wordmark — sin iconito hasta tener
+          identidad visual propia. Tracking apretado + peso semibold para
+          dar presencia como marca tipo Linear, Vercel, Resend. */}
+      <div className="relative z-10 mb-8">
+        <span className="text-2xl font-semibold tracking-tight text-foreground">
           {PLATFORM_NAME}
         </span>
       </div>
