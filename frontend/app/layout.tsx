@@ -8,7 +8,7 @@ import { BRANDING_PRELOAD_SCRIPT } from "./branding-preload";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "IA Inteligent",
+  title: "Intellix",
   description: "Plataforma de conocimiento institucional con IA",
 };
 

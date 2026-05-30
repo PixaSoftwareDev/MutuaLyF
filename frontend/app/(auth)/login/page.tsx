@@ -2,6 +2,7 @@
 
 import { useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -9,9 +10,9 @@ import { useAuthStore } from "@/lib/store";
 import { api, type LookupTenantMatch } from "@/lib/api";
 import { toSlug } from "@/lib/utils";
 import { DEFAULT_PRIMARY, pickReadableTextColor } from "@/lib/use-tenant-branding";
-import { Loader2, AlertTriangle, Shield, Eye, EyeOff, ChevronLeft } from "lucide-react";
+import { Loader2, AlertTriangle, Shield, Eye, EyeOff, ChevronLeft, ArrowRight } from "lucide-react";
 
-const PLATFORM_NAME = "IA Inteligent";
+const PLATFORM_NAME = "Intellix";
 const PLATFORM_ACCENT = DEFAULT_PRIMARY;
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
 
@@ -21,11 +22,11 @@ function fullLogoUrl(url: string | null | undefined): string | null {
   return `${API_URL}${url}`;
 }
 
-// El login email-first es un stepper de 2-3 pasos:
-//  Step 1 — Email. Tras submit hacemos lookup-tenant en el backend.
-//  Step 2a — Tenant unico encontrado → branding del tenant + password.
-//  Step 2b — Multiples tenants → selector con cards (logo + nombre + rol).
-//  Step 2c — Ningun tenant (Gmail no cargado, o super-admin) → pedir organizacion.
+// Stepper email-first.
+//  email     → tipear email + continuar
+//  password  → tras lookup OK con 1 tenant
+//  select    → tras lookup OK con >1 tenants
+//  fallback  → tras lookup vacio (gmail, no encontrado) → form clasico
 type Step = "email" | "password" | "select" | "fallback";
 
 export default function LoginPage() {
@@ -37,25 +38,22 @@ function LoginForm() {
   const searchParams = useSearchParams();
   const { setAuth } = useAuthStore();
 
-  const isSuperAdmin                = searchParams.get("platform") === "1";
-
-  const [step, setStep]             = useState<Step>(isSuperAdmin ? "fallback" : "email");
-  const [email, setEmail]           = useState("");
-  const [password, setPassword]     = useState("");
-  const [showPwd, setShowPwd]       = useState(false);
+  const isSuperAdmin                  = searchParams.get("platform") === "1";
+  const [step, setStep]               = useState<Step>(isSuperAdmin ? "fallback" : "email");
+  const [email, setEmail]             = useState("");
+  const [password, setPassword]       = useState("");
+  const [showPwd, setShowPwd]         = useState(false);
   const [tenantInput, setTenantInput] = useState("");
-  const [matches, setMatches]       = useState<LookupTenantMatch[]>([]);
-  const [selected, setSelected]     = useState<LookupTenantMatch | null>(null);
-  const [error, setError]           = useState<string | null>(null);
-  const [loading, setLoading]       = useState(false);
+  const [matches, setMatches]         = useState<LookupTenantMatch[]>([]);
+  const [selected, setSelected]       = useState<LookupTenantMatch | null>(null);
+  const [error, setError]             = useState<string | null>(null);
+  const [loading, setLoading]         = useState(false);
 
-  // Branding aplicado a la UI: si seleccionamos un tenant, sus colores. Sino
-  // los neutros de la plataforma. Asi el form de password ya pinta con el
-  // color institucional del cliente antes de que confirme.
-  const accent = selected?.primary_color || PLATFORM_ACCENT;
+  const accent   = selected?.primary_color || PLATFORM_ACCENT;
   const accentFg = pickReadableTextColor(accent);
 
-  // ── Step 1: email → lookup ────────────────────────────────────────────────
+  // ── Handlers ─────────────────────────────────────────────────────────────
+
   const handleEmailSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -70,20 +68,15 @@ function LoginForm() {
         setMatches(data.matches);
         setStep("select");
       } else {
-        // Gmail, dominio no cargado, email no existente. Pedimos organizacion
-        // para no diferenciar "no existe" vs "no encontramos por dominio" —
-        // anti enumeracion.
         setStep("fallback");
       }
     } catch {
-      // Backend caido o rate limit → fallback con organizacion
       setStep("fallback");
     } finally {
       setLoading(false);
     }
   };
 
-  // ── Step 2 (cualquier camino): ejecutar login real ────────────────────────
   const doLogin = async (effectiveTenant: string) => {
     setError(null);
     setLoading(true);
@@ -110,10 +103,7 @@ function LoginForm() {
 
   const handlePasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const tenant = isSuperAdmin
-      ? ""                                          // super_admin: sin tenant
-      : selected?.tenant_id                          // step 2a o 2b
-      ?? toSlug(tenantInput);                        // step 2c (fallback)
+    const tenant = isSuperAdmin ? "" : (selected?.tenant_id ?? toSlug(tenantInput));
     await doLogin(tenant);
   };
 
@@ -130,100 +120,100 @@ function LoginForm() {
     setStep("password");
   };
 
-  // ── Render ────────────────────────────────────────────────────────────────
+  // ── Layout: centered minimal ─────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen flex flex-col lg:flex-row bg-slate-50">
-      {/* LEFT hero — siempre brand de la plataforma para no confundir */}
-      <aside
-        className="hidden lg:flex lg:w-1/2 relative overflow-hidden text-white"
+    <div className="min-h-screen relative flex flex-col items-center justify-center p-4 sm:p-6 bg-[#fafafa]">
+      {/* Gradient mesh ultra-sutil de fondo. Usamos radial-gradients CSS
+          (sin SVG/imagen) para zero bytes adicionales y renderizado nativo.
+          Opacidad baja a propósito — está para dar profundidad, no para
+          competir con el contenido. */}
+      <div
+        className="absolute inset-0 pointer-events-none"
+        aria-hidden="true"
         style={{
-          background: `linear-gradient(135deg, ${PLATFORM_ACCENT} 0%, ${shade(PLATFORM_ACCENT, -30)} 100%)`,
+          backgroundImage: `
+            radial-gradient(circle at 15% 20%, rgba(153, 50, 61, 0.08) 0%, transparent 40%),
+            radial-gradient(circle at 85% 75%, rgba(29, 78, 216, 0.06) 0%, transparent 45%),
+            radial-gradient(circle at 50% 100%, rgba(168, 85, 247, 0.05) 0%, transparent 50%)
+          `,
         }}
-      >
-        <div className="absolute inset-0 opacity-10 bg-[radial-gradient(circle_at_top_right,white_0%,transparent_50%)]" />
-        <div className="relative z-10 flex flex-col justify-between p-12 w-full">
-          <div className="flex items-center gap-3">
-            <span className="font-semibold text-lg">{PLATFORM_NAME}</span>
-          </div>
-          <div className="space-y-4 max-w-md">
-            <h1 className="text-4xl font-bold leading-tight">
-              Tu conocimiento, listo para responder.
-            </h1>
-            <p className="text-white/80 text-base leading-relaxed">
-              Documentos, consultas y conversaciones en un solo lugar.
-            </p>
-          </div>
-          <div className="flex items-center gap-2 text-xs text-white/60">
-            <Shield className="h-3.5 w-3.5" />
-            <span>Conexión cifrada · Datos aislados por organización</span>
-          </div>
-        </div>
-      </aside>
+      />
 
-      {/* RIGHT form */}
-      <main className="flex-1 flex items-center justify-center p-6 sm:p-10">
-        <div className="w-full max-w-sm">
-          {/* Mobile brand */}
-          <div className="lg:hidden flex items-center justify-center gap-2 mb-8">
-            <span className="font-semibold text-lg">{PLATFORM_NAME}</span>
-          </div>
+      {/* Logo arriba del card — la marca vive afuera, no dentro */}
+      <div className="relative z-10 mb-8 flex items-center gap-2.5">
+        <Image
+          src="/Logo.png"
+          alt={PLATFORM_NAME}
+          width={32}
+          height={32}
+          className="rounded-md"
+          priority
+        />
+        <span className="font-semibold text-lg tracking-tight text-foreground">
+          {PLATFORM_NAME}
+        </span>
+      </div>
 
-          {/* ── Step 1: solo email ─────────────────────────────────────────── */}
+      {/* Card centrado */}
+      <main className="relative z-10 w-full max-w-[400px]">
+        <div className="bg-white rounded-2xl shadow-[0_2px_8px_rgba(0,0,0,0.04),0_8px_32px_rgba(0,0,0,0.06)] border border-slate-200/60 p-6 sm:p-8">
+
+          {/* ── Step: email ─────────────────────────────────────────────── */}
           {step === "email" && (
             <>
-              <div className="space-y-1 mb-6">
-                <h2 className="text-2xl font-bold tracking-tight">Iniciar sesión</h2>
+              <div className="space-y-1.5 mb-6">
+                <h1 className="text-[22px] font-semibold tracking-tight text-foreground">
+                  Iniciar sesión
+                </h1>
                 <p className="text-sm text-muted-foreground">
-                  Ingresá tu email corporativo
+                  Ingresá tu email corporativo para continuar
                 </p>
               </div>
               <form onSubmit={handleEmailSubmit} className="space-y-4">
                 <div className="space-y-1.5">
-                  <Label htmlFor="email" className="text-xs font-medium">Email</Label>
+                  <Label htmlFor="email" className="text-[13px] font-medium">Email</Label>
                   <Input
                     id="email"
                     type="email"
-                    placeholder="tu@email.com"
+                    placeholder="tu@empresa.com"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     required
                     autoComplete="email"
-                    className="h-10"
                     autoFocus
+                    className="h-11 text-[15px]"
                   />
                 </div>
                 <Button
                   type="submit"
-                  className="w-full h-10 font-medium"
+                  className="w-full h-11 font-medium text-[15px] group"
                   style={{ backgroundColor: PLATFORM_ACCENT }}
                   disabled={loading || !email.trim()}
                 >
-                  {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  {loading ? "Verificando..." : "Continuar"}
+                  {loading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <>
+                      Continuar
+                      <ArrowRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+                    </>
+                  )}
                 </Button>
               </form>
-              <p className="text-[11px] text-center text-muted-foreground/70 mt-8">
-                ¿Problemas para ingresar? Contactá al administrador de tu organización.
-              </p>
             </>
           )}
 
-          {/* ── Step 2b: selector de tenant ─────────────────────────────────── */}
+          {/* ── Step: select multi-tenant ───────────────────────────────── */}
           {step === "select" && (
             <>
-              <button
-                type="button"
-                onClick={goBackToEmail}
-                className="inline-flex items-center text-xs text-muted-foreground hover:text-foreground mb-4"
-              >
-                <ChevronLeft className="h-3.5 w-3.5 mr-1" />
-                Cambiar email
-              </button>
-              <div className="space-y-1 mb-6">
-                <h2 className="text-xl font-bold tracking-tight">Elegí tu organización</h2>
+              <BackBtn onClick={goBackToEmail} />
+              <div className="space-y-1.5 mb-6">
+                <h1 className="text-[22px] font-semibold tracking-tight text-foreground">
+                  Elegí tu organización
+                </h1>
                 <p className="text-sm text-muted-foreground break-all">
-                  {email} tiene acceso a:
+                  <span className="font-medium text-foreground">{email}</span> tiene acceso a:
                 </p>
               </div>
               <div className="space-y-2">
@@ -235,14 +225,14 @@ function LoginForm() {
                       key={m.tenant_id}
                       type="button"
                       onClick={() => pickTenant(m)}
-                      className="w-full flex items-center gap-3 rounded-md border bg-card hover:bg-accent/50 px-3 py-2.5 text-left transition"
+                      className="w-full group flex items-center gap-3 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 hover:border-slate-300 px-3.5 py-3 text-left transition-all"
                     >
                       <div
-                        className="flex items-center justify-center h-9 w-9 rounded-md shrink-0 overflow-hidden"
-                        style={{ backgroundColor: logo ? "transparent" : color }}
+                        className="flex items-center justify-center h-10 w-10 rounded-lg shrink-0 overflow-hidden ring-1 ring-slate-100"
+                        style={{ backgroundColor: logo ? "white" : color }}
                       >
                         {logo ? (
-                          <img src={logo} alt="" className="h-full w-full object-contain" />
+                          <img src={logo} alt="" className="h-full w-full object-contain p-1" />
                         ) : (
                           <span className="text-white font-semibold text-sm">
                             {m.display_name.slice(0, 1).toUpperCase()}
@@ -250,11 +240,12 @@ function LoginForm() {
                         )}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="font-medium text-sm truncate">{m.display_name}</div>
+                        <div className="font-medium text-[14px] text-foreground truncate">{m.display_name}</div>
                         <div className="text-xs text-muted-foreground capitalize">
                           {m.role === "admin" ? "Administrador" : m.role === "operator" ? "Operador" : m.role}
                         </div>
                       </div>
+                      <ArrowRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
                     </button>
                   );
                 })}
@@ -262,44 +253,39 @@ function LoginForm() {
             </>
           )}
 
-          {/* ── Step 2a / 2c: password (con o sin branding) ─────────────────── */}
+          {/* ── Step: password con branding ──────────────────────────────── */}
           {step === "password" && (
             <>
-              <button
-                type="button"
-                onClick={goBackToEmail}
-                className="inline-flex items-center text-xs text-muted-foreground hover:text-foreground mb-4"
-              >
-                <ChevronLeft className="h-3.5 w-3.5 mr-1" />
-                Cambiar email
-              </button>
+              <BackBtn onClick={goBackToEmail} />
               {selected && (
-                <div className="flex items-center gap-3 mb-6">
+                <div className="flex items-center gap-3 mb-6 pb-5 border-b border-slate-100">
                   <div
-                    className="flex items-center justify-center h-12 w-12 rounded-md shrink-0 overflow-hidden border"
+                    className="flex items-center justify-center h-12 w-12 rounded-xl shrink-0 overflow-hidden ring-1 ring-slate-100"
                     style={{ backgroundColor: fullLogoUrl(selected.logo_url) ? "white" : accent }}
                   >
                     {fullLogoUrl(selected.logo_url) ? (
-                      <img src={fullLogoUrl(selected.logo_url)!} alt="" className="h-full w-full object-contain p-1" />
+                      <img src={fullLogoUrl(selected.logo_url)!} alt="" className="h-full w-full object-contain p-1.5" />
                     ) : (
-                      <span className="text-white font-bold">
+                      <span className="text-white font-bold text-lg">
                         {selected.display_name.slice(0, 1).toUpperCase()}
                       </span>
                     )}
                   </div>
                   <div className="min-w-0">
-                    <div className="text-xs text-muted-foreground">Bienvenido a</div>
-                    <div className="font-semibold truncate">{selected.display_name}</div>
+                    <div className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium">Ingresando a</div>
+                    <div className="font-semibold text-[15px] text-foreground truncate">{selected.display_name}</div>
                   </div>
                 </div>
               )}
               <form onSubmit={handlePasswordSubmit} className="space-y-4">
                 <div className="space-y-1.5">
-                  <Label className="text-xs font-medium">Email</Label>
-                  <div className="text-sm rounded-md bg-muted/40 border px-3 py-2 truncate">{email}</div>
+                  <Label className="text-[13px] font-medium">Email</Label>
+                  <div className="text-sm rounded-lg bg-slate-50 border border-slate-200 px-3 py-2.5 truncate text-muted-foreground">
+                    {email}
+                  </div>
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="password" className="text-xs font-medium">Contraseña</Label>
+                  <Label htmlFor="password" className="text-[13px] font-medium">Contraseña</Label>
                   <div className="relative">
                     <Input
                       id="password"
@@ -308,13 +294,13 @@ function LoginForm() {
                       onChange={(e) => setPassword(e.target.value)}
                       required
                       autoComplete="current-password"
-                      className="h-10 pr-9"
                       autoFocus
+                      className="h-11 pr-10 text-[15px]"
                     />
                     <button
                       type="button"
                       onClick={() => setShowPwd(v => !v)}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground p-1"
                       aria-label={showPwd ? "Ocultar contraseña" : "Mostrar contraseña"}
                       tabIndex={-1}
                     >
@@ -322,50 +308,37 @@ function LoginForm() {
                     </button>
                   </div>
                 </div>
-                {error && (
-                  <div className="rounded-md bg-destructive/10 border border-destructive/20 p-3 text-sm text-destructive flex items-start gap-2">
-                    <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
-                    <span>{error}</span>
-                  </div>
-                )}
+                {error && <ErrorBox text={error} />}
                 <Button
                   type="submit"
-                  className="w-full h-10 font-medium"
+                  className="w-full h-11 font-medium text-[15px]"
                   style={{ backgroundColor: accent, color: accentFg }}
                   disabled={loading || !password}
                 >
-                  {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  {loading ? "Ingresando..." : "Ingresar"}
+                  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Ingresar"}
                 </Button>
               </form>
             </>
           )}
 
-          {/* ── Step 2c: fallback con campo organizacion ────────────────────── */}
+          {/* ── Step: fallback (organización + email + password) ─────────── */}
           {step === "fallback" && (
             <>
-              {!isSuperAdmin && (
-                <button
-                  type="button"
-                  onClick={goBackToEmail}
-                  className="inline-flex items-center text-xs text-muted-foreground hover:text-foreground mb-4"
-                >
-                  <ChevronLeft className="h-3.5 w-3.5 mr-1" />
-                  Cambiar email
-                </button>
-              )}
-              <div className="space-y-1 mb-6">
-                <h2 className="text-2xl font-bold tracking-tight">
+              {!isSuperAdmin && <BackBtn onClick={goBackToEmail} />}
+              <div className="space-y-1.5 mb-6">
+                <h1 className="text-[22px] font-semibold tracking-tight text-foreground">
                   {isSuperAdmin ? "Acceso de plataforma" : "Iniciar sesión"}
-                </h2>
+                </h1>
                 <p className="text-sm text-muted-foreground">
-                  {isSuperAdmin ? "Ingresá con tu cuenta de super administrador" : "Confirmanos tu organización para continuar"}
+                  {isSuperAdmin
+                    ? "Ingresá con tu cuenta de super administrador"
+                    : "Confirmanos tu organización para continuar"}
                 </p>
               </div>
               <form onSubmit={handlePasswordSubmit} className="space-y-4">
                 {!isSuperAdmin && (
                   <div className="space-y-1.5">
-                    <Label htmlFor="tenant" className="text-xs font-medium">Organización</Label>
+                    <Label htmlFor="tenant" className="text-[13px] font-medium">Organización</Label>
                     <Input
                       id="tenant"
                       placeholder="mi-empresa"
@@ -373,32 +346,32 @@ function LoginForm() {
                       onChange={(e) => setTenantInput(e.target.value)}
                       required
                       autoComplete="organization"
-                      className="h-10"
                       autoFocus
+                      className="h-11 text-[15px]"
                     />
                   </div>
                 )}
                 {isSuperAdmin && (
-                  <div className="flex items-center gap-2 rounded-md bg-violet-50 border border-violet-200 px-3 py-2.5">
+                  <div className="flex items-center gap-2 rounded-lg bg-violet-50 border border-violet-200 px-3 py-2.5">
                     <Shield className="h-4 w-4 text-violet-600 shrink-0" />
-                    <span className="text-sm text-violet-700 font-medium">Modo super administrador</span>
+                    <span className="text-[13px] text-violet-700 font-medium">Modo super administrador</span>
                   </div>
                 )}
                 <div className="space-y-1.5">
-                  <Label htmlFor="email-fb" className="text-xs font-medium">Email</Label>
+                  <Label htmlFor="email-fb" className="text-[13px] font-medium">Email</Label>
                   <Input
                     id="email-fb"
                     type="email"
-                    placeholder="tu@email.com"
+                    placeholder="tu@empresa.com"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     required
                     autoComplete="email"
-                    className="h-10"
+                    className="h-11 text-[15px]"
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="password-fb" className="text-xs font-medium">Contraseña</Label>
+                  <Label htmlFor="password-fb" className="text-[13px] font-medium">Contraseña</Label>
                   <div className="relative">
                     <Input
                       id="password-fb"
@@ -407,12 +380,12 @@ function LoginForm() {
                       onChange={(e) => setPassword(e.target.value)}
                       required
                       autoComplete="current-password"
-                      className="h-10 pr-9"
+                      className="h-11 pr-10 text-[15px]"
                     />
                     <button
                       type="button"
                       onClick={() => setShowPwd(v => !v)}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground p-1"
                       aria-label={showPwd ? "Ocultar contraseña" : "Mostrar contraseña"}
                       tabIndex={-1}
                     >
@@ -420,41 +393,55 @@ function LoginForm() {
                     </button>
                   </div>
                 </div>
-                {error && (
-                  <div className="rounded-md bg-destructive/10 border border-destructive/20 p-3 text-sm text-destructive flex items-start gap-2">
-                    <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
-                    <span>{error}</span>
-                  </div>
-                )}
+                {error && <ErrorBox text={error} />}
                 <Button
                   type="submit"
-                  className="w-full h-10 font-medium"
+                  className="w-full h-11 font-medium text-[15px]"
                   style={{ backgroundColor: PLATFORM_ACCENT }}
                   disabled={loading}
                 >
-                  {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  {loading ? "Ingresando..." : "Ingresar"}
+                  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Ingresar"}
                 </Button>
               </form>
             </>
           )}
         </div>
+
+        {/* Footer minimal afuera del card */}
+        <p className="text-center text-[11px] text-muted-foreground/70 mt-6">
+          <Shield className="inline h-3 w-3 mr-1 -translate-y-px" />
+          Conexión cifrada · Datos aislados por organización
+        </p>
       </main>
+
+      {/* Footer absoluto en la parte inferior */}
+      <footer className="relative z-10 mt-8 text-center text-[11px] text-muted-foreground/60">
+        © {new Date().getFullYear()} {PLATFORM_NAME}
+      </footer>
     </div>
   );
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// ── Subcomponents ────────────────────────────────────────────────────────────
 
-function shade(hex: string, pct: number): string {
-  const h = hex.replace("#", "");
-  if (h.length !== 6) return hex;
-  const num = parseInt(h, 16);
-  let r = (num >> 16) + Math.round(2.55 * pct);
-  let g = ((num >> 8) & 0xff) + Math.round(2.55 * pct);
-  let b = (num & 0xff) + Math.round(2.55 * pct);
-  r = Math.max(0, Math.min(255, r));
-  g = Math.max(0, Math.min(255, g));
-  b = Math.max(0, Math.min(255, b));
-  return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, "0")}`;
+function BackBtn({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="inline-flex items-center text-[12px] text-muted-foreground hover:text-foreground mb-5 transition-colors"
+    >
+      <ChevronLeft className="h-3.5 w-3.5 mr-0.5" />
+      Cambiar email
+    </button>
+  );
+}
+
+function ErrorBox({ text }: { text: string }) {
+  return (
+    <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-[13px] text-red-700 flex items-start gap-2">
+      <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+      <span>{text}</span>
+    </div>
+  );
 }
