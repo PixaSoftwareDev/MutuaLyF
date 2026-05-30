@@ -165,22 +165,17 @@ function LoginForm() {
         }}
       />
 
-      {/* Brand mark — icono real + wordmark "Intellix" */}
-      <div className="relative z-10 mb-6 flex items-center gap-2.5">
-        <div className="relative h-10 w-10 rounded-xl overflow-hidden shadow-sm ring-1 ring-slate-200/80 bg-white">
-          <Image
-            src="/brand/intellix-icon.png"
-            alt=""
-            fill
-            sizes="40px"
-            className="object-contain p-1"
-            priority
-          />
-        </div>
-        <span className="text-[22px] font-semibold tracking-tight text-slate-900">
-          {PLATFORM_NAME}
-          <span className="text-slate-400 ml-0.5 animate-pulse" aria-hidden="true">_</span>
-        </span>
+      {/* Wordmark oficial — incluye icono hexagonal + tipografía INTELLIX_
+          en una sola imagen. Width responsive: 200px desktop, 170px mobile. */}
+      <div className="relative z-10 mb-8">
+        <Image
+          src="/brand/intellix-wordmark-white.png"
+          alt={PLATFORM_NAME}
+          width={520}
+          height={170}
+          priority
+          className="w-[170px] sm:w-[200px] h-auto"
+        />
       </div>
 
       {/* Card — el contenedor principal del login */}
