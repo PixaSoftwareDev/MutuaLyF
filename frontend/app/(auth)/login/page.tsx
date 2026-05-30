@@ -226,13 +226,11 @@ function LoginForm() {
             {/* ── Step: email ─────────────────────────────────────────────── */}
             {step === "email" && (
               <>
-                <div className="space-y-1.5 mb-7 lg:mb-8 xl:mb-10">
-                  <div className="flex items-center gap-2 mb-1">
-                    <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
-                      Bienvenido
-                    </h1>
-                  </div>
-                  <p className="text-[14px] text-slate-500 leading-relaxed">
+                <div className="text-center space-y-2 mb-7 lg:mb-8 xl:mb-10">
+                  <h1 className="text-2xl lg:text-[26px] font-semibold tracking-tight text-slate-900">
+                    Bienvenido
+                  </h1>
+                  <p className="text-[14px] lg:text-[15px] text-slate-500 leading-relaxed">
                     Ingresá tu email corporativo para acceder a la plataforma.
                   </p>
                 </div>
@@ -274,11 +272,11 @@ function LoginForm() {
             {step === "select" && (
               <>
                 <BackBtn onClick={goBackToEmail} />
-                <div className="space-y-1.5 mb-6 lg:mb-7 xl:mb-8">
-                  <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
+                <div className="text-center space-y-2 mb-6 lg:mb-7 xl:mb-8">
+                  <h1 className="text-2xl lg:text-[26px] font-semibold tracking-tight text-slate-900">
                     Elegí tu organización
                   </h1>
-                  <p className="text-[14px] text-slate-500 break-all">
+                  <p className="text-[14px] lg:text-[15px] text-slate-500 break-all">
                     <span className="font-medium text-slate-700">{email}</span> tiene acceso a:
                   </p>
                 </div>
@@ -324,22 +322,22 @@ function LoginForm() {
               <>
                 <BackBtn onClick={goBackToEmail} />
                 {selected && (
-                  <div className="flex items-center gap-3 mb-6 lg:mb-7 xl:mb-8 pb-5 lg:pb-6 border-b border-slate-100">
+                  <div className="flex flex-col items-center text-center gap-3 mb-6 lg:mb-7 xl:mb-8 pb-5 lg:pb-6 border-b border-slate-100">
                     <div
-                      className="flex items-center justify-center h-12 w-12 rounded-xl shrink-0 overflow-hidden ring-1 ring-slate-200/70"
+                      className="flex items-center justify-center h-14 w-14 lg:h-16 lg:w-16 rounded-2xl shrink-0 overflow-hidden ring-1 ring-slate-200/70 shadow-sm"
                       style={{ backgroundColor: fullLogoUrl(selected.logo_url) ? "white" : accent }}
                     >
                       {fullLogoUrl(selected.logo_url) ? (
-                        <img src={fullLogoUrl(selected.logo_url)!} alt="" className="h-full w-full object-contain p-1.5" />
+                        <img src={fullLogoUrl(selected.logo_url)!} alt="" className="h-full w-full object-contain p-2" />
                       ) : (
-                        <span className="text-white font-bold text-lg">
+                        <span className="text-white font-bold text-xl">
                           {selected.display_name.slice(0, 1).toUpperCase()}
                         </span>
                       )}
                     </div>
-                    <div className="min-w-0">
-                      <div className="text-[10px] uppercase tracking-[0.08em] text-slate-400 font-semibold">Ingresando a</div>
-                      <div className="font-semibold text-[15px] text-slate-900 truncate">{selected.display_name}</div>
+                    <div className="min-w-0 space-y-0.5">
+                      <div className="text-[10px] uppercase tracking-[0.1em] text-slate-400 font-semibold">Ingresando a</div>
+                      <div className="font-semibold text-base lg:text-[17px] text-slate-900 truncate">{selected.display_name}</div>
                     </div>
                   </div>
                 )}
@@ -391,11 +389,11 @@ function LoginForm() {
             {step === "fallback" && (
               <>
                 {!isSuperAdmin && <BackBtn onClick={goBackToEmail} />}
-                <div className="space-y-1.5 mb-6 lg:mb-7 xl:mb-8">
-                  <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
+                <div className="text-center space-y-2 mb-6 lg:mb-7 xl:mb-8">
+                  <h1 className="text-2xl lg:text-[26px] font-semibold tracking-tight text-slate-900">
                     {isSuperAdmin ? "Acceso de plataforma" : "Confirmá tu organización"}
                   </h1>
-                  <p className="text-[14px] text-slate-500">
+                  <p className="text-[14px] lg:text-[15px] text-slate-500 leading-relaxed">
                     {isSuperAdmin
                       ? "Ingresá con tu cuenta de super administrador."
                       : "No reconocemos tu dominio. Decinos a qué organización pertenecés."}
