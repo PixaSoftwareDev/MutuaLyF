@@ -417,7 +417,7 @@ function DocumentRow({
 
   const { mutate: downloadDoc, isPending: downloading } = useMutation({
     mutationFn: () => api.documents.download(doc.id),
-    onSuccess: ({ url }) => window.open(url, "_blank", "noopener"),
+    onSuccess: () => {},
     onError: () => toast({ title: "No se pudo descargar", description: "El archivo original no está disponible.", variant: "destructive" }),
   });
 

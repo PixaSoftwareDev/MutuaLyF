@@ -27,6 +27,7 @@ from services.handoff import (
     ConvStatus, HandoffTrigger,
     evaluate_handoff, request_handoff, get_default_sector_id,
 )
+from services.events import publish as _publish_event
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -42,6 +43,7 @@ class StartConversationRequest(BaseModel):
     sector_id: str | None = Field(default=None, max_length=64)
     afiliado_nombre: str | None = Field(default=None, max_length=200)
     afiliado_email: str | None = Field(default=None, max_length=320)
+    is_test: bool = Field(default=False)
 
 
 class SendMessageRequest(BaseModel):
@@ -122,8 +124,8 @@ async def start_conversation(
         afiliado_ip = forwarded.split(",")[0].strip() if forwarded else (request.client.host if request.client else None)
         await session.execute(text("""
             INSERT INTO conversaciones
-              (id, widget_session_id, sector_id, afiliado_nombre, afiliado_email, afiliado_ip)
-            VALUES (:id, :sid, :sector_id, :nombre, :email, :ip)
+              (id, widget_session_id, sector_id, afiliado_nombre, afiliado_email, afiliado_ip, is_test)
+            VALUES (:id, :sid, :sector_id, :nombre, :email, :ip, :is_test)
         """), {
             "id": conv_id,
             "sid": body.widget_session_id,
@@ -131,6 +133,7 @@ async def start_conversation(
             "nombre": body.afiliado_nombre,
             "email": body.afiliado_email,
             "ip": afiliado_ip,
+            "is_test": body.is_test,
         })
 
         # Insert greeting as first bot message so it survives polling
@@ -182,6 +185,7 @@ async def send_message(
         await session.execute(text(
             "UPDATE conversaciones SET updated_at = NOW() WHERE id = :id"
         ), {"id": conversation_id})
+    await _publish_event(tenant_id, "new_message", {"conversation_id": conversation_id})
 
     # If human is attending, just queue the message (operator will respond via panel)
     if conv_status == ConvStatus.HUMAN_ATTENDING:
@@ -234,6 +238,7 @@ async def send_message(
             INSERT INTO mensajes (id, conversation_id, sender_type, content)
             VALUES (:id, :cid, 'bot', :content)
         """), {"id": bot_msg_id, "cid": conversation_id, "content": bot_answer})
+    await _publish_event(tenant_id, "new_message", {"conversation_id": conversation_id})
 
     signal = await evaluate_handoff(
         conversation_id=conversation_id,
@@ -251,6 +256,7 @@ async def send_message(
                 INSERT INTO mensajes (conversation_id, sender_type, content, is_handoff_offer)
                 VALUES (:cid, 'system', :msg, TRUE)
             """), {"cid": conversation_id, "msg": signal.offer_message})
+        await _publish_event(tenant_id, "new_message", {"conversation_id": conversation_id})
         handoff_message = signal.offer_message
 
     return {

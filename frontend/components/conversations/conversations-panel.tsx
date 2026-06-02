@@ -570,11 +570,12 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
                   <ChevronLeft className="h-4 w-4" />
                 </button>
                 <div className="min-w-0">
-                  <p className="font-semibold text-sm truncate">{detail.afiliado_nombre || "Afiliado anónimo"}</p>
+                  <p className="font-semibold text-sm truncate">{detail.afiliado_nombre || (detail.afiliado_ip ? `IP ${detail.afiliado_ip}` : "Afiliado anónimo")}</p>
                   <p className="text-xs text-muted-foreground truncate">
                     {detail.sector_nombre}
                     {detail.afiliado_dni && ` · DNI ${detail.afiliado_dni}`}
                     {detail.afiliado_email && ` · ${detail.afiliado_email}`}
+                    {detail.afiliado_ip && detail.afiliado_nombre && ` · IP ${detail.afiliado_ip}`}
                   </p>
                 </div>
               </div>
@@ -937,8 +938,9 @@ function ConvCard({ conv, now, selected, readOnly, onlineNames, onSelect, onAcce
         />
 
         <button onClick={onSelect} className="flex-1 min-w-0 text-left">
-          <p className="text-sm font-medium truncate leading-tight">
-            {conv.afiliado_nombre || "Anónimo"}
+          <p className="text-sm font-medium truncate leading-tight flex items-center gap-1.5">
+            {conv.is_test && <span className="shrink-0 text-[9px] font-bold bg-violet-100 text-violet-700 rounded px-1 py-0.5 uppercase tracking-wide">TEST</span>}
+            {conv.afiliado_nombre || (conv.afiliado_ip ? `IP ${conv.afiliado_ip}` : "Anónimo")}
           </p>
           <p className="text-[11px] text-muted-foreground truncate mt-0.5">
             {conv.sector_nombre || "Sin sector"}

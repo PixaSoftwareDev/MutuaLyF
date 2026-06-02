@@ -149,7 +149,7 @@ export function Sidebar() {
     if (!tenantId) return;
     try {
       const data = await api.tenants.generateWidgetToken(tenantId);
-      const url = `/chat?token=${encodeURIComponent(data.widget_token)}&tenant=${encodeURIComponent(tenantId)}`;
+      const url = `/chat?token=${encodeURIComponent(data.widget_token)}&tenant=${encodeURIComponent(tenantId)}&test=1`;
       window.open(url, "_blank", "noopener");
     } catch {
       toast({ title: "No se pudo generar el link de prueba", variant: "destructive" });

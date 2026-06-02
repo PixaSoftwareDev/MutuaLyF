@@ -247,6 +247,8 @@ export interface ConversationRow {
   afiliado_nombre: string | null;
   afiliado_email: string | null;
   afiliado_dni: string | null;
+  afiliado_ip: string | null;
+  is_test: boolean;
   sector_id: string | null;
   sector_nombre: string | null;
   operator_name: string | null;
@@ -268,6 +270,8 @@ export interface ConversationHistoryRow {
   afiliado_nombre: string | null;
   afiliado_email: string | null;
   afiliado_dni: string | null;
+  afiliado_ip: string | null;
+  is_test: boolean;
   operator_name: string | null;
   message_count: number;
   created_at: string | null;
@@ -558,9 +562,18 @@ export const api = {
       const { data } = await apiClient.get<PendingChunkResponse[]>("/chunks/pending");
       return data;
     },
-    download: async (documentId: string): Promise<{ url: string; filename: string }> => {
-      const { data } = await apiClient.get(`/documents/${documentId}/download`);
-      return data;
+    download: async (documentId: string): Promise<void> => {
+      const response = await apiClient.get(`/documents/${documentId}/download`, { responseType: "blob" });
+      const blob = new Blob([response.data], { type: response.headers["content-type"] || "application/octet-stream" });
+      const cd = response.headers["content-disposition"] || "";
+      const match = cd.match(/filename="?([^"]+)"?/);
+      const filename = match ? match[1] : "archivo";
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
     },
     /**
      * Exporta la KB completa como JSON descargable (portable, re-importable).

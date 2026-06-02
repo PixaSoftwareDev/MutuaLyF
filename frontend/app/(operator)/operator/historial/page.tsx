@@ -249,7 +249,7 @@ export default function OperatorHistoryPage() {
                   <ChevronLeft className="h-4 w-4" />
                 </button>
                 <div className="min-w-0">
-                  <p className="font-semibold text-sm truncate">{detail.afiliado_nombre || "Afiliado anónimo"}</p>
+                  <p className="font-semibold text-sm truncate">{detail.afiliado_nombre || (detail.afiliado_ip ? `IP ${detail.afiliado_ip}` : "Afiliado anónimo")}</p>
                   <p className="text-xs text-muted-foreground truncate">
                     {detail.sector_nombre}
                     {detail.afiliado_email && ` · ${detail.afiliado_email}`}
@@ -329,7 +329,10 @@ function HistoryCard({
             aria-hidden
           />
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium truncate leading-tight">{row.afiliado_nombre || "Anónimo"}</p>
+            <p className="text-sm font-medium truncate leading-tight flex items-center gap-1.5">
+              {row.is_test && <span className="shrink-0 text-[9px] font-bold bg-violet-100 text-violet-700 rounded px-1 py-0.5 uppercase tracking-wide">TEST</span>}
+              {row.afiliado_nombre || (row.afiliado_ip ? `IP ${row.afiliado_ip}` : "Anónimo")}
+            </p>
             <p className="text-[11px] text-muted-foreground truncate mt-0.5">{row.sector_nombre || "Sin sector"}</p>
             {row.operator_name && (
               <p className="text-[10px] mt-0.5 flex items-center gap-1">

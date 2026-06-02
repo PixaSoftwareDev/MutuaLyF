@@ -101,7 +101,7 @@ async def wait_for_event(tenant_id: str, predicate, timeout: float = 25.0) -> di
             except asyncio.TimeoutError:
                 return None
             if msg is None or msg.get("type") != "message":
-                await asyncio.sleep(0.02)
+                await asyncio.sleep(0.1)
                 continue
             try:
                 event = json.loads(msg["data"])

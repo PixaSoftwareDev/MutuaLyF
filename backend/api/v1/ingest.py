@@ -71,7 +71,8 @@ async def download_document(
     tenant_id: str = Depends(get_tenant_id),
     current_user: CurrentUser = Depends(require_admin),
 ):
-    """Return a short-lived presigned MinIO URL for direct download."""
+    import asyncio as _asyncio, mimetypes
+    from fastapi.responses import Response
     async with get_pg_session(tenant_id) as session:
         result = await session.execute(
             text("SELECT filename, storage_key FROM documentos WHERE id = :id"),
@@ -82,21 +83,21 @@ async def download_document(
         raise HTTPException(status_code=404, detail="Document not found")
     if not row["storage_key"]:
         raise HTTPException(status_code=404, detail="Original file not stored")
-
-    import asyncio as _asyncio
-    from datetime import timedelta
-
-    def _presign() -> str:
+    def _fetch():
         client = get_minio_client()
-        url = client.presigned_get_object(
-            settings.minio_bucket,
-            row["storage_key"],
-            expires=timedelta(hours=1),
-        )
-        return url
+        obj = client.get_object(settings.minio_bucket, row["storage_key"])
+        data = obj.read()
+        obj.close()
+        obj.release_conn()
+        return data
+    content = await _asyncio.to_thread(_fetch)
+    filename = row["filename"] or "archivo"
+    media_type, _ = mimetypes.guess_type(filename)
+    cd = f"attachment; filename=\"{filename}\""
+    return Response(content=content, media_type=media_type or "application/octet-stream", headers={"Content-Disposition": cd})
 
-    presigned_url = await _asyncio.to_thread(_presign)
-    return {"url": presigned_url, "filename": row["filename"]}
+    return Response(content=content, media_type=media_type or "application/octet-stream", headers=headers)
+
 
 
 @router.get("/documents/{document_id}/chunks")

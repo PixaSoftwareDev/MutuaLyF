@@ -416,8 +416,9 @@ function ConvRow({ conv, selected, onClick }: {
           {initials || <User className="h-3.5 w-3.5" />}
         </div>
         <div className="min-w-0">
-          <p className="text-sm font-medium truncate leading-tight">
-            {conv.afiliado_nombre || <span className="text-muted-foreground italic">Anónimo</span>}
+          <p className="text-sm font-medium truncate leading-tight flex items-center gap-1.5">
+            {conv.is_test && <span className="shrink-0 text-[9px] font-bold bg-violet-100 text-violet-700 rounded px-1 py-0.5 uppercase tracking-wide">TEST</span>}
+            {conv.afiliado_nombre || (conv.afiliado_ip ? `IP ${conv.afiliado_ip}` : <span className="text-muted-foreground italic">Anónimo</span>)}
           </p>
           {(conv.afiliado_email || conv.afiliado_dni) && (
             <p className="text-[11px] text-muted-foreground truncate">
@@ -497,7 +498,7 @@ function ConvDetail({ id, detail, loading, onClose }: {
         ) : (
           <div className="flex-1 min-w-0">
             <p className="font-semibold text-sm truncate">
-              {detail.afiliado_nombre || "Anónimo"}
+              {detail.afiliado_nombre || (detail.afiliado_ip ? `IP ${detail.afiliado_ip}` : "Anónimo")}
             </p>
             <p className="text-xs text-muted-foreground truncate">
               {[detail.sector_nombre, detail.afiliado_email, detail.afiliado_dni && `DNI ${detail.afiliado_dni}`]

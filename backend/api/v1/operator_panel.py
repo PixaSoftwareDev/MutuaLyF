@@ -130,7 +130,7 @@ async def list_conversations(
         conv_result = await session.execute(text(f"""
             SELECT
                 c.id, c.widget_session_id, c.status, c.sector_id,
-                c.afiliado_nombre, c.afiliado_email, c.afiliado_dni,
+                c.afiliado_nombre, c.afiliado_email, c.afiliado_dni, c.afiliado_ip, c.is_test,
                 c.created_at, c.updated_at,
                 s.nombre AS sector_nombre,
                 u.name  AS operator_name,
@@ -166,6 +166,8 @@ async def list_conversations(
                 "afiliado_nombre": conv["afiliado_nombre"],
                 "afiliado_email":  conv["afiliado_email"],
                 "afiliado_dni":    conv["afiliado_dni"],
+                "afiliado_ip":     conv["afiliado_ip"],
+                "is_test":        conv["is_test"],
                 "sector_id":       sid,
                 "sector_nombre":   conv["sector_nombre"],
                 "operator_name":   conv["operator_name"],
@@ -273,7 +275,7 @@ async def list_conversations_history(
         rows_result = await session.execute(text(f"""
             SELECT
                 c.id, c.status, c.sector_id,
-                c.afiliado_nombre, c.afiliado_email, c.afiliado_dni,
+                c.afiliado_nombre, c.afiliado_email, c.afiliado_dni, c.afiliado_ip, c.is_test,
                 c.created_at, c.updated_at, c.closed_at,
                 s.nombre AS sector_nombre,
                 u.name   AS operator_name,
@@ -297,6 +299,8 @@ async def list_conversations_history(
                 "afiliado_nombre":  r["afiliado_nombre"],
                 "afiliado_email":   r["afiliado_email"],
                 "afiliado_dni":     r["afiliado_dni"],
+                "afiliado_ip":      r["afiliado_ip"],
+                "is_test":         r["is_test"],
                 "operator_name":    r["operator_name"],
                 "message_count":    int(r["message_count"] or 0),
                 "created_at":       r["created_at"].isoformat() if r["created_at"] else None,
@@ -354,6 +358,8 @@ async def get_conversation(
         "afiliado_nombre": conv["afiliado_nombre"],
         "afiliado_email": conv["afiliado_email"],
         "afiliado_dni": conv["afiliado_dni"],
+        "afiliado_ip": conv["afiliado_ip"],
+        "is_test": conv["is_test"],
         "created_at": conv["created_at"].isoformat(),
         "messages": [
             {

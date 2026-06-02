@@ -120,3 +120,6 @@ backend/tests/quality/reingest/
 # Portainer admin password bcrypt hash (generated on VPS)
 .portainer_admin_password
 report_*.json
+
+# Secrets locales del VPS (telegram_token, etc) — nunca commitear
+secrets/

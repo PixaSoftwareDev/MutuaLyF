@@ -201,6 +201,7 @@ function ChatInner() {
   const params   = useSearchParams();
   const token    = params.get("token") || "";
   const tenantId = params.get("tenant") || "";
+  const isTest   = params.get("test") === "1";
 
   const [sectors, setSectors]               = useState<Sector[]>([]);
   // Inicializamos el branding desde el cache sincronicamente para evitar
@@ -384,7 +385,7 @@ function ChatInner() {
     try {
       const r = await fetch(`${API_BASE}/api/v1/widget/conversation/start`, {
         method: "POST", headers: getHeaders(),
-        body: JSON.stringify({ widget_session_id: sessionId.current, sector_id: sector.id }),
+        body: JSON.stringify({ widget_session_id: sessionId.current, sector_id: sector.id, is_test: isTest }),
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const data = await r.json();
@@ -418,16 +419,9 @@ function ChatInner() {
       }
       const data = await r.json();
       setStatus(data.status);
-      if (data.bot_response)
-        setMessages(prev => [...prev, { id: Date.now().toString() + "b", role: "bot", content: data.bot_response }]);
-      if (data.handoff_offered && data.handoff_message) {
-        // Eco optimista — el polling siguiente trae el mismo mensaje desde DB
-        // con is_handoff_offer=true. El cliente compara por id para no duplicar.
-        setMessages(prev => [...prev, { id: Date.now().toString() + "h", role: "system", content: data.handoff_message, handoffOffer: true }]);
-      }
-      if (data.handoff_activated && data.handoff_message) {
-        setMessages(prev => [...prev, { id: Date.now().toString() + "ha", role: "system", content: data.handoff_message }]);
-      }
+      // Mensajes bot y handoff llegan via poll (publish en backend tras insert).
+      // Inserts optimistas quitados: causaban duplicados + parpadeo al ser
+      // reemplazados por el snapshot real del siguiente poll cycle.
     } catch {
       setMessages(prev => [...prev, { id: Date.now().toString() + "e", role: "system", content: "Error al enviar. Intentá de nuevo." }]);
     } finally {
@@ -649,8 +643,20 @@ function ChatInner() {
               />
             </div>
             <button
-              onClick={phase === "chat" ? sendMessage : undefined}
-              disabled={phase === "chat" ? (!input.trim() || sending) : true}
+              onClick={() => {
+                if (phase === "chat") { sendMessage(); return; }
+                const val = input.trim();
+                if (phase === "selecting" && val && sectors.length > 0) {
+                  const def = sectors.find(s => s.is_default) || sectors[0];
+                  setInput("");
+                  startChat(def, val);
+                }
+              }}
+              disabled={
+                phase === "chat"
+                  ? (!input.trim() || sending)
+                  : !input.trim() || sectorsLoading || sectors.length === 0
+              }
               className="w-12 h-12 rounded-2xl bg-gradient-to-br from-brand to-brand-dark text-white flex items-center justify-center shadow-md shadow-black/20 hover:shadow-lg hover:shadow-black/25 hover:scale-105 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100 disabled:shadow-md transition-all duration-150"
             >
               {sending
