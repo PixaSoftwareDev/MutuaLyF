@@ -362,8 +362,10 @@ async def get_conversation(
         "afiliado_dni": conv["afiliado_dni"],
         "afiliado_ip": conv["afiliado_ip"],
         "is_test": conv["is_test"],
+        "sector_id": str(conv["sector_id"]) if conv["sector_id"] else None,
         "created_at": conv["created_at"].isoformat(),
         "handoff_requested_at": conv["handoff_requested_at"].isoformat() if conv.get("handoff_requested_at") else None,
+        "last_message_at": messages[-1]["created_at"].isoformat() if messages else None,
         "messages": [
             {
                 "id": str(m["id"]),

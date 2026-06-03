@@ -29,18 +29,53 @@ apiClient.interceptors.request.use((config) => {
 // 429 (rate limit) y el frontend lo trataba como sesion invalida → falso
 // positivo "token revocado". Ahora 429 es ruidoso pero no destructivo.
 let _rateLimitToastShownAt = 0;
+
+// Refresh token: una sola promesa compartida entre requests concurrentes que
+// caen 401 al mismo tiempo (evita N refreshes en paralelo). La cookie HttpOnly
+// refresh_token viaja sola; el endpoint devuelve un access_token nuevo.
+let _refreshing: Promise<string | null> | null = null;
+
+function refreshAccessToken(): Promise<string | null> {
+  if (!_refreshing) {
+    _refreshing = apiClient
+      // _skipAuthRetry evita que un 401 del propio /refresh entre de nuevo al retry.
+      .post("/auth/refresh", null, { withCredentials: true, _skipAuthRetry: true } as never)
+      .then((res) => {
+        const token = (res.data as { access_token?: string })?.access_token;
+        if (token && typeof window !== "undefined") localStorage.setItem("access_token", token);
+        return token ?? null;
+      })
+      .catch(() => null)
+      .finally(() => { _refreshing = null; });
+  }
+  return _refreshing;
+}
+
+function wipeAndRedirect() {
+  if (typeof window === "undefined" || window.location.pathname.startsWith("/login")) return;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    require("./store").useAuthStore.getState().clearAuth();
+  } catch {
+    localStorage.removeItem("access_token");
+    localStorage.removeItem("tenant_id");
+    document.cookie = "ia_role=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+    document.cookie = "ia_tenant=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+  }
+  window.location.href = "/login";
+}
+
 apiClient.interceptors.response.use(
   (res) => res,
-  (err: AxiosError) => {
+  async (err: AxiosError) => {
     const status = err.response?.status;
+    const original = err.config as (typeof err.config & { _retried?: boolean; _skipAuthRetry?: boolean }) | undefined;
 
     // ── 429 Too Many Requests — rate limit ──────────────────────────────────
     if (status === 429 && typeof window !== "undefined") {
-      // Throttle: 1 toast cada 3s para no spammear si hay muchas requests fallando
       const now = Date.now();
       if (now - _rateLimitToastShownAt > 3000) {
         _rateLimitToastShownAt = now;
-        // Lazy import del toast helper
         import("@/components/ui/toast").then(({ toast }) => {
           toast({
             title: "Demasiadas solicitudes",
@@ -53,24 +88,22 @@ apiClient.interceptors.response.use(
       return Promise.reject(err);
     }
 
-    // ── 401 Unauthorized — wipe auth y redirect ─────────────────────────────
-    if (status === 401 && typeof window !== "undefined") {
-      // Avoid loops: if already on /login, just reject; don't kick off another redirect.
-      if (!window.location.pathname.startsWith("/login")) {
-        try {
-          // Lazy import to dodge SSR / circular-import issues with the store.
-          // eslint-disable-next-line @typescript-eslint/no-require-imports
-          require("./store").useAuthStore.getState().clearAuth();
-        } catch {
-          // Fallback: store unavailable — do the cleanup inline so the cookies/localStorage
-          // don't bounce the user back via the middleware.
-          localStorage.removeItem("access_token");
-          localStorage.removeItem("tenant_id");
-          document.cookie = "ia_role=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
-          document.cookie = "ia_tenant=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+    // ── 401 Unauthorized — intentar refresh UNA vez, luego wipe + redirect ───
+    if (status === 401 && typeof window !== "undefined" && original) {
+      const onLogin = window.location.pathname.startsWith("/login");
+      const isRefreshCall = original._skipAuthRetry || (original.url ?? "").includes("/auth/refresh");
+      if (!original._retried && !isRefreshCall && !onLogin) {
+        original._retried = true;
+        const newToken = await refreshAccessToken();
+        if (newToken) {
+          // Reintentar la request original con el access token renovado.
+          original.headers = original.headers ?? {};
+          (original.headers as Record<string, string>).Authorization = `Bearer ${newToken}`;
+          return apiClient(original);
         }
-        window.location.href = "/login";
       }
+      // El refresh falló o no aplica → recién acá cerramos la sesión.
+      wipeAndRedirect();
     }
     return Promise.reject(err);
   }
