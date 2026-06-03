@@ -397,8 +397,6 @@ function ConvRow({ conv, selected, onClick }: {
   const initials = (conv.afiliado_nombre ?? "?")
     .split(" ").slice(0, 2).map(w => w[0]).join("").toUpperCase();
 
-  const avatarColor = stringToColor(conv.id);
-
   return (
     <button
       onClick={onClick}
@@ -409,10 +407,7 @@ function ConvRow({ conv, selected, onClick }: {
     >
       {/* User */}
       <div className="flex items-center gap-3 min-w-0">
-        <div className={cn(
-          "w-8 h-8 rounded-full shrink-0 flex items-center justify-center text-xs font-bold text-white",
-          avatarColor
-        )}>
+        <div className="w-8 h-8 rounded-full shrink-0 flex items-center justify-center text-xs font-semibold bg-muted text-foreground/70 border border-border">
           {initials || <User className="h-3.5 w-3.5" />}
         </div>
         <div className="min-w-0">
@@ -590,13 +585,3 @@ function fmtDateFull(iso: string): string {
   });
 }
 
-const AVATAR_COLORS = [
-  "bg-violet-500", "bg-blue-500", "bg-cyan-500", "bg-teal-500",
-  "bg-emerald-500", "bg-indigo-500", "bg-pink-500", "bg-rose-500",
-];
-
-function stringToColor(s: string): string {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
-  return AVATAR_COLORS[h % AVATAR_COLORS.length];
-}
