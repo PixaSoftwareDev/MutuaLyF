@@ -418,6 +418,9 @@ async def accept_handoff(
             VALUES (:cid, 'system', :msg)
         """), {"cid": conversation_id, "msg": msg})
 
+    from services.handoff import reset_handoff_signals
+    await reset_handoff_signals(conversation_id, tenant_id)
+
     logger.info("handoff_accepted conversation_id=%s operator=%s", conversation_id, current_user.user_id)
     from core.audit import record as audit, fire_and_log
     fire_and_log(audit(
@@ -524,6 +527,9 @@ async def transfer(
             VALUES (:cid, 'system', :msg)
         """), {"cid": conversation_id, "msg": msg})
 
+    from services.handoff import reset_handoff_signals
+    await reset_handoff_signals(conversation_id, tenant_id)
+
     logger.info("conversation_transferred id=%s to_sector=%s by=%s", conversation_id, body.sector_id, current_user.user_id)
     from core.audit import record as audit, fire_and_log
     fire_and_log(audit(
@@ -580,6 +586,9 @@ async def release_to_queue(
             INSERT INTO mensajes (conversation_id, sender_type, content)
             VALUES (:cid, 'system', :msg)
         """), {"cid": conversation_id, "msg": msg})
+
+    from services.handoff import reset_handoff_signals
+    await reset_handoff_signals(conversation_id, tenant_id)
 
     logger.info("handoff_released conversation_id=%s operator=%s", conversation_id, current_user.user_id)
     from core.audit import record as audit, fire_and_log
@@ -641,6 +650,9 @@ async def return_to_bot(
             VALUES (:cid, 'system', :msg)
         """), {"cid": conversation_id, "msg": msg})
 
+    from services.handoff import reset_handoff_signals
+    await reset_handoff_signals(conversation_id, tenant_id)
+
     logger.info("handoff_returned_to_bot conversation_id=%s operator=%s",
                 conversation_id, current_user.user_id)
     from core.audit import record as audit, fire_and_log
@@ -677,6 +689,9 @@ async def close_conversation(
             INSERT INTO mensajes (conversation_id, sender_type, content)
             VALUES (:cid, 'system', :msg)
         """), {"cid": conversation_id, "msg": msg})
+
+    from services.handoff import reset_handoff_signals
+    await reset_handoff_signals(conversation_id, tenant_id)
 
     from core.audit import record as audit, fire_and_log
     fire_and_log(audit(

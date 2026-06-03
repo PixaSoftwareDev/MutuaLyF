@@ -505,15 +505,17 @@ async def handle_query(
     }
 
     # ── Step 7: Cache the response ────────────────────────────────────────────
-    # Skip cache cuando la respuesta es el template "no tengo información" o
-    # cuando NO hay sources Y la respuesta es larga (no es conversacional).
-    # Cachear esos casos envenena el cache: una query que falló por contención
-    # transitoria devolvería template-vacío a todas las queries similares
-    # posteriores. Saludos cortos (<60 chars) sí se cachean.
+    # Skip cache cuando la respuesta es de baja confianza / fuera de alcance.
+    # Cachear esos casos envenena el cache (congela un "no sé" transitorio y lo
+    # sirve repetido) Y rompe el conteo de handoff: una consulta fuera de alcance
+    # repetida volvería del cache sin recorrer evaluate_handoff con sources frescas.
+    # La señal autoritativa es del RAG (low_confidence_fallback / sin sources de
+    # confianza), no string matching — genérico, sin keywords.
+    # Saludos cortos (<60 chars) con respuesta normal sí se cachean.
     _no_info_marker = "No tengo información sobre ese tema en los documentos"
     is_no_info = _no_info_marker in (answer or "")
     is_long_no_sources = not sources and len(answer or "") > 60
-    if not is_no_info and not is_long_no_sources:
+    if not is_no_info and not is_long_no_sources and not low_confidence_fallback and sources:
         await _set_cache(question_hash, tenant_id, response)
         if settings.semantic_cache_enabled and query_vector is not None:
             asyncio.create_task(

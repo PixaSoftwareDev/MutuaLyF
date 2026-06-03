@@ -419,7 +419,9 @@ async def confirm_handoff(
     # distinto del handoff_auto que se muestra cuando el sistema deriva sin
     # preguntar (regla 2 / boton "pedir humano").
     messages = config["transition_messages"]
-    msg = messages.get("handoff_confirmed") or messages["handoff_auto"]
+    msg = (messages.get("handoff_confirmed")
+           or messages.get("handoff_auto")
+           or "Listo, tu solicitud fue recibida. Un operador te atenderá en breve.")
     await request_handoff(conversation_id, tenant_id, msg)
     return {"status": ConvStatus.HANDOFF_REQUESTED, "message": msg}
 

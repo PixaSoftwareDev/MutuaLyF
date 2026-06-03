@@ -62,7 +62,10 @@ _CHITCHAT_RE = re.compile(
     re.IGNORECASE,
 )
 
-_MIN_WORDS_FOR_INSUFFICIENT = 2  # 1-palabra son chitchat / interjecciones. "quien es messi" (3 palabras) ya cuenta como pregunta real.
+_MIN_WORDS_FOR_INSUFFICIENT = 1  # Solo descarta mensajes vacíos. Una consulta de
+# 1 palabra es legítima ("cardiología", "amparo", "autorizaciones") y debe contar
+# si el RAG no la pudo responder. Los saludos/confirmaciones de 1 palabra los
+# filtra _CHITCHAT_RE; la señal autoritativa de insuficiencia la da el RAG.
 
 def _is_response_insufficient(
     sources: list,
@@ -168,6 +171,32 @@ async def clear_offer_pending(conversation_id: str) -> None:
         pass
 
 
+async def reset_handoff_signals(conversation_id: str, tenant_id: str) -> None:
+    """Resetea TODO el estado de handoff de una conversación.
+
+    DEBE llamarse en cada transición que cambia la fase (accept, return_to_bot,
+    release, transfer, close). Sin esto, el contador de respuestas insuficientes
+    (TTL 24h) y el cooldown de oferta (90s) sobreviven a la fase humana, y al
+    volver a bot_active el bot NO vuelve a ofrecer operador en el siguiente ciclo.
+
+    Además marca las ofertas previas como consumidas (is_handoff_offer=FALSE):
+    así ese flag pasa a significar "oferta vigente del ciclo de bot actual" y el
+    frontend deja de resucitar la tarjeta amarilla del ciclo anterior.
+    """
+    await _reset_insufficient(conversation_id)
+    await clear_offer_pending(conversation_id)
+    try:
+        from core.database import get_pg_session
+        from sqlalchemy import text
+        async with get_pg_session(tenant_id) as session:
+            await session.execute(text("""
+                UPDATE mensajes SET is_handoff_offer = FALSE
+                WHERE conversation_id = :cid AND is_handoff_offer = TRUE
+            """), {"cid": conversation_id})
+    except Exception as exc:
+        logger.debug("handoff_clear_old_offers_error error=%s", exc)
+
+
 # ── Main evaluation ───────────────────────────────────────────────────────────
 
 async def evaluate_handoff(
@@ -223,11 +252,20 @@ async def request_handoff(conversation_id: str, tenant_id: str, message: str) ->
     from sqlalchemy import text
 
     async with get_pg_session(tenant_id) as session:
-        await session.execute(text("""
+        result = await session.execute(text("""
             UPDATE conversaciones
             SET status = 'handoff_requested', updated_at = NOW()
             WHERE id = :id AND status = 'bot_active'
+            RETURNING id
         """), {"id": conversation_id})
+        if result.fetchone() is None:
+            # La conversación no estaba en bot_active (ya en cola, atendida o
+            # cerrada). No insertar el mensaje system ni publicar el evento:
+            # evita el "estado mentido" (cliente recibía handoff_requested y un
+            # mensaje fantasma para una conv que no transicionó).
+            await clear_offer_pending(conversation_id)
+            logger.info("handoff_request_noop conversation_id=%s tenant=%s (no estaba bot_active)", conversation_id, tenant_id)
+            return
         await session.execute(text("""
             INSERT INTO mensajes (conversation_id, sender_type, content)
             VALUES (:cid, 'system', :msg)
