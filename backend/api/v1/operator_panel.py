@@ -487,6 +487,7 @@ async def reply(
             "UPDATE conversaciones SET updated_at = NOW() WHERE id = :id"
         ), {"id": conversation_id})
 
+    from core.audit import fire_and_log
     fire_and_log(publish(tenant_id, "new_message", {
         "conversation_id": conversation_id, "sender": "operator",
     }))
