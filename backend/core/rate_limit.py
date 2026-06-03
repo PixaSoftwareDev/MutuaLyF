@@ -53,3 +53,47 @@ async def check_rate_limit(
             detail=f"Límite de {limit} solicitudes por minuto superado. Reintentá en {retry_after}s.",
             headers={"Retry-After": str(retry_after)},
         )
+
+
+# Rate limit del WIDGET — por IP, no por tenant.
+# Objetivo: frenar a UN atacante/bucle (una IP disparando mensajes) sin afectar
+# a otros afiliados legítimos del mismo tenant ni a la ingesta. Un humano manda
+# pocos mensajes por minuto; este tope deja mucho margen para uso real y corta
+# solo automatizaciones (cientos/miles por minuto). El polling NO pasa por acá.
+_WIDGET_MSGS_PER_MINUTE = 30
+
+
+async def check_widget_rate_limit(
+    request: Request,
+    tenant_id: str = Depends(get_tenant_id),
+) -> None:
+    """FastAPI dependency para el endpoint de mensajes del widget. Limita por IP
+    del solicitante (X-Forwarded-For de Nginx → fallback al peer). Raises 429."""
+    redis = get_redis_ratelimit()
+    forwarded = request.headers.get("X-Forwarded-For")
+    ip = (forwarded.split(",")[0].strip() if forwarded
+          else (request.client.host if request.client else "unknown"))
+    window_key = int(time.time()) // _WINDOW_SECONDS
+    key = f"{tenant_id}:wrl:{ip}:{window_key}"
+
+    try:
+        pipe = redis.pipeline()
+        await pipe.incr(key)
+        await pipe.expire(key, _WINDOW_SECONDS + 5)
+        results = await pipe.execute()
+        count = results[0]
+    except Exception as exc:
+        logger.warning("widget_rate_limit_redis_unavailable tenant_id=%s error=%s", tenant_id, exc)
+        return  # Redis caído → fail open (no bloquear al afiliado legítimo)
+
+    if count > _WIDGET_MSGS_PER_MINUTE:
+        retry_after = _WINDOW_SECONDS - (int(time.time()) % _WINDOW_SECONDS)
+        logger.warning(
+            "widget_rate_limit_exceeded tenant_id=%s ip=%s count=%d limit=%d",
+            tenant_id, ip, count, _WIDGET_MSGS_PER_MINUTE,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Demasiadas solicitudes. Reintentá en {retry_after}s.",
+            headers={"Retry-After": str(retry_after)},
+        )

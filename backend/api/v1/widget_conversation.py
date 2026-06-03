@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import text
 
 from core.database import get_pg_session
+from core.rate_limit import check_widget_rate_limit
 from core.security import CurrentUser, get_widget_or_chat_user
 from core.tenant import get_tenant_id
 from services.handoff import (
@@ -149,7 +150,7 @@ async def start_conversation(
 
 # ── Send message ──────────────────────────────────────────────────────────────
 
-@router.post("/widget/conversation/{conversation_id}/message")
+@router.post("/widget/conversation/{conversation_id}/message", dependencies=[Depends(check_widget_rate_limit)])
 async def send_message(
     conversation_id: str,
     body: SendMessageRequest,
@@ -219,20 +220,35 @@ async def send_message(
         for r in history_rows
         if r["content"] != body.content or r["sender_type"] != "user"
     ]
+    # Cuota mensual del plan del tenant. Si está agotada, NO corremos el RAG (lo
+    # caro) y devolvemos un mensaje neutral al afiliado en vez de un 429 crudo.
+    # Es per-tenant (facturación), no afecta a un usuario individual.
+    from core.plan_limits import enforce_query_limit
     try:
-        rag_result = await handle_query(
-            question=body.content,
-            tenant_id=tenant_id,
-            user_id=None,
-            language="es",
-            conversation_history=conversation_history,
-        )
-        bot_answer = rag_result["answer"]
-        sources = rag_result.get("sources", [])
-    except Exception as exc:
-        logger.error("widget_rag_failed conversation_id=%s error=%s", conversation_id, exc)
-        bot_answer = "Lo siento, ocurrió un error. Intentá de nuevo en un momento."
+        await enforce_query_limit(tenant_id)
+        over_quota = False
+    except HTTPException:
+        over_quota = True
+
+    if over_quota:
+        bot_answer = ("El asistente no está disponible en este momento. "
+                      "Por favor, comunicate directamente con la organización.")
         sources = []
+    else:
+        try:
+            rag_result = await handle_query(
+                question=body.content,
+                tenant_id=tenant_id,
+                user_id=None,
+                language="es",
+                conversation_history=conversation_history,
+            )
+            bot_answer = rag_result["answer"]
+            sources = rag_result.get("sources", [])
+        except Exception as exc:
+            logger.error("widget_rag_failed conversation_id=%s error=%s", conversation_id, exc)
+            bot_answer = "Lo siento, ocurrió un error. Intentá de nuevo en un momento."
+            sources = []
 
     bot_msg_id = str(uuid.uuid4())
     async with get_pg_session(tenant_id) as session:
