@@ -146,7 +146,13 @@ export function applyBrandingVars(branding: Pick<TenantBranding, "primary_color"
   // elige un primary claro (#ffe000, #b9f6ca) los botones quedaban con texto
   // blanco sobre claro = ilegibles. Componentes que necesiten "texto sobre brand"
   // deben usar var(--brand-foreground).
-  root.style.setProperty("--brand-foreground", pickReadableTextColor(primary));
+  //
+  // CRÍTICO: tailwind consume esta var como `hsl(var(--brand-foreground))`, así
+  // que DEBE ser una tupla HSL ("H S% L%"), nunca un hex. Setear un hex acá
+  // generaba `hsl(#0f172a)` (inválido) → el browser descartaba la regla y el
+  // texto heredaba negro sobre el fondo de marca (bug: letra negra sobre rojo).
+  const fgHsl = hexToHslTuple(pickReadableTextColor(primary));
+  if (fgHsl) root.style.setProperty("--brand-foreground", fgHsl);
 
   if (branding.secondary_color) {
     const secHsl = hexToHslTuple(branding.secondary_color);

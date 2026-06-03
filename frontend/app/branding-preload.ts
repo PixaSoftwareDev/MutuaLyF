@@ -63,6 +63,16 @@ export const BRANDING_PRELOAD_SCRIPT = `
     root.style.setProperty('--brand-dark',    tuple(clamp(lPct - 15)));
     root.style.setProperty('--brand-light',   tuple(clamp(lPct + 15)));
     root.style.setProperty('--brand-primary', b.primary_color);
+
+    // Texto legible sobre el fondo de marca (WCAG): blanco si el primary es
+    // oscuro, slate-900 si es claro. Debe ser tupla HSL (tailwind usa hsl()).
+    // Misma lógica que pickReadableTextColor en use-tenant-branding.ts; se
+    // calcula acá también para evitar flash de texto negro sobre rojo.
+    function chan(c) { return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); }
+    var lum = 0.2126 * chan(r) + 0.7152 * chan(g) + 0.0722 * chan(bl);
+    var whiteRatio = 1.05 / (lum + 0.05);
+    var darkRatio = (lum + 0.05) / 0.06;
+    root.style.setProperty('--brand-foreground', whiteRatio >= darkRatio ? '0 0% 100%' : '222.2 47.4% 11.2%');
   } catch (e) { /* silent — peor caso: flash, no es bloqueante */ }
 })();
 `.trim();
