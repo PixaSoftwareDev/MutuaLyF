@@ -770,7 +770,7 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
 
             {/* Prompt to accept — paints up with the same urgency scale as the inbox card */}
             {!readOnly && detail.status === "handoff_requested" && (() => {
-              const waitMs = msSince(detail.last_message_at ?? detail.created_at, now);
+              const waitMs = msSince(detail.handoff_requested_at ?? detail.last_message_at ?? detail.created_at, now);
               const waitStr = formatRelative(waitMs);
               const level: "warn" | "urgent" | "critical" =
                 waitMs > VERY_URGENT_MS ? "critical" :
@@ -867,7 +867,13 @@ function ConvCard({ conv, now, selected, readOnly, onlineNames, onSelect, onAcce
   onlineNames: Set<string>;
   onSelect: () => void; onAccept: () => void; accepting: boolean;
 }) {
-  const ms             = msSince(conv.last_message_at ?? conv.created_at, now);
+  // "Esperando operador" (handoff_requested) se mide desde que entró a la cola
+  // (handoff_requested_at), no desde el último mensaje — así no se reinicia si el
+  // afiliado sigue escribiendo. "En atención" sí se mide desde el último mensaje.
+  // Fallback a last_message_at/created_at para conversaciones previas a la columna.
+  const ms             = conv.status === "handoff_requested"
+    ? msSince(conv.handoff_requested_at ?? conv.last_message_at ?? conv.created_at, now)
+    : msSince(conv.last_message_at ?? conv.created_at, now);
   const ageStr         = formatRelative(ms);
   const yourTurn       = conv.status === "human_attending" && conv.last_message_sender === "user";
   const operatorOnline = conv.operator_name ? onlineNames.has(conv.operator_name) : false;
@@ -1057,7 +1063,8 @@ function segmentAndSort(convs: ConversationRow[], now: number): Record<SectionKe
   // Más urgente (más tiempo esperando) arriba: msSince mide "cuánto hace que está esperando",
   // entonces queremos descendente — b - a, no a - b.
   out.handoff_requested.sort((a, b) =>
-    msSince(b.last_message_at ?? b.created_at, now) - msSince(a.last_message_at ?? a.created_at, now)
+    msSince(b.handoff_requested_at ?? b.last_message_at ?? b.created_at, now) -
+    msSince(a.handoff_requested_at ?? a.last_message_at ?? a.created_at, now)
   );
   out.human_attending.sort((a, b) => {
     const aW = a.last_message_sender === "user" ? 1 : 0;

@@ -254,7 +254,7 @@ async def request_handoff(conversation_id: str, tenant_id: str, message: str) ->
     async with get_pg_session(tenant_id) as session:
         result = await session.execute(text("""
             UPDATE conversaciones
-            SET status = 'handoff_requested', updated_at = NOW()
+            SET status = 'handoff_requested', handoff_requested_at = NOW(), updated_at = NOW()
             WHERE id = :id AND status = 'bot_active'
             RETURNING id
         """), {"id": conversation_id})

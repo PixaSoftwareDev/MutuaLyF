@@ -131,7 +131,7 @@ async def list_conversations(
             SELECT
                 c.id, c.widget_session_id, c.status, c.sector_id,
                 c.afiliado_nombre, c.afiliado_email, c.afiliado_dni, c.afiliado_ip, c.is_test,
-                c.created_at, c.updated_at,
+                c.created_at, c.updated_at, c.handoff_requested_at,
                 s.nombre AS sector_nombre,
                 u.name  AS operator_name,
                 COUNT(m.id) FILTER (WHERE m.read_at IS NULL AND m.sender_type = 'user') AS unread_count,
@@ -175,6 +175,7 @@ async def list_conversations(
                 "last_message_at": conv["last_message_at"].isoformat() if conv["last_message_at"] else None,
                 "last_message_sender": conv["last_message_sender"],
                 "created_at":      conv["created_at"].isoformat(),
+                "handoff_requested_at": conv["handoff_requested_at"].isoformat() if conv["handoff_requested_at"] else None,
             })
 
     return {"sectors": list(grouped.values()), "total": len(conversations)}
@@ -361,6 +362,7 @@ async def get_conversation(
         "afiliado_ip": conv["afiliado_ip"],
         "is_test": conv["is_test"],
         "created_at": conv["created_at"].isoformat(),
+        "handoff_requested_at": conv["handoff_requested_at"].isoformat() if conv.get("handoff_requested_at") else None,
         "messages": [
             {
                 "id": str(m["id"]),
@@ -517,6 +519,7 @@ async def transfer(
             SET sector_id = :sector_id,
                 status = 'handoff_requested',
                 assigned_operator_id = NULL,
+                handoff_requested_at = NOW(),
                 updated_at = NOW()
             WHERE id = :id
         """), {"id": conversation_id, "sector_id": body.sector_id})
@@ -570,6 +573,7 @@ async def release_to_queue(
             UPDATE conversaciones
             SET status = 'handoff_requested',
                 assigned_operator_id = NULL,
+                handoff_requested_at = NOW(),
                 updated_at = NOW()
             WHERE id = :id
               AND status = 'human_attending'

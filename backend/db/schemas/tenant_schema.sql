@@ -120,6 +120,7 @@ CREATE TABLE IF NOT EXISTS conversaciones (
     afiliado_ip             VARCHAR(45),
     created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    handoff_requested_at    TIMESTAMPTZ,
     closed_at               TIMESTAMPTZ
 );
 CREATE INDEX IF NOT EXISTS ix_conversaciones_session ON conversaciones (widget_session_id);

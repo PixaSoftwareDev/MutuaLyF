@@ -256,6 +256,9 @@ export interface ConversationRow {
   last_message_at: string | null;
   last_message_sender: "user" | "bot" | "operator" | "system" | null;
   created_at: string;
+  // Momento en que entró a la cola de operador. El "tiempo esperando" se mide
+  // desde acá (no desde last_message_at). null en conversaciones que nunca pidieron operador.
+  handoff_requested_at: string | null;
 }
 
 export interface ConversationDetail extends ConversationRow {
