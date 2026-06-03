@@ -89,10 +89,12 @@ function HandoffOfferBubble({
   content,
   onConfirm,
   confirmed,
+  identified,
 }: {
   content: string;
   onConfirm: (identif?: { afiliado_nombre: string; afiliado_dni: string }) => void;
   confirmed: boolean;
+  identified: boolean;
 }) {
   // 3 estados: "offer" (botón inicial) → "identify" (form) → confirmed (loader)
   const [phase, setPhase] = useState<"offer" | "identify">("offer");
@@ -110,10 +112,6 @@ function HandoffOfferBubble({
     onConfirm({ afiliado_nombre: n, afiliado_dni: d });
   }
 
-  function skip() {
-    onConfirm();
-  }
-
   return (
     <div className="flex justify-center py-2">
       <div className="max-w-[85%] bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3 text-center space-y-3">
@@ -125,7 +123,7 @@ function HandoffOfferBubble({
           </span>
         ) : phase === "offer" ? (
           <button
-            onClick={() => setPhase("identify")}
+            onClick={() => identified ? onConfirm() : setPhase("identify")}
             className="inline-flex items-center gap-2 bg-amber-500 hover:bg-amber-600 active:scale-95 text-white text-sm font-medium rounded-xl px-4 py-2 transition-all"
           >
             <UserCheck className="h-4 w-4" />
@@ -157,13 +155,7 @@ function HandoffOfferBubble({
               onKeyDown={e => { if (e.key === "Enter") submit(); }}
             />
             {err && <p className="text-[11px] text-red-600">{err}</p>}
-            <div className="flex items-center justify-between pt-1">
-              <button
-                onClick={skip}
-                className="text-xs text-amber-700 hover:text-amber-900 underline"
-              >
-                Prefiero no decir
-              </button>
+            <div className="flex items-center justify-end pt-1">
               <button
                 onClick={submit}
                 className="bg-amber-500 hover:bg-amber-600 active:scale-95 text-white text-sm font-medium rounded-xl px-4 py-2 transition-all"
@@ -224,6 +216,7 @@ function ChatInner() {
   const [resolvedToken, setResolvedToken]   = useState(token);
   const [operatorsOnline, setOperatorsOnline] = useState<{ count: number; names: string[] } | null>(null);
   const [handoffConfirmed, setHandoffConfirmed] = useState(false);
+  const [afiliadoIdentified, setAfiliadoIdentified] = useState(false);
   const bottomRef                           = useRef<HTMLDivElement>(null);
   const inputRef                            = useRef<HTMLInputElement>(null);
   const sessionId                           = useRef<string>("");
@@ -328,6 +321,7 @@ function ChatInner() {
       if (msgs.length > 0) lastMessageIdRef.current = msgs[msgs.length - 1].id;
       setStatus(data.status);
       setOperatorName(data.operator_name ?? null);
+      setAfiliadoIdentified(Boolean(data.afiliado_identified));
       // Resetear handoffConfirmed cuando la conversacion vuelve a bot_active
       // (operador la cerro / la devolvio al bot / acepto el handoff y termino).
       // Sin esto, un cartel nuevo en un ciclo posterior aparece ya en modo
@@ -596,7 +590,7 @@ function ChatInner() {
                 if (m.role === "user")     return <UserBubble     key={m.id} content={m.content} />;
                 if (m.role === "operator") return <OperatorBubble key={m.id} content={m.content} operatorName={operatorName} />;
                 if (m.role === "system" && m.handoffOffer)
-                  return <HandoffOfferBubble key={m.id} content={m.content} onConfirm={confirmHandoff} confirmed={handoffConfirmed} />;
+                  return <HandoffOfferBubble key={m.id} content={m.content} onConfirm={confirmHandoff} confirmed={handoffConfirmed} identified={afiliadoIdentified} />;
                 if (m.role === "system")   return <SystemBubble   key={m.id} content={m.content} />;
                 return                            <BotBubble      key={m.id} content={m.content} />;
               })}

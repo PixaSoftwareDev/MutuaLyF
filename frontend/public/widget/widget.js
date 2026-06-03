@@ -110,6 +110,7 @@
   var selectedSector = null;
   var handoffBubble  = null;   // referencia al bubble de oferta de handoff activo
   var handoffConfirmed = false;
+  var afiliadoIdentified = false;  // true si la conv ya tiene nombre + DNI
 
   // ── Styles ─────────────────────────────────────────────────────────────────────
   var SLATE_50 = "#f8fafc", SLATE_100 = "#f1f5f9", SLATE_200 = "#e2e8f0",
@@ -482,6 +483,7 @@
         });
         convStatus = data.status;
         operatorName = data.operator_name || null;
+        afiliadoIdentified = !!data.afiliado_identified;
         _updateHeader();
       })
       .catch(function (err) { console.error("[IA Widget] history:", err); });
@@ -558,6 +560,7 @@
       .then(function (data) {
         convStatus = data.status;
         operatorName = data.operator_name || null;
+        afiliadoIdentified = !!data.afiliado_identified;
         if (data.status === "bot_active") handoffConfirmed = false;
         _updateHeader();
         var pendingOffer = null;
@@ -600,7 +603,11 @@
     var btnOffer = document.createElement("button");
     btnOffer.className = "ia-w-hf-btn";
     btnOffer.innerHTML = ICON_USERCHECK + "<span>Sí, conectarme con un operador</span>";
-    btnOffer.addEventListener("click", function () { _renderHandoffForm(message); });
+    btnOffer.addEventListener("click", function () {
+      // Si la conversación ya tiene nombre + DNI (handoff previo), no re-pedirlos.
+      if (afiliadoIdentified) _confirmHandoff(null);
+      else _renderHandoffForm(message);
+    });
     handoffBubble.appendChild(btnOffer);
   }
 
@@ -618,8 +625,7 @@
       '<input type="text" id="ia-w-hf-nombre" placeholder="Nombre y apellido" maxlength="200" />' +
       '<input type="text" id="ia-w-hf-dni" inputmode="numeric" placeholder="DNI (sin puntos)" maxlength="20" />' +
       '<div class="err" id="ia-w-hf-err" style="display:none"></div>' +
-      '<div class="actions">' +
-      '  <button class="ia-w-hf-skip" id="ia-w-hf-skip">Prefiero no decir</button>' +
+      '<div class="actions" style="justify-content:flex-end;">' +
       '  <button class="ia-w-hf-btn" id="ia-w-hf-submit" style="padding:8px 16px;"><span>Continuar</span></button>' +
       '</div>';
     handoffBubble.appendChild(form);
@@ -628,7 +634,6 @@
     var dniEl    = form.querySelector("#ia-w-hf-dni");
     var errEl    = form.querySelector("#ia-w-hf-err");
     var submitEl = form.querySelector("#ia-w-hf-submit");
-    var skipEl   = form.querySelector("#ia-w-hf-skip");
     nombreEl.focus();
 
     function showErr(m) { errEl.textContent = m; errEl.style.display = "block"; }
@@ -640,7 +645,6 @@
       _confirmHandoff({ afiliado_nombre: n, afiliado_dni: d });
     }
     submitEl.addEventListener("click", submit);
-    skipEl.addEventListener("click", function () { _confirmHandoff(null); });
     dniEl.addEventListener("keydown", function (e) { if (e.key === "Enter") submit(); });
   }
 

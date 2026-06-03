@@ -283,7 +283,8 @@ async def _read_conversation_snapshot(tenant_id: str, conversation_id: str) -> d
     async with get_pg_session(tenant_id) as session:
         conv_row = (await session.execute(
             text("""
-                SELECT c.status, c.assigned_operator_id, u.name AS operator_name
+                SELECT c.status, c.assigned_operator_id, c.afiliado_nombre, c.afiliado_dni,
+                       u.name AS operator_name
                 FROM conversaciones c
                 LEFT JOIN usuarios u ON u.id = c.assigned_operator_id
                 WHERE c.id = :id
@@ -324,6 +325,10 @@ async def _read_conversation_snapshot(tenant_id: str, conversation_id: str) -> d
         "conversation_id": conversation_id,
         "status": conv_row["status"],
         "operator_name": conv_row["operator_name"],
+        # Si la conversación ya tiene nombre + DNI (el afiliado se identificó en un
+        # handoff previo), el frontend NO vuelve a pedirlos: deriva directo. Genérico
+        # y por-conversación — no depende del tenant ni de hardcodeos.
+        "afiliado_identified": bool(conv_row["afiliado_nombre"] and conv_row["afiliado_dni"]),
         "messages": messages,
     }
 
