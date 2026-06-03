@@ -302,8 +302,8 @@ function ChatInner() {
   const pollMessages = useCallback(async (convId: string) => {
     try {
       const anchor = lastMessageIdRef.current;
-      const url = `${API_BASE}/api/v1/widget/conversation/${convId}/poll`
-        + (anchor ? `?last_message_id=${encodeURIComponent(anchor)}` : "");
+      const url = `${API_BASE}/api/v1/widget/conversation/${convId}/poll?widget_session_id=${encodeURIComponent(sessionId.current)}`
+        + (anchor ? `&last_message_id=${encodeURIComponent(anchor)}` : "");
       const r = await fetch(url, { headers: getHeaders() });
       if (!r.ok) return;
       const data = await r.json();
@@ -440,7 +440,7 @@ function ChatInner() {
         headers["Content-Type"] = "application/json";
         body = JSON.stringify(identif);
       }
-      const r = await fetch(`${API_BASE}/api/v1/widget/conversation/${conversationId}/confirm-handoff`, {
+      const r = await fetch(`${API_BASE}/api/v1/widget/conversation/${conversationId}/confirm-handoff?widget_session_id=${encodeURIComponent(sessionId.current)}`, {
         method: "POST",
         headers,
         body,

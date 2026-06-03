@@ -472,7 +472,7 @@
   }
 
   function _loadHistory() {
-    fetch(API_BASE + "/api/v1/widget/conversation/" + conversationId + "/poll", { headers: _headers() })
+    fetch(API_BASE + "/api/v1/widget/conversation/" + conversationId + "/poll?widget_session_id=" + encodeURIComponent(widgetSessionId), { headers: _headers() })
       .then(function (r) { return r.json(); })
       .then(function (data) {
         bodyInner.innerHTML = "";
@@ -553,8 +553,8 @@
   }
   function _poll() {
     if (!conversationId) return Promise.resolve();
-    var url = API_BASE + "/api/v1/widget/conversation/" + conversationId + "/poll";
-    if (lastMessageId) url += "?last_message_id=" + lastMessageId;
+    var url = API_BASE + "/api/v1/widget/conversation/" + conversationId + "/poll?widget_session_id=" + encodeURIComponent(widgetSessionId);
+    if (lastMessageId) url += "&last_message_id=" + encodeURIComponent(lastMessageId);
     return fetch(url, { headers: _headers() })
       .then(function (r) { return r.json(); })
       .then(function (data) {
@@ -661,7 +661,7 @@
     if (identifyData && (identifyData.afiliado_nombre || identifyData.afiliado_dni)) {
       opts.body = JSON.stringify(identifyData);
     }
-    fetch(API_BASE + "/api/v1/widget/conversation/" + conversationId + "/confirm-handoff", opts)
+    fetch(API_BASE + "/api/v1/widget/conversation/" + conversationId + "/confirm-handoff?widget_session_id=" + encodeURIComponent(widgetSessionId), opts)
       .then(function (r) { return r.json(); })
       .then(function (data) {
         convStatus = data.status; _updateHeader();

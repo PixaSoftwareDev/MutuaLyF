@@ -159,11 +159,12 @@ async def send_message(
     """Send a user message. Routes to bot (RAG) or operator queue based on conversation status."""
     async with get_pg_session(tenant_id) as session:
         result = await session.execute(
-            text("SELECT status, sector_id FROM conversaciones WHERE id = :id"),
-            {"id": conversation_id},
+            text("SELECT status, sector_id FROM conversaciones WHERE id = :id AND widget_session_id = :sid"),
+            {"id": conversation_id, "sid": body.widget_session_id},
         )
         conv = result.mappings().fetchone()
 
+    # Anti-IDOR: si la conv no existe O no pertenece a este widget_session_id → 404.
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
@@ -290,8 +291,9 @@ async def send_message(
 _LONG_POLL_TIMEOUT_S = 25.0
 
 
-async def _read_conversation_snapshot(tenant_id: str, conversation_id: str) -> dict | None:
-    """Single query: conversation status + latest 50 messages. Returns None if not found.
+async def _read_conversation_snapshot(tenant_id: str, conversation_id: str, widget_session_id: str) -> dict | None:
+    """Single query: conversation status + latest 50 messages. Returns None if not found
+    OR si la conversación no pertenece a este widget_session_id (anti-IDOR).
 
     Also marks operator messages as read when the conversation is being attended by a human.
     """
@@ -302,9 +304,9 @@ async def _read_conversation_snapshot(tenant_id: str, conversation_id: str) -> d
                        u.name AS operator_name
                 FROM conversaciones c
                 LEFT JOIN usuarios u ON u.id = c.assigned_operator_id
-                WHERE c.id = :id
+                WHERE c.id = :id AND c.widget_session_id = :sid
             """),
-            {"id": conversation_id},
+            {"id": conversation_id, "sid": widget_session_id},
         )).mappings().fetchone()
         if not conv_row:
             return None
@@ -351,6 +353,7 @@ async def _read_conversation_snapshot(tenant_id: str, conversation_id: str) -> d
 @router.get("/widget/conversation/{conversation_id}/poll")
 async def poll_messages(
     conversation_id: str,
+    widget_session_id: str,
     last_message_id: str | None = None,
     tenant_id: str = Depends(get_tenant_id),
     widget_user: CurrentUser = Depends(get_widget_or_chat_user),
@@ -365,7 +368,7 @@ async def poll_messages(
     first poll after starting a conversation). This preserves the existing
     contract for the widget that does not track ids.
     """
-    snapshot = await _read_conversation_snapshot(tenant_id, conversation_id)
+    snapshot = await _read_conversation_snapshot(tenant_id, conversation_id, widget_session_id)
     if snapshot is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
@@ -394,7 +397,7 @@ async def poll_messages(
         return snapshot
 
     # Re-read after the event to capture the new message + any concurrent updates.
-    fresh = await _read_conversation_snapshot(tenant_id, conversation_id)
+    fresh = await _read_conversation_snapshot(tenant_id, conversation_id, widget_session_id)
     return fresh or snapshot
 
 
@@ -403,6 +406,7 @@ async def poll_messages(
 @router.post("/widget/conversation/{conversation_id}/confirm-handoff")
 async def confirm_handoff(
     conversation_id: str,
+    widget_session_id: str,
     body: ConfirmHandoffRequest | None = None,
     tenant_id: str = Depends(get_tenant_id),
     widget_user: CurrentUser = Depends(get_widget_or_chat_user),
@@ -413,6 +417,15 @@ async def confirm_handoff(
     Si llegan datos en el body, se persisten en `conversaciones` antes de
     disparar el handoff (sin esto el operador ve "Afiliado anónimo").
     """
+    # Anti-IDOR: la conversación debe pertenecer a este widget_session_id.
+    async with get_pg_session(tenant_id) as session:
+        owner = await session.execute(
+            text("SELECT 1 FROM conversaciones WHERE id = :cid AND widget_session_id = :sid"),
+            {"cid": conversation_id, "sid": widget_session_id},
+        )
+        if owner.fetchone() is None:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+
     # Persistir datos de identificación si vinieron en el body
     if body and (body.afiliado_nombre or body.afiliado_dni):
         updates = []
