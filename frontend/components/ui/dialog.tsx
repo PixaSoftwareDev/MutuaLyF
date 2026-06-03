@@ -34,12 +34,14 @@ const DialogContent = React.forwardRef<
     <DialogPrimitive.Content
       ref={ref}
       className={cn(
-        // Base: centered horizontally always
-        "fixed left-[50%] z-50 w-full -translate-x-1/2 border bg-background shadow-lg duration-200",
+        // Base: centered horizontally, padded grid layout (gap-4 + p-6 separate
+        // header/body/footer and keep content off the edges). Modals that need a
+        // custom layout (e.g. full-bleed) override these via className (tailwind-merge).
+        "fixed left-[50%] z-50 grid w-full max-w-lg -translate-x-1/2 gap-4 border bg-background p-6 shadow-lg duration-200",
         // Mobile: anchored to top, full height budget, slide from top
         "top-4 max-h-[calc(100dvh-2rem)] rounded-lg",
         // Desktop sm+: vertically centered with transform
-        "sm:top-[50%] sm:-translate-y-1/2 sm:max-w-lg sm:max-h-[90dvh]",
+        "sm:top-[50%] sm:-translate-y-1/2 sm:max-h-[90dvh]",
         // Animations
         "data-[state=open]:animate-in data-[state=closed]:animate-out",
         "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
