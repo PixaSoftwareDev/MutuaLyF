@@ -42,6 +42,7 @@ export function HandoffSettings() {
 
   const [timeout, setTimeout_]   = useState(15);
   const [threshold, setThreshold] = useState(3);
+  const [attentionHours, setAttentionHours] = useState("");
   const [messages, setMessages]   = useState<Record<string, string>>({});
   const [dirty, setDirty]         = useState(false);
 
@@ -49,6 +50,7 @@ export function HandoffSettings() {
     if (!config) return;
     setTimeout_(config.inactivity_timeout_minutes);
     setThreshold(config.consecutive_insufficient_count);
+    setAttentionHours(config.attention_hours || "");
     setMessages(config.transition_messages || {});
   }, [config]);
 
@@ -56,6 +58,7 @@ export function HandoffSettings() {
     mutationFn: () => api.handoffConfig.update({
       inactivity_timeout_minutes:     timeout,
       consecutive_insufficient_count: threshold,
+      attention_hours:                attentionHours,
       transition_messages:            messages,
     }),
     onSuccess: () => { setDirty(false); toast({ title: "Configuración guardada", variant: "success" }); },
@@ -103,6 +106,19 @@ export function HandoffSettings() {
               className="w-20"
             />
             <span className="text-sm text-muted-foreground">minutos sin atención del operador → avisar al usuario</span>
+          </div>
+          <Separator />
+          <div className="space-y-1.5">
+            <Label className="text-sm">Horario de atención</Label>
+            <Input
+              value={attentionHours}
+              onChange={e => { setAttentionHours(e.target.value); setDirty(true); }}
+              placeholder="Ej: Lunes a viernes de 7:30 a 18 hs"
+              className="max-w-md"
+            />
+            <p className="text-[11px] text-muted-foreground leading-snug">
+              Cuando no hay operadores conectados, el asistente no ofrece derivar y muestra este horario al afiliado. Dejalo vacío para no mostrar ningún horario.
+            </p>
           </div>
         </CardContent>
       </Card>

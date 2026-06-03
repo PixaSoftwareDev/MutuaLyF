@@ -159,7 +159,7 @@ async def send_message(
     """Send a user message. Routes to bot (RAG) or operator queue based on conversation status."""
     async with get_pg_session(tenant_id) as session:
         result = await session.execute(
-            text("SELECT status FROM conversaciones WHERE id = :id"),
+            text("SELECT status, sector_id FROM conversaciones WHERE id = :id"),
             {"id": conversation_id},
         )
         conv = result.mappings().fetchone()
@@ -168,6 +168,7 @@ async def send_message(
         raise HTTPException(status_code=404, detail="Conversation not found")
 
     conv_status = conv["status"]
+    conv_sector_id = str(conv["sector_id"]) if conv["sector_id"] else None
 
     # Conversacion cerrada (operador cerro o timeout): rechazar con 410 para
     # que el frontend abra una nueva conv. Sin esto el bot respondia normal
@@ -248,23 +249,37 @@ async def send_message(
     )
 
     handoff_message = None
+    handoff_offered = False
     if signal.trigger != HandoffTrigger.NONE:
-        # Oferta: insert mensaje system con is_handoff_offer=TRUE para que el
-        # frontend lo renderice como cartel amarillo con boton.
-        async with get_pg_session(tenant_id) as session:
-            await session.execute(text("""
-                INSERT INTO mensajes (conversation_id, sender_type, content, is_handoff_offer)
-                VALUES (:cid, 'system', :msg, TRUE)
-            """), {"cid": conversation_id, "msg": signal.offer_message})
-        await _publish_event(tenant_id, "new_message", {"conversation_id": conversation_id})
-        handoff_message = signal.offer_message
+        from services.handoff import has_online_operators, build_no_operators_message, _get_handoff_config
+        if await has_online_operators(tenant_id, conv_sector_id):
+            # Hay operadores conectados → ofrecer derivación (cartel con botón).
+            async with get_pg_session(tenant_id) as session:
+                await session.execute(text("""
+                    INSERT INTO mensajes (conversation_id, sender_type, content, is_handoff_offer)
+                    VALUES (:cid, 'system', :msg, TRUE)
+                """), {"cid": conversation_id, "msg": signal.offer_message})
+            await _publish_event(tenant_id, "new_message", {"conversation_id": conversation_id})
+            handoff_message = signal.offer_message
+            handoff_offered = True
+        else:
+            # Sin operadores online → no derivar a una cola vacía. Avisar y, si está
+            # configurado, indicar el horario de atención del tenant.
+            cfg = await _get_handoff_config(tenant_id)
+            msg = build_no_operators_message(cfg)
+            async with get_pg_session(tenant_id) as session:
+                await session.execute(text("""
+                    INSERT INTO mensajes (conversation_id, sender_type, content)
+                    VALUES (:cid, 'system', :msg)
+                """), {"cid": conversation_id, "msg": msg})
+            await _publish_event(tenant_id, "new_message", {"conversation_id": conversation_id})
 
     return {
         "message_id": bot_msg_id,
         "status": conv_status,
         "bot_response": bot_answer,
         "sources_count": len(sources),
-        "handoff_offered": signal.trigger != HandoffTrigger.NONE,
+        "handoff_offered": handoff_offered,
         "handoff_activated": False,  # nunca auto-activa — el afiliado siempre confirma
         "handoff_message": handoff_message,
     }

@@ -318,13 +318,14 @@ async def _get_handoff_config(tenant_id: str) -> dict:
 
         async with get_pg_session(tenant_id) as session:
             result = await session.execute(text("""
-                SELECT consecutive_insufficient_count, transition_messages
+                SELECT consecutive_insufficient_count, attention_hours, transition_messages
                 FROM handoff_config LIMIT 1
             """))
             row = result.mappings().fetchone()
 
         config = {
             "consecutive_insufficient_count": row["consecutive_insufficient_count"] if row else 3,
+            "attention_hours":                row["attention_hours"] if row else None,
             "transition_messages":            dict(row["transition_messages"]) if row else {},
             "_ts": time.monotonic(),
         }
@@ -332,6 +333,7 @@ async def _get_handoff_config(tenant_id: str) -> dict:
         logger.warning("handoff_config_load_failed tenant=%s error=%s", tenant_id, exc)
         config = {
             "consecutive_insufficient_count": 3,
+            "attention_hours": None,
             "transition_messages": {
                 "handoff_offer": "¿Querés que te conecte con un operador?",
                 "handoff_confirmed": "Listo, tu solicitud fue recibida. Un operador te atenderá en breve.",
@@ -347,3 +349,41 @@ async def _get_handoff_config(tenant_id: str) -> dict:
 def invalidate_config_cache(tenant_id: str) -> None:
     """Call after admin updates handoff config."""
     _config_cache.pop(tenant_id, None)
+
+
+# ── Operator availability ──────────────────────────────────────────────────────
+
+async def has_online_operators(tenant_id: str, sector_id: str | None) -> bool:
+    """True si hay al menos un operador online que pueda atender este sector.
+
+    Es la señal AUTORITATIVA para decidir si tiene sentido ofrecer derivación:
+    sin operadores conectados, derivar mandaría al afiliado a una cola vacía.
+    Sin sector_id, cualquier operador online cuenta.
+    """
+    from services.events import get_online_operators
+    online = await get_online_operators(tenant_id)
+    if not online:
+        return False
+    if not sector_id:
+        return True
+    online_ids = [o["user_id"] for o in online]
+    from core.database import get_pg_session
+    from sqlalchemy import text
+    placeholders = ", ".join(f":uid_{i}" for i in range(len(online_ids)))
+    async with get_pg_session(tenant_id) as session:
+        result = await session.execute(text(f"""
+            SELECT 1 FROM operador_sectores
+            WHERE sector_id = :sector_id AND operador_id::text IN ({placeholders})
+            LIMIT 1
+        """), {"sector_id": sector_id, **{f"uid_{i}": uid for i, uid in enumerate(online_ids)}})
+        return result.fetchone() is not None
+
+
+def build_no_operators_message(config: dict) -> str:
+    """Mensaje cuando el afiliado necesitaría un operador pero no hay ninguno online.
+    Incluye el horario de atención del tenant si está configurado (texto libre)."""
+    base = "En este momento no hay operadores disponibles para atenderte."
+    hours = (config.get("attention_hours") or "").strip()
+    if hours:
+        return f"{base} Nuestro horario de atención es: {hours}."
+    return base

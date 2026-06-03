@@ -321,6 +321,7 @@ export interface HandoffConfig {
   id: string;
   inactivity_timeout_minutes: number;
   consecutive_insufficient_count: number;
+  attention_hours: string | null;
   transition_messages: Record<string, string>;
   updated_at: string;
 }
