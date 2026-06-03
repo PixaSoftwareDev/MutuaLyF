@@ -96,8 +96,6 @@ async def download_document(
     cd = f"attachment; filename=\"{filename}\""
     return Response(content=content, media_type=media_type or "application/octet-stream", headers={"Content-Disposition": cd})
 
-    return Response(content=content, media_type=media_type or "application/octet-stream", headers=headers)
-
 
 
 @router.get("/documents/{document_id}/chunks")
