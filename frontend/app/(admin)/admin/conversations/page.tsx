@@ -139,7 +139,7 @@ export default function AdminConversationsPage() {
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex flex-col h-full overflow-hidden bg-background">
+    <div className="flex flex-col h-full overflow-hidden bg-background w-full max-w-7xl mx-auto">
 
       {/* ── Top bar ──────────────────────────────────────────────────────── */}
       <div className="shrink-0 border-b bg-card px-6 pt-5 pb-0 space-y-4">
