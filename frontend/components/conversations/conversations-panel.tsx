@@ -1077,7 +1077,11 @@ function segmentAndSort(convs: ConversationRow[], now: number): Record<SectionKe
 
 function msSince(iso: string | null | undefined, now: number): number {
   if (!iso) return Infinity;
-  return now - new Date(iso).getTime();
+  // Clamp a 0: handoff_requested_at se setea con NOW() del servidor (UTC). Si el
+  // reloj del navegador está unos segundos atrás —o el `now` cacheado quedó viejo
+  // entre ticks— la resta da negativo en los primeros segundos. Nunca mostramos
+  // tiempos negativos: el mínimo es 0 ("ahora" / "0s").
+  return Math.max(0, now - new Date(iso).getTime());
 }
 
 function formatRelative(ms: number): string {
