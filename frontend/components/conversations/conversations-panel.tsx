@@ -572,10 +572,13 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
                 <div className="min-w-0">
                   <p className="font-semibold text-sm truncate">{detail.afiliado_nombre || (detail.afiliado_ip ? `IP ${detail.afiliado_ip}` : "Afiliado anónimo")}</p>
                   <p className="text-xs text-muted-foreground truncate">
-                    {detail.sector_nombre}
-                    {detail.afiliado_dni && ` · DNI ${detail.afiliado_dni}`}
-                    {detail.afiliado_email && ` · ${detail.afiliado_email}`}
-                    {detail.afiliado_ip && detail.afiliado_nombre && ` · IP ${detail.afiliado_ip}`}
+                    {[
+                      detail.sector_nombre,
+                      detail.afiliado_dni   && `DNI ${detail.afiliado_dni}`,
+                      detail.afiliado_email,
+                      // IP solo si ya mostramos un nombre arriba (si no, el nombre YA es la IP)
+                      (detail.afiliado_ip && detail.afiliado_nombre) ? `IP ${detail.afiliado_ip}` : null,
+                    ].filter(Boolean).join(" · ") || "Sin datos de contacto"}
                   </p>
                 </div>
               </div>
