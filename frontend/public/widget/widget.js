@@ -742,21 +742,45 @@
     inputEl.disabled = closed; sendBtn.disabled = closed;
   }
 
-  // ── Texto con links (XSS-safe, igual que el widget previo) ────────────────────
+  // ── Texto con links (XSS-safe: createTextNode/createElement, nunca innerHTML) ─
+  // Soporta markdown [etiqueta](url) — el LLM genera ese formato; sin esto se veía
+  // el markdown crudo + la URL larga (parecía link duplicado). Y URLs sueltas.
+  var MD_LINK_REGEX = /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g;
   var URL_REGEX = /https?:\/\/[^\s<>"')\]]+/g;
-  function _renderTextWithLinks(text, parentEl) {
+
+  function _appendAnchor(parent, href, label) {
+    var a = document.createElement("a");
+    a.href = String(href).replace(/[.,;:!?]+$/, "");
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    a.textContent = label;
+    parent.appendChild(a);
+  }
+
+  // URLs sueltas (http://...) dentro de un fragmento de texto plano.
+  function _appendPlainWithUrls(text, parentEl) {
     URL_REGEX.lastIndex = 0;
     var last = 0, match;
     while ((match = URL_REGEX.exec(text)) !== null) {
       if (match.index > last) parentEl.appendChild(document.createTextNode(text.slice(last, match.index)));
       var url = match[0].replace(/[.,;:!?]+$/, "");
-      var a = document.createElement("a");
-      a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer"; a.textContent = url;
-      parentEl.appendChild(a);
+      _appendAnchor(parentEl, url, url);
       last = match.index + url.length;
     }
     if (last < text.length) parentEl.appendChild(document.createTextNode(text.slice(last)));
-    if (last === 0) parentEl.textContent = text;
+  }
+
+  function _renderTextWithLinks(text, parentEl) {
+    // Markdown [etiqueta](url) primero (muestra solo la etiqueta); en los
+    // segmentos de texto restantes, detecta URLs sueltas.
+    MD_LINK_REGEX.lastIndex = 0;
+    var last = 0, m;
+    while ((m = MD_LINK_REGEX.exec(text)) !== null) {
+      if (m.index > last) _appendPlainWithUrls(text.slice(last, m.index), parentEl);
+      _appendAnchor(parentEl, m[2], m[1]);
+      last = m.index + m[0].length;
+    }
+    if (last < text.length) _appendPlainWithUrls(text.slice(last), parentEl);
   }
 
   function _escape(str) {
