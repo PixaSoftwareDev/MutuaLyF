@@ -171,20 +171,10 @@ async def clear_offer_pending(conversation_id: str) -> None:
         pass
 
 
-async def reset_handoff_signals(conversation_id: str, tenant_id: str) -> None:
-    """Resetea TODO el estado de handoff de una conversación.
-
-    DEBE llamarse en cada transición que cambia la fase (accept, return_to_bot,
-    release, transfer, close). Sin esto, el contador de respuestas insuficientes
-    (TTL 24h) y el cooldown de oferta (90s) sobreviven a la fase humana, y al
-    volver a bot_active el bot NO vuelve a ofrecer operador en el siguiente ciclo.
-
-    Además marca las ofertas previas como consumidas (is_handoff_offer=FALSE):
-    así ese flag pasa a significar "oferta vigente del ciclo de bot actual" y el
-    frontend deja de resucitar la tarjeta amarilla del ciclo anterior.
-    """
-    await _reset_insufficient(conversation_id)
-    await clear_offer_pending(conversation_id)
+async def _consume_pending_offers(conversation_id: str, tenant_id: str) -> None:
+    """Marca las ofertas de handoff vigentes como consumidas (is_handoff_offer=FALSE)
+    para que el frontend deje de renderizar el cartel amarillo. El flag pasa a
+    significar 'oferta vigente del momento actual', no 'hubo una oferta alguna vez'."""
     try:
         from core.database import get_pg_session
         from sqlalchemy import text
@@ -194,7 +184,21 @@ async def reset_handoff_signals(conversation_id: str, tenant_id: str) -> None:
                 WHERE conversation_id = :cid AND is_handoff_offer = TRUE
             """), {"cid": conversation_id})
     except Exception as exc:
-        logger.debug("handoff_clear_old_offers_error error=%s", exc)
+        logger.debug("handoff_consume_offers_error error=%s", exc)
+
+
+async def reset_handoff_signals(conversation_id: str, tenant_id: str) -> None:
+    """Resetea TODO el estado de handoff de una conversación.
+
+    DEBE llamarse en cada transición que cambia la fase (accept, return_to_bot,
+    release, transfer, close). Sin esto, el contador de respuestas insuficientes
+    (TTL 24h) y el cooldown de oferta (90s) sobreviven a la fase humana, y al
+    volver a bot_active el bot NO vuelve a ofrecer operador en el siguiente ciclo.
+    También consume las ofertas previas para que el cartel no quede colgado.
+    """
+    await _reset_insufficient(conversation_id)
+    await clear_offer_pending(conversation_id)
+    await _consume_pending_offers(conversation_id, tenant_id)
 
 
 # ── Main evaluation ───────────────────────────────────────────────────────────
@@ -240,6 +244,13 @@ async def evaluate_handoff(
         # Solo borrar si esta presente (evita round-trip innecesario).
         if await _get_insufficient(conversation_id) > 0:
             await _reset_insufficient(conversation_id)
+        # Si el bot respondió DE VERDAD (al menos una source de alta confianza,
+        # no chitchat), consumir cualquier oferta pendiente: el cartel amarillo de
+        # un turno anterior no debe quedar colgado debajo de una respuesta buena.
+        # Si el afiliado vuelve a tener problemas, el contador sube y se ofrece de nuevo.
+        if any(not s.get("low_confidence") for s in sources):
+            await clear_offer_pending(conversation_id)
+            await _consume_pending_offers(conversation_id, tenant_id)
 
     return HandoffSignal(trigger=HandoffTrigger.NONE, auto_activate=False, offer_message="")
 
