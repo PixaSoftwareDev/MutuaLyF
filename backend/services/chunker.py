@@ -388,6 +388,11 @@ def chunk_document_hierarchical(
             header_prefix = f"[{header}]" if header else ""
             embedded_text = "\n".join(p for p in [contact_prefix, header_prefix, c_text] if p)
 
+            # Para listas de entidades: extraer atributos "Campo: valor" del ítem a
+            # metadata estructurada (attr_*). Habilita filtros/agregaciones a futuro
+            # (Capa 3 Parte B) sin re-ingestar. Genérico, sin IA.
+            entity_attrs = _extract_entity_attributes(c_text) if doc_type == "entity_list" else {}
+
             child = Chunk(
                 id=str(uuid.uuid4()),
                 document_id=document_id,
@@ -403,6 +408,7 @@ def chunk_document_hierarchical(
                 metadata={
                     **meta,
                     "section_header": header,
+                    **entity_attrs,
                     # Flags semánticos para retrieval / análisis futuros
                     **({"has_contact_info": True, **{k: True for k, v in contact_flags.items() if v and k != "is_contact"}}
                        if contact_flags["is_contact"] else {}),
@@ -557,6 +563,42 @@ def _entity_split(text: str) -> list[tuple[str, str]]:
     if not entities:
         return [(header, text)]
     return [(header, "\n".join(e).strip()) for e in entities]
+
+
+# Línea "Campo: valor" — clave al inicio (letras/espacios, hasta 40 chars), valor
+# hasta el fin de línea. Captura "Especialidad: Cardiología", "Precio: $100", etc.
+_KV_RE = re.compile(
+    r"^[ \t]*([A-Za-zÁÉÍÓÚÑáéíóúñ][\w áéíóúñÁÉÍÓÚÑ]{1,40}?)\s*:\s*(\S.*?)\s*$",
+    re.MULTILINE,
+)
+
+
+def _normalize_attr_key(key: str) -> str:
+    """Normaliza una clave de atributo: sin acentos, snake_case, ascii."""
+    import unicodedata
+    k = unicodedata.normalize("NFKD", key).encode("ascii", "ignore").decode().lower().strip()
+    k = re.sub(r"[^a-z0-9]+", "_", k).strip("_")
+    return k
+
+
+def _extract_entity_attributes(text: str) -> dict[str, str]:
+    """Extrae atributos 'Campo: valor' de una entidad → {attr_<clave>: valor}.
+
+    Genérico y determinístico (regex, sin IA): sirve para nóminas, catálogos,
+    listados de cualquier tenant. La clave se normaliza (sin acentos, snake_case)
+    con prefijo 'attr_' para no colisionar con otros campos del payload de Qdrant.
+    Primera ocurrencia gana; valores muy largos (>300) se descartan (no son atributos).
+    """
+    attrs: dict[str, str] = {}
+    for m in _KV_RE.finditer(text):
+        key = _normalize_attr_key(m.group(1))
+        val = m.group(2).strip()
+        if not key or not val or len(val) > 300:
+            continue
+        attr_key = f"attr_{key}"
+        if attr_key not in attrs:
+            attrs[attr_key] = val
+    return attrs
 
 
 def _build_single_parent(
