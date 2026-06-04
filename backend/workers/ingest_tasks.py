@@ -38,6 +38,14 @@ logger = logging.getLogger(__name__)
 _RETRY_DELAYS = [60, 300, 1800, 7200]  # 1m, 5m, 30m, 2h
 
 
+def _safe_unlink(path: str) -> None:
+    """Borra un archivo temporal sin fallar si ya no existe."""
+    try:
+        os.unlink(path)
+    except OSError:
+        pass
+
+
 # ── process_document ──────────────────────────────────────────────────────────
 
 @app.task(
@@ -59,9 +67,19 @@ def process_document(
 ) -> dict:
     """Full ingestion pipeline. Runs async work in a single asyncio.run() call."""
     logger.info("ingest_start document_id=%s tenant_id=%s", document_id, tenant_id)
-    return asyncio.run(
-        _ingest_with_lifecycle(document_id, tenant_id, file_path, mime_type, filename)
-    )
+    try:
+        result = asyncio.run(
+            _ingest_with_lifecycle(document_id, tenant_id, file_path, mime_type, filename)
+        )
+    except Exception:
+        # Conservar el archivo temporal mientras queden reintentos: el autoretry
+        # re-ejecuta la tarea con el mismo file_path y necesita el archivo presente.
+        # Solo limpiarlo en el último intento para no dejar temporales colgados.
+        if self.request.retries >= self.max_retries:
+            _safe_unlink(file_path)
+        raise
+    _safe_unlink(file_path)  # éxito: limpiar el temporal
+    return result
 
 
 async def _ingest_with_lifecycle(
@@ -87,12 +105,9 @@ async def _ingest_with_lifecycle(
             logger.error("ingest_failed document_id=%s error=%s", document_id, exc)
             await _update_document_status(document_id, tenant_id, "failed")
             raise
-        finally:
-            # Always clean up temp file regardless of success or failure
-            try:
-                os.unlink(file_path)
-            except OSError:
-                pass
+        # El temp file NO se borra acá: lo gestiona process_document, que lo conserva
+        # entre reintentos (el autoretry lo necesita) y lo limpia en éxito o en el
+        # último intento. Borrarlo en un 'finally' rompía los reintentos de Celery.
 
 
 async def _run_ingest_pipeline(

@@ -5,7 +5,9 @@ from contextlib import asynccontextmanager
 
 import structlog
 from fastapi import FastAPI, Request, Response
+from fastapi.responses import JSONResponse
 from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError
 from fastapi.middleware.cors import CORSMiddleware
 
 from core.config import settings
@@ -106,6 +108,25 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.add_middleware(TenantMiddleware)
+
+
+# ── Errores de parámetros mal formados → 422 (no 500) ──────────────────────────
+# Un UUID/fecha/número inválido en la URL hace que Postgres lance un "data exception"
+# (SQLSTATE clase 22). Sin esto FastAPI lo devuelve como 500, ensuciando logs/alertas
+# y tapando los 500 reales. Lo convertimos en 422; cualquier OTRO error de base de
+# datos sigue siendo 500 (no enmascaramos bugs).
+@app.exception_handler(DBAPIError)
+async def _dbapi_error_handler(request: Request, exc: DBAPIError):
+    orig = getattr(exc, "orig", None)
+    sqlstate = getattr(orig, "sqlstate", None) or getattr(orig, "pgcode", None)
+    log = structlog.get_logger(__name__)
+    if sqlstate and str(sqlstate).startswith("22"):
+        log.info("invalid_param_format", path=str(request.url.path), sqlstate=str(sqlstate))
+        return JSONResponse(status_code=422, content={"detail": "Parámetro con formato inválido."})
+    log.error("db_error", path=str(request.url.path),
+              sqlstate=(str(sqlstate) if sqlstate else None), error=str(exc))
+    return JSONResponse(status_code=500, content={"detail": "Error interno del servidor."})
+
 
 # ── Prometheus metrics ────────────────────────────────────────────────────────
 setup_metrics(app)
