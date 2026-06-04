@@ -511,11 +511,14 @@ async def _bm25_search(query: str, tenant_id: str, limit: int = 20) -> list[dict
     from sqlalchemy import text as sa_text
     from core.database import get_pg_session
 
-    # Sanitize query for tsquery: keep only word chars and spaces, join with &
+    # Unimos los términos con OR (|) en vez de AND (&): con AND, si un solo término
+    # no está en el corpus (ej. un nombre propio raro) la query entera devuelve 0
+    # hits. Con OR traemos chunks con CUALQUIER término y ts_rank_cd prioriza los que
+    # matchean más. Más recall sin perder precisión (el ranking ordena).
     words = [w for w in query.replace("'", " ").split() if len(w) > 1]
     if not words:
         return []
-    tsquery = " & ".join(words)
+    tsquery = " | ".join(words)
 
     try:
         async with get_pg_session(tenant_id) as session:
@@ -612,9 +615,11 @@ async def _arerank_tei(query: str, chunks: list[RetrievedChunk], top_k: int) -> 
     # 8 candidates = 1 batch ≈ 1.5-2s. Sweet spot: rerank the top 8 by Qdrant score.
     # The value of cross-encoder reranking is highest on the top candidates anyway.
     _TEI_MAX_BATCH = 20
-    _MAX_RERANK_CHARS = 900
     candidates = sorted(chunks, key=lambda c: c.score, reverse=True)[:_TEI_MAX_BATCH]
-    truncated_texts = [c.text[:_MAX_RERANK_CHARS] for c in candidates]
+    # Antes 900 fijo: el cross-encoder solo veía el inicio de cada chunk y descartaba
+    # parents largos cuya frase relevante estaba más allá. Configurable (settings),
+    # cerca del máximo del modelo, que igual trunca solo con truncate=True.
+    truncated_texts = [c.text[:settings.rerank_max_chars] for c in candidates]
     try:
         r = await client.post(
             "/rerank",

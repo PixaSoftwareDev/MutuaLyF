@@ -111,17 +111,19 @@ class QueryComplexity:
 
 
 def classify_complexity(question: str, entity_count: int = 0) -> str:
-    """Decide model tier based on question length and entity density.
+    """Decide model tier por SEÑALES DE COMPLEJIDAD REAL, no por puntuación.
 
-    Heuristic: multi-sentence questions or many entities go to the reasoning model.
-    The orchestrator can override this with a more sophisticated classifier.
+    Antes: cualquier "?" en el medio mandaba al modelo lento (3x) aunque fuera
+    trivial, y la complejidad en español requería un "¿" literal que en mobile
+    nadie escribe → preguntas complejas iban al modelo rápido. Ahora:
+      - Consulta larga (> 20 palabras) → razonamiento.
+      - Multi-pregunta genuina (2+ signos "?") → razonamiento.
+      - Muchas entidades nombradas → razonamiento (cuando NLU esté activo).
     """
     word_count = len(question.split())
-    # Mid-sentence "?" = complex (e.g., "What is X? And also Y?")
-    # Spanish "¿" at start counts as complex only if the question is long enough
-    has_mid_question = "?" in question[:-1]
-    has_spanish_complex = question.startswith("¿") and word_count > 12
-    if word_count > 25 or entity_count >= 3 or has_mid_question or has_spanish_complex:
+    is_long = word_count > 20
+    is_multi_question = question.count("?") >= 2
+    if is_long or is_multi_question or entity_count >= 3:
         return QueryComplexity.COMPLEX
     return QueryComplexity.SIMPLE
 

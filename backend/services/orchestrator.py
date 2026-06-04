@@ -1093,7 +1093,10 @@ async def _get_tenant_config(tenant_id: str) -> dict:
     config = {
         "bot_description":      row["bot_description"]      if row else None,
         "bot_scope":            row["bot_scope"]             if row else None,
-        "min_retrieval_score":  float(row["min_retrieval_score"]) if row and row["min_retrieval_score"] is not None else 0.55,
+        # Default 0.45 (antes 0.55): 0.55 era muy alto para queries cortas — el cosine
+        # de e5 rara vez lo supera aunque el chunk sea correcto, y se descartaba. El
+        # reranker + el corte duro (0.35) son la red fina. Configurable por tenant.
+        "min_retrieval_score":  float(row["min_retrieval_score"]) if row and row["min_retrieval_score"] is not None else 0.45,
         "prompt_quality_gate":  row["prompt_quality_gate"]   if row else None,
         "prompt_cluster_label": row["prompt_cluster_label"]  if row else None,
     }

@@ -186,6 +186,9 @@ class Settings(BaseSettings):
     # ── Retrieval ─────────────────────────────────────────────────────────────
     retrieval_top_k: int = 100           # candidates fetched from Qdrant
     rerank_top_k: int = 15              # top-k after reranking
+    rerank_max_chars: int = 2000        # chars per chunk sent to the cross-encoder
+                                        # (antes 900 fijo: cortaba parents largos cuya
+                                        # frase relevante estaba más allá del char 900)
     bm25_limit: int = 20                # BM25 candidates from PostgreSQL
     rrf_k: int = 60                     # RRF constant (standard value, rarely changed)
     skipped_chunk_score_penalty: float = 0.85  # score multiplier for quality_gate_status=skipped
