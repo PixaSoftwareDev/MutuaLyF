@@ -6,7 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import Image from "next/image";
 import {
   Inbox, FileText, Tags, Settings, LogOut, ChevronLeft, ChevronRight,
-  Shield, Building2, GitMerge, Users, ExternalLink, FlaskConical, ClipboardList, Bot, Network, X, Palette,
+  Shield, Building2, GitMerge, Users, ExternalLink, FlaskConical, ClipboardList, Bot, Network, X, Palette, UserCog,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore, useUIStore } from "@/lib/store";
@@ -343,6 +343,23 @@ export function Sidebar() {
           <div className={cn("px-2.5 py-1", collapsed && "lg:hidden")}>
             <p className="text-xs text-white/70 truncate" title={userRole || undefined}>{userEmail}</p>
           </div>
+          {isAdmin && (
+            <Link
+              href="/admin/cuenta"
+              onClick={handleNavClick}
+              className={cn(
+                "flex items-center gap-3 rounded-md px-2.5 py-2.5 text-sm w-full transition-colors",
+                pathname === "/admin/cuenta"
+                  ? "bg-white/15 text-white shadow-sm"
+                  : "text-white/75 hover:bg-white/10 hover:text-white",
+                collapsed && "lg:justify-center"
+              )}
+              title="Mi cuenta"
+            >
+              <UserCog className="h-4 w-4 shrink-0" />
+              <span className={cn(collapsed && "lg:hidden")}>Mi cuenta</span>
+            </Link>
+          )}
           <button
             onClick={handleLogout}
             className={cn(
