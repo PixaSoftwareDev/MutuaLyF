@@ -390,6 +390,11 @@ function LoginForm() {
                       </button>
                     </div>
                   </div>
+                  <div className="flex justify-end -mt-1">
+                    <a href="/forgot-password" className="text-[13px] text-slate-500 hover:text-slate-800 transition-colors">
+                      ¿Olvidaste tu contraseña?
+                    </a>
+                  </div>
                   {error && <ErrorBox text={error} />}
                   <Button
                     type="submit"

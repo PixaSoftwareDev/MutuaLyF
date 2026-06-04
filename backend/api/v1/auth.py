@@ -438,6 +438,164 @@ async def logout(request: Request, response: Response, current_user: CurrentUser
     ))
 
 
+# ── Password reset (forgot → email → reset) ───────────────────────────────────
+
+class ForgotPasswordRequest(BaseModel):
+    email: str = Field(..., max_length=320, min_length=3)
+
+
+class ResetPasswordRequest(BaseModel):
+    token:        str = Field(..., min_length=10, max_length=128)
+    new_password: str = Field(..., min_length=8, max_length=200)
+
+
+async def _find_users_for_reset(email: str) -> list[dict]:
+    """[{tenant_id, user_id, name}] por cada tenant con un usuario activo con ese
+    email. Reusa la pista de dominio + validación exacta del email-first login."""
+    domain = email.split("@", 1)[1] if "@" in email else ""
+    out: list[dict] = []
+    try:
+        async with get_pg_session(None) as session:
+            dom = await session.execute(
+                text("SELECT tenant_id FROM tenant_email_domains WHERE domain = :d"), {"d": domain})
+            domain_candidates = {r[0] for r in dom.fetchall()}
+            if domain_candidates:
+                tenant_ids = list(domain_candidates)
+            else:
+                tr = await session.execute(text("SELECT id FROM tenants WHERE status != 'suspended'"))
+                tenant_ids = [r[0] for r in tr.fetchall()]
+        for tid in tenant_ids:
+            try:
+                async with get_pg_session(tid) as session:
+                    r = await session.execute(
+                        text("SELECT id, name FROM usuarios WHERE email = :e AND is_active = TRUE LIMIT 1"),
+                        {"e": email})
+                    row = r.mappings().fetchone()
+                    if row is not None:
+                        out.append({"tenant_id": tid, "user_id": str(row["id"]), "name": row["name"] or ""})
+            except Exception:
+                continue  # schema a medio provisionar
+    except Exception as exc:
+        logger.warning("reset_find_users_failed error=%s", exc)
+    return out
+
+
+def _reset_email_body(name: str, link: str) -> tuple[str, str]:
+    """(html, texto) del email de reset. Genérico — sin marca de ningún tenant."""
+    greeting = f"Hola {name}," if name else "Hola,"
+    text_body = (
+        f"{greeting}\n\n"
+        "Recibimos una solicitud para restablecer tu contraseña.\n"
+        f"Entrá a este enlace para elegir una nueva (válido por 1 hora):\n{link}\n\n"
+        "Si no fuiste vos, ignorá este mensaje: tu contraseña no cambia.\n"
+    )
+    html_body = f"""<!DOCTYPE html><html lang="es"><body style="margin:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="padding:32px 0;">
+    <tr><td align="center">
+      <table role="presentation" width="480" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e2e8f0;">
+        <tr><td style="padding:28px 32px;">
+          <p style="margin:0 0 12px;font-size:16px;color:#0f172a;font-weight:600;">{greeting}</p>
+          <p style="margin:0 0 20px;font-size:14px;color:#475569;line-height:1.6;">
+            Recibimos una solicitud para restablecer tu contraseña. Hacé clic en el botón para elegir una nueva. El enlace vence en <strong>1 hora</strong>.
+          </p>
+          <p style="margin:0 0 24px;text-align:center;">
+            <a href="{link}" style="display:inline-block;background:#0f172a;color:#ffffff;text-decoration:none;font-size:14px;font-weight:600;padding:12px 28px;border-radius:10px;">Restablecer contraseña</a>
+          </p>
+          <p style="margin:0 0 8px;font-size:12px;color:#94a3b8;line-height:1.5;">
+            Si el botón no funciona, copiá y pegá este enlace en tu navegador:
+          </p>
+          <p style="margin:0 0 20px;font-size:12px;word-break:break-all;"><a href="{link}" style="color:#475569;">{link}</a></p>
+          <p style="margin:0;font-size:12px;color:#94a3b8;line-height:1.5;border-top:1px solid #e2e8f0;padding-top:16px;">
+            Si no solicitaste este cambio, ignorá este correo: tu contraseña no se modifica.
+          </p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>"""
+    return html_body, text_body
+
+
+@router.post("/forgot-password")
+async def forgot_password(body: ForgotPasswordRequest, request: Request):
+    """Inicia el reset. La respuesta es SIEMPRE uniforme (anti-enumeración): no
+    revela si el email existe. Rate-limited (reusa el throttle del lookup)."""
+    import hashlib
+    import secrets
+    from datetime import datetime, timezone, timedelta
+    from core.config import settings
+    from core.email import send_email
+
+    if not _check_lookup_rate(request):
+        return {"status": "ok"}
+
+    email = body.email.lower().strip()
+    if "@" not in email or len(email) > 320:
+        return {"status": "ok"}
+
+    users = await _find_users_for_reset(email)
+    for u in users:
+        token = secrets.token_urlsafe(32)
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        expires = datetime.now(timezone.utc) + timedelta(hours=1)
+        try:
+            async with get_pg_session(None) as session:
+                await session.execute(text("""
+                    INSERT INTO password_reset_tokens (token_hash, tenant_id, user_id, email, expires_at)
+                    VALUES (:h, :tid, :uid, :email, :exp)
+                """), {"h": token_hash, "tid": u["tenant_id"], "uid": u["user_id"], "email": email, "exp": expires})
+        except Exception as exc:
+            logger.warning("reset_token_insert_failed error=%s", exc)
+            continue
+        base = (settings.app_base_url or "").rstrip("/")
+        link = f"{base}/reset-password?token={token}"
+        html, txt = _reset_email_body(u["name"], link)
+        await send_email(email, "Restablecer tu contraseña", html, txt)
+
+    logger.info("forgot_password_requested matches=%d", len(users))
+    return {"status": "ok"}
+
+
+@router.post("/reset-password")
+async def reset_password(body: ResetPasswordRequest, request: Request):
+    """Valida el token (un solo uso, expira en 1h) y actualiza la contraseña."""
+    import hashlib
+    token_hash = hashlib.sha256(body.token.encode()).hexdigest()
+
+    async with get_pg_session(None) as session:
+        row = await session.execute(text("""
+            SELECT id, tenant_id, user_id, email FROM password_reset_tokens
+            WHERE token_hash = :h AND used_at IS NULL AND expires_at > NOW()
+        """), {"h": token_hash})
+        rec = row.mappings().fetchone()
+
+    if rec is None:
+        raise HTTPException(status_code=400, detail="El enlace es inválido o expiró. Pedí uno nuevo.")
+
+    new_hash = hash_password(body.new_password)
+    async with get_pg_session(rec["tenant_id"]) as session:
+        res = await session.execute(
+            text("UPDATE usuarios SET hashed_password = :p WHERE id = :uid AND is_active = TRUE RETURNING id"),
+            {"p": new_hash, "uid": rec["user_id"]})
+        if res.fetchone() is None:
+            raise HTTPException(status_code=400, detail="No se pudo actualizar la contraseña. Pedí un enlace nuevo.")
+
+    # Marca usado + invalida cualquier otro token vigente del mismo usuario.
+    async with get_pg_session(None) as session:
+        await session.execute(text("""
+            UPDATE password_reset_tokens SET used_at = NOW()
+            WHERE used_at IS NULL AND (id = :id OR (tenant_id = :tid AND user_id = :uid))
+        """), {"id": rec["id"], "tid": rec["tenant_id"], "uid": rec["user_id"]})
+
+    from core.audit import record as audit, fire_and_log
+    fire_and_log(audit(
+        tenant_id=rec["tenant_id"], actor_id=rec["user_id"], actor_email=rec["email"],
+        actor_role="unknown", action="auth.password_reset", request=request,
+    ))
+    logger.info("password_reset_done tenant=%s user=%s", rec["tenant_id"], rec["user_id"])
+    return {"status": "ok"}
+
+
 def _set_refresh_cookie(response: Response, token: str) -> None:
     response.set_cookie(
         key="refresh_token",

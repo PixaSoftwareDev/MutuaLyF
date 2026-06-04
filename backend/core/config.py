@@ -231,6 +231,9 @@ class Settings(BaseSettings):
     smtp_user: str = ""
     smtp_password: str = ""
     email_from: str = "noreply@example.com"
+    # URL pública base del frontend, para armar links en emails (reset de
+    # contraseña). Ej. https://intellix.com.ar — sin barra final.
+    app_base_url: str = ""
 
     # ── Rate limiting ─────────────────────────────────────────────────────────
     # Aplicado en core/rate_limit.py como FastAPI dependency. Sliding window

@@ -460,6 +460,14 @@ export const api = {
       localStorage.removeItem("access_token");
       localStorage.removeItem("tenant_id");
     },
+    /** Inicia el reset. Respuesta uniforme: no revela si el email existe. */
+    forgotPassword: async (email: string): Promise<void> => {
+      await apiClient.post("/auth/forgot-password", { email });
+    },
+    /** Canjea el token del email por una contraseña nueva. */
+    resetPassword: async (token: string, newPassword: string): Promise<void> => {
+      await apiClient.post("/auth/reset-password", { token, new_password: newPassword });
+    },
     me: async (): Promise<MeResponse> => {
       const { data } = await apiClient.get<MeResponse>("/auth/me");
       return data;
