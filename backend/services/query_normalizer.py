@@ -4,94 +4,65 @@ Runs in microseconds — pure Python, no model calls.
 Applied before semantic cache lookup and retrieval so that "RRHH" and
 "Recursos Humanos" land in the same embedding space.
 
-Tenant-specific acronyms can be passed via extra_acronyms dict.
+DISEÑO (post auditoría de casuística, 2026-06):
+- **Case-sensitive a propósito.** Solo se expande una sigla si el usuario la
+  escribió EN MAYÚSCULAS ("TI" sí, "ti" no). Sin esto, `re.IGNORECASE` hacía
+  que palabras españolas comunes ("ti", "it", "art") matchearan siglas y se
+  reemplazaran, deformando la consulta antes de embedear/clasificar/cachear.
+  Regla de oro: ante la duda, NO tocar el input del usuario.
+- **Diccionario base mínimo e inequívoco.** Solo siglas legales/laborales
+  argentinas que casi nunca colisionan con palabras (DNI, CUIT, AFIP…). Las
+  siglas de oficina/tech (TI, IT, UX, QA, CEO…) y las abreviaturas con punto
+  ("art.", "inc.", "cf.") se sacaron: eran ambiguas y de un vertical que no es
+  el de los tenants.
+- **Lo específico de cada cliente va por tenant**, no acá: pasar `extra_acronyms`
+  (futuro: poblado desde la config del tenant en el panel admin).
 """
 
 import re
 
 # ── Base acronym dictionary ────────────────────────────────────────────────────
-# Keys: uppercase canonical form (with optional dots/spaces stripped).
-# Values: full expansion used for embedding — keep natural Spanish phrasing.
+# Keys: forma canónica EN MAYÚSCULAS. El match es case-sensitive (ver _build_pattern),
+# así que estas claves solo disparan cuando el usuario escribe la sigla en mayúsculas.
+# Criterio para estar acá: inequívoca (no colisiona con una palabra española común)
+# y útil para el dominio de los tenants (mutuales / org. laborales argentinas).
 _BASE_ACRONYMS: dict[str, str] = {
-    # Áreas y departamentos
+    # Áreas
     "RRHH":   "Recursos Humanos",
     "RRHH.":  "Recursos Humanos",
     "RR.HH.": "Recursos Humanos",
     "RRLL":   "Relaciones Laborales",
     "RR.LL.": "Relaciones Laborales",
-    "RRPP":   "Relaciones Públicas",
-    "RR.PP.": "Relaciones Públicas",
-    "IT":     "Tecnología de la Información",
-    "TI":     "Tecnología de la Información",
-    "TIC":    "Tecnología de la Información y Comunicación",
-    "TICS":   "Tecnologías de la Información y Comunicación",
-    "UX":     "experiencia de usuario",
-    "UI":     "interfaz de usuario",
-    "QA":     "control de calidad",
-    "CEO":    "director ejecutivo",
-    "CFO":    "director financiero",
-    "CTO":    "director de tecnología",
-    "COO":    "director de operaciones",
-    "RRHH":   "Recursos Humanos",
 
-    # Documentos y normativa
-    "CV":     "currículum vitae",
+    # Identificación / bancario
     "DNI":    "documento nacional de identidad",
     "CUIL":   "Clave Única de Identificación Laboral",
     "CUIT":   "Clave Única de Identificación Tributaria",
     "CBU":    "Clave Bancaria Uniforme",
-    "NDA":    "acuerdo de confidencialidad",
-    "SLA":    "acuerdo de nivel de servicio",
-    "KPI":    "indicador clave de desempeño",
-    "KPI'S":  "indicadores clave de desempeño",
-    "KPIS":   "indicadores clave de desempeño",
-    "OKR":    "objetivo y resultado clave",
-    "OKRS":   "objetivos y resultados clave",
-    "FAQ":    "preguntas frecuentes",
-    "FAQS":   "preguntas frecuentes",
 
-    # Términos laborales
+    # Laboral / previsional
     "ART":    "Aseguradora de Riesgos del Trabajo",
     "SAC":    "sueldo anual complementario",
     "LCT":    "Ley de Contrato de Trabajo",
     "CCT":    "Convenio Colectivo de Trabajo",
-    "UOM":    "Unión Obrera Metalúrgica",
     "SMVM":   "salario mínimo vital y móvil",
     "AUH":    "Asignación Universal por Hijo",
 
-    # Finanzas y administración
+    # Impositivo / organismos
     "IVA":    "Impuesto al Valor Agregado",
     "IIBB":   "Ingresos Brutos",
     "AFIP":   "Administración Federal de Ingresos Públicos",
     "ANSES":  "Administración Nacional de la Seguridad Social",
-    "PYME":   "pequeña y mediana empresa",
-    "PYMES":  "pequeñas y medianas empresas",
-    "ERP":    "sistema de planificación de recursos empresariales",
-    "CRM":    "gestión de relaciones con clientes",
-
-    # Abreviaciones textuales comunes
-    "ART.":   "artículo",
-    "INC.":   "inciso",
-    "CAP.":   "capítulo",
-    "SEC.":   "sección",
-    "PÁG.":   "página",
-    "PAG.":   "página",
-    "NRO.":   "número",
-    "NR.":    "número",
-    "NÚM.":   "número",
-    "NUM.":   "número",
-    "EJ.":    "ejemplo",
-    "APROX.": "aproximadamente",
-    "CF.":    "conforme",
-    "INC":    "inciso",
 }
 
 # Pre-compile a single regex that matches any known acronym at word boundaries.
 # Pattern: \b(KEY1|KEY2|...)\b — keys sorted longest-first to avoid prefix shadowing.
+# CASE-SENSITIVE (sin re.IGNORECASE): solo matchea la sigla en mayúsculas, no la
+# palabra española homógrafa en minúsculas.
 def _build_pattern(acronyms: dict[str, str]) -> re.Pattern:
     keys = sorted(acronyms.keys(), key=len, reverse=True)
     escaped = [re.escape(k) for k in keys]
-    return re.compile(r"\b(" + "|".join(escaped) + r")\b", re.IGNORECASE)
+    return re.compile(r"\b(" + "|".join(escaped) + r")\b")
 
 
 _BASE_PATTERN: re.Pattern = _build_pattern(_BASE_ACRONYMS)
@@ -119,8 +90,8 @@ def normalize_query(text: str, extra_acronyms: dict[str, str] | None = None) -> 
             pattern = _BASE_PATTERN
 
         def _replace(match: re.Match) -> str:
-            token = match.group(0)
-            return merged.get(token.upper(), token)
+            # El match ya viene en mayúsculas (pattern case-sensitive); .get directo.
+            return merged.get(match.group(0), match.group(0))
 
         normalized = pattern.sub(_replace, text)
         # Collapse multiple spaces introduced by expansions
