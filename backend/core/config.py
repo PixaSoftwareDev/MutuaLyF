@@ -258,6 +258,9 @@ class Settings(BaseSettings):
     # matchear nginx (que tambien tiene rate=600r/m). Si alguien necesita mas:
     # subir en .env via RATE_LIMIT_REQUESTS_PER_MINUTE.
     rate_limit_requests_per_minute: int = 600
+    # Rate limit del widget POR IP (mensajes/min). 0 = DESACTIVADO (útil para pruebas
+    # de carga/concurrencia desde una sola IP). Configurable vía WIDGET_RATE_LIMIT_PER_MINUTE.
+    widget_rate_limit_per_minute: int = 30
 
     # SSO / OAuth 2.0 (Google Workspace + Azure AD) eliminado en limpieza
     # de dead code (Sprint 1, 2026-05-20). El router auth_sso.py nunca estuvo

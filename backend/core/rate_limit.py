@@ -42,6 +42,8 @@ async def check_rate_limit(
         return
 
     limit = settings.rate_limit_requests_per_minute
+    if limit <= 0:
+        return  # DESACTIVADO (ej. pruebas de carga)
     if count > limit:
         retry_after = _WINDOW_SECONDS - (int(time.time()) % _WINDOW_SECONDS)
         logger.warning(
@@ -60,7 +62,7 @@ async def check_rate_limit(
 # a otros afiliados legítimos del mismo tenant ni a la ingesta. Un humano manda
 # pocos mensajes por minuto; este tope deja mucho margen para uso real y corta
 # solo automatizaciones (cientos/miles por minuto). El polling NO pasa por acá.
-_WIDGET_MSGS_PER_MINUTE = 30
+# El valor sale de settings.widget_rate_limit_per_minute (0 = desactivado).
 
 
 async def check_widget_rate_limit(
@@ -69,6 +71,9 @@ async def check_widget_rate_limit(
 ) -> None:
     """FastAPI dependency para el endpoint de mensajes del widget. Limita por IP
     del solicitante (X-Forwarded-For de Nginx → fallback al peer). Raises 429."""
+    limit = settings.widget_rate_limit_per_minute
+    if limit <= 0:
+        return  # DESACTIVADO (ej. pruebas de concurrencia)
     redis = get_redis_ratelimit()
     forwarded = request.headers.get("X-Forwarded-For")
     ip = (forwarded.split(",")[0].strip() if forwarded
@@ -86,11 +91,11 @@ async def check_widget_rate_limit(
         logger.warning("widget_rate_limit_redis_unavailable tenant_id=%s error=%s", tenant_id, exc)
         return  # Redis caído → fail open (no bloquear al afiliado legítimo)
 
-    if count > _WIDGET_MSGS_PER_MINUTE:
+    if count > limit:
         retry_after = _WINDOW_SECONDS - (int(time.time()) % _WINDOW_SECONDS)
         logger.warning(
             "widget_rate_limit_exceeded tenant_id=%s ip=%s count=%d limit=%d",
-            tenant_id, ip, count, _WIDGET_MSGS_PER_MINUTE,
+            tenant_id, ip, count, limit,
         )
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
