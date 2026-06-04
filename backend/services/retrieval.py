@@ -235,9 +235,29 @@ async def retrieve_multi_query(
         logger.error("retrieve_multi_all_failed queries=%d", len(queries))
         return []
 
-    # RRF fusion entre los N rankings. Chunks que aparecen en múltiples
-    # listas obtienen score más alto que los que solo aparecen en una.
-    return _rrf_fuse_lists(valid_lists, top_k=rerank_top_k)
+    # RRF fusion entre los N rankings: SELECCIONA los mejores candidatos entre las
+    # variantes. Pero su score (~1/60 ≈ 0.016-0.05) está en una escala incomparable
+    # con el min_score downstream (calibrado a la escala del reranker/embedding).
+    fused = _rrf_fuse_lists(valid_lists, top_k=max(rerank_top_k, 20))
+
+    # Rerank FINAL sobre los candidatos fusionados con la query ORIGINAL (queries[0]).
+    # Sin esto, el score que llega al orquestador es el de RRF (~0.05) y el min_score
+    # lo corta todo → cae a low-confidence con pocos chunks (listaba 2 de N, o
+    # rechazaba consultas válidas). Con el rerank, el score final es del cross-encoder
+    # (escala consistente, igual que retrieve() single) → el min_score vuelve a ser
+    # válido. RRF = selección de candidatos; reranker = puntuación de relevancia.
+    # Genérico: aplica a cualquier query/tenant.
+    if not settings.reranker_enabled or len(fused) < settings.reranker_min_candidates:
+        return fused[:rerank_top_k]
+    try:
+        async with asyncio.timeout(_RERANKER_TIMEOUT_S):
+            if _rerank_via_tei():
+                return await _arerank_tei(queries[0], fused, rerank_top_k)
+            loop = asyncio.get_running_loop()
+            return await loop.run_in_executor(None, _rerank, queries[0], fused, rerank_top_k)
+    except asyncio.TimeoutError:
+        logger.warning("retrieve_multi_rerank_timeout candidates=%d", len(fused))
+        return sorted(fused, key=lambda c: c.score, reverse=True)[:rerank_top_k]
 
 
 def _rrf_fuse_lists(
