@@ -343,6 +343,27 @@ function SectionMenu({ onEdit }: { onEdit: () => void }) {
 
 // ── Color picker field ───────────────────────────────────────────────────────
 
+// Normaliza cualquier color CSS (hex, rgb(), hsl(), nombre tipo "royalblue") a
+// #rrggbb. Devuelve null si no es un color válido. Usa el parser del navegador para
+// no mantener una lista de nombres ni regex frágiles; fallback a hex en SSR.
+function cssColorToHex(input: string): string | null {
+  const v = (input || "").trim();
+  if (!v) return null;
+  if (/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(v)) {
+    if (v.length === 4) return ("#" + v[1] + v[1] + v[2] + v[2] + v[3] + v[3]).toLowerCase();
+    return v.toLowerCase();
+  }
+  if (typeof document === "undefined") return null;
+  const probe = document.createElement("span").style;
+  probe.color = "";
+  probe.color = v;
+  if (!probe.color) return null;  // el navegador no lo reconoció como color
+  const m = probe.color.match(/\d+(?:\.\d+)?/g);
+  if (!m || m.length < 3) return null;
+  const [r, g, b] = m.map((n) => Math.max(0, Math.min(255, Math.round(Number(n)))));
+  return "#" + [r, g, b].map((x) => x.toString(16).padStart(2, "0")).join("");
+}
+
 function ColorField({
   value, onChange, presets, required,
 }: {
@@ -351,13 +372,14 @@ function ColorField({
   presets: string[];
   required?: boolean;
 }) {
-  const isValid = !value || /^#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{3})$/.test(value);
+  // Acepta cualquier color CSS válido (no solo hex); se normaliza a hex al salir del campo.
+  const isValid = !value || cssColorToHex(value) !== null;
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2">
         <input
           type="color"
-          value={value || "#ffffff"}
+          value={cssColorToHex(value) || "#ffffff"}
           onChange={e => onChange(e.target.value)}
           className="w-10 h-9 rounded-md border border-input bg-background cursor-pointer p-0.5"
           aria-label="Color picker"
@@ -366,7 +388,8 @@ function ColorField({
           type="text"
           value={value}
           onChange={e => onChange(e.target.value)}
-          placeholder="#RRGGBB"
+          onBlur={e => { const hex = cssColorToHex(e.target.value); if (hex) onChange(hex); }}
+          placeholder="#RRGGBB, rgb(...) o nombre"
           className={cn(
             "flex-1 h-9 rounded-md border bg-background px-3 text-sm font-mono uppercase",
             "focus:outline-none focus:ring-1 focus:ring-primary",

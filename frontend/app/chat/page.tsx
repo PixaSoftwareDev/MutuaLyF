@@ -107,8 +107,9 @@ function HandoffOfferBubble({
     const n = nombre.trim();
     const d = dni.trim();
     if (!n) { setErr("Decinos tu nombre, por favor."); return; }
-    if (!d) { setErr("Decinos tu DNI, por favor."); return; }
-    if (d.length < 4) { setErr("El DNI parece muy corto."); return; }
+    if (!d) { setErr("Decinos tu DNI o número de documento, por favor."); return; }
+    // Sin mínimo de longitud: es un identificador para que el operador te reconozca,
+    // no una credencial. Documentos cortos, provisorios o extranjeros son válidos.
     onConfirm({ afiliado_nombre: n, afiliado_dni: d });
   }
 
