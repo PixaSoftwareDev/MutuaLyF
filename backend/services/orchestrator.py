@@ -203,7 +203,16 @@ async def handle_query(
             conversation_history,
             bot_description=bot_description or None,
         )
-        all_queries = rewrite_result.all_queries
+        # SIEMPRE incluir la query original primero. El rewriter a veces la reescribe
+        # a algo más largo/ruidoso (ej. le agrega el nombre completo de la organización)
+        # que DILUYE el embedding y degrada el retrieval: "¿qué cardiólogos atienden?"
+        # (cosine 0.52, perfecto) se volvía "¿qué cardiólogos... en la Mutual Provincial
+        # de Luz y Fuerza...?" (0.03, basura). La original directa suele ser la que mejor
+        # matchea; el RRF combina su resultado con el de las variantes. Robustez genérica.
+        _orig = retrieval_question.strip().lower()
+        all_queries = [retrieval_question] + [
+            q for q in rewrite_result.all_queries if q.strip().lower() != _orig
+        ]
         rewriter_expanded = not rewrite_result.skipped and not rewrite_result.fallback and len(all_queries) > 1
         if rewrite_result.skipped:
             logger.debug("query_rewrite_skipped_heuristic query=%r", retrieval_question[:80])
