@@ -14,6 +14,7 @@ import logging
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from email.utils import parseaddr
 
 from core.config import settings
 
@@ -24,6 +25,10 @@ def _send_sync(to_email: str, subject: str, html_body: str, text_body: str) -> b
     if not settings.smtp_host:
         logger.warning("smtp_not_configured email_skipped to=%s subject=%r", to_email, subject)
         return False
+
+    # El header From admite "Nombre <dir@dominio>", pero el envelope sender (MAIL FROM)
+    # debe ser SOLO la dirección — varios SMTP (Resend incluido) rechazan el display name ahí.
+    envelope_from = parseaddr(settings.email_from)[1] or settings.email_from
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
@@ -37,7 +42,7 @@ def _send_sync(to_email: str, subject: str, html_body: str, text_body: str) -> b
         server.starttls()
         if settings.smtp_user:
             server.login(settings.smtp_user, settings.smtp_password)
-        server.sendmail(settings.email_from, [to_email], msg.as_string())
+        server.sendmail(envelope_from, [to_email], msg.as_string())
     logger.info("email_sent to=%s subject=%r", to_email, subject)
     return True
 
