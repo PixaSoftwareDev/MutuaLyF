@@ -54,19 +54,28 @@ _FAQ_MARKER_RE = re.compile(
 )
 
 
+# ENTITY_LIST: nómina/catálogo/listado donde cada ítem es una entidad con
+# atributos (profesional→especialidad→horario, producto→precio, sucursal→dirección).
+# Se detecta por numeración jerárquica densa "N.M ..." (3.1, 3.2…) repetida muchas
+# veces. Genérico: reconoce la FORMA (lista de ítems), no el contenido del dominio.
+_ENTITY_MARKER_RE = re.compile(r"^\d+\.\d+(?:\.\d+)?[\s\)\.\-]")
+_ENTITY_MIN_ITEMS = 5   # mínimo de ítems para tratar el doc como lista de entidades
+
+
 class DocType(str, Enum):
-    SHORT      = "short"
-    FAQ        = "faq"
-    STRUCTURED = "structured"
-    MIXED      = "mixed"
-    FREEFORM   = "freeform"
+    SHORT       = "short"
+    FAQ         = "faq"
+    ENTITY_LIST = "entity_list"
+    STRUCTURED  = "structured"
+    MIXED       = "mixed"
+    FREEFORM    = "freeform"
 
 
 @dataclass
 class ClassificationResult:
     doc_type:          DocType
     confidence:        float          # 0–1
-    chunking_strategy: Literal["single", "faq", "fixed", "fixed_small", "semantic"]
+    chunking_strategy: Literal["single", "faq", "entity", "fixed", "fixed_small", "semantic"]
     features:          dict           # raw feature values for debugging
 
 
@@ -129,6 +138,20 @@ def classify_document(text: str) -> ClassificationResult:
             confidence=1.0,
             chunking_strategy="single",
             features=features,
+        )
+
+    # ── ENTITY_LIST: lista de entidades con numeración jerárquica densa ──────
+    # Va ANTES de structured porque estos docs tienen mucha numeración/headers que
+    # los haría 'structured' (y entonces se agruparían varias entidades por chunk).
+    # Cada ítem "N.M ..." debe terminar en su propio chunk para no mezclar entidades.
+    entity_markers = sum(1 for l in non_empty if _ENTITY_MARKER_RE.match(l.strip()))
+    if entity_markers >= _ENTITY_MIN_ITEMS:
+        logger.debug("doc_classify type=entity_list markers=%d total_lines=%d", entity_markers, total)
+        return ClassificationResult(
+            doc_type=DocType.ENTITY_LIST,
+            confidence=round(min(0.6 + entity_markers / max(total, 1), 1.0), 3),
+            chunking_strategy="entity",
+            features={**features, "entity_markers": entity_markers},
         )
 
     # ── STRUCTURED (early exit): signals that are unambiguous ────────────────

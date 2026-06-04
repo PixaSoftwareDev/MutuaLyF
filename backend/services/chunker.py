@@ -332,6 +332,9 @@ def chunk_document_hierarchical(
     # ── FAQ: split by question/answer pairs ──────────────────────────────────
     if doc_type == "faq":
         sections = _faq_split(text)
+    elif doc_type == "entity_list":
+        # Lista de entidades: una sección por ítem (no agrupar por tamaño).
+        sections = _entity_split(text)
     else:
         # 1. Split into structural parent sections (type-aware cap)
         sections = _structural_split(text, doc_type)
@@ -358,10 +361,15 @@ def chunk_document_hierarchical(
         )
         parents.append(parent)
 
-        # 2. Split parent body into small children for embedding
-        child_texts = [t for t in _build_child_splitter().split_text(body) if t.strip()]
-        if not child_texts:
+        # 2. Split parent body into small children for embedding.
+        # Para entity_list, la entidad NO se sub-divide: cada ítem es UN child, así
+        # su embedding representa una sola entidad y no una mezcla de varias.
+        if doc_type == "entity_list":
             child_texts = [body] if body.strip() else []
+        else:
+            child_texts = [t for t in _build_child_splitter().split_text(body) if t.strip()]
+            if not child_texts:
+                child_texts = [body] if body.strip() else []
 
         for c_text in child_texts:
             # Inject section header into child text before embedding.
@@ -511,6 +519,42 @@ def _faq_split(text: str) -> list[tuple[str, str]]:
     sections = [(q, a) for q, a in sections if q.strip() or a.strip()]
 
     return sections if sections else [("", text)]
+
+
+# Marcador de ítem de una lista de entidades — espejo del de doc_classifier.
+_ENTITY_MARKER_RE = re.compile(r"^\d+\.\d+(?:\.\d+)?[\s\)\.\-]")
+
+
+def _entity_split(text: str) -> list[tuple[str, str]]:
+    """Divide una lista de entidades en una sección por ítem.
+
+    Cada ítem (bloque que empieza con 'N.M …') es su propia sección. El texto previo
+    al primer ítem (título/preámbulo de la lista) se usa como header de contexto
+    compartido, así cada chunk embebe '[título]\\n<entidad>' y su vector representa
+    una sola entidad. Genérico: sirve para nóminas, catálogos, listados.
+    """
+    lines = text.splitlines()
+    header_lines: list[str] = []
+    entities: list[list[str]] = []
+    current: list[str] | None = None
+    for line in lines:
+        if _ENTITY_MARKER_RE.match(line.strip()):
+            if current is not None:
+                entities.append(current)
+            current = [line]
+        elif current is None:
+            header_lines.append(line)
+        else:
+            current.append(line)
+    if current is not None:
+        entities.append(current)
+
+    # Header de contexto: preámbulo recortado a ~200 chars (no diluir el embedding
+    # de cada ítem con un párrafo largo común a todos).
+    header = " ".join(h.strip() for h in header_lines if h.strip()).strip()[:200]
+    if not entities:
+        return [(header, text)]
+    return [(header, "\n".join(e).strip()) for e in entities]
 
 
 def _build_single_parent(
