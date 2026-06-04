@@ -272,6 +272,27 @@ async def evaluate_handoff(
 
 # ── State transitions in DB ───────────────────────────────────────────────────
 
+async def release_operator_conversations(session, operator_id: str) -> int:
+    """Devuelve a la cola las conversaciones que el operador estaba atendiendo.
+
+    Se llama al desactivar o quitar un operador para que sus conversaciones
+    'human_attending' no queden huérfanas (asignadas a alguien que ya no atiende):
+    otro operador del sector las puede tomar. Corre en la session/transacción del
+    caller — la atomicidad la garantiza el caller. Devuelve cuántas liberó.
+    """
+    from sqlalchemy import text
+    result = await session.execute(text("""
+        UPDATE conversaciones
+        SET status = 'handoff_requested',
+            assigned_operator_id = NULL,
+            handoff_requested_at = NOW(),
+            updated_at = NOW()
+        WHERE assigned_operator_id = :uid AND status = 'human_attending'
+        RETURNING id
+    """), {"uid": operator_id})
+    return len(result.fetchall())
+
+
 async def request_handoff(conversation_id: str, tenant_id: str, message: str) -> None:
     """Transition conversation to handoff_requested and persist system message."""
     from core.database import get_pg_session

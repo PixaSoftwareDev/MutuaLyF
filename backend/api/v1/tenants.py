@@ -1188,9 +1188,14 @@ async def update_tenant_user(
             updates,
         )
         row = result.mappings().fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Usuario no encontrado")
 
-    if not row:
-        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+        # Si se desactivó al usuario, liberar sus conversaciones activas en la misma
+        # transacción para que no queden huérfanas (asignadas a alguien inactivo).
+        if body.is_active is False:
+            from services.handoff import release_operator_conversations
+            await release_operator_conversations(session, user_id)
 
     logger.info("tenant_user_updated tenant=%s user=%s by=%s", tenant_id, user_id, current_user.user_id)
     return {"id": str(row["id"]), "email": row["email"], "name": row["name"], "role": row["role"], "is_active": row["is_active"]}

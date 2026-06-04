@@ -56,6 +56,25 @@ class HandoffConfigUpdate(BaseModel):
     transition_messages:             dict | None = None
 
 
+def _operator_sector_scope(current_user: CurrentUser, column: str = "sector_id") -> tuple[str, dict]:
+    """Filtro SQL para limitar una conversación a los sectores del operador.
+
+    Admins y super-admins: sin filtro (ven todo el tenant).
+    Operadores: solo conversaciones de los sectores que tienen asignados.
+
+    Devuelve (sql_fragment, params) para concatenar al WHERE y mergear en los bind
+    params. `column` permite 'sector_id' (UPDATE conversaciones) o 'c.sector_id'
+    (SELECT con alias). Single source of truth del aislamiento inter-sector: todo
+    endpoint que toque una conversación por id debe usarlo, no solo accept_handoff.
+    """
+    if current_user.role in (Role.ADMIN, Role.SUPER_ADMIN):
+        return "", {}
+    return (
+        f" AND {column} IN (SELECT sector_id FROM operador_sectores WHERE operador_id = :op_id)",
+        {"op_id": current_user.user_id},
+    )
+
+
 # ── Conversations list (by sector + status) ───────────────────────────────────
 
 @router.get("/operator/conversations")
@@ -328,16 +347,19 @@ async def get_conversation(
     current_user: CurrentUser = Depends(require_operator),
 ):
     """Full conversation history for the operator."""
+    scope_sql, scope_params = _operator_sector_scope(current_user, "c.sector_id")
     async with get_pg_session(tenant_id) as session:
-        result = await session.execute(text("""
+        result = await session.execute(text(f"""
             SELECT c.*, s.nombre AS sector_nombre, u.name AS operator_name
             FROM conversaciones c
             LEFT JOIN sectores s ON s.id = c.sector_id
             LEFT JOIN usuarios u ON u.id = c.assigned_operator_id
-            WHERE c.id = :id
-        """), {"id": conversation_id})
+            WHERE c.id = :id{scope_sql}
+        """), {"id": conversation_id, **scope_params})
         conv = result.mappings().fetchone()
         if not conv:
+            # 404 (no 403) a propósito: no revelamos que la conversación existe en
+            # otro sector — un operador ajeno la ve igual que a una inexistente.
             raise HTTPException(status_code=404, detail="Conversation not found")
 
         msg_result = await session.execute(text("""
@@ -394,21 +416,17 @@ async def accept_handoff(
     async with get_pg_session(tenant_id) as session:
         # UPDATE conditional: si dos operadores aceptan a la vez, Postgres aplica
         # row lock — uno gana, el otro recibe RETURNING vacio y obtiene 400.
-        # AND sector_id IN (sectores del operador) impide aceptar convs de
-        # sectores ajenos aunque el JWT tenga otro rol o el conv_id este expuesto.
-        # Admins/super-admins saltean el filtro de sector.
-        is_admin = current_user.role in (Role.ADMIN, Role.SUPER_ADMIN)
-        sector_filter = "" if is_admin else (
-            " AND sector_id IN (SELECT sector_id FROM operador_sectores WHERE operador_id = :op_id)"
-        )
+        # El scope de sector impide aceptar convs de sectores ajenos aunque el
+        # conv_id esté expuesto. Admins/super-admins saltean el filtro.
+        scope_sql, scope_params = _operator_sector_scope(current_user, "sector_id")
         result = await session.execute(text(f"""
             UPDATE conversaciones
             SET status = 'human_attending',
                 assigned_operator_id = :op_id,
                 updated_at = NOW()
-            WHERE id = :id AND status = 'handoff_requested'{sector_filter}
+            WHERE id = :id AND status = 'handoff_requested'{scope_sql}
             RETURNING id
-        """), {"id": conversation_id, "op_id": current_user.user_id})
+        """), {"id": conversation_id, "op_id": current_user.user_id, **scope_params})
         if not result.fetchone():
             raise HTTPException(
                 status_code=400,
@@ -455,21 +473,23 @@ async def reply(
       - Conversación human_attending con último mensaje del user > 12h
         (la sesión está abandonada — evita 'mensajes a sesión fantasma').
     """
+    scope_sql, scope_params = _operator_sector_scope(current_user, "c.sector_id")
     async with get_pg_session(tenant_id) as session:
         result = await session.execute(
-            text("""
+            text(f"""
                 SELECT c.status,
                        COALESCE((
                          SELECT MAX(created_at) FROM mensajes
                          WHERE conversation_id = c.id AND sender_type = 'user'
                        ), c.created_at) AS last_user_activity
                 FROM conversaciones c
-                WHERE c.id = :id
+                WHERE c.id = :id{scope_sql}
             """),
-            {"id": conversation_id},
+            {"id": conversation_id, **scope_params},
         )
         row = result.mappings().fetchone()
         if not row:
+            # 404 también si la conversación es de otro sector (no revelar su existencia).
             raise HTTPException(status_code=404, detail="Conversation not found")
         if row["status"] == ConvStatus.CLOSED:
             raise HTTPException(
@@ -516,24 +536,27 @@ async def transfer(
     from services.handoff import _get_handoff_config
     config = await _get_handoff_config(tenant_id)
 
+    # Scope de sector: un operador solo transfiere conversaciones de SUS sectores
+    # (el filtro evalúa el sector ACTUAL/origen, no el destino). Admin sin filtro.
+    scope_sql, scope_params = _operator_sector_scope(current_user, "sector_id")
     async with get_pg_session(tenant_id) as session:
         # Guard de estado: solo se transfiere una conversación ACTIVA (en cola o
         # siendo atendida). Sin esto, transferir una conversación cerrada la
         # resucitaba en la cola con un "caso nuevo" que el afiliado ya abandonó.
-        result = await session.execute(text("""
+        result = await session.execute(text(f"""
             UPDATE conversaciones
             SET sector_id = :sector_id,
                 status = 'handoff_requested',
                 assigned_operator_id = NULL,
                 handoff_requested_at = NOW(),
                 updated_at = NOW()
-            WHERE id = :id AND status IN ('handoff_requested', 'human_attending')
+            WHERE id = :id AND status IN ('handoff_requested', 'human_attending'){scope_sql}
             RETURNING id
-        """), {"id": conversation_id, "sector_id": body.sector_id})
+        """), {"id": conversation_id, "sector_id": body.sector_id, **scope_params})
         if result.fetchone() is None:
             raise HTTPException(
                 status_code=409,
-                detail="No se puede transferir esta conversación: ya está cerrada o en un estado no válido.",
+                detail="No se puede transferir esta conversación: está cerrada, no existe o no pertenece a tus sectores.",
             )
 
         msg = body.message or config["transition_messages"].get("sector_transferred") or "Tu consulta fue derivada al área correspondiente."
@@ -979,6 +1002,46 @@ async def delete_sector(
     current_user: CurrentUser = Depends(require_admin),
 ):
     async with get_pg_session(tenant_id) as session:
+        # No permitir borrar el sector por defecto: es el destino de reasignación
+        # y el sector inicial de los operadores nuevos.
+        is_default = (await session.execute(
+            text("SELECT is_default FROM sectores WHERE id = :id AND is_active = TRUE"),
+            {"id": sector_id},
+        )).scalar_one_or_none()
+        if is_default is None:
+            raise HTTPException(status_code=404, detail="Sector no encontrado")
+        if is_default:
+            raise HTTPException(
+                status_code=409,
+                detail="No se puede borrar el sector por defecto. Marcá otro como predeterminado primero.",
+            )
+
+        # Reasignar las conversaciones abiertas del sector: al sector por defecto si
+        # existe, si no devolverlas al bot. Sin esto quedaban apuntando a un sector
+        # inactivo y no aparecían en ninguna cola (huérfanas).
+        default_id = (await session.execute(
+            text("SELECT id FROM sectores WHERE is_default = TRUE AND is_active = TRUE AND id <> :id LIMIT 1"),
+            {"id": sector_id},
+        )).scalar_one_or_none()
+        if default_id is not None:
+            await session.execute(text("""
+                UPDATE conversaciones SET sector_id = :def, updated_at = NOW()
+                WHERE sector_id = :id AND status IN ('handoff_requested', 'human_attending')
+            """), {"def": str(default_id), "id": sector_id})
+        else:
+            await session.execute(text("""
+                UPDATE conversaciones
+                SET status = 'bot_active', assigned_operator_id = NULL, updated_at = NOW()
+                WHERE sector_id = :id AND status IN ('handoff_requested', 'human_attending')
+            """), {"id": sector_id})
+
+        # Limpiar asignaciones operador-sector de este sector (si no, los operadores
+        # quedan "asignados" a un sector que ya no existe).
+        await session.execute(
+            text("DELETE FROM operador_sectores WHERE sector_id = :id"),
+            {"id": sector_id},
+        )
+        # Soft-delete del sector.
         await session.execute(
             text("UPDATE sectores SET is_active = FALSE WHERE id = :id"),
             {"id": sector_id},
@@ -1160,6 +1223,13 @@ async def deactivate_operator(
         )
         if not result.scalar_one_or_none():
             raise HTTPException(status_code=404, detail="Usuario no encontrado o sin permiso")
+
+        # Liberar sus conversaciones activas a la cola (misma tx) para que no queden
+        # huérfanas asignadas a un operador que ya no atiende.
+        from services.handoff import release_operator_conversations
+        freed = await release_operator_conversations(session, operator_id)
+        if freed:
+            logger.info("operator_deactivated_freed_convs operator=%s count=%d", operator_id, freed)
 
     logger.info("operator_deactivated id=%s tenant=%s by=%s", operator_id, tenant_id, current_user.user_id)
     from core.audit import record as audit, fire_and_log
