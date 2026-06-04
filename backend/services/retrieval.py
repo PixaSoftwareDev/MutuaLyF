@@ -511,14 +511,17 @@ async def _bm25_search(query: str, tenant_id: str, limit: int = 20) -> list[dict
     from sqlalchemy import text as sa_text
     from core.database import get_pg_session
 
-    # Unimos los términos con OR (|) en vez de AND (&): con AND, si un solo término
-    # no está en el corpus (ej. un nombre propio raro) la query entera devuelve 0
-    # hits. Con OR traemos chunks con CUALQUIER término y ts_rank_cd prioriza los que
-    # matchean más. Más recall sin perder precisión (el ranking ordena).
+    # AND (&) entre términos. Probamos OR (|) pero fue contraproducente: en queries
+    # con palabras comunes ("horario", "atiende") el OR trae chunks genéricos que
+    # dominan el BM25 y, vía RRF, entierran el ranking del embedding (que ya es bueno
+    # — los cardiólogos salían top-4 por cosine). Con AND, una query multi-término
+    # matchea pocos/ningún chunk → BM25 no contamina y el embedding manda (lo correcto
+    # para queries semánticas). Si AND da 0 hits (término raro faltante), cae a
+    # embedding-only, que para nombres propios ya funciona bien.
     words = [w for w in query.replace("'", " ").split() if len(w) > 1]
     if not words:
         return []
-    tsquery = " | ".join(words)
+    tsquery = " & ".join(words)
 
     try:
         async with get_pg_session(tenant_id) as session:
