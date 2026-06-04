@@ -152,7 +152,11 @@ class Settings(BaseSettings):
     nlu_timeout_ms: int = 1000           # antes 200ms: GLiNER local CPU-bound bajo carga
     orchestrator_timeout_ms: int = 100   # antes 50ms
     db_timeout_ms: int = 1500            # antes 500ms
-    reranker_timeout_ms: int = 800       # antes 300ms: bge-reranker local CPU-bound
+    reranker_timeout_ms: int = 2500      # bge-reranker local CPU-bound: 800ms timeouteaba
+                                         # con 15-20 candidatos → caía a scores de embedding
+                                         # (escala baja, diluye atributos). El reranker es la
+                                         # autoridad de relevancia (entiende "cardiólogo"≈
+                                         # "Cardiologia"); vale la latencia para que SIEMPRE corra.
     llm_fast_timeout_ms: int = 3000      # antes 1500ms: bajo carga + retries
     llm_reasoning_timeout_ms: int = 10000  # antes 7000ms
     neo4j_timeout_ms: int = 1500         # antes 500ms
@@ -186,9 +190,11 @@ class Settings(BaseSettings):
     # ── Retrieval ─────────────────────────────────────────────────────────────
     retrieval_top_k: int = 100           # candidates fetched from Qdrant
     rerank_top_k: int = 15              # top-k after reranking
-    rerank_max_chars: int = 2000        # chars per chunk sent to the cross-encoder
-                                        # (antes 900 fijo: cortaba parents largos cuya
-                                        # frase relevante estaba más allá del char 900)
+    rerank_max_chars: int = 1200        # chars per chunk sent to the cross-encoder.
+                                        # 900 cortaba parents largos; 2000 hacía el reranker
+                                        # CPU demasiado lento → timeout → caía a embedding.
+                                        # 1200 es el balance: cubre el chunk de entidad (~400)
+                                        # y la mayoría de parents sin reventar el timeout.
     bm25_limit: int = 20                # BM25 candidates from PostgreSQL
     rrf_k: int = 60                     # RRF constant (standard value, rarely changed)
     skipped_chunk_score_penalty: float = 0.85  # score multiplier for quality_gate_status=skipped
