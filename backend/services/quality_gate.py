@@ -22,8 +22,15 @@ logger = logging.getLogger(__name__)
 
 class QualityStatus(str, Enum):
     PASSED = "passed"
-    PENDING = "pending"   # Groq unavailable — will retry
-    SKIPPED = "skipped"   # Retries exhausted
+    # PENDING = necesita revisión humana. Dos orígenes: (a) Groq no estuvo
+    # disponible para validar, (b) la IA juzgó el chunk poco coherente. En AMBOS
+    # casos el chunk SE INDEXA y participa en la búsqueda con peso normal, y
+    # aparece en la cola de revisión del admin. La IA marca, NO descarta.
+    PENDING = "pending"
+    # SKIPPED = decisión final de NO usar el chunk. Lo setea el ADMIN al rechazar
+    # un chunk desde el panel (review_chunk → reject). El retrieval lo penaliza.
+    # La IA por sí sola ya NO produce SKIPPED.
+    SKIPPED = "skipped"
 
 
 @dataclass
@@ -63,7 +70,12 @@ async def validate_chunk(chunk: Chunk, custom_prompt: str | None = None) -> Qual
 
     is_coherent: bool = bool(result["is_coherent"])
     confidence: float = float(result.get("confidence", 0.9))
-    status = QualityStatus.PASSED if is_coherent else QualityStatus.SKIPPED
+    # La IA marca pero NO descarta: un chunk juzgado poco coherente queda PENDING
+    # (se indexa, participa en la búsqueda con peso normal, va a la cola de revisión
+    # del admin), nunca SKIPPED. Descartar es decisión del admin. Evita que contenido
+    # legítimo del cliente desaparezca por un juicio automático que se equivoca
+    # seguido (ej. un horario en tabla seca lo juzga "incoherente" y sí es valioso).
+    status = QualityStatus.PASSED if is_coherent else QualityStatus.PENDING
 
     logger.debug(
         "quality_gate_done chunk_id=%s status=%s coherent=%s confidence=%.2f reason=%s",

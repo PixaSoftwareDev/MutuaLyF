@@ -107,7 +107,7 @@ async def _run_ingest_pipeline(
 ) -> dict:
     """Core ingestion logic. All async clients are injected — no global lookups."""
     from services.chunker import extract_text_from_bytes, chunk_document_hierarchical
-    from services.quality_gate import validate_chunks_batch, QualityStatus
+    from services.quality_gate import validate_chunks_batch
     from services.embeddings import embed_batch
 
     loop = asyncio.get_running_loop()
@@ -203,22 +203,19 @@ async def _run_ingest_pipeline(
     timings["quality_ms"] = _ms(t)
 
     quality_map = {r.chunk_id: r for r in quality_results}
-    passed_parent_ids = {
-        r.chunk_id for r in quality_results
-        if r.status != QualityStatus.SKIPPED
-    }
 
-    # Keep only children whose parent passed quality gate
-    chunks = [c for c in children if c.parent_id in passed_parent_ids]
-    if not chunks:
-        chunks = children  # fallback: keep all if gate wiped everything
+    # El quality gate MARCA, no censura. TODOS los chunks se indexan con su
+    # quality_gate_status en el payload y participan en la búsqueda; los flojos
+    # quedan 'pending' para que el admin los revise (editar / aprobar / rechazar).
+    # Antes acá se filtraban los SKIPPED → contenido legítimo del cliente quedaba
+    # irrecuperable y el bot respondía "no tengo info" sobre algo que sí estaba en
+    # el documento (auditoría de casuística 2026-06). Descartar es decisión del
+    # admin (review_chunk → reject), no de la IA.
+    chunks = children
 
     # ── 4. Store parents in PostgreSQL (before Qdrant so children can reference them) ─
     t = time.monotonic()
-    await _store_parent_chunks(
-        [p for p in parents_stage2 if p.id in passed_parent_ids],
-        tenant_id,
-    )
+    await _store_parent_chunks(parents_stage2, tenant_id)
     timings["parent_store_ms"] = _ms(t)
 
     # ── 5. Embed children + ensure Qdrant collection ──────────────────────────

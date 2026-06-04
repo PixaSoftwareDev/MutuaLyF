@@ -142,9 +142,12 @@ async def list_pending_chunks(
 ):
     """Return chunks awaiting human review (quality_gate_status == 'pending').
 
-    Skipped chunks are excluded — they already have a decision (Groq descartó
-    el contenido). El admin puede revisarlos abriendo el documento si quiere
-    rescatar alguno puntual; no son parte de la cola de "por revisar".
+    'pending' = la IA marcó el chunk como poco coherente, o Groq no pudo validarlo.
+    En ambos casos el chunk está indexado y participa en la búsqueda con peso
+    normal; acá el admin lo revisa para editar / aprobar / rechazar.
+
+    Los 'skipped' se excluyen de esta cola: son los que el ADMIN ya rechazó
+    explícitamente (decisión tomada), no algo pendiente de revisar.
     """
     qdrant = get_qdrant_client()
     collection = f"{tenant_id}_docs"
