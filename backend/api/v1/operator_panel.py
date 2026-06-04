@@ -517,15 +517,24 @@ async def transfer(
     config = await _get_handoff_config(tenant_id)
 
     async with get_pg_session(tenant_id) as session:
-        await session.execute(text("""
+        # Guard de estado: solo se transfiere una conversación ACTIVA (en cola o
+        # siendo atendida). Sin esto, transferir una conversación cerrada la
+        # resucitaba en la cola con un "caso nuevo" que el afiliado ya abandonó.
+        result = await session.execute(text("""
             UPDATE conversaciones
             SET sector_id = :sector_id,
                 status = 'handoff_requested',
                 assigned_operator_id = NULL,
                 handoff_requested_at = NOW(),
                 updated_at = NOW()
-            WHERE id = :id
+            WHERE id = :id AND status IN ('handoff_requested', 'human_attending')
+            RETURNING id
         """), {"id": conversation_id, "sector_id": body.sector_id})
+        if result.fetchone() is None:
+            raise HTTPException(
+                status_code=409,
+                detail="No se puede transferir esta conversación: ya está cerrada o en un estado no válido.",
+            )
 
         msg = body.message or config["transition_messages"].get("sector_transferred") or "Tu consulta fue derivada al área correspondiente."
         await session.execute(text("""

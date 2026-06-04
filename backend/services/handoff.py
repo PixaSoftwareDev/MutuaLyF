@@ -99,6 +99,16 @@ def _is_response_insufficient(
     return not has_high_confidence
 
 
+def _is_chitchat(user_message: str) -> bool:
+    """True si el mensaje es solo saludo/cortesía/confirmación, no una consulta real.
+
+    Se usa para tratar la charla como NEUTRAL en evaluate_handoff: un "gracias"/"ok"
+    entre dos fallos no debe resetear el contador de insuficiencia ni cancelar una
+    derivación ya ofrecida.
+    """
+    return bool(_CHITCHAT_RE.match(user_message.strip()))
+
+
 # ── Signal accumulation in Redis ──────────────────────────────────────────────
 #
 # Antes: get → json.loads → setex. Race condition: dos turnos concurrentes leen
@@ -239,15 +249,20 @@ async def evaluate_handoff(
                 auto_activate=False,
                 offer_message=config["transition_messages"]["handoff_offer"],
             )
+    elif _is_chitchat(user_message):
+        # Charla/cortesía ("gracias", "ok", "listo"): turno NEUTRAL. No incrementa ni
+        # resetea el contador, ni consume ofertas. Un saludo en el medio de fallos no
+        # debe borrar la frustración acumulada ni cancelar una derivación ya ofrecida.
+        pass
     else:
-        # Respuesta exitosa, chitchat o follow-up resuelto -> reset contador.
+        # Respuesta exitosa o follow-up resuelto -> reset contador.
         # Solo borrar si esta presente (evita round-trip innecesario).
         if await _get_insufficient(conversation_id) > 0:
             await _reset_insufficient(conversation_id)
-        # Si el bot respondió DE VERDAD (al menos una source de alta confianza,
-        # no chitchat), consumir cualquier oferta pendiente: el cartel amarillo de
-        # un turno anterior no debe quedar colgado debajo de una respuesta buena.
-        # Si el afiliado vuelve a tener problemas, el contador sube y se ofrece de nuevo.
+        # Si el bot respondió DE VERDAD (al menos una source de alta confianza),
+        # consumir cualquier oferta pendiente: el cartel amarillo de un turno anterior
+        # no debe quedar colgado debajo de una respuesta buena. Si el afiliado vuelve
+        # a tener problemas, el contador sube y se ofrece de nuevo.
         if any(not s.get("low_confidence") for s in sources):
             await clear_offer_pending(conversation_id)
             await _consume_pending_offers(conversation_id, tenant_id)
