@@ -549,9 +549,11 @@ def _entity_split(text: str) -> list[tuple[str, str]]:
     if current is not None:
         entities.append(current)
 
-    # Header de contexto: preámbulo recortado a ~200 chars (no diluir el embedding
-    # de cada ítem con un párrafo largo común a todos).
-    header = " ".join(h.strip() for h in header_lines if h.strip()).strip()[:200]
+    # Header de contexto: SOLO el título de la lista (primera línea no vacía del
+    # preámbulo), recortado. Un prefijo largo común a TODOS los ítems dominaría el
+    # embedding y diluiría la discriminación entre entidades. La info general
+    # (dirección, etc.) ya viene repetida dentro de cada entidad.
+    header = next((h.strip().lstrip("[").rstrip("]") for h in header_lines if h.strip()), "")[:80]
     if not entities:
         return [(header, text)]
     return [(header, "\n".join(e).strip()) for e in entities]
