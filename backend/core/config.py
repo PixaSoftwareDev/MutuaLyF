@@ -193,12 +193,14 @@ class Settings(BaseSettings):
     rrf_k: int = 60                     # RRF constant (standard value, rarely changed)
     skipped_chunk_score_penalty: float = 0.85  # score multiplier for quality_gate_status=skipped
     low_confidence_fallback_chunks: int = 2    # chunks to include when all below min_score
-    # Piso de confianza para el corte duro anti-alucinación: si el mejor chunk no
-    # supera este score, NO se manda al LLM — se devuelve un mensaje determinístico
-    # de "no encontré info". Por debajo del piso, el material es tan irrelevante que
-    # dárselo al LLM solo induce alucinación. Conservador por default; subir = más
-    # estricto (más "no sé"), bajar = más permisivo (más riesgo de inventar).
-    hard_fallback_min_score: float = 0.35
+    # Piso de confianza para el corte duro anti-alucinación. DESACTIVADO (0.0) por
+    # ahora: el score final tiene escala INCONSISTENTE — RRF (fusión con BM25) lo
+    # comprime a ~0.03, y el reranker (que lo devolvería a ~0.4) no siempre corre.
+    # Un umbral absoluto cortaba chunks relevantes que quedaban en escala RRF →
+    # "no encontré" en casos válidos. Reactivar solo cuando el score esté calibrado
+    # (reranker siempre activo o normalización de escala). El anti-alucinación
+    # mientras tanto vive en el prompt (regla 6) + la advertencia de baja confianza.
+    hard_fallback_min_score: float = 0.0
     max_context_chunks: int = 15        # max chunks sent to LLM in a single query
 
     # ── Conversation history ───────────────────────────────────────────────────
