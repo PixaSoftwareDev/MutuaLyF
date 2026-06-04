@@ -263,9 +263,21 @@ ssh ... 'cd /opt/mutualyf && git pull --rebase'
 docker compose -f docker-compose.yml -f docker-compose.prod.yml build backend frontend
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --force-recreate backend frontend celery_worker
 
+# Asegurar servicios de inferencia (TEI reranker) — idempotente, los deja arriba si
+# no lo están. NECESARIO porque RERANKER_PROVIDER=tei; si el reranker no corre, el
+# scoring degrada. tei-model-init descarga el modelo la primera vez y exitea.
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d tei-model-init tei-reranker
+
 # Si tocaste migración
 docker exec -w /app ia_backend alembic -c db/alembic.ini upgrade head
 ```
+
+> **Reranker (TEI):** el backend usa `RERANKER_PROVIDER=tei` (en el `.env`) → rerankea
+> contra el container `tei-reranker` (rápido y consistente, no satura el backend). Ese
+> servicio NO se recrea al desplegar código (no cambia), pero tiene `restart:
+> unless-stopped` → sobrevive reinicios. Si alguna vez hacés `docker compose down`,
+> volvelo a levantar con el comando de "servicios de inferencia" de arriba. Verificar:
+> `docker exec ia_backend curl -s -o /dev/null -w "%{http_code}" http://tei-reranker:80/health` → 200.
 
 ## 13. Tabla rápida — "qué hago si..."
 
