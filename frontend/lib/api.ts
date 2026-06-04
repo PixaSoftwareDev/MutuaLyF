@@ -355,6 +355,7 @@ export interface HandoffConfig {
   inactivity_timeout_minutes: number;
   consecutive_insufficient_count: number;
   attention_hours: string | null;
+  contact_info: string | null;
   transition_messages: Record<string, string>;
   updated_at: string;
 }

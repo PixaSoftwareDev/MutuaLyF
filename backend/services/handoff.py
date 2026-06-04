@@ -365,7 +365,7 @@ async def _get_handoff_config(tenant_id: str) -> dict:
 
         async with get_pg_session(tenant_id) as session:
             result = await session.execute(text("""
-                SELECT consecutive_insufficient_count, attention_hours, transition_messages
+                SELECT consecutive_insufficient_count, attention_hours, contact_info, transition_messages
                 FROM handoff_config LIMIT 1
             """))
             row = result.mappings().fetchone()
@@ -373,6 +373,7 @@ async def _get_handoff_config(tenant_id: str) -> dict:
         config = {
             "consecutive_insufficient_count": row["consecutive_insufficient_count"] if row else 3,
             "attention_hours":                row["attention_hours"] if row else None,
+            "contact_info":                   row["contact_info"] if row else None,
             "transition_messages":            dict(row["transition_messages"]) if row else {},
             "_ts": time.monotonic(),
         }
@@ -381,6 +382,7 @@ async def _get_handoff_config(tenant_id: str) -> dict:
         config = {
             "consecutive_insufficient_count": 3,
             "attention_hours": None,
+            "contact_info": None,
             "transition_messages": {
                 "handoff_offer": "¿Querés que te conecte con un operador?",
                 "handoff_confirmed": "Listo, tu solicitud fue recibida. Un operador te atenderá en breve.",
@@ -428,9 +430,24 @@ async def has_online_operators(tenant_id: str, sector_id: str | None) -> bool:
 
 def build_no_operators_message(config: dict) -> str:
     """Mensaje cuando el afiliado necesitaría un operador pero no hay ninguno online.
-    Incluye el horario de atención del tenant si está configurado (texto libre)."""
-    base = "En este momento no hay operadores disponibles para atenderte."
+    Incluye el horario de atención y el contacto del tenant si están configurados."""
+    parts = ["En este momento no hay operadores disponibles para atenderte."]
     hours = (config.get("attention_hours") or "").strip()
     if hours:
-        return f"{base} Nuestro horario de atención es: {hours}."
-    return base
+        parts.append(f"Nuestro horario de atención es: {hours}.")
+    contact = (config.get("contact_info") or "").strip()
+    if contact:
+        parts.append(f"También podés comunicarte: {contact}.")
+    return " ".join(parts)
+
+
+def build_no_info_message(config: dict) -> str:
+    """Mensaje determinístico cuando el RAG no encontró información confiable.
+
+    Se devuelve SIN llamar al LLM → cero posibilidad de alucinación. Reutiliza el
+    contact_info del tenant (mismo campo que el mensaje de no-operadores)."""
+    base = "No encontré esa información en los documentos disponibles."
+    contact = (config.get("contact_info") or "").strip()
+    if contact:
+        return f"{base} Para más ayuda podés comunicarte: {contact}."
+    return f"{base} Te recomiendo consultar directamente con la organización."

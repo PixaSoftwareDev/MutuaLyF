@@ -43,6 +43,7 @@ export function HandoffSettings() {
   const [timeout, setTimeout_]   = useState(15);
   const [threshold, setThreshold] = useState(3);
   const [attentionHours, setAttentionHours] = useState("");
+  const [contactInfo, setContactInfo] = useState("");
   const [messages, setMessages]   = useState<Record<string, string>>({});
   const [dirty, setDirty]         = useState(false);
 
@@ -51,6 +52,7 @@ export function HandoffSettings() {
     setTimeout_(config.inactivity_timeout_minutes);
     setThreshold(config.consecutive_insufficient_count);
     setAttentionHours(config.attention_hours || "");
+    setContactInfo(config.contact_info || "");
     setMessages(config.transition_messages || {});
   }, [config]);
 
@@ -59,6 +61,7 @@ export function HandoffSettings() {
       inactivity_timeout_minutes:     timeout,
       consecutive_insufficient_count: threshold,
       attention_hours:                attentionHours,
+      contact_info:                   contactInfo,
       transition_messages:            messages,
     }),
     onSuccess: () => { setDirty(false); toast({ title: "Configuración guardada", variant: "success" }); },
@@ -118,6 +121,19 @@ export function HandoffSettings() {
             />
             <p className="text-[11px] text-muted-foreground leading-snug">
               Cuando no hay operadores conectados, el asistente no ofrece derivar y muestra este horario al afiliado. Dejalo vacío para no mostrar ningún horario.
+            </p>
+          </div>
+          <Separator />
+          <div className="space-y-1.5">
+            <Label className="text-sm">Datos de contacto</Label>
+            <Input
+              value={contactInfo}
+              onChange={e => { setContactInfo(e.target.value); setDirty(true); }}
+              placeholder="Ej: Tel. 0342 452 0074 · recepcion@organizacion.com"
+              className="max-w-md"
+            />
+            <p className="text-[11px] text-muted-foreground leading-snug">
+              Teléfono o email de contacto. Se muestra al afiliado en dos casos: cuando no hay operadores disponibles, y cuando el asistente no encuentra la respuesta en los documentos (en vez de arriesgar un dato inventado). Dejalo vacío para usar un mensaje genérico.
             </p>
           </div>
         </CardContent>

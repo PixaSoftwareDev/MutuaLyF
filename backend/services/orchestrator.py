@@ -262,6 +262,7 @@ async def handle_query(
     context_parts: list[str] = []
     sources: list[dict] = []
     low_confidence_fallback = False
+    hard_fallback = False   # corte duro anti-alucinación: best_score < piso → no LLM
 
     all_chunks = list(qdrant_chunks or [])
 
@@ -283,28 +284,38 @@ async def handle_query(
             "score": round(chunk.score, 4),
         })
 
-    # Adaptive fallback: if nothing passed the threshold but results exist,
-    # include the top-2 chunks with a low-confidence warning so the LLM can
-    # give a cautious partial answer instead of a hard "no information" reply.
+    # Fallback de dos bandas cuando nada superó el umbral pero hay resultados:
+    #  - best_score < piso (hard_fallback_min_score): material demasiado irrelevante
+    #    → CORTE DURO. No se manda al LLM; se responde un mensaje determinístico de
+    #    "no info" (cero alucinación). Esto ataca el 13.7% de alucinación del report.
+    #  - piso ≤ best_score < min_score: confianza media → incluir top-N con
+    #    advertencia para una respuesta cauta (comportamiento previo).
     if not context_parts and all_chunks:
         best_score = all_chunks[0].score
-        logger.info(
-            "low_confidence_fallback tenant_id=%s best_score=%.3f min_score=%.3f",
-            tenant_id, best_score, min_score,
-        )
-        low_confidence_fallback = True
-        for chunk in all_chunks[:settings.low_confidence_fallback_chunks]:
-            doc_name = chunk.metadata.get("filename", "")
-            chunk_text = f"Fuente: {doc_name}\n{chunk.text}" if doc_name else chunk.text
-            context_parts.append(chunk_text)
-            sources.append({
-                "chunk_id": chunk.chunk_id,
-                "document_id": chunk.document_id,
-                "document_title": chunk.metadata.get("filename", chunk.document_id),
-                "content_excerpt": chunk.text[:200],
-                "score": round(chunk.score, 4),
-                "low_confidence": True,
-            })
+        if best_score < settings.hard_fallback_min_score:
+            hard_fallback = True
+            logger.info(
+                "hard_fallback tenant_id=%s best_score=%.3f piso=%.3f",
+                tenant_id, best_score, settings.hard_fallback_min_score,
+            )
+        else:
+            low_confidence_fallback = True
+            logger.info(
+                "low_confidence_fallback tenant_id=%s best_score=%.3f min_score=%.3f",
+                tenant_id, best_score, min_score,
+            )
+            for chunk in all_chunks[:settings.low_confidence_fallback_chunks]:
+                doc_name = chunk.metadata.get("filename", "")
+                chunk_text = f"Fuente: {doc_name}\n{chunk.text}" if doc_name else chunk.text
+                context_parts.append(chunk_text)
+                sources.append({
+                    "chunk_id": chunk.chunk_id,
+                    "document_id": chunk.document_id,
+                    "document_title": chunk.metadata.get("filename", chunk.document_id),
+                    "content_excerpt": chunk.text[:200],
+                    "score": round(chunk.score, 4),
+                    "low_confidence": True,
+                })
 
     # Re-order passed chunks: group by document (most relevant doc first),
     # then sort each group by chunk_index so the LLM reads in document order.
@@ -470,6 +481,24 @@ async def handle_query(
 
     messages.append({"role": "user", "content": sanitized_q})
 
+    if hard_fallback:
+        # Corte duro: respuesta determinística con el contacto del tenant, sin LLM.
+        # Imposible alucinar porque no hay generación. Reusa el contact_info del
+        # config del handoff (mismo campo que el mensaje de "no hay operadores").
+        from services.handoff import _get_handoff_config, build_no_info_message
+        handoff_cfg = await _get_handoff_config(tenant_id)
+        answer = build_no_info_message(handoff_cfg)
+        latency_ms = int(time.monotonic() * 1000) - start_ms
+        return {
+            "answer": answer,
+            "sources": [],
+            "intent_label": intent_result.label if intent_result else None,
+            "intent_confidence": intent_result.confidence if intent_result else None,
+            "from_cache": False,
+            "latency_ms": latency_ms,
+            "low_confidence": True,
+        }
+
     try:
         answer = await complete(
             messages=messages,
@@ -512,7 +541,11 @@ async def handle_query(
     # La señal autoritativa es del RAG (low_confidence_fallback / sin sources de
     # confianza), no string matching — genérico, sin keywords.
     # Saludos cortos (<60 chars) con respuesta normal sí se cachean.
-    _no_info_marker = "No tengo información sobre ese tema en los documentos"
+    # El LLM, cuando no encuentra info (regla 6 del prompt anti-alucinación), responde
+    # "No encontré esa información...". El marker viejo ("No tengo información sobre ese
+    # tema...") NUNCA coincidía → esas respuestas de "no sé" se cacheaban por error y se
+    # servían repetidas. Alineado con el texto real que emite el bot.
+    _no_info_marker = "No encontré esa información"
     is_no_info = _no_info_marker in (answer or "")
     is_long_no_sources = not sources and len(answer or "") > 60
     if not is_no_info and not is_long_no_sources and not low_confidence_fallback and sources:
