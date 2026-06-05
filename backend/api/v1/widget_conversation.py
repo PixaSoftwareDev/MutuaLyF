@@ -263,6 +263,7 @@ async def send_message(
         tenant_id=tenant_id,
         user_message=body.content,
         sources=sources,
+        bot_answer=bot_answer,
     )
 
     handoff_message = None

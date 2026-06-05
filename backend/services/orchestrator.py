@@ -554,8 +554,11 @@ async def handle_query(
     # "No encontré esa información...". El marker viejo ("No tengo información sobre ese
     # tema...") NUNCA coincidía → esas respuestas de "no sé" se cacheaban por error y se
     # servían repetidas. Alineado con el texto real que emite el bot.
-    _no_info_marker = "No encontré esa información"
-    is_no_info = _no_info_marker in (answer or "")
+    _no_info_markers = [
+        "No encontré esa información",
+        "fuera de mi área de conocimiento",  # respuesta de bot_scope cuando query es off-topic
+    ]
+    is_no_info = any(m in (answer or "") for m in _no_info_markers)
     is_long_no_sources = not sources and len(answer or "") > 60
     if not is_no_info and not is_long_no_sources and not low_confidence_fallback and sources:
         await _set_cache(question_hash, tenant_id, response)

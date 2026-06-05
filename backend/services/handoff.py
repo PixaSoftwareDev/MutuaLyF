@@ -67,21 +67,23 @@ _MIN_WORDS_FOR_INSUFFICIENT = 1  # Solo descarta mensajes vacíos. Una consulta 
 # si el RAG no la pudo responder. Los saludos/confirmaciones de 1 palabra los
 # filtra _CHITCHAT_RE; la señal autoritativa de insuficiencia la da el RAG.
 
+_NO_INFO_PATTERNS = [
+    "No encontré esa información",
+    "fuera de mi área de conocimiento",  # respuesta de bot con bot_scope configurado
+]
+
 def _is_response_insufficient(
     sources: list,
     user_message: str,
+    bot_answer: str = "",
 ) -> bool:
     """True si el turno cuenta como "el bot no pudo responder".
 
-    Senial autoritativa: ¿el RAG devolvio fuentes de confianza normal?
-
-    El orquestador tiene un "low_confidence_fallback": si ningun chunk supero
-    el threshold de relevancia, igual mete los top-N chunks "menos malos" en
-    sources con flag low_confidence=true para que el LLM intente una respuesta
-    cautelosa. Para handoff esos chunks NO valen — son ruido. Solo contamos
-    el turno como suficiente si hubo al menos una source de confianza normal.
-
-    Inmune a paráfrasis del LLM: la senial viene del RAG, no del texto.
+    Dos señales (cualquiera basta):
+    1. El bot_answer contiene una frase de "no sé" — cubre respuestas cacheadas
+       y casos donde el LLM rechaza la query por bot_scope aunque el RAG haya
+       devuelto sources con low_confidence=None.
+    2. El RAG no devolvió ninguna source de alta confianza — señal original.
 
     Filtros para evitar falsos positivos:
     - Saludos y respuestas cortas (chitchat) no cuentan.
@@ -93,8 +95,11 @@ def _is_response_insufficient(
     if _CHITCHAT_RE.match(msg):
         return False
 
-    # sources con low_confidence=True son el fallback del orquestador para
-    # que el LLM no responda "no se" en seco. No cuentan como respuesta valida.
+    # Señal 1: el bot explícitamente dijo que no puede responder.
+    if any(p in (bot_answer or "") for p in _NO_INFO_PATTERNS):
+        return True
+
+    # Señal 2: sources con low_confidence=True son el fallback del orquestador.
     has_high_confidence = any(not s.get("low_confidence") for s in sources)
     return not has_high_confidence
 
@@ -218,6 +223,7 @@ async def evaluate_handoff(
     tenant_id: str,
     user_message: str,
     sources: list,
+    bot_answer: str = "",
 ) -> HandoffSignal:
     """Decide si ofrecer derivacion despues del turno actual del bot.
 
@@ -231,7 +237,7 @@ async def evaluate_handoff(
     config = await _get_handoff_config(tenant_id)
     offer_pending = await _is_offer_pending(conversation_id)
 
-    if _is_response_insufficient(sources, user_message):
+    if _is_response_insufficient(sources, user_message, bot_answer):
         count = await _incr_insufficient(conversation_id)
         threshold = config["consecutive_insufficient_count"]
         if count >= threshold:
