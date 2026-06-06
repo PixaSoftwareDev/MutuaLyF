@@ -134,6 +134,10 @@ CREATE TABLE IF NOT EXISTS mensajes (
     content          TEXT NOT NULL,
     is_handoff_offer BOOLEAN NOT NULL DEFAULT FALSE,
     read_at          TIMESTAMPTZ,
+    attachment_key   TEXT,            -- key del objeto en MinIO (NULL = sin adjunto)
+    attachment_name  TEXT,            -- nombre original del archivo
+    attachment_mime  TEXT,            -- content-type (image/*, application/pdf)
+    attachment_size  INTEGER,         -- bytes
     created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS ix_mensajes_conversation ON mensajes (conversation_id, created_at);

@@ -329,7 +329,8 @@ async def _read_conversation_snapshot(tenant_id: str, conversation_id: str, widg
             return None
 
         msg_rows = (await session.execute(text("""
-            SELECT id, sender_type, content, is_handoff_offer, created_at
+            SELECT id, sender_type, content, is_handoff_offer, created_at,
+                   attachment_key, attachment_name, attachment_mime, attachment_size
             FROM mensajes
             WHERE conversation_id = :cid
             ORDER BY created_at ASC
@@ -343,6 +344,11 @@ async def _read_conversation_snapshot(tenant_id: str, conversation_id: str, widg
                 "content": r["content"],
                 "is_handoff_offer": bool(r["is_handoff_offer"]),
                 "created_at": r["created_at"].isoformat(),
+                # Adjunto (None si el mensaje es solo texto). El frontend usa
+                # attachment_name/mime para decidir si renderiza imagen o link.
+                "attachment_name": r["attachment_name"],
+                "attachment_mime": r["attachment_mime"],
+                "attachment_size": r["attachment_size"],
             }
             for r in msg_rows
         ]

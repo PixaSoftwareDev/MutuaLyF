@@ -364,7 +364,8 @@ async def get_conversation(
             raise HTTPException(status_code=404, detail="Conversation not found")
 
         msg_result = await session.execute(text("""
-            SELECT id, sender_type, content, read_at, created_at
+            SELECT id, sender_type, content, read_at, created_at,
+                   attachment_key, attachment_name, attachment_mime, attachment_size
             FROM mensajes WHERE conversation_id = :id ORDER BY created_at ASC
         """), {"id": conversation_id})
         messages = [dict(r) for r in msg_result.mappings().all()]
@@ -395,6 +396,9 @@ async def get_conversation(
                 "sender_type": m["sender_type"],
                 "content": m["content"],
                 "created_at": m["created_at"].isoformat(),
+                "attachment_name": m.get("attachment_name"),
+                "attachment_mime": m.get("attachment_mime"),
+                "attachment_size": m.get("attachment_size"),
             }
             for m in messages
         ],
