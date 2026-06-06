@@ -346,18 +346,24 @@ async def retrieve(
         return []
 
     # ── 3. Build chunk list with parent_id from Qdrant payload ──────────────
-    chunks = [
-        RetrievedChunk(
+    chunks = []
+    for point in results:
+        md = {k: v for k, v in point.payload.items() if k not in ("text", "document_id")}
+        # Preservar el cosine original de Qdrant ANTES de que RRF/reranker
+        # sobreescriban .score. Es la señal de relevancia semántica más estable:
+        # no depende de que el reranker corra ni de la escala del RRF. El filtro de
+        # relevancia (orchestrator) la usa como piso para no descartar chunks
+        # semánticamente relevantes cuyo score post-pipeline quedó en otra escala.
+        md["_cosine_score"] = float(point.score)
+        chunks.append(RetrievedChunk(
             chunk_id=str(point.id),
             document_id=point.payload.get("document_id", ""),
             text=point.payload.get("text", ""),
             score=float(point.score),
             quality_gate_status=point.payload.get("quality_gate_status", "unknown"),
-            metadata={k: v for k, v in point.payload.items() if k not in ("text", "document_id")},
+            metadata=md,
             parent_id=point.payload.get("parent_id"),
-        )
-        for point in results
-    ]
+        ))
 
     # Skipped chunks participate in search but get a score penalty
     for chunk in chunks:

@@ -276,10 +276,18 @@ async def handle_query(
     all_chunks = list(qdrant_chunks or [])
 
     for chunk in all_chunks:
-        if chunk.score < min_score:
+        # Relevancia robusta a la escala del score. Usamos el MÁXIMO entre el score
+        # post-pipeline (RRF/reranker, que puede quedar en escala chica ~0.01 si el
+        # reranker no corrió) y el cosine original de Qdrant (escala estable ~0.5+).
+        # Sin esto, un chunk semánticamente muy relevante (cosine 0.6) era descartado
+        # por tener RRF 0.016 < min_score 0.55 — esto rompía listados/enumeraciones
+        # donde cada miembro de la categoría tiene cosine alto pero RRF bajo, dejando
+        # respuestas incompletas o falsos "no encontré". Genérico para cualquier tenant.
+        relevance = max(chunk.score, chunk.metadata.get("_cosine_score", 0.0))
+        if relevance < min_score:
             logger.debug(
-                "chunk_below_threshold chunk_id=%s score=%.3f min=%.3f",
-                chunk.chunk_id, chunk.score, min_score,
+                "chunk_below_threshold chunk_id=%s score=%.3f cosine=%.3f min=%.3f",
+                chunk.chunk_id, chunk.score, chunk.metadata.get("_cosine_score", 0.0), min_score,
             )
             continue
         doc_name = chunk.metadata.get("filename", "")
