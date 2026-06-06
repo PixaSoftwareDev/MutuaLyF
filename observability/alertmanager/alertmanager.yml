@@ -1,39 +1,55 @@
 global:
   resolve_timeout: 5m
+  # SMTP vía Resend. El password (API key de Resend) NO va acá: se lee de un
+  # secret-file montado en el container (igual patrón que el token de Telegram),
+  # así no se commitea. Crear en VPS:
+  #   printf '%s' "$SMTP_PASSWORD" > /opt/mutualyf/secrets/smtp_password
+  smtp_smarthost: "smtp.resend.com:587"
+  smtp_from: "Intellix Alertas <noreply@intellix.com.ar>"
+  smtp_auth_username: "resend"
+  smtp_auth_password_file: /etc/alertmanager/smtp_password
+  smtp_require_tls: true
 
-# El default es 'null' (no-op) para que Alertmanager pueda arrancar sin que el
-# operador haya completado el setup de Telegram. Cuando esté listo: comentar
-# 'receiver: null' y descomentar 'receiver: telegram' + completar chat_id.
 route:
-  receiver: "null"
-  # receiver: telegram      # ← Descomentar después de configurar telegram_token + chat_id
+  receiver: email
   group_by: ["alertname", "severity"]
   group_wait: 30s
   group_interval: 5m
   repeat_interval: 4h
 
 inhibit_rules:
+  # Si la plataforma entera está caída, no spamear con los warnings derivados.
   - source_matchers: [alertname="PlatformDown"]
     target_matchers: [severity="warning"]
     equal: ["alertname"]
 
 receivers:
-  # Receiver vacío — Alertmanager loguea las alertas pero no las despacha.
-  # Suficiente para arrancar sin tener Telegram listo aún.
-  - name: "null"
-
-  # Activar editando este bloque y cambiando 'route.receiver' arriba.
-  # - name: telegram
-  #   telegram_configs:
-  #     - bot_token_file: /etc/alertmanager/telegram_token
-  #       chat_id: 123456789       # ← REEMPLAZAR con el chat_id real (entero, sin comillas)
-  #       parse_mode: HTML
-  #       send_resolved: true
-  #       message: |
-  #         {{ if eq .Status "firing" }}🚨 <b>ALERTA</b>{{ else }}✅ <b>RESUELTA</b>{{ end }}
-  #         <b>{{ .CommonLabels.alertname }}</b> ({{ .CommonLabels.severity }})
-  #
-  #         {{ range .Alerts -}}
-  #         {{ .Annotations.summary }}
-  #         <i>{{ .Annotations.description }}</i>
-  #         {{ end }}
+  - name: email
+    email_configs:
+      - to: "alemaros20@gmail.com"
+        send_resolved: true
+        headers:
+          Subject: '{{ if eq .Status "firing" }}🚨 [Intellix] {{ .CommonLabels.alertname }} ({{ .Alerts.Firing | len }}){{ else }}✅ [Intellix] RESUELTA: {{ .CommonLabels.alertname }}{{ end }}'
+        html: |
+          <div style="font-family:Arial,sans-serif;font-size:14px;color:#1f2937">
+            <h2 style="margin:0 0 4px">
+              {{ if eq .Status "firing" }}🚨 Alerta activa{{ else }}✅ Alerta resuelta{{ end }}
+              — {{ .CommonLabels.alertname }}
+            </h2>
+            <p style="margin:0 0 12px;color:#6b7280">
+              Severidad: <b>{{ .CommonLabels.severity }}</b> · Plataforma Intellix (mutualyf prod)
+            </p>
+            {{ range .Alerts }}
+            <div style="border-left:4px solid {{ if eq .Status "firing" }}#dc2626{{ else }}#16a34a{{ end }};padding:8px 12px;margin:8px 0;background:#f9fafb">
+              <div style="font-weight:bold">{{ .Annotations.summary }}</div>
+              <div style="color:#374151;margin-top:4px">{{ .Annotations.description }}</div>
+              <div style="color:#9ca3af;font-size:12px;margin-top:6px">
+                Desde: {{ .StartsAt.Format "02/01 15:04" }}
+                {{ if .Labels.instance }} · {{ .Labels.instance }}{{ end }}
+              </div>
+            </div>
+            {{ end }}
+            <p style="margin-top:16px;color:#9ca3af;font-size:12px">
+              Grafana: http://localhost:3001 (vía túnel SSH) · Alertmanager: http://localhost:9093
+            </p>
+          </div>

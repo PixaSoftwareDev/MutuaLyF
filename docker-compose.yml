@@ -520,6 +520,9 @@ services:
       # Token de Telegram en un archivo aparte (montado solo si existe).
       # Crear en VPS: echo "BOT_TOKEN" > /opt/mutualyf/secrets/telegram_token
       - /opt/mutualyf/secrets/telegram_token:/etc/alertmanager/telegram_token:ro
+      # Password SMTP (API key de Resend) en secret-file aparte — no en git.
+      # Crear en VPS: printf '%s' "$SMTP_PASSWORD" > /opt/mutualyf/secrets/smtp_password
+      - /opt/mutualyf/secrets/smtp_password:/etc/alertmanager/smtp_password:ro
       - alertmanager_data:/alertmanager
     networks:
       - internal

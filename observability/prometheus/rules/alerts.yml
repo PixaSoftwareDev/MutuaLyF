@@ -73,6 +73,44 @@ groups:
           summary: "Redis no responde"
           description: "Sin Redis: sin cache, sin rate limit, sin broker Celery. Ver runbook sección 3."
 
+  - name: groq_llm
+    interval: 30s
+    rules:
+
+      # ── Groq caído / sin saldo ──────────────────────────────────────────────
+      # status="error" cubre 401/403 (API key sin crédito o inválida) y 5xx de
+      # Groq. Si hay errores Y cero respuestas exitosas en 10m, el LLM no está
+      # funcionando: la causa más común en prod es que la cuenta Groq se quedó
+      # sin saldo. Crítico — sin LLM el bot no responde consultas.
+      - alert: GroqDownOrNoCredit
+        expr: |
+          sum(rate(ia_groq_requests_total{status="error"}[10m])) > 0
+          and
+          sum(rate(ia_groq_requests_total{status="success"}[10m])) == 0
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Groq no responde — posible cuenta sin saldo"
+          description: "Todas las llamadas a Groq fallan hace 3 min (0 éxitos). Verificar saldo/estado de la API key en console.groq.com. Ver runbook sección 'Groq'."
+
+      # ── Groq degradado (errores parciales) ──────────────────────────────────
+      # Más del 20% de las llamadas fallan (error/timeout/rate_limit) pero algunas
+      # pasan. Señal temprana: saldo bajándose, rate-limit del plan, o Groq lento.
+      - alert: GroqDegraded
+        expr: |
+          (
+            sum(rate(ia_groq_requests_total{status=~"error|timeout|rate_limit"}[5m]))
+            /
+            sum(rate(ia_groq_requests_total[5m]))
+          ) > 0.2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Groq degradado — >20% de llamadas fallan"
+          description: "1 de cada 5 llamadas a Groq falla (error/timeout/rate_limit). Revisar saldo y rate-limit del plan en console.groq.com antes de que sea total."
+
   - name: host_resources
     interval: 30s
     rules:
