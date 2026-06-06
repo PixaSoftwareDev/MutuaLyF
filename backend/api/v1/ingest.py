@@ -466,10 +466,17 @@ async def delete_document(
     except Exception as e:
         logger.warning("delete_neo4j_nodes_failed document_id=%s error=%s", document_id, e)
 
-    # 4. Delete parent_chunks (BM25 full-text search index)
+    # 4. Delete parent_chunks (BM25 full-text search index) + pares de duplicados.
+    # Sin limpiar chunk_duplicate_pairs, los pares que referencian este documento
+    # quedan huérfanos y el panel de duplicados los sigue mostrando aunque sus
+    # chunks ya no existan en Qdrant (bug reportado en la demo del 05/06).
     async with get_pg_session(tenant_id) as session:
         await session.execute(
             text("DELETE FROM parent_chunks WHERE document_id = :id"), {"id": document_id}
+        )
+        await session.execute(
+            text("DELETE FROM chunk_duplicate_pairs WHERE doc_id_a = :id OR doc_id_b = :id"),
+            {"id": document_id},
         )
 
     # 5. Delete original file from MinIO
