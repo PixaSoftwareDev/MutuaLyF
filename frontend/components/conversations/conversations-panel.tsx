@@ -5,7 +5,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   MessageSquare, Loader2, Send, UserCheck, UserMinus, XCircle, User, Bot,
   Info, ChevronDown, ChevronLeft, Search, Flame, ArrowRightLeft, Eye, Wifi, WifiOff,
-  RotateCcw, MoreVertical,
+  RotateCcw, MoreVertical, Paperclip,
 } from "lucide-react";
 import { api, type ConversationRow } from "@/lib/api";
 import { renderWithLinks } from "@/lib/render-with-links";
@@ -51,6 +51,7 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
   const [now, setNow] = useState<number>(() => Date.now());
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef    = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef   = useRef<HTMLInputElement>(null);
   const handoffIds     = useRef<Set<string>>(new Set());
   const readOnly = mode === "admin-readonly";
 
@@ -307,6 +308,22 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
     onSuccess: () => toast({ title: "Conversación devuelta a la cola", variant: "success" }),
     onSettled: () => inv(),
   });
+
+  const attachM = useMutation({
+    mutationFn: ({ id, file }: { id: string; file: File }) => api.operator.uploadAttachment(id, file),
+    onSuccess: () => { inv(); },
+    onError:   (err: any) => { alert(err?.response?.data?.detail || "No se pudo enviar el archivo."); },
+  });
+
+  function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file || !detail) return;
+    const ok = ["image/png", "image/jpeg", "image/jpg", "image/webp", "application/pdf"];
+    if (!ok.includes(file.type)) { alert("Solo se permiten imágenes (PNG/JPG/WEBP) o PDF."); return; }
+    if (file.size > 10 * 1024 * 1024) { alert("El archivo supera el máximo de 10 MB."); return; }
+    attachM.mutate({ id: detail.id, file });
+  }
 
   const replyM = useMutation({
     mutationFn: ({ id, content }: { id: string; content: string }) => api.operator.reply(id, content),
@@ -676,7 +693,7 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
             {/* ── Messages ── */}
             <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-muted/30">
               {/* Bot phase — shown inline, no collapsible box */}
-              {botMessages.map(m => <MessageBubble key={m.id} msg={m} />)}
+              {botMessages.map(m => <MessageBubble key={m.id} msg={m} conversationId={detail.id} />)}
 
               {/* Separator marking the handoff */}
               {operatorMessages.length > 0 && botMessages.length > 0 && (
@@ -690,7 +707,7 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
               )}
 
               {/* Operator phase */}
-              {operatorMessages.map(m => <MessageBubble key={m.id} msg={m} />)}
+              {operatorMessages.map(m => <MessageBubble key={m.id} msg={m} conversationId={detail.id} />)}
 
               <div ref={messagesEndRef} />
             </div>
@@ -744,6 +761,13 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
             {/* ── Reply ── */}
             {!readOnly && detail.status === "human_attending" && (
               <div className="px-4 py-3 border-t bg-card flex gap-2 items-end">
+                <input ref={fileInputRef} type="file" className="hidden"
+                       accept="image/png,image/jpeg,image/jpg,image/webp,application/pdf" onChange={onPickFile} />
+                <Button variant="ghost" size="icon" className="h-10 w-10 shrink-0"
+                        disabled={attachM.isPending} title="Adjuntar imagen o PDF (máx. 10 MB)"
+                        onClick={() => fileInputRef.current?.click()}>
+                  {attachM.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}
+                </Button>
                 <textarea
                   ref={textareaRef}
                   rows={2}
@@ -1004,7 +1028,39 @@ function ConvCard({ conv, now, selected, readOnly, onlineNames, onSelect, onAcce
 
 // ── Message bubble ─────────────────────────────────────────────────────────────
 
-export function MessageBubble({ msg }: { msg: { id: string; sender_type: string; content: string; created_at: string } }) {
+function AttachmentView({ conversationId, messageId, name, mime }:
+  { conversationId: string; messageId: string; name: string; mime: string }) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [err, setErr] = useState(false);
+  useEffect(() => {
+    let active = true;
+    let created: string | null = null;
+    api.operator.attachmentBlobUrl(conversationId, messageId)
+      .then(u => { if (active) { created = u; setUrl(u); } else { URL.revokeObjectURL(u); } })
+      .catch(() => { if (active) setErr(true); });
+    return () => { active = false; if (created) URL.revokeObjectURL(created); };
+  }, [conversationId, messageId]);
+  if (err) return <span className="text-[11px] opacity-60 mt-1">No se pudo cargar el adjunto</span>;
+  if (!url) return (
+    <span className="text-[11px] opacity-60 mt-1 inline-flex items-center gap-1">
+      <Loader2 className="h-3 w-3 animate-spin" />{name}
+    </span>
+  );
+  if (mime.startsWith("image/")) return (
+    <img src={url} alt={name} title={name} onClick={() => window.open(url, "_blank")}
+         className="mt-1 max-w-[220px] max-h-[220px] rounded-lg border cursor-pointer" />
+  );
+  return (
+    <a href={url} download={name}
+       className="mt-1 inline-flex items-center gap-1.5 px-3 py-2 bg-black/5 rounded-lg text-xs hover:bg-black/10 break-all">
+      <Paperclip className="h-3.5 w-3.5 shrink-0" />{name}
+    </a>
+  );
+}
+
+export function MessageBubble({ msg, conversationId }:
+  { msg: { id: string; sender_type: string; content: string; created_at: string;
+           attachment_name?: string | null; attachment_mime?: string | null }; conversationId: string }) {
   const isUser     = msg.sender_type === "user";
   const isSystem   = msg.sender_type === "system";
   const isOperator = msg.sender_type === "operator";
@@ -1040,7 +1096,11 @@ export function MessageBubble({ msg }: { msg: { id: string; sender_type: string;
           isOperator && "bg-white border border-emerald-200 text-slate-800 rounded-bl-sm shadow-sm",
           !isUser && !isOperator && "bg-white border border-slate-200 text-slate-800 rounded-bl-sm shadow-sm",
         )}>
-          <p className="whitespace-pre-wrap break-words">{renderWithLinks(msg.content)}</p>
+          {msg.content && <p className="whitespace-pre-wrap break-words">{renderWithLinks(msg.content)}</p>}
+          {msg.attachment_name && (
+            <AttachmentView conversationId={conversationId} messageId={msg.id}
+                            name={msg.attachment_name} mime={msg.attachment_mime || ""} />
+          )}
           <p className={cn("text-[10px] mt-1 opacity-60", isUser ? "text-right" : "text-left")}>{time}</p>
         </div>
         {isOperator && (

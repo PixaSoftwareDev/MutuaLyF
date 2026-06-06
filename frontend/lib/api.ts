@@ -295,7 +295,8 @@ export interface ConversationRow {
 }
 
 export interface ConversationDetail extends ConversationRow {
-  messages: Array<{ id: string; sender_type: string; content: string; created_at: string }>;
+  messages: Array<{ id: string; sender_type: string; content: string; created_at: string;
+                    attachment_name?: string | null; attachment_mime?: string | null; attachment_size?: number | null }>;
 }
 
 export interface ConversationHistoryRow {
@@ -803,6 +804,17 @@ export const api = {
     },
     accept:   async (id: string)                => { await apiClient.post(`/operator/conversations/${id}/accept`); },
     reply:    async (id: string, content: string) => { await apiClient.post(`/operator/conversations/${id}/reply`, { content }); },
+    uploadAttachment: async (id: string, file: File) => {
+      const fd = new FormData();
+      fd.append("file", file);
+      const { data } = await apiClient.post(`/operator/conversations/${id}/attachment`, fd);
+      return data as { message_id: string; attachment_name: string; attachment_mime: string };
+    },
+    /** Descarga el adjunto como blob (con el header de auth) y devuelve un object URL. */
+    attachmentBlobUrl: async (id: string, messageId: string) => {
+      const { data } = await apiClient.get(`/operator/conversations/${id}/attachment/${messageId}`, { responseType: "blob" });
+      return URL.createObjectURL(data as Blob);
+    },
     transfer: async (id: string, sectorId: string, message?: string) => {
       await apiClient.post(`/operator/conversations/${id}/transfer`, { sector_id: sectorId, message });
     },

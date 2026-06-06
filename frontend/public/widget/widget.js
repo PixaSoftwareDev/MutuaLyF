@@ -86,6 +86,7 @@
   var ICON_BACK      = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>';
   var ICON_USERCHECK = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><polyline points="16 11 18 13 22 9"/></svg>';
   var ICON_SPINNER   = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="ia-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>';
+  var ICON_CLIP      = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 1 1-2.83-2.83l8.49-8.48"/></svg>';
 
   // ── Session + remembered sector ──────────────────────────────────────────────
   var SESSION_KEY = "ia_widget_session_" + WIDGET_TOKEN.slice(-8);
@@ -235,6 +236,14 @@
     "#ia-w-input::placeholder{color:" + SLATE_400 + ";}",
     "#ia-w-input:hover{background:#fefefe;}",
     "#ia-w-input:focus{background:#fff;border-color:var(--ia-brand);box-shadow:0 0 0 3px var(--ia-brand-25);}",
+    "#ia-w-clip{flex-shrink:0;width:38px;height:38px;border:none;background:none;color:" + SLATE_400 + ";cursor:pointer;border-radius:50%;display:flex;align-items:center;justify-content:center;transition:all .15s;}",
+    "#ia-w-clip:hover{background:" + SLATE_100 + ";color:var(--ia-brand);}",
+    "#ia-w-clip svg{width:20px;height:20px;}",
+    "#ia-w-clip:disabled{opacity:.45;cursor:default;}",
+    ".ia-w-attach-img{max-width:210px;max-height:210px;border-radius:10px;margin-top:4px;cursor:pointer;display:block;border:1px solid " + SLATE_200 + ";}",
+    ".ia-w-attach-file{display:inline-flex;align-items:center;gap:6px;margin-top:4px;padding:8px 12px;background:rgba(0,0,0,.05);border-radius:10px;text-decoration:none;color:inherit;font-size:13px;word-break:break-all;}",
+    ".ia-w-attach-file svg{width:16px;height:16px;flex-shrink:0;}",
+    ".ia-w-attach-file:hover{background:rgba(0,0,0,.09);}",
     "#ia-w-send{width:46px;height:46px;flex-shrink:0;border-radius:14px;background:linear-gradient(135deg,var(--ia-brand),var(--ia-brand-dark));color:#fff;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,.15);transition:transform .15s,box-shadow .15s,opacity .15s;}",
     "#ia-w-send svg{width:18px;height:18px;}",
     "#ia-w-send:hover:not(:disabled){transform:scale(1.05);box-shadow:0 4px 12px rgba(0,0,0,.22);}",
@@ -268,9 +277,11 @@
     '<div id="ia-w-body"><div id="ia-w-body-inner"></div></div>',
     '<div id="ia-w-inputbar">',
     '  <div id="ia-w-inputrow">',
+    '    <button id="ia-w-clip" type="button" aria-label="Adjuntar archivo">' + ICON_CLIP + '</button>',
     '    <textarea id="ia-w-input" rows="1" placeholder="' + _escape(PLACEHOLDER) + '" autocomplete="off"></textarea>',
     '    <button id="ia-w-send" type="button" aria-label="Enviar">' + ICON_SEND + '</button>',
     '  </div>',
+    '  <input id="ia-w-file" type="file" accept="image/png,image/jpeg,image/jpg,image/webp,application/pdf" style="display:none" />',
     '</div>',
   ].join("");
 
@@ -287,6 +298,8 @@
   var bodyInner  = document.getElementById("ia-w-body-inner");
   var inputEl    = document.getElementById("ia-w-input");
   var sendBtn    = document.getElementById("ia-w-send");
+  var clipBtn    = document.getElementById("ia-w-clip");
+  var fileInput  = document.getElementById("ia-w-file");
   var badge      = document.getElementById("ia-w-badge");
 
   // ── Branding del tenant ───────────────────────────────────────────────────────
@@ -336,6 +349,11 @@
   });
 
   sendBtn.addEventListener("click", _onSubmit);
+  clipBtn.addEventListener("click", function () { if (!fileInput.disabled) fileInput.click(); });
+  fileInput.addEventListener("change", function () {
+    if (fileInput.files && fileInput.files[0]) _uploadAttachment(fileInput.files[0]);
+    fileInput.value = "";
+  });
   inputEl.addEventListener("input", function () {
     this.style.height = "auto";
     this.style.height = Math.min(this.scrollHeight, 96) + "px";
@@ -478,7 +496,7 @@
         bodyInner.innerHTML = "";
         (data.messages || []).forEach(function (m) {
           if (m.is_handoff_offer && data.status === "bot_active") { _showHandoffOffer(m.content); }
-          else { _appendMessage(m.sender_type, m.content); }
+          else { _appendMessage(m.sender_type, m.content, m.attachment_name ? { id: m.id, name: m.attachment_name, mime: m.attachment_mime } : null); }
           lastMessageId = m.id;
         });
         convStatus = data.status;
@@ -544,6 +562,62 @@
       });
   }
 
+  // ── Adjuntos (afiliado → operador) ────────────────────────────────────────────
+  var _OK_ATTACH = ["image/png", "image/jpeg", "image/jpg", "image/webp", "application/pdf"];
+  function _uploadAttachment(file) {
+    if (!conversationId) { _appendMessage("error", "Iniciá la conversación antes de adjuntar."); return; }
+    if (_OK_ATTACH.indexOf(file.type) === -1) { _appendMessage("error", "Solo se permiten imágenes (PNG/JPG/WEBP) o PDF."); return; }
+    if (file.size > 10 * 1024 * 1024) { _appendMessage("error", "El archivo supera el máximo de 10 MB."); return; }
+    clipBtn.disabled = true; sendBtn.disabled = true;
+    var fd = new FormData();
+    fd.append("file", file);
+    fd.append("widget_session_id", widgetSessionId);
+    fetch(API_BASE + "/api/v1/widget/conversation/" + conversationId + "/attachment", {
+      method: "POST",
+      headers: { "Authorization": "Bearer " + WIDGET_TOKEN },  // sin Content-Type: el browser pone el boundary
+      body: fd,
+    })
+      .then(function (r) { return r.ok ? r.json() : r.json().then(function (e) { throw new Error(e.detail || "Error al subir"); }); })
+      .then(function (data) {
+        // Pintar optimista el adjunto del afiliado (el poll lo omite por ser 'user').
+        _appendMessage("user", "", { id: data.message_id, name: data.attachment_name, mime: data.attachment_mime });
+        lastMessageId = data.message_id;
+      })
+      .catch(function (err) { _appendMessage("error", "No se pudo enviar el archivo. " + (err.message || "")); })
+      .finally(function () { clipBtn.disabled = false; sendBtn.disabled = false; });
+  }
+
+  function _renderAttachment(attach, parentEl) {
+    if (!attach || !attach.name) return;
+    var url = API_BASE + "/api/v1/widget/conversation/" + conversationId + "/attachment/" + attach.id +
+              "?widget_session_id=" + encodeURIComponent(widgetSessionId);
+    var isImg = !!(attach.mime && attach.mime.indexOf("image/") === 0);
+    // Una <img src>/<a href> directa NO envía el header Authorization, así que el
+    // download fallaría. Bajamos el archivo con fetch (token en header) y lo
+    // mostramos con un object URL.
+    var el;
+    if (isImg) {
+      el = document.createElement("img"); el.className = "ia-w-attach-img"; el.alt = attach.name; el.title = attach.name;
+    } else {
+      el = document.createElement("a"); el.className = "ia-w-attach-file"; el.href = "#";
+      el.innerHTML = ICON_CLIP + "<span>" + _escape(attach.name) + "</span>";
+    }
+    parentEl.appendChild(el);
+    fetch(url, { headers: { "Authorization": "Bearer " + WIDGET_TOKEN } })
+      .then(function (r) { return r.ok ? r.blob() : null; })
+      .then(function (blob) {
+        if (!blob) return;
+        var burl = URL.createObjectURL(blob);
+        if (isImg) {
+          el.src = burl;
+          el.addEventListener("click", function () { window.open(burl, "_blank"); });
+        } else {
+          el.href = burl; el.setAttribute("download", attach.name);
+        }
+      })
+      .catch(function () {});
+  }
+
   // ── Long-polling (para mensajes de operador / cambios de estado) ──────────────
   function _startPolling() { if (pollTimeout) clearTimeout(pollTimeout); pollAlive = true; _pollLoop(); }
   function _stopPolling() { pollAlive = false; if (pollTimeout) clearTimeout(pollTimeout); pollTimeout = null; }
@@ -570,7 +644,7 @@
           // Solo agregamos mensajes que no hayamos pintado ya (operador / sistema
           // que llegan por poll). Los del bot/user ya se pintaron en _sendMessage.
           if (m.sender_type === "operator" || m.sender_type === "system") {
-            _appendMessage(m.sender_type, m.content);
+            _appendMessage(m.sender_type, m.content, m.attachment_name ? { id: m.id, name: m.attachment_name, mime: m.attachment_mime } : null);
             lastMessageId = m.id;
             if (!panel.classList.contains("open")) { badge.style.display = "flex"; badge.textContent = "!"; }
           } else {
@@ -675,7 +749,7 @@
   }
 
   // ── Render de mensajes (burbujas con avatar, igual que /chat) ─────────────────
-  function _appendMessage(senderType, text) {
+  function _appendMessage(senderType, text, attach) {
     // El typing siempre debe quedar al final; lo removemos antes de insertar.
     var hadTyping = !!typingEl;
     if (hadTyping) _hideTyping();
@@ -685,13 +759,17 @@
     if (senderType === "user") {
       row.className = "ia-w-row user";
       var ub = document.createElement("div"); ub.className = "ia-w-bubble user";
-      _renderTextWithLinks(text, ub); row.appendChild(ub);
+      if (text) _renderTextWithLinks(text, ub);
+      if (attach) _renderAttachment(attach, ub);
+      row.appendChild(ub);
 
     } else if (senderType === "operator") {
       row.className = "ia-w-row";
       var oav = document.createElement("div"); oav.className = "ia-w-bavatar op"; oav.innerHTML = ICON_USERCHECK;
       var owrap = document.createElement("div");
-      var ob = document.createElement("div"); ob.className = "ia-w-bubble op"; _renderTextWithLinks(text, ob);
+      var ob = document.createElement("div"); ob.className = "ia-w-bubble op";
+      if (text) _renderTextWithLinks(text, ob);
+      if (attach) _renderAttachment(attach, ob);
       owrap.appendChild(ob);
       var oname = document.createElement("div"); oname.className = "ia-w-opname"; oname.textContent = operatorName || "Operador";
       owrap.appendChild(oname);

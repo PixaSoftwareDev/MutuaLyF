@@ -264,7 +264,7 @@ export default function OperatorHistoryPage() {
 
             {/* Messages */}
             <div className="flex-1 overflow-y-auto p-4 space-y-3">
-              {botMessages.map(m => <MessageBubble key={m.id} msg={m} />)}
+              {botMessages.map(m => <MessageBubble key={m.id} msg={m} conversationId={detail.id} />)}
               {operatorMessages.length > 0 && botMessages.length > 0 && (
                 <div className="flex items-center gap-2 py-1">
                   <div className="flex-1 border-t border-dashed border-border" />
@@ -274,7 +274,7 @@ export default function OperatorHistoryPage() {
                   <div className="flex-1 border-t border-dashed border-border" />
                 </div>
               )}
-              {operatorMessages.map(m => <MessageBubble key={m.id} msg={m} />)}
+              {operatorMessages.map(m => <MessageBubble key={m.id} msg={m} conversationId={detail.id} />)}
               {detail.messages.length === 0 && (
                 <p className="text-center text-sm text-muted-foreground py-10">Conversación sin mensajes</p>
               )}

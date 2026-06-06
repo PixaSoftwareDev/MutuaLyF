@@ -584,7 +584,7 @@ function ConvDetail({ detail, loading, isError, onRetry, onClose }: {
           </div>
         ) : (
           <>
-            {detail.messages.map(m => <MessageBubble key={m.id} msg={m} />)}
+            {detail.messages.map(m => <MessageBubble key={m.id} msg={m} conversationId={detail.id} />)}
             <div ref={messagesEndRef} />
           </>
         )}
