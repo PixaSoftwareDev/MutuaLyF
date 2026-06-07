@@ -30,6 +30,18 @@ const config: Config = {
           dark: "hsl(var(--brand-dark))",
           light: "hsl(var(--brand-light))",
         },
+        success: {
+          DEFAULT: "hsl(var(--success))",
+          foreground: "hsl(var(--success-foreground))",
+        },
+        warning: {
+          DEFAULT: "hsl(var(--warning))",
+          foreground: "hsl(var(--warning-foreground))",
+        },
+        info: {
+          DEFAULT: "hsl(var(--info))",
+          foreground: "hsl(var(--info-foreground))",
+        },
         secondary: {
           DEFAULT: "hsl(var(--secondary))",
           foreground: "hsl(var(--secondary-foreground))",
@@ -59,6 +71,17 @@ const config: Config = {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
+      },
+      // Escala de elevación suave (Linear/Vercel). Color azul-gris (#101828) en
+      // vez de negro puro → sombras más limpias, menos "sucias". Baja opacidad,
+      // multi-capa. Reemplaza el shadow-sm plano que daba el aspecto "viejo".
+      boxShadow: {
+        xs: "0 1px 2px 0 rgb(16 24 40 / 0.04)",
+        sm: "0 1px 2px 0 rgb(16 24 40 / 0.05), 0 1px 3px 0 rgb(16 24 40 / 0.04)",
+        DEFAULT: "0 1px 3px 0 rgb(16 24 40 / 0.06), 0 4px 8px -2px rgb(16 24 40 / 0.05)",
+        md: "0 2px 4px -1px rgb(16 24 40 / 0.06), 0 8px 16px -4px rgb(16 24 40 / 0.06)",
+        lg: "0 4px 8px -2px rgb(16 24 40 / 0.07), 0 12px 24px -6px rgb(16 24 40 / 0.08)",
+        xl: "0 8px 16px -4px rgb(16 24 40 / 0.08), 0 20px 32px -8px rgb(16 24 40 / 0.10)",
       },
       keyframes: {
         "accordion-down": {
