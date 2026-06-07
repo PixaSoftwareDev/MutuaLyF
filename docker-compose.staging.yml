@@ -1,0 +1,116 @@
+# docker-compose.staging.yml — ambiente de pruebas (dev), AISLADO de producción.
+#
+# Levanta SOLO un frontend y un backend nuevos. Reusa las bases pesadas que ya
+# corren en prod (Postgres, Neo4j, Qdrant, Redis, TEI reranker, MinIO) a través
+# de la red `mutualyf_internal`. No se duplica ninguna base.
+#
+# Aislamiento respecto del cliente (mutualyf):
+#   - Tenant de pruebas: nexo (el tenant lo fuerza nginx en el server block de dev).
+#   - Redis en DBs 3/4/5 (prod usa 0/1/2) → el Celery de staging no toca jobs de prod.
+#   - Caps de CPU/RAM → prod siempre tiene prioridad, el cliente no siente el staging.
+#   - El prompt del sistema es global y compartido: NO se toca en staging.
+#
+# Uso (desde /opt/mutualyf-staging, rama dev):
+#   docker compose -f docker-compose.staging.yml up -d --build
+#   docker compose -f docker-compose.staging.yml down
+#
+# Acceso público: https://dev.intellix.com.ar (enrutado por el nginx de prod).
+
+name: mutualyf-staging
+
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+
+  # ── Backend de pruebas ─────────────────────────────────────────────────────
+  backend_staging:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ia_backend_staging
+    restart: unless-stopped
+    # 1 worker alcanza para pruebas; mantiene el consumo bajo. Prod usa 4.
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1 --log-level info --timeout-keep-alive 30 --timeout-graceful-shutdown 30
+    env_file: .env
+    environment:
+      ENVIRONMENT: staging
+      # Redis en DBs separadas de prod (0/1/2). Evita colisión de broker/cache/ratelimit.
+      REDIS_URL_BROKER: redis://redis:6379/3
+      REDIS_URL_CACHE: redis://redis:6379/4
+      REDIS_URL_RATELIMIT: redis://redis:6379/5
+      # Mismo reranker TEI que prod (read-only, sin estado por tenant).
+      RERANKER_PROVIDER: ${RERANKER_PROVIDER:-tei}
+      TEI_RERANKER_URL: ${TEI_RERANKER_URL:-http://tei-reranker:80}
+    ports:
+      # Solo loopback, para debug por túnel SSH. No se expone público (eso lo hace nginx).
+      - "127.0.0.1:8002:8000"
+    volumes:
+      - ./backend:/app
+      # Cache de modelos HF compartido con prod (read-mostly, content-addressed e
+      # inmutable) → staging arranca sin re-descargar ~2.5GB ni esperar el warmup.
+      - mutualyf_models_data:/root/.cache/huggingface
+      # Uploads y branding PROPIOS de staging (no mezcla archivos con prod).
+      - staging_uploads:/tmp/ia_ingest
+      - staging_branding:/uploads
+    networks:
+      - mutualyf_internal
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+      interval: 30s
+      timeout: 30s
+      retries: 10
+      start_period: 180s
+    logging: *default-logging
+    mem_limit: 1500m
+    cpus: 2
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 1500M
+
+  # ── Frontend de pruebas ────────────────────────────────────────────────────
+  frontend_staging:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # Vacío → el front usa rutas relativas (/api/...). nginx (server dev) las
+        # enruta al backend_staging. Mismo patrón que prod.
+        - NEXT_PUBLIC_API_URL=
+    container_name: ia_frontend_staging
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_API_URL=
+      - PORT=3000
+      - HOSTNAME=0.0.0.0
+    networks:
+      - mutualyf_internal
+    depends_on:
+      - backend_staging
+    logging: *default-logging
+    mem_limit: 1g
+    cpus: 1
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1G
+
+networks:
+  # La red ya existe (la crea el compose de prod). Acá solo nos enganchamos.
+  mutualyf_internal:
+    external: true
+
+volumes:
+  # Volumen de modelos de prod, reusado para no duplicar el cache de HF en disco.
+  mutualyf_models_data:
+    external: true
+  staging_uploads:
+  staging_branding:
