@@ -73,35 +73,45 @@ services:
           cpus: "2"
           memory: 1500M
 
-  # ── Frontend de pruebas ────────────────────────────────────────────────────
+  # ── Frontend de pruebas (HOT-RELOAD) ───────────────────────────────────────
+  # Modo dev de Next.js: los cambios bajo ./frontend se reflejan SIN rebuild.
+  # Flujo: editás local → push a rama dev → en el VPS `git pull` en el worktree
+  # → Next recompila en caliente y lo ves en segundos en dev.intellix.com.ar.
+  # El HMR (websocket) pasa por nginx, que ya tiene Upgrade/Connection en /.
   frontend_staging:
     build:
       context: ./frontend
-      dockerfile: Dockerfile
-      args:
-        # Vacío → el front usa rutas relativas (/api/...). nginx (server dev) las
-        # enruta al backend_staging. Mismo patrón que prod.
-        - NEXT_PUBLIC_API_URL=
+      dockerfile: Dockerfile.dev
     container_name: ia_frontend_staging
     restart: unless-stopped
     env_file: .env
     environment:
-      - NODE_ENV=production
-      - NEXT_PUBLIC_API_URL=
-      - PORT=3000
-      - HOSTNAME=0.0.0.0
+      NODE_ENV: development
+      NEXT_PUBLIC_API_URL: ""
+      # Precarga el tenant de pruebas en /login (en prod se resuelve por subdominio).
+      NEXT_PUBLIC_DEFAULT_TENANT: "nexo"
+      PORT: "3000"
+      HOSTNAME: "0.0.0.0"
+      # Polling para que detecte cambios de archivos de forma robusta sobre bind mount.
+      WATCHPACK_POLLING: "true"
+      CHOKIDAR_USEPOLLING: "true"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    command: ["npm", "run", "dev"]
     networks:
       - mutualyf_internal
     depends_on:
       - backend_staging
     logging: *default-logging
-    mem_limit: 1g
-    cpus: 1
+    mem_limit: 1500m
+    cpus: 2
     deploy:
       resources:
         limits:
-          cpus: "1"
-          memory: 1G
+          cpus: "2"
+          memory: 1500M
 
 networks:
   # La red ya existe (la crea el compose de prod). Acá solo nos enganchamos.
