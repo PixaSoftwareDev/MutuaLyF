@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import Image from "next/image";
 import {
-  Inbox, FileText, Tags, Settings, LogOut, ChevronLeft, ChevronRight,
+  Inbox, FileText, Tags, Settings, LogOut, PanelLeftClose, PanelLeftOpen,
   Shield, Building2, GitMerge, Users, ExternalLink, FlaskConical, ClipboardList, Bot, Network, X, Palette, UserCog,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -166,15 +166,16 @@ export function Sidebar() {
         className={cn(
           "flex flex-col border-r border-white/[0.06] text-slate-300",
           "fixed inset-y-0 left-0 z-50 lg:static lg:z-auto",
-          "transition-transform duration-200 ease-in-out",
+          // Transición tranquila de ancho + slide. Easing suave (ease-out-quint).
+          "transition-[transform,width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
           mobileSidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0",
-          collapsed ? "lg:w-[64px] w-64" : "w-64 lg:w-60",
+          collapsed ? "lg:w-[68px] w-64" : "w-64 lg:w-60",
         )}
         style={{
           // Identidad Intellix: glow de marca (índigo/violeta) detrás del wordmark
-          // + degradé vertical con profundidad. No es negro plano.
+          // + degradé vertical con profundidad. Navy un punto más elevado (respira).
           background:
-            "radial-gradient(130% 55% at 50% 0%, rgba(110,90,255,0.20) 0%, transparent 58%), linear-gradient(180deg, #17183a 0%, #121327 52%, #0d0e1e 100%)",
+            "radial-gradient(135% 56% at 50% 0%, rgba(124,104,255,0.22) 0%, transparent 60%), linear-gradient(180deg, #1d1e44 0%, #17182f 52%, #101126 100%)",
         }}
       >
         {/* Brand Intellix — wordmark del producto. Colapsado (desktop) → icono. */}
@@ -362,12 +363,15 @@ export function Sidebar() {
           </button>
         </div>
 
-        {/* Collapse toggle — desktop only */}
+        {/* Collapse toggle — desktop only. Ícono de panel moderno (no chevron),
+            con micro-interacción (scale en hover/active) para sensación de calidad. */}
         <button
           onClick={toggleSidebar}
-          className="hidden lg:flex absolute -right-3 top-16 z-10 h-6 w-6 items-center justify-center rounded-full border border-white/10 bg-[#121327] text-slate-300 shadow-md hover:text-white hover:border-white/20 transition-all"
+          aria-label={collapsed ? "Expandir menú" : "Contraer menú"}
+          title={collapsed ? "Expandir menú" : "Contraer menú"}
+          className="hidden lg:flex absolute -right-3.5 top-[70px] z-10 h-7 w-7 items-center justify-center rounded-lg border border-white/10 bg-[#1a1b3a] text-slate-400 shadow-lg shadow-black/30 hover:text-white hover:bg-[#24264c] hover:border-white/25 hover:scale-105 active:scale-95 transition-all duration-200"
         >
-          {collapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronLeft className="h-3 w-3" />}
+          {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
         </button>
       </aside>
     </>
