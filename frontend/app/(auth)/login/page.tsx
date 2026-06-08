@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, Suspense } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
@@ -30,7 +30,7 @@ function fullLogoUrl(url: string | null | undefined): string | null {
 type Step = "email" | "password" | "select" | "fallback";
 
 export default function LoginPage() {
-  return <Suspense><LoginForm /></Suspense>;
+  return <Suspense fallback={null}><LoginForm /></Suspense>;
 }
 
 function LoginForm() {
@@ -38,8 +38,9 @@ function LoginForm() {
   const searchParams = useSearchParams();
   const { setAuth } = useAuthStore();
 
-  const isSuperAdmin                  = searchParams.get("platform") === "1";
-  const [step, setStep]               = useState<Step>(isSuperAdmin ? "fallback" : "email");
+  // Inicializar siempre con "email" para que server y client rendericen lo mismo.
+  // El param ?platform=1 se lee en useEffect para evitar el hydration mismatch.
+  const [step, setStep]               = useState<Step>("email");
   const [email, setEmail]             = useState("");
   const [password, setPassword]       = useState("");
   const [showPwd, setShowPwd]         = useState(false);
@@ -54,6 +55,11 @@ function LoginForm() {
   // "su sistema" desde el segundo paso.
   const accent   = selected?.primary_color || BRAND_INDIGO;
   const accentFg = pickReadableTextColor(accent);
+
+  // Leer ?platform=1 solo en el cliente para no crear mismatch con el SSR.
+  useEffect(() => {
+    if (searchParams.get("platform") === "1") setStep("fallback");
+  }, [searchParams]);
 
   // ── Handlers ─────────────────────────────────────────────────────────────
 
