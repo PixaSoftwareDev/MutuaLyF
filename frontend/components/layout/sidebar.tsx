@@ -173,17 +173,31 @@ export function Sidebar() {
           collapsed ? "lg:w-[68px] w-64" : "w-64 lg:w-60",
         )}
         style={{
-          // Superficie clara con un tinte de marca (índigo) MUY leve y UNIFORME
-          // en todo el navbar — sin manchones de gradiente. El tinte lo distingue
-          // del contenido (blanco neutro) sin que toda la app quede blanca.
-          background: "#f1f2fb",
+          // Superficie clara con tinte de marca (índigo) leve. Un gradiente
+          // vertical muy sutil le da profundidad (más claro arriba, junto al
+          // header con mesh; un punto más saturado abajo) sin manchones, y lo
+          // distingue del contenido (cards blancas) como verdadero chrome.
+          background: "linear-gradient(180deg, #f6f7fe 0%, #ecedfa 100%)",
+          boxShadow: "1px 0 0 0 rgb(16 24 40 / 0.02), 4px 0 24px -12px rgb(16 24 40 / 0.06)",
         }}
       >
         {/* Brand Intellix + control de colapso integrado en el header. */}
         <div className={cn(
-          "flex items-center gap-2.5 h-16 px-4 border-b border-slate-200 shrink-0",
+          "relative flex items-center gap-2.5 h-16 px-4 border-b border-slate-200/80 shrink-0 overflow-hidden",
           collapsed && "lg:px-2"
         )}>
+          {/* Mesh de marca sutil — el mismo lenguaje del login (cyan/violeta en
+              las esquinas superiores). Conecta el panel con la identidad Intellix
+              sin invadir el resto del navbar. */}
+          <div
+            aria-hidden
+            className="absolute inset-0 pointer-events-none"
+            style={{
+              backgroundImage:
+                "radial-gradient(circle at 0% 0%, #4FC3F726 0%, transparent 62%)," +
+                "radial-gradient(circle at 100% 0%, #7A2DFF20 0%, transparent 60%)",
+            }}
+          />
           {/* Wordmark (expandido) — link al dashboard */}
           <Link
             href={isSuperAdmin ? "/superadmin" : "/admin/documents"}
@@ -270,8 +284,8 @@ export function Sidebar() {
                       <button
                         onClick={handleOpenChatTester}
                         className={cn(
-                          "w-full flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm font-medium transition-colors",
-                          "text-slate-600 hover:bg-slate-100 hover:text-slate-900",
+                          "w-full flex items-center gap-3 rounded-xl px-2.5 py-2 text-sm font-medium transition-all",
+                          "text-slate-600 hover:bg-white/70 hover:text-slate-900",
                           collapsed && "lg:justify-center lg:px-2"
                         )}
                         title={collapsed ? "Probar chat (nueva pestaña)" : "Abre el widget en una pestaña nueva"}
@@ -295,10 +309,10 @@ export function Sidebar() {
                           onMouseEnter={() => prefetchMap[item.href]?.()}
                           onFocus={() => prefetchMap[item.href]?.()}
                           className={cn(
-                            "relative flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm font-medium transition-all",
+                            "relative flex items-center gap-3 rounded-xl px-2.5 py-2 text-sm font-medium transition-all",
                             active
-                              ? "bg-action/[0.08] text-foreground font-semibold"
-                              : "text-slate-600 hover:bg-slate-100 hover:text-slate-900",
+                              ? "bg-action-gradient-soft text-foreground font-semibold shadow-xs ring-1 ring-action/10"
+                              : "text-slate-600 hover:bg-white/70 hover:text-slate-900",
                             collapsed && "lg:justify-center lg:px-2"
                           )}
                           title={titleAttr}
@@ -336,21 +350,24 @@ export function Sidebar() {
         <div className={cn("p-3 space-y-1 shrink-0", collapsed && "lg:flex lg:flex-col lg:items-center lg:p-2 lg:space-y-1")}>
           {/* Contexto del tenant — "estás operando en {organización}". Identidad
               del cliente como dato, no como branding que invade el panel. */}
-          <div className={cn("flex items-center gap-2.5 px-1.5 py-1.5 min-w-0", collapsed && "lg:hidden")}>
+          <div className={cn(
+            "flex items-center gap-2.5 px-2 py-2 min-w-0 rounded-xl bg-white/60 ring-1 ring-slate-200/80 shadow-xs",
+            collapsed && "lg:hidden"
+          )}>
             <div
-              className="relative w-7 h-7 flex items-center justify-center shrink-0 rounded-md overflow-hidden ring-1 ring-slate-200"
+              className="relative w-8 h-8 flex items-center justify-center shrink-0 rounded-lg overflow-hidden ring-1 ring-slate-200"
               style={!brandLogoUrl ? { background: brandColor } : undefined}
             >
               {brandLogoUrl ? (
-                <Image src={brandLogoUrl} alt={brandName} width={28} height={28} className="w-full h-full object-contain" unoptimized />
+                <Image src={brandLogoUrl} alt={brandName} width={32} height={32} className="w-full h-full object-contain" unoptimized />
               ) : (
-                <span className="text-white font-bold text-[11px]">
+                <span className="text-white font-bold text-xs">
                   {(brandName.trim()[0] ?? "?").toUpperCase()}
                 </span>
               )}
             </div>
             <div className="min-w-0 leading-tight">
-              <p className="text-[13px] font-medium text-foreground truncate">{brandName}</p>
+              <p className="text-[13px] font-semibold text-foreground truncate">{brandName}</p>
               <p className="text-[11px] text-slate-500 truncate" title={userRole || undefined}>{userEmail}</p>
             </div>
           </div>
@@ -359,10 +376,10 @@ export function Sidebar() {
               href="/admin/cuenta"
               onClick={handleNavClick}
               className={cn(
-                "flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm w-full transition-all",
+                "flex items-center gap-3 rounded-xl px-2.5 py-2 text-sm w-full transition-all",
                 pathname === "/admin/cuenta"
-                  ? "bg-action/[0.08] text-foreground font-semibold"
-                  : "text-slate-600 hover:bg-slate-100 hover:text-slate-900",
+                  ? "bg-action-gradient-soft text-foreground font-semibold shadow-xs ring-1 ring-action/10"
+                  : "text-slate-600 hover:bg-white/70 hover:text-slate-900",
                 collapsed && "lg:justify-center"
               )}
               title="Mi cuenta"
@@ -374,7 +391,7 @@ export function Sidebar() {
           <button
             onClick={handleLogout}
             className={cn(
-              "flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm text-slate-600 hover:bg-slate-100 hover:text-slate-900 w-full transition-colors",
+              "flex items-center gap-3 rounded-xl px-2.5 py-2 text-sm text-slate-600 hover:bg-white/70 hover:text-slate-900 w-full transition-all",
               collapsed && "lg:justify-center"
             )}
             title="Cerrar sesión"
