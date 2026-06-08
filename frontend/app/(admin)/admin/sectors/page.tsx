@@ -99,10 +99,10 @@ export default function SectorsPage() {
         }
       />
 
-      {/* Lista de sectores */}
+      {/* Grid de sectores */}
       {isLoading ? (
-        <div className="space-y-3">
-          {[1, 2, 3].map(i => <Skeleton key={i} className="h-24 rounded-lg" />)}
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {[1, 2, 3].map(i => <Skeleton key={i} className="h-40 rounded-2xl" />)}
         </div>
       ) : activeSectors.length === 0 ? (
         <Card>
@@ -121,7 +121,7 @@ export default function SectorsPage() {
           </CardContent>
         </Card>
       ) : (
-        <div className="space-y-4">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {activeSectors.map(s => (
             <SectorCard
               key={s.id}
@@ -324,66 +324,60 @@ function SectorCard({
   defaultBusy: boolean;
 }) {
   return (
-    <Card>
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3 min-w-0">
-            {/* Icono — neutral, mismo patrón que avatar de operador */}
-            <div className="w-9 h-9 rounded-full flex items-center justify-center bg-muted text-muted-foreground shrink-0">
-              <Folder className="h-4 w-4" />
-            </div>
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <p className="font-semibold text-sm truncate">{sector.nombre}</p>
-                {sector.is_default && (
-                  <Badge className="text-xs bg-warning/10 text-warning border border-warning/20 hover:bg-warning/10">
-                    Default
-                  </Badge>
-                )}
-              </div>
-              {sector.descripcion && (
-                <p className="text-xs text-muted-foreground truncate">{sector.descripcion}</p>
-              )}
-            </div>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button size="icon" variant="ghost" className="h-8 w-8" aria-label="Acciones">
-                  <MoreVertical className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
-                <DropdownMenuItem onSelect={onEdit}>
-                  <Edit2 className="h-4 w-4 mr-2" />
-                  Editar
-                </DropdownMenuItem>
-                {!sector.is_default && (
-                  <DropdownMenuItem onSelect={onSetDefault} disabled={defaultBusy}>
-                    <Star className="h-4 w-4 mr-2" />
-                    Marcar como default
-                  </DropdownMenuItem>
-                )}
-                {!sector.is_default && (
-                  <DropdownMenuItem
-                    onSelect={onDelete}
-                    className="text-destructive focus:text-destructive"
-                  >
-                    <Trash2 className="h-4 w-4 mr-2" />
-                    Eliminar
-                  </DropdownMenuItem>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
+    <div className="group relative flex flex-col rounded-2xl border bg-card p-5 shadow-sm transition-all duration-200 hover:shadow-md hover:border-action/40 hover:-translate-y-0.5">
+      {/* Cabecera: icono en contenedor de acento + menú */}
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-action/10 text-action shrink-0 ring-1 ring-action/10">
+          <Folder className="h-[22px] w-[22px]" />
         </div>
-      </CardHeader>
-      <CardContent>
-        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <Users className="h-3.5 w-3.5" />
-          {sector.operator_count} {sector.operator_count === 1 ? "operador asignado" : "operadores asignados"}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button size="icon" variant="ghost" className="h-8 w-8 -mr-1 text-muted-foreground opacity-0 group-hover:opacity-100 focus:opacity-100 data-[state=open]:opacity-100 transition-opacity" aria-label="Acciones">
+              <MoreVertical className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-48">
+            <DropdownMenuItem onSelect={onEdit}>
+              <Edit2 className="h-4 w-4 mr-2" />
+              Editar
+            </DropdownMenuItem>
+            {!sector.is_default && (
+              <DropdownMenuItem onSelect={onSetDefault} disabled={defaultBusy}>
+                <Star className="h-4 w-4 mr-2" />
+                Marcar como default
+              </DropdownMenuItem>
+            )}
+            {!sector.is_default && (
+              <DropdownMenuItem onSelect={onDelete} className="text-destructive focus:text-destructive">
+                <Trash2 className="h-4 w-4 mr-2" />
+                Eliminar
+              </DropdownMenuItem>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+
+      {/* Nombre + badge + descripción */}
+      <div className="mt-4 min-w-0">
+        <div className="flex items-center gap-2">
+          <h3 className="font-semibold text-[15px] text-foreground truncate">{sector.nombre}</h3>
+          {sector.is_default && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-warning/10 text-warning px-2 py-0.5 text-[11px] font-medium shrink-0">
+              <Star className="h-3 w-3" /> Default
+            </span>
+          )}
         </div>
-      </CardContent>
-    </Card>
+        <p className="text-sm text-muted-foreground mt-1 line-clamp-2 min-h-[2.5rem]">
+          {sector.descripcion || "Sin descripción"}
+        </p>
+      </div>
+
+      {/* Footer: operadores asignados */}
+      <div className="mt-auto pt-4 border-t border-border/70 flex items-center gap-2 text-xs text-muted-foreground">
+        <Users className="h-4 w-4 text-action/70" />
+        <span className="font-medium text-foreground/80">{sector.operator_count}</span>
+        {sector.operator_count === 1 ? "operador asignado" : "operadores asignados"}
+      </div>
+    </div>
   );
 }
