@@ -201,7 +201,7 @@ export default function AdminConversationsPage() {
 
   return (
     <>
-      <div className="h-full flex flex-col max-w-7xl mx-auto w-full p-4 sm:p-6 gap-4 min-h-0">
+      <div className="h-full flex flex-col w-full p-4 sm:p-6 gap-4 min-h-0">
         <PageHeader
           className="shrink-0"
           title="Conversaciones"
@@ -367,7 +367,7 @@ export default function AdminConversationsPage() {
         )}
 
         {/* ── Inbox split: lista + conversación ─────────────────────────────── */}
-        <div className="grid gap-4 lg:grid-cols-[minmax(320px,380px)_1fr] flex-1 min-h-0">
+        <div className="grid gap-4 lg:grid-cols-[minmax(340px,400px)_1fr] xl:grid-cols-[minmax(380px,440px)_1fr] flex-1 min-h-0">
           {/* Lista (scroll propio) */}
           <Card className="overflow-hidden flex flex-col h-full min-h-0">
             <div className="flex items-center justify-between px-3 py-2 border-b bg-muted/40 shrink-0">
@@ -560,29 +560,31 @@ function ConvDetail({ detail, loading, isError, onRetry, onClose, inline }: {
       )}
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-muted/20 min-h-0">
-        {loading ? (
-          <div className="space-y-3">
-            <Skeleton className="h-12 w-2/3 rounded-2xl" />
-            <Skeleton className="h-12 w-3/5 rounded-2xl ml-auto" />
-            <Skeleton className="h-16 w-3/4 rounded-2xl" />
-          </div>
-        ) : isError ? (
-          <div className="flex flex-col items-center justify-center h-40 text-muted-foreground gap-2">
-            <AlertCircle className="h-7 w-7 opacity-40" />
-            <p className="text-sm">No se pudo cargar la conversación</p>
-            <Button variant="outline" size="sm" onClick={onRetry}>Reintentar</Button>
-          </div>
-        ) : !detail || detail.messages?.length === 0 ? (
-          <div className="flex items-center justify-center h-40 text-muted-foreground">
-            <p className="text-sm">Sin mensajes</p>
-          </div>
-        ) : (
-          <>
-            {detail.messages.map(m => <MessageBubble key={m.id} msg={m} conversationId={detail.id} />)}
-            <div ref={messagesEndRef} />
-          </>
-        )}
+      <div className="flex-1 overflow-y-auto bg-muted/20 min-h-0">
+        <div className={cn("p-4 space-y-3", inline && "max-w-3xl mx-auto w-full")}>
+          {loading ? (
+            <div className="space-y-3">
+              <Skeleton className="h-12 w-2/3 rounded-2xl" />
+              <Skeleton className="h-12 w-3/5 rounded-2xl ml-auto" />
+              <Skeleton className="h-16 w-3/4 rounded-2xl" />
+            </div>
+          ) : isError ? (
+            <div className="flex flex-col items-center justify-center h-40 text-muted-foreground gap-2">
+              <AlertCircle className="h-7 w-7 opacity-40" />
+              <p className="text-sm">No se pudo cargar la conversación</p>
+              <Button variant="outline" size="sm" onClick={onRetry}>Reintentar</Button>
+            </div>
+          ) : !detail || detail.messages?.length === 0 ? (
+            <div className="flex items-center justify-center h-40 text-muted-foreground">
+              <p className="text-sm">Sin mensajes</p>
+            </div>
+          ) : (
+            <>
+              {detail.messages.map(m => <MessageBubble key={m.id} msg={m} conversationId={detail.id} />)}
+              <div ref={messagesEndRef} />
+            </>
+          )}
+        </div>
       </div>
 
       {/* Closed banner */}
