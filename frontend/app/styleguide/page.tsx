@@ -75,7 +75,7 @@ export default function StyleguidePage() {
               <Swatch name="Tarjeta" varName="--card" className="bg-card" />
               <Swatch name="Sutil" varName="--muted" className="bg-muted" />
               <Swatch name="Borde" varName="--border" className="bg-border" />
-              <Swatch name="Shell oscuro" varName="sidebar" className="bg-[#0b0e16]" />
+              <Swatch name="Shell oscuro" varName="sidebar" className="bg-[#1c1815]" />
             </div>
           </div>
         </Section>
@@ -185,7 +185,7 @@ export default function StyleguidePage() {
 
         {/* SIDEBAR ITEM */}
         <Section title="Navegación (shell oscuro)" subtitle="Ítem activo con barra de acento del color de marca del tenant.">
-          <div className="max-w-[260px] rounded-2xl bg-[#0b0e16] p-3 space-y-0.5 border border-white/[0.06]">
+          <div className="max-w-[260px] rounded-2xl bg-[#1c1815] p-3 space-y-0.5 border border-white/[0.06]">
             <p className="px-2.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Conocimiento</p>
             {[
               { icon: Inbox, label: "Conversaciones", active: false },

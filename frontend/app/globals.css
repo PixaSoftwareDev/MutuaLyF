@@ -9,36 +9,35 @@
        Neutrales fríos suaves. Acento = color de marca del tenant (--brand),
        usado de forma selectiva; los CTAs primarios son oscuros neutros. */
 
-    /* Canvas de la app (body). Las cards van en blanco puro y resaltan. */
-    --background: 210 20% 98%;
-    --foreground: 222 24% 12%;
+    /* Identidad "cálido premium": canvas off-white cálido (no gris frío) + cards
+       blancas que resaltan. Neutros con temperatura cálida (familia stone/arena). */
+    --background: 40 36% 97.5%;
+    --foreground: 28 18% 13%;
 
     --card: 0 0% 100%;
-    --card-foreground: 222 24% 12%;
+    --card-foreground: 28 18% 13%;
     --popover: 0 0% 100%;
-    --popover-foreground: 222 24% 12%;
+    --popover-foreground: 28 18% 13%;
 
-    /* Primary = casi-negro neutro (botón oscuro estilo Linear), no slate saturado. */
-    --primary: 222 24% 12%;
-    --primary-foreground: 0 0% 100%;
+    /* Primary = marrón muy oscuro cálido (texto/botones oscuros), no slate frío. */
+    --primary: 28 20% 15%;
+    --primary-foreground: 40 36% 98%;
 
-    --secondary: 210 20% 96%;
-    --secondary-foreground: 222 20% 22%;
+    --secondary: 38 26% 94.5%;
+    --secondary-foreground: 28 18% 22%;
 
-    --muted: 210 20% 96.5%;
-    /* Subido en contraste para que la metadata deje de ser ilegible. */
-    --muted-foreground: 215 14% 42%;
+    --muted: 38 26% 95%;
+    --muted-foreground: 30 9% 42%;
 
-    /* Accent diferenciado de muted (antes eran idénticos) → hover/seleccion sutil. */
-    --accent: 210 22% 93.5%;
-    --accent-foreground: 222 22% 18%;
+    --accent: 38 30% 92%;
+    --accent-foreground: 28 18% 18%;
 
-    --destructive: 0 72% 51%;
+    --destructive: 4 74% 50%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 214 20% 91%;
-    --input: 214 20% 89%;
-    --ring: 243 75% 59%;
+    --border: 36 24% 89%;
+    --input: 36 24% 87%;
+    --ring: 32 95% 44%;
     --radius: 0.85rem;
 
     /* ── Tokens semánticos de estado (antes hardcodeados por página) ──────────
@@ -51,12 +50,11 @@
     --info: 214 80% 50%;
     --info-foreground: 0 0% 100%;
 
-    /* Acento de ACCIÓN (CTAs) — índigo Intellix, distinto del color de marca del
-       tenant. El chrome (sidebar) lleva la marca del cliente; las acciones llevan
-       el acento de plataforma → contraste y vida, no todo del mismo color. */
-    --action: 243 75% 59%;
+    /* Acento de ACCIÓN (CTAs, foco, estado activo) — ÁMBAR dorado. Es el color de
+       identidad de la app: cálido, premium, distintivo (no el índigo genérico). */
+    --action: 32 95% 44%;
     --action-foreground: 0 0% 100%;
-    --action-dark: 243 70% 50%;
+    --action-dark: 28 92% 38%;
 
     /* Brand = color institucional del tenant (lo inyecta branding-preload).
        Default genérico = un azul sobrio (no el bordó "viejo") para que sin

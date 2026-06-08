@@ -52,7 +52,7 @@ export function OperatorTopbar() {
   return (
     // Topbar oscuro premium, coherente con el sidebar del admin. El color de marca
     // del tenant vive como acento (logo + tab activa), no como bloque de fondo.
-    <header className="h-14 bg-[#0b0e16] text-slate-300 flex items-center px-3 sm:px-4 gap-3 shrink-0 border-b border-white/[0.06]">
+    <header className="h-14 bg-[#1c1815] text-slate-300 flex items-center px-3 sm:px-4 gap-3 shrink-0 border-b border-white/[0.06]">
       {/* Brand: logo + tenant name */}
       <div className="flex items-center gap-2.5 min-w-0">
         <div

@@ -163,7 +163,7 @@ export function Sidebar() {
           como ACENTO (logo, barra activa), no como bloque sólido de fondo. */}
       <aside
         className={cn(
-          "flex flex-col border-r border-white/[0.06] bg-[#0b0e16] text-slate-300",
+          "flex flex-col border-r border-white/[0.06] bg-[#1c1815] text-slate-300",
           "fixed inset-y-0 left-0 z-50 lg:static lg:z-auto",
           "transition-transform duration-200 ease-in-out",
           mobileSidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0",
@@ -338,7 +338,7 @@ export function Sidebar() {
         {/* Collapse toggle — desktop only */}
         <button
           onClick={toggleSidebar}
-          className="hidden lg:flex absolute -right-3 top-16 z-10 h-6 w-6 items-center justify-center rounded-full border border-white/10 bg-[#0b0e16] text-slate-300 shadow-md hover:text-white hover:border-white/20 transition-all"
+          className="hidden lg:flex absolute -right-3 top-16 z-10 h-6 w-6 items-center justify-center rounded-full border border-white/10 bg-[#1c1815] text-slate-300 shadow-md hover:text-white hover:border-white/20 transition-all"
         >
           {collapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronLeft className="h-3 w-3" />}
         </button>
