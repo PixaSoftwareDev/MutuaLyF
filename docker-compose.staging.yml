@@ -75,34 +75,27 @@ services:
           cpus: "2"
           memory: 1500M
 
-  # ── Frontend de pruebas (HOT-RELOAD) ───────────────────────────────────────
-  # Modo dev de Next.js: los cambios bajo ./frontend se reflejan SIN rebuild.
-  # Flujo: editás local → push a rama dev → en el VPS `git pull` en el worktree
-  # → Next recompila en caliente y lo ves en segundos en dev.intellix.com.ar.
-  # El HMR (websocket) pasa por nginx, que ya tiene Upgrade/Connection en /.
+  # ── Frontend de pruebas (BUILD DE PRODUCCIÓN) ──────────────────────────────
+  # Antes corría en modo dev (next dev), pero el cache de chunks del navegador
+  # mostraba código viejo al cliente. En build de producción Next hashea los
+  # assets en cada build → el navegador NUNCA sirve una versión vieja.
+  # Flujo de deploy: git pull en el worktree → docker compose build frontend_staging
+  # → up -d --force-recreate frontend_staging. Cada cambio recompila (~3 min).
   frontend_staging:
     build:
       context: /opt/mutualyf-staging/frontend
-      dockerfile: Dockerfile.dev
+      dockerfile: Dockerfile
+      args:
+        - NEXT_PUBLIC_API_URL=
     container_name: ia_frontend_staging
     restart: unless-stopped
     env_file: /opt/mutualyf-staging/.env
     environment:
-      NODE_ENV: development
+      NODE_ENV: production
       NEXT_PUBLIC_API_URL: ""
-      # Precarga el tenant de pruebas en /login (en prod se resuelve por subdominio).
-      NEXT_PUBLIC_DEFAULT_TENANT: "nexo"
       PORT: "3000"
       HOSTNAME: "0.0.0.0"
-      # Polling para que detecte cambios de archivos de forma robusta sobre bind mount.
-      WATCHPACK_POLLING: "true"
-      CHOKIDAR_USEPOLLING: "true"
-    volumes:
-      # Ruta ABSOLUTA al worktree dev (ver nota en backend_staging).
-      - /opt/mutualyf-staging/frontend:/app
-      - /app/node_modules
-      - /app/.next
-    command: ["npm", "run", "dev"]
+    command: []
     networks:
       - mutualyf_internal
     depends_on:
