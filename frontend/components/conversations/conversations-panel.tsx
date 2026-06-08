@@ -1173,8 +1173,8 @@ export function MessageBubble({ msg, conversationId }:
         <div className={cn(
           "rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed break-words transition-opacity",
           isUser     && "bg-brand text-brand-foreground rounded-br-sm shadow-sm",
-          isOperator && "bg-white border border-emerald-200 text-slate-800 rounded-bl-sm shadow-sm",
-          !isUser && !isOperator && "bg-white border border-slate-200 text-slate-800 rounded-bl-sm shadow-sm",
+          isOperator && "bg-card border border-success/30 text-foreground rounded-bl-sm shadow-sm",
+          !isUser && !isOperator && "bg-card border text-foreground rounded-bl-sm shadow-sm",
           msg.pending && "opacity-65",
         )}>
           {msg.content && <p className="whitespace-pre-wrap break-words">{renderWithLinks(msg.content)}</p>}
@@ -1187,7 +1187,7 @@ export function MessageBubble({ msg, conversationId }:
           </p>
         </div>
         {isOperator && (
-          <p className="text-[10px] text-emerald-600 mt-1 ml-1 font-medium">Operador</p>
+          <p className="text-[11px] text-success mt-1 ml-1 font-medium">Operador</p>
         )}
       </div>
     </div>
