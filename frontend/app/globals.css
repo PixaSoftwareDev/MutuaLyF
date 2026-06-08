@@ -36,10 +36,10 @@
     --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 214 20% 90%;
-    --input: 214 20% 90%;
-    --ring: 222 24% 12%;
-    --radius: 0.625rem;
+    --border: 214 20% 91%;
+    --input: 214 20% 89%;
+    --ring: 243 75% 59%;
+    --radius: 0.85rem;
 
     /* ── Tokens semánticos de estado (antes hardcodeados por página) ──────────
        Pensados para chips/badges suaves (bg-{color}/10 text-{color}) y para

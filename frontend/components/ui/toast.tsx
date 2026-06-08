@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import * as ToastPrimitive from "@radix-ui/react-toast";
-import { X } from "lucide-react";
+import { X, CheckCircle2, AlertCircle, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const ToastProvider = ToastPrimitive.Provider;
@@ -30,15 +30,17 @@ const Toast = React.forwardRef<
   <ToastPrimitive.Root
     ref={ref}
     className={cn(
-      "group pointer-events-auto relative flex w-full items-center justify-between gap-3 overflow-hidden rounded-lg border p-4 shadow-lg transition-all",
+      // Toast moderno: tarjeta clara con acento de color a la izquierda + icono,
+      // en vez del bloque de color sólido que se veía pesado/viejo.
+      "group pointer-events-auto relative flex w-full items-start gap-3 overflow-hidden rounded-2xl border border-l-4 bg-popover p-4 text-foreground shadow-lg transition-all",
       "data-[swipe=cancel]:translate-x-0 data-[swipe=end]:translate-x-[var(--radix-toast-swipe-end-x)]",
       "data-[swipe=move]:translate-x-[var(--radix-toast-swipe-move-x)] data-[swipe=move]:transition-none",
       "data-[state=open]:animate-in data-[state=closed]:animate-out",
       "data-[state=closed]:fade-out-80 data-[state=closed]:slide-out-to-right-full",
       "data-[state=open]:slide-in-from-bottom-full",
-      variant === "destructive" && "border-destructive/50 bg-destructive text-destructive-foreground",
-      variant === "success" && "border-success/50 bg-success text-success-foreground",
-      variant === "default" && "border bg-background text-foreground",
+      variant === "destructive" && "border-l-destructive",
+      variant === "success" && "border-l-success",
+      variant === "default" && "border-l-info",
       className,
     )}
     {...props}
@@ -132,19 +134,29 @@ export function useToast() {
 
 // ── Toaster (drop into layout) ────────────────────────────────────────────────
 
+const TOAST_ICON = {
+  success:     { Icon: CheckCircle2, color: "text-success" },
+  destructive: { Icon: AlertCircle,  color: "text-destructive" },
+  default:     { Icon: Info,         color: "text-info" },
+} as const;
+
 export function Toaster() {
   const { toasts, dismiss } = useToast();
   return (
     <ToastProvider>
-      {toasts.map(({ id, title, description, variant }) => (
-        <Toast key={id} variant={variant} onOpenChange={(open) => !open && dismiss(id)}>
-          <div className="flex-1 min-w-0">
-            {title && <ToastTitle>{title}</ToastTitle>}
-            {description && <ToastDescription>{description}</ToastDescription>}
-          </div>
-          <ToastClose />
-        </Toast>
-      ))}
+      {toasts.map(({ id, title, description, variant = "default" }) => {
+        const { Icon, color } = TOAST_ICON[variant];
+        return (
+          <Toast key={id} variant={variant} onOpenChange={(open) => !open && dismiss(id)}>
+            <Icon className={cn("h-5 w-5 shrink-0 mt-0.5", color)} />
+            <div className="flex-1 min-w-0">
+              {title && <ToastTitle>{title}</ToastTitle>}
+              {description && <ToastDescription className="text-muted-foreground">{description}</ToastDescription>}
+            </div>
+            <ToastClose className="mt-0.5 text-muted-foreground" />
+          </Toast>
+        );
+      })}
       <ToastViewport />
     </ToastProvider>
   );

@@ -84,12 +84,13 @@ const config: Config = {
       // vez de negro puro → sombras más limpias, menos "sucias". Baja opacidad,
       // multi-capa. Reemplaza el shadow-sm plano que daba el aspecto "viejo".
       boxShadow: {
-        xs: "0 1px 2px 0 rgb(16 24 40 / 0.04)",
-        sm: "0 1px 2px 0 rgb(16 24 40 / 0.05), 0 1px 3px 0 rgb(16 24 40 / 0.04)",
-        DEFAULT: "0 1px 3px 0 rgb(16 24 40 / 0.06), 0 4px 8px -2px rgb(16 24 40 / 0.05)",
-        md: "0 2px 4px -1px rgb(16 24 40 / 0.06), 0 8px 16px -4px rgb(16 24 40 / 0.06)",
-        lg: "0 4px 8px -2px rgb(16 24 40 / 0.07), 0 12px 24px -6px rgb(16 24 40 / 0.08)",
-        xl: "0 8px 16px -4px rgb(16 24 40 / 0.08), 0 20px 32px -8px rgb(16 24 40 / 0.10)",
+        // Elevación con presencia real (antes eran tan sutiles que se veía plano).
+        xs: "0 1px 2px 0 rgb(16 24 40 / 0.05)",
+        sm: "0 1px 3px 0 rgb(16 24 40 / 0.08), 0 1px 2px -1px rgb(16 24 40 / 0.05)",
+        DEFAULT: "0 2px 8px -2px rgb(16 24 40 / 0.08), 0 4px 16px -4px rgb(16 24 40 / 0.06)",
+        md: "0 4px 12px -2px rgb(16 24 40 / 0.10), 0 8px 24px -6px rgb(16 24 40 / 0.08)",
+        lg: "0 8px 24px -4px rgb(16 24 40 / 0.12), 0 16px 40px -8px rgb(16 24 40 / 0.10)",
+        xl: "0 16px 40px -8px rgb(16 24 40 / 0.16), 0 24px 56px -12px rgb(16 24 40 / 0.12)",
       },
       keyframes: {
         "accordion-down": {
