@@ -345,7 +345,7 @@ function RoleBadge({ role }: { role: string }) {
   const styles: Record<string, string> = {
     super_admin: "border-primary/30 bg-primary/5 text-primary",
     admin:       "border-border bg-muted text-muted-foreground",
-    operator:    "border-blue-200 bg-blue-50 text-blue-700",
+    operator:    "border-info/20 bg-info/10 text-info",
   };
   const label: Record<string, string> = {
     super_admin: "Super admin",

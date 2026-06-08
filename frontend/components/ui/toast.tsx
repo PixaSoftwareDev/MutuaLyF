@@ -37,7 +37,7 @@ const Toast = React.forwardRef<
       "data-[state=closed]:fade-out-80 data-[state=closed]:slide-out-to-right-full",
       "data-[state=open]:slide-in-from-bottom-full",
       variant === "destructive" && "border-destructive/50 bg-destructive text-destructive-foreground",
-      variant === "success" && "border-green-500/30 bg-green-50 text-green-900",
+      variant === "success" && "border-success/50 bg-success text-success-foreground",
       variant === "default" && "border bg-background text-foreground",
       className,
     )}

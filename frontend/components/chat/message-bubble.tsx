@@ -64,7 +64,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
               </Badge>
             )}
             {message.from_cache && (
-              <Badge variant="outline" className="text-xs text-green-700 border-green-300">
+              <Badge variant="outline" className="text-xs text-success border-success/30">
                 cache
               </Badge>
             )}

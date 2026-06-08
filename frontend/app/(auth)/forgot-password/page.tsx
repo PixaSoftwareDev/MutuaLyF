@@ -31,7 +31,7 @@ export default function ForgotPasswordPage() {
     <AuthShell>
       {sent ? (
         <div className="text-center space-y-3">
-          <CheckCircle2 className="h-12 w-12 text-emerald-500 mx-auto" />
+          <CheckCircle2 className="h-12 w-12 text-success mx-auto" />
           <h1 className="text-2xl lg:text-[26px] font-semibold tracking-tight text-slate-900">Revisá tu correo</h1>
           <p className="text-[14px] lg:text-[15px] text-slate-500 leading-relaxed">
             Si ese email tiene una cuenta, te enviamos un enlace para restablecer tu contraseña. Vence en 1 hora.

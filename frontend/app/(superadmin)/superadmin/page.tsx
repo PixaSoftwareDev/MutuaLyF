@@ -31,8 +31,8 @@ interface TenantRow {
 }
 
 const PLAN_COLORS: Record<string, string> = {
-  starter:      "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300",
-  professional: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
+  starter:      "bg-muted text-muted-foreground",
+  professional: "bg-info/10 text-info",
   enterprise:   "bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300",
 };
 const STATUS_VARIANT: Record<string, "default" | "secondary" | "destructive"> = {
@@ -263,7 +263,7 @@ function SystemTab({ system, loading }: { system: any; loading: boolean }) {
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
           <SysKPI label="Tenants activos"   value={String(system.app.active_tenants)} color="text-primary" />
           <SysKPI label="Consultas totales" value={fmtNum(system.app.total_queries)} color="text-primary" />
-          <SysKPI label="Cache hits"        value={fmtNum(system.app.total_cache_hits)} color="text-blue-600" />
+          <SysKPI label="Cache hits"        value={fmtNum(system.app.total_cache_hits)} color="text-info" />
           <SysKPI label="Ingestas totales"  value={fmtNum(system.app.total_ingests)} color="text-violet-600" />
           <SysKPI label="HTTP requests"     value={fmtNum(system.backend.total_requests)} color="text-muted-foreground" />
         </div>
@@ -410,7 +410,7 @@ function SystemTab({ system, loading }: { system: any; loading: boolean }) {
                       status === "success"    ? "bg-success/10 text-success" :
                       status === "error"      ? "bg-destructive/10 text-destructive" :
                       status === "timeout"    ? "bg-warning/10 text-warning" :
-                      status === "rate_limit" ? "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400" :
+                      status === "rate_limit" ? "bg-warning/10 text-warning" :
                       "bg-muted text-muted-foreground"
                     )}>
                       {status}: {count}

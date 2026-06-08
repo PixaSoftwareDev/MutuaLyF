@@ -485,7 +485,7 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
             </h1>
             <div className="flex items-center gap-1.5" title={sseConnected ? "Tiempo real activo" : "Reconectando..."}>
               {sseConnected
-                ? <Wifi    className="h-3.5 w-3.5 text-emerald-500" />
+                ? <Wifi    className="h-3.5 w-3.5 text-success" />
                 : <WifiOff className="h-3.5 w-3.5 text-muted-foreground animate-pulse" />}
               <span className="text-[10px] text-muted-foreground">{sseConnected ? "En vivo" : "..."}</span>
             </div>
@@ -799,7 +799,7 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
               return (
                 <div className={cn(
                   "px-4 py-2.5 border-t flex items-center gap-2 text-xs",
-                  isStale ? "bg-red-50 text-red-800 border-red-200" : "bg-amber-50 text-amber-800 border-amber-200",
+                  isStale ? "bg-destructive/10 text-destructive border-destructive/20" : "bg-warning/10 text-warning border-warning/20",
                 )}>
                   <Info className="h-3.5 w-3.5 shrink-0" />
                   <span>
@@ -886,14 +886,14 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
                 "warn";
 
               const bannerBg =
-                level === "critical" ? "bg-red-50 border-t border-red-200"     :
-                level === "urgent"   ? "bg-amber-100/60 border-t border-amber-200" :
-                "bg-amber-50/60 border-t border-amber-100";
+                level === "critical" ? "bg-destructive/10 border-t border-destructive/20" :
+                level === "urgent"   ? "bg-warning/10 border-t border-warning/20" :
+                "bg-warning/5 border-t border-warning/20";
 
               const messageClass =
-                level === "critical" ? "text-red-700"   :
-                level === "urgent"   ? "text-amber-800" :
-                "text-amber-700";
+                level === "critical" ? "text-destructive" :
+                level === "urgent"   ? "text-warning"     :
+                "text-warning";
 
               // Botón estable (la urgencia la lleva el fondo del banner, no el botón).
               const buttonClass = "bg-primary hover:bg-primary/90 text-primary-foreground";
@@ -1000,28 +1000,28 @@ function ConvCard({ conv, now, selected, readOnly, onlineNames, onSelect, onAcce
   const attending = conv.status === "human_attending";
 
   const cardBg =
-    urgencyLevel === "critical" ? "bg-red-100/70 hover:bg-red-100"        :
-    urgencyLevel === "urgent"   ? "bg-amber-100/70 hover:bg-amber-100"    :
-    yourTurn                    ? "bg-orange-50/70 hover:bg-orange-50"    :
-    attending                   ? "bg-emerald-50/60 hover:bg-emerald-50"  :
+    urgencyLevel === "critical" ? "bg-destructive/10 hover:bg-destructive/20" :
+    urgencyLevel === "urgent"   ? "bg-warning/10 hover:bg-warning/20"         :
+    yourTurn                    ? "bg-orange-50/70 hover:bg-orange-50"        :
+    attending                   ? "bg-success/10 hover:bg-success/20"         :
     "hover:bg-muted/40";
 
   const dotColor =
-    urgencyLevel === "critical" ? "bg-red-500"     :
-    urgencyLevel === "urgent"   ? "bg-amber-500"   :
-    urgencyLevel === "warn"     ? "bg-amber-400"   :
+    urgencyLevel === "critical" ? "bg-destructive" :
+    urgencyLevel === "urgent"   ? "bg-warning"     :
+    urgencyLevel === "warn"     ? "bg-warning"     :
     yourTurn                    ? "bg-orange-500"  :
-    attending                   ? "bg-emerald-500" :
+    attending                   ? "bg-success"     :
     "bg-transparent";
 
   const dotPulse = urgencyLevel === "critical" || yourTurn;
 
   const timeClass =
-    urgencyLevel === "critical" ? "font-semibold text-red-700"     :
-    urgencyLevel === "urgent"   ? "font-semibold text-amber-800"   :
-    urgencyLevel === "warn"     ? "font-medium text-amber-700"     :
+    urgencyLevel === "critical" ? "font-semibold text-destructive" :
+    urgencyLevel === "urgent"   ? "font-semibold text-warning"     :
+    urgencyLevel === "warn"     ? "font-medium text-warning"       :
     yourTurn                    ? "font-semibold text-orange-700"  :
-    attending                   ? "font-medium text-emerald-700"   :
+    attending                   ? "font-medium text-success"       :
     "text-muted-foreground";
 
   // El botón "Atender" mantiene un color de acción ESTABLE (no cambia por
@@ -1062,8 +1062,8 @@ function ConvCard({ conv, now, selected, readOnly, onlineNames, onSelect, onAcce
               in the operator's own inbox where every card is theirs. */}
           {readOnly && conv.operator_name && (
             <p className="text-[10px] mt-0.5 flex items-center gap-1">
-              <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", operatorOnline ? "bg-emerald-500" : "bg-slate-300")} />
-              <span className={cn("truncate", operatorOnline ? "text-emerald-600 font-medium" : "text-muted-foreground")}>
+              <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", operatorOnline ? "bg-success" : "bg-muted-foreground/40")} />
+              <span className={cn("truncate", operatorOnline ? "text-success font-medium" : "text-muted-foreground")}>
                 {conv.operator_name}
               </span>
             </p>

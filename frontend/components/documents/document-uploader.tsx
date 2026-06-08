@@ -198,7 +198,7 @@ function UploadRow({ item, onDismiss }: { item: UploadItem; onDismiss: () => voi
       className={cn(
         "rounded-lg border p-3 space-y-2 transition-colors",
         isFailed    && "border-destructive/40 bg-destructive/5",
-        isDuplicate && "border-amber-300 bg-amber-50",
+        isDuplicate && "border-warning/20 bg-warning/10",
         isUploading && "border-primary/30 bg-primary/5",
       )}
     >
@@ -211,10 +211,10 @@ function UploadRow({ item, onDismiss }: { item: UploadItem; onDismiss: () => voi
         {isUploading && <Loader2 className="h-4 w-4 animate-spin text-primary shrink-0" />}
         {isDuplicate && (
           <>
-            <Info className="h-4 w-4 text-amber-600 shrink-0" />
+            <Info className="h-4 w-4 text-warning shrink-0" />
             <button
               onClick={onDismiss}
-              className="text-amber-700/70 hover:text-amber-900 transition-colors"
+              className="text-warning/70 hover:text-warning transition-colors"
               aria-label="Descartar"
             >
               <X className="h-4 w-4" />
@@ -250,7 +250,7 @@ function UploadRow({ item, onDismiss }: { item: UploadItem; onDismiss: () => voi
       )}
 
       {isDuplicate && (
-        <p className="text-xs text-amber-900">
+        <p className="text-xs text-warning">
           {item.duplicateMatchType === "filename" ? (
             <>
               Ya existe un documento con este nombre

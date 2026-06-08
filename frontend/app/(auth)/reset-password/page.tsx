@@ -40,7 +40,7 @@ function ResetInner() {
 
   if (!token) return (
     <div className="text-center space-y-3">
-      <AlertCircle className="h-12 w-12 text-amber-500 mx-auto" />
+      <AlertCircle className="h-12 w-12 text-warning mx-auto" />
       <h1 className="text-2xl lg:text-[26px] font-semibold tracking-tight text-slate-900">Enlace inválido</h1>
       <p className="text-[14px] lg:text-[15px] text-slate-500 leading-relaxed">El enlace no es válido o está incompleto. Pedí uno nuevo.</p>
       <div className="pt-2">
@@ -53,7 +53,7 @@ function ResetInner() {
 
   if (done) return (
     <div className="text-center space-y-3">
-      <CheckCircle2 className="h-12 w-12 text-emerald-500 mx-auto" />
+      <CheckCircle2 className="h-12 w-12 text-success mx-auto" />
       <h1 className="text-2xl lg:text-[26px] font-semibold tracking-tight text-slate-900">¡Contraseña actualizada!</h1>
       <p className="text-[14px] lg:text-[15px] text-slate-500">Te llevamos al inicio de sesión…</p>
     </div>
@@ -94,7 +94,7 @@ function ResetInner() {
           />
         </div>
         {err && (
-          <div className="flex items-start gap-2 rounded-lg bg-red-50 border border-red-100 px-3 py-2.5 text-[13px] text-red-700">
+          <div className="flex items-start gap-2 rounded-lg bg-destructive/10 border border-destructive/20 px-3 py-2.5 text-[13px] text-destructive">
             <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
             <span>{err}</span>
           </div>

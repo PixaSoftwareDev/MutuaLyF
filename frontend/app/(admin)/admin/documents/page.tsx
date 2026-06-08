@@ -27,6 +27,7 @@ import { toast } from "@/components/ui/toast";
 import { PageShell } from "@/components/layout/page-shell";
 import { PageHeader } from "@/components/layout/page-header";
 import { ExportKbButton } from "@/components/admin/export-kb-button";
+import { EmptyState } from "@/components/ui/empty-state";
 import { cn } from "@/lib/utils";
 
 // ── Config maps ───────────────────────────────────────────────────────────────
@@ -200,12 +201,11 @@ export default function DocumentsPage() {
           ) : error ? (
             <div className="text-center py-8 text-destructive text-sm">Error al cargar documentos</div>
           ) : filtered.length === 0 ? (
-            <div className="text-center py-10 space-y-2">
-              <FileText className="h-10 w-10 mx-auto text-muted-foreground opacity-30" />
-              <p className="text-muted-foreground text-sm">
-                {search ? "No se encontraron documentos con ese nombre." : "Todavía no hay documentos."}
-              </p>
-            </div>
+            <EmptyState
+              icon={FileText}
+              title={search ? "Sin resultados" : "Todavía no hay documentos"}
+              description={search ? "No se encontraron documentos con ese nombre." : "Subí documentos para que la IA los use en sus respuestas."}
+            />
           ) : (
             <div className="space-y-2">
               {filtered.map((doc) => (
@@ -254,7 +254,7 @@ function DuplicatesAlert({
   if (pendingCount === 0) return null;
 
   return (
-    <div className="relative rounded-lg border border-amber-200 bg-amber-50/40 overflow-hidden">
+    <div className="relative rounded-lg border border-warning/20 bg-warning/5 overflow-hidden">
       {/* Banda lateral para impacto visual */}
       <div className="absolute left-0 top-0 bottom-0 w-1 bg-warning" />
 
@@ -278,7 +278,7 @@ function DuplicatesAlert({
           <Button
             size="sm"
             variant="outline"
-            className="border-amber-300 bg-white text-warning hover:bg-amber-50 hover:text-warning shrink-0"
+            className="border-warning/20 bg-white text-warning hover:bg-warning/10 hover:text-warning shrink-0"
             onClick={() => router.push("/admin/duplicates")}
           >
             Revisar
@@ -339,7 +339,7 @@ function ReviewQueue({
   if (isLoading) return null;
 
   return (
-    <Card className="border-amber-200 bg-amber-50/50">
+    <Card className="border-warning/20 bg-warning/5">
       <CardHeader className="pb-3">
         <CardTitle className="text-base flex items-center gap-2 text-warning">
           <AlertTriangle className="h-4 w-4 shrink-0" />
@@ -424,7 +424,7 @@ function DocumentRow({
   return (
     <div className={cn(
       "relative rounded-lg border overflow-hidden transition-colors",
-      hasPendingWork && "border-warning/20 bg-amber-50/20"
+      hasPendingWork && "border-warning/20 bg-warning/5"
     )}>
       {/* Banda lateral cuando hay trabajo pendiente — mismo lenguaje que la alerta de duplicados */}
       {hasPendingWork && (
@@ -470,7 +470,7 @@ function DocumentRow({
             )}
             {pendingDuplicateCount > 0 && (
               <button
-                className="inline-flex items-center text-[11px] bg-warning/10 text-warning rounded-md px-2 py-0.5 font-medium border border-warning/20 hover:bg-amber-200/60 transition-colors"
+                className="inline-flex items-center text-[11px] bg-warning/10 text-warning rounded-md px-2 py-0.5 font-medium border border-warning/20 hover:bg-warning/20 transition-colors"
                 onClick={(e) => { e.stopPropagation(); router.push("/admin/duplicates"); }}
                 title="Ir a revisar duplicados"
               >
@@ -685,12 +685,12 @@ function PendingChunkCard({ chunk, onReviewed }: { chunk: PendingChunkResponse; 
         </div>
       </div>
       {humanMsg && (
-        <p className="text-xs text-warning bg-amber-50 rounded px-2.5 py-1.5 border border-amber-100">
+        <p className="text-xs text-warning bg-warning/10 rounded px-2.5 py-1.5 border border-warning/20">
           {humanMsg}
         </p>
       )}
       <div>
-        <p className="text-xs leading-relaxed text-slate-700 whitespace-pre-wrap break-words">{displayText}</p>
+        <p className="text-xs leading-relaxed text-foreground whitespace-pre-wrap break-words">{displayText}</p>
         {isLong && (
           <button
             onClick={() => setShowFull((v) => !v)}
@@ -747,7 +747,7 @@ function ChunkCard({ chunk, documentId, editable }: { chunk: ChunkResponse; docu
   });
 
   return (
-    <div className={`rounded border bg-background p-3 space-y-2 ${!isPassed ? "border-amber-200" : ""}`}>
+    <div className={`rounded border bg-background p-3 space-y-2 ${!isPassed ? "border-warning/20" : ""}`}>
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted-foreground">
@@ -798,7 +798,7 @@ function ChunkCard({ chunk, documentId, editable }: { chunk: ChunkResponse; docu
         <p className="text-[11px] text-warning italic">{humanMsg}</p>
       )}
       <div>
-        <p className="text-xs leading-relaxed whitespace-pre-wrap break-words text-slate-700">{displayText}</p>
+        <p className="text-xs leading-relaxed whitespace-pre-wrap break-words text-foreground">{displayText}</p>
         {isLong && (
           <button
             onClick={() => setShowFull((v) => !v)}

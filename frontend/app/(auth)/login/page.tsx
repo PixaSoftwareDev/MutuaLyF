@@ -537,7 +537,7 @@ function BackBtn({ onClick }: { onClick: () => void }) {
 
 function ErrorBox({ text }: { text: string }) {
   return (
-    <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-[13px] text-red-700 flex items-start gap-2">
+    <div className="rounded-lg bg-destructive/10 border border-destructive/20 p-3 text-[13px] text-destructive flex items-start gap-2">
       <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
       <span>{text}</span>
     </div>

@@ -100,7 +100,7 @@ export default function OperatorHistoryPage() {
             <Filter className="h-3 w-3" />
             Filtros
             {activeFiltersCount > 0 && (
-              <span className="bg-primary text-white rounded-full text-[10px] w-4 h-4 flex items-center justify-center font-bold">
+              <span className="bg-primary text-primary-foreground rounded-full text-[10px] w-4 h-4 flex items-center justify-center font-bold">
                 {activeFiltersCount}
               </span>
             )}
@@ -306,8 +306,8 @@ function HistoryCard({
 }) {
   // Status is communicated by a leading dot, same vocabulary as the inbox.
   const dotColor =
-    row.status === "handoff_requested" ? "bg-amber-500"   :
-    row.status === "human_attending"   ? "bg-emerald-500" :
+    row.status === "handoff_requested" ? "bg-warning" :
+    row.status === "human_attending"   ? "bg-success" :
     "bg-transparent";
 
   const dateRef = row.last_message_at ?? row.updated_at ?? row.created_at;
@@ -336,7 +336,7 @@ function HistoryCard({
             <p className="text-[11px] text-muted-foreground truncate mt-0.5">{row.sector_nombre || "Sin sector"}</p>
             {row.operator_name && (
               <p className="text-[10px] mt-0.5 flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full shrink-0 bg-slate-300" />
+                <span className="w-1.5 h-1.5 rounded-full shrink-0 bg-muted-foreground/40" />
                 <span className="truncate text-muted-foreground">{row.operator_name}</span>
               </p>
             )}

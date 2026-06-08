@@ -60,8 +60,8 @@ function relTime(iso: string): string {
 }
 
 const PLAN_COLORS: Record<string, string> = {
-  starter:      "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300",
-  professional: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
+  starter:      "bg-muted text-muted-foreground",
+  professional: "bg-info/10 text-info",
   enterprise:   "bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300",
 };
 
@@ -308,7 +308,7 @@ export default function TenantDetailPage() {
                         <span className={cn(
                           "text-xs px-2 py-1 rounded-full font-medium",
                           u.role === "admin"    ? "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300" :
-                          u.role === "operator" ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300" :
+                          u.role === "operator" ? "bg-info/10 text-info" :
                           "bg-muted text-muted-foreground"
                         )}>
                           {u.role === "admin" ? "Admin" : u.role === "operator" ? "Operador" : u.role}
@@ -361,7 +361,7 @@ export default function TenantDetailPage() {
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
             <KPI label="Latencia p50"    value={fmtMs(m.performance.latency_p50)}   color="text-success" />
             <KPI label="Latencia p95"    value={fmtMs(m.performance.latency_p95)}   color={latencyColor(m.performance.latency_p95)} />
-            <KPI label="Cache hit rate"  value={fmtPct(m.performance.cache_hit_rate)} color="text-blue-600" />
+            <KPI label="Cache hit rate"  value={fmtPct(m.performance.cache_hit_rate)} color="text-info" />
             <KPI label="Conf. promedio"  value={m.performance.avg_confidence != null ? (m.performance.avg_confidence * 100).toFixed(0) + "%" : "—"} color="text-violet-600" />
           </div>
 
@@ -430,7 +430,7 @@ export default function TenantDetailPage() {
                             status === "success"    ? "bg-success/10 text-success" :
                             status === "error"      ? "bg-destructive/10 text-destructive" :
                             status === "timeout"    ? "bg-warning/10 text-warning" :
-                            status === "rate_limit" ? "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400" :
+                            status === "rate_limit" ? "bg-warning/10 text-warning" :
                             "bg-muted text-muted-foreground"
                           )}>
                             {status}: {count}
@@ -494,7 +494,7 @@ export default function TenantDetailPage() {
                           </span>
                         )}
                         {q.from_cache && (
-                          <span className="text-xs bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 px-1.5 py-0.5 rounded-full">
+                          <span className="text-xs bg-info/10 text-info px-1.5 py-0.5 rounded-full">
                             cache
                           </span>
                         )}

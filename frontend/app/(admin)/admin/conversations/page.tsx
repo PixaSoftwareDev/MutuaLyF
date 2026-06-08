@@ -12,6 +12,9 @@ import { MessageBubble, StatusBadge } from "@/components/conversations/conversat
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
+} from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent } from "@/components/ui/card";
 import { PageShell } from "@/components/layout/page-shell";
@@ -23,8 +26,8 @@ type StatusFilter = "all" | "handoff_requested" | "human_attending" | "bot_activ
 
 const STATUS_TABS: Array<{ key: StatusFilter; label: string; icon: React.ElementType; dot?: string }> = [
   { key: "all",               label: "Todas",       icon: MessageSquare },
-  { key: "handoff_requested", label: "En espera",   icon: Clock,      dot: "bg-amber-500" },
-  { key: "human_attending",   label: "En atención", icon: UserCheck,  dot: "bg-emerald-500" },
+  { key: "handoff_requested", label: "En espera",   icon: Clock,      dot: "bg-warning" },
+  { key: "human_attending",   label: "En atención", icon: UserCheck,  dot: "bg-success" },
   { key: "bot_active",        label: "Bot activo",  icon: Bot,        dot: "bg-slate-400" },
   { key: "closed",            label: "Cerradas",    icon: XCircle,    dot: "bg-slate-300" },
 ];
@@ -156,14 +159,14 @@ export default function AdminConversationsPage() {
             (waitingCount > 0 || attendingCount > 0) ? (
               <div className="hidden sm:flex items-center gap-2">
                 {waitingCount > 0 && (
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 px-2.5 h-7 text-xs font-medium">
-                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-warning/10 text-warning border border-warning/20 px-2.5 h-7 text-xs font-medium">
+                    <span className="w-1.5 h-1.5 rounded-full bg-warning animate-pulse" />
                     {waitingCount} en espera
                   </span>
                 )}
                 {attendingCount > 0 && (
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 h-7 text-xs font-medium">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-success/10 text-success border border-success/20 px-2.5 h-7 text-xs font-medium">
+                    <span className="w-1.5 h-1.5 rounded-full bg-success" />
                     {attendingCount} en atención
                   </span>
                 )}
@@ -247,14 +250,18 @@ export default function AdminConversationsPage() {
               {/* Sector */}
               <div className="flex flex-col gap-1.5 min-w-[180px]">
                 <label className="text-xs font-medium text-muted-foreground">Sector</label>
-                <select
-                  value={sectorId}
-                  onChange={e => setSectorId(e.target.value)}
-                  className="h-9 px-3 rounded-md border border-input bg-background text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                <Select
+                  value={sectorId || "all"}
+                  onValueChange={v => setSectorId(v === "all" ? "" : v)}
                 >
-                  <option value="">Todos los sectores</option>
-                  {sectors.map((s: any) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
-                </select>
+                  <SelectTrigger className="h-9">
+                    <SelectValue placeholder="Todos los sectores" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos los sectores</SelectItem>
+                    {sectors.map((s: any) => <SelectItem key={s.id} value={s.id}>{s.nombre}</SelectItem>)}
+                  </SelectContent>
+                </Select>
               </div>
 
               {/* Date range */}
@@ -262,16 +269,16 @@ export default function AdminConversationsPage() {
                 <label className="text-xs font-medium text-muted-foreground">Rango de fechas</label>
                 <div className="flex items-center gap-2">
                   <CalendarDays className="h-4 w-4 text-muted-foreground shrink-0" />
-                  <input
+                  <Input
                     type="date" aria-label="Desde" value={dateFrom} max={dateTo || undefined}
                     onChange={e => setDateFrom(e.target.value)}
-                    className="h-9 px-2 rounded-md border border-input bg-background text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    className="h-9 w-auto px-2 text-sm"
                   />
                   <span className="text-xs text-muted-foreground">a</span>
-                  <input
+                  <Input
                     type="date" aria-label="Hasta" value={dateTo} min={dateFrom || undefined}
                     onChange={e => setDateTo(e.target.value)}
-                    className="h-9 px-2 rounded-md border border-input bg-background text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    className="h-9 w-auto px-2 text-sm"
                   />
                 </div>
               </div>

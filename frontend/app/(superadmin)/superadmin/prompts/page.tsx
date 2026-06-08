@@ -451,7 +451,7 @@ export default function PromptsPage() {
                     : catKey === "sistema" ? "Sistema"
                     : catLabel(catKey);
                   const color = catKey === "anti_alucinacion" ? "bg-warning/10 text-warning"
-                    : catKey === "calidad" ? "bg-blue-100 text-blue-700"
+                    : catKey === "calidad" ? "bg-info/10 text-info"
                     : catKey === "intenciones" ? "bg-violet-100 text-violet-700"
                     : catKey === "sistema" ? "bg-muted text-muted-foreground"
                     : catColor(catKey);

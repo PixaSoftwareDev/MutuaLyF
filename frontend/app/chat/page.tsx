@@ -36,7 +36,7 @@ function BotBubble({ content }: { content: string }) {
   return (
     <div className="flex gap-3 items-end group">
       <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-brand-light to-brand-dark flex items-center justify-center shrink-0 shadow-md shadow-black/20">
-        <Bot className="h-4 w-4 text-white" />
+        <Bot className="h-4 w-4 text-brand-foreground" />
       </div>
       <div className="max-w-[78%] sm:max-w-[65%]">
         <div className="bg-white text-slate-800 rounded-2xl rounded-bl-sm px-4 py-3 text-sm leading-relaxed shadow-sm border border-slate-100">
@@ -51,7 +51,7 @@ function UserBubble({ content }: { content: string }) {
   return (
     <div className="flex justify-end">
       <div className="max-w-[78%] sm:max-w-[65%]">
-        <div className="bg-gradient-to-br from-brand to-brand-dark text-white rounded-2xl rounded-br-sm px-4 py-3 text-sm leading-relaxed shadow-md shadow-black/15">
+        <div className="bg-gradient-to-br from-brand to-brand-dark text-brand-foreground rounded-2xl rounded-br-sm px-4 py-3 text-sm leading-relaxed shadow-md shadow-black/15">
           {renderWithLinks(content)}
         </div>
       </div>
@@ -115,25 +115,25 @@ function HandoffOfferBubble({
 
   return (
     <div className="flex justify-center py-2">
-      <div className="max-w-[85%] bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3 text-center space-y-3">
-        <p className="text-sm text-amber-800">{renderWithLinks(content)}</p>
+      <div className="max-w-[85%] bg-warning/10 border border-warning/20 rounded-2xl px-4 py-3 text-center space-y-3">
+        <p className="text-sm text-warning">{renderWithLinks(content)}</p>
         {confirmed ? (
-          <span className="inline-flex items-center gap-1.5 text-xs text-amber-600 font-medium">
+          <span className="inline-flex items-center gap-1.5 text-xs text-warning font-medium">
             <Loader2 className="h-3 w-3 animate-spin" />
             Buscando operador disponible…
           </span>
         ) : phase === "offer" ? (
           <button
             onClick={() => identified ? onConfirm() : setPhase("identify")}
-            className="inline-flex items-center gap-2 bg-amber-500 hover:bg-amber-600 active:scale-95 text-white text-sm font-medium rounded-xl px-4 py-2 transition-all"
+            className="inline-flex items-center gap-2 bg-warning text-warning-foreground hover:bg-warning/90 active:scale-95 text-sm font-medium rounded-xl px-4 py-2 transition-all"
           >
             <UserCheck className="h-4 w-4" />
             Sí, conectarme con un operador
           </button>
         ) : (
           <div className="text-left space-y-2">
-            <p className="text-xs font-semibold text-amber-900">Antes de conectarte con un operador</p>
-            <p className="text-[11px] text-amber-700 leading-relaxed">
+            <p className="text-xs font-semibold text-warning">Antes de conectarte con un operador</p>
+            <p className="text-[11px] text-warning leading-relaxed">
               Para una mejor atención, decinos tu nombre y DNI:
             </p>
             <input
@@ -143,7 +143,7 @@ function HandoffOfferBubble({
               placeholder="Nombre y apellido"
               maxLength={200}
               autoFocus
-              className="w-full px-3 py-2 rounded-md border border-amber-200 text-sm text-amber-900 placeholder:text-amber-300 bg-white focus:outline-none focus:ring-2 focus:ring-amber-400"
+              className="w-full px-3 py-2 rounded-md border border-warning/20 text-sm text-warning placeholder:text-warning/40 bg-white focus:outline-none focus:ring-2 focus:ring-warning/40"
             />
             <input
               type="text"
@@ -152,14 +152,14 @@ function HandoffOfferBubble({
               onChange={e => setDni(e.target.value)}
               placeholder="DNI (sin puntos)"
               maxLength={20}
-              className="w-full px-3 py-2 rounded-md border border-amber-200 text-sm text-amber-900 placeholder:text-amber-300 bg-white focus:outline-none focus:ring-2 focus:ring-amber-400"
+              className="w-full px-3 py-2 rounded-md border border-warning/20 text-sm text-warning placeholder:text-warning/40 bg-white focus:outline-none focus:ring-2 focus:ring-warning/40"
               onKeyDown={e => { if (e.key === "Enter") submit(); }}
             />
-            {err && <p className="text-[11px] text-red-600">{err}</p>}
+            {err && <p className="text-[11px] text-destructive">{err}</p>}
             <div className="flex items-center justify-end pt-1">
               <button
                 onClick={submit}
-                className="bg-amber-500 hover:bg-amber-600 active:scale-95 text-white text-sm font-medium rounded-xl px-4 py-2 transition-all"
+                className="bg-warning text-warning-foreground hover:bg-warning/90 active:scale-95 text-sm font-medium rounded-xl px-4 py-2 transition-all"
               >
                 Continuar
               </button>
@@ -175,7 +175,7 @@ function TypingIndicator() {
   return (
     <div className="flex gap-3 items-end">
       <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-brand-light to-brand-dark flex items-center justify-center shrink-0 shadow-md shadow-black/20">
-        <Bot className="h-4 w-4 text-white" />
+        <Bot className="h-4 w-4 text-brand-foreground" />
       </div>
       <div className="bg-white rounded-2xl rounded-bl-sm px-5 py-4 shadow-sm border border-slate-100">
         <div className="flex gap-1.5 items-center">

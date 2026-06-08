@@ -310,8 +310,8 @@ export function OnboardingModal() {
     return (
       <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
         <div className="bg-background border rounded-lg shadow-lg max-w-md w-full p-8 text-center space-y-4">
-          <div className="w-14 h-14 rounded-full bg-emerald-100 flex items-center justify-center mx-auto">
-            <CheckCircle2 className="h-7 w-7 text-emerald-600" />
+          <div className="w-14 h-14 rounded-full bg-success/10 flex items-center justify-center mx-auto">
+            <CheckCircle2 className="h-7 w-7 text-success" />
           </div>
           <h2 className="text-lg font-semibold tracking-tight">¡Tu asistente está listo!</h2>
           <p className="text-sm text-muted-foreground">
@@ -480,15 +480,15 @@ export function OnboardingModal() {
                         </span>
                       )}
                       {d.status === "processing" && (
-                        <span className="flex items-center gap-1 text-[10px] text-amber-600 shrink-0">
+                        <span className="flex items-center gap-1 text-[10px] text-warning shrink-0">
                           <Loader2 className="h-3 w-3 animate-spin" /> procesando…
                         </span>
                       )}
                       {d.status === "ready" && !d.note && (
-                        <span className="text-[10px] text-emerald-600 font-medium shrink-0">listo</span>
+                        <span className="text-[10px] text-success font-medium shrink-0">listo</span>
                       )}
                       {d.status === "ready" && d.note && (
-                        <span className="text-[10px] text-amber-600 font-medium shrink-0" title={d.note}>
+                        <span className="text-[10px] text-warning font-medium shrink-0" title={d.note}>
                           {d.note}
                         </span>
                       )}
@@ -517,7 +517,7 @@ export function OnboardingModal() {
               )}
 
               {uploadedDocs.length === 0 && (
-                <p className="text-[11px] text-amber-600">
+                <p className="text-[11px] text-warning">
                   Sin documentos el bot va a tener contexto limitado. Podés subirlos ahora o después desde el panel de Documentos.
                 </p>
               )}
