@@ -51,13 +51,21 @@ export default function StyleguidePage() {
           <Badge variant="info">Propuesta · v1</Badge>
           <h1 className="text-3xl sm:text-[34px] font-bold tracking-tight text-foreground">Sistema de diseño</h1>
           <p className="text-base text-muted-foreground max-w-2xl">
-            Tokens y componentes base del panel. Acento <span className="text-action font-semibold">índigo</span> con
-            intención, neutros graduados, tipografía con jerarquía y un shell oscuro para la navegación.
+            Identidad <span className="font-semibold text-foreground">Intellix</span>: gradient de marca
+            cyan→índigo→violeta (el del login) sobre canvas claro neutro, tipografía con jerarquía y shell
+            índigo-navy para la navegación. El branding del tenant vive solo en la cara al afiliado.
           </p>
         </header>
 
         {/* COLOR */}
         <Section title="Color" subtitle="Acento de acción + estados semánticos + neutros en capas.">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">Gradient de marca Intellix</p>
+            <div className="h-20 rounded-2xl bg-action-gradient shadow-sm flex items-end p-3">
+              <span className="text-xs font-mono text-white/90">cyan #4FC3F7 → índigo #5B5BFF → violeta #7A2DFF</span>
+            </div>
+            <p className="text-[11px] text-muted-foreground mt-1.5">Lo usan los CTAs primarios y los acentos destacados. Nunca como relleno plano.</p>
+          </div>
           <div>
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">Acento y estados</p>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
@@ -75,7 +83,7 @@ export default function StyleguidePage() {
               <Swatch name="Tarjeta" varName="--card" className="bg-card" />
               <Swatch name="Sutil" varName="--muted" className="bg-muted" />
               <Swatch name="Borde" varName="--border" className="bg-border" />
-              <Swatch name="Shell oscuro" varName="sidebar" className="bg-[#1c1815]" />
+              <Swatch name="Shell oscuro" varName="sidebar" className="bg-[#121327]" />
             </div>
           </div>
         </Section>
@@ -185,7 +193,7 @@ export default function StyleguidePage() {
 
         {/* SIDEBAR ITEM */}
         <Section title="Navegación (shell oscuro)" subtitle="Ítem activo con barra de acento del color de marca del tenant.">
-          <div className="max-w-[260px] rounded-2xl bg-[#1c1815] p-3 space-y-0.5 border border-white/[0.06]">
+          <div className="max-w-[260px] rounded-2xl bg-[#121327] p-3 space-y-0.5 border border-white/[0.06]">
             <p className="px-2.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">Conocimiento</p>
             {[
               { icon: Inbox, label: "Conversaciones", active: false },
@@ -193,7 +201,7 @@ export default function StyleguidePage() {
               { icon: Settings, label: "Configuración", active: false },
             ].map(({ icon: Icon, label, active }) => (
               <div key={label} className={`relative flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm font-medium ${active ? "bg-white/[0.08] text-white" : "text-slate-400"}`}>
-                {active && <span className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-[3px] rounded-r-full bg-action" />}
+                {active && <span className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-[3px] rounded-r-full bg-action-gradient" />}
                 <Icon className="h-[18px] w-[18px]" />
                 {label}
               </div>

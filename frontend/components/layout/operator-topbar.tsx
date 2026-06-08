@@ -50,35 +50,21 @@ export function OperatorTopbar() {
   };
 
   return (
-    // Topbar oscuro premium, coherente con el sidebar del admin. El color de marca
-    // del tenant vive como acento (logo + tab activa), no como bloque de fondo.
-    <header className="h-14 bg-[#1c1815] text-slate-300 flex items-center px-3 sm:px-4 gap-3 shrink-0 border-b border-white/[0.06]">
-      {/* Brand: logo + tenant name */}
-      <div className="flex items-center gap-2.5 min-w-0">
-        <div
-          className="relative w-8 h-8 flex items-center justify-center shrink-0 rounded-lg overflow-hidden ring-1 ring-white/10"
-          style={!brandLogoUrl ? { background: branding.primary_color } : undefined}
-        >
-          {brandLogoUrl ? (
-            <Image
-              src={brandLogoUrl}
-              alt={branding.display_name}
-              width={32}
-              height={32}
-              className="w-full h-full object-contain"
-              priority
-              unoptimized
-            />
-          ) : (
-            <span className="text-white font-bold text-sm">
-              {(branding.display_name.trim()[0] ?? "?").toUpperCase()}
-            </span>
-          )}
-        </div>
-        <span className="font-semibold text-[15px] tracking-tight text-white truncate">
-          {branding.display_name}
-        </span>
-      </div>
+    // Topbar índigo-navy Intellix, coherente con el sidebar del admin. La marca
+    // de la barra es Intellix (el producto); el tenant es contexto a la derecha.
+    <header className="h-14 bg-[#121327] text-slate-300 flex items-center px-3 sm:px-4 gap-3 shrink-0 border-b border-white/[0.06]">
+      {/* Brand Intellix */}
+      <Link href="/operator" className="flex items-center min-w-0" aria-label="Intellix">
+        <Image
+          src="/brand/intellix-wordmark-white.png"
+          alt="Intellix"
+          width={520}
+          height={170}
+          priority
+          unoptimized
+          className="h-[22px] w-auto object-contain"
+        />
+      </Link>
 
       {/* Nav tabs */}
       <nav className="hidden sm:flex items-center gap-1 ml-2">
@@ -107,6 +93,25 @@ export function OperatorTopbar() {
       </nav>
 
       <div className="flex-1" />
+
+      {/* Contexto del tenant — logo + organización en la que opera. */}
+      <div className="hidden md:flex items-center gap-2 min-w-0">
+        <div
+          className="relative w-7 h-7 flex items-center justify-center shrink-0 rounded-md overflow-hidden ring-1 ring-white/10"
+          style={!brandLogoUrl ? { background: branding.primary_color } : undefined}
+        >
+          {brandLogoUrl ? (
+            <Image src={brandLogoUrl} alt={branding.display_name} width={28} height={28} className="w-full h-full object-contain" unoptimized />
+          ) : (
+            <span className="text-white font-bold text-[11px]">
+              {(branding.display_name.trim()[0] ?? "?").toUpperCase()}
+            </span>
+          )}
+        </div>
+        <span className="text-[13px] font-medium text-white truncate max-w-[160px]">{branding.display_name}</span>
+      </div>
+
+      <span className="hidden md:block h-5 w-px bg-white/10" />
 
       {/* Operator identity — rol como identidad principal, email como secundario. */}
       <div className="hidden sm:flex flex-col items-end leading-tight min-w-0">

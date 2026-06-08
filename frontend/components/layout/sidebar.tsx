@@ -159,43 +159,51 @@ export function Sidebar() {
         />
       )}
 
-      {/* Shell oscuro premium (Linear/Vercel). El color de marca del tenant vive
-          como ACENTO (logo, barra activa), no como bloque sólido de fondo. */}
+      {/* Shell índigo-navy Intellix. El panel ES el producto Intellix: la marca
+          de la cabecera y el acento activo son de Intellix. El tenant aparece
+          como contexto (logo + nombre) en el pie, no como branding estructural. */}
       <aside
         className={cn(
-          "flex flex-col border-r border-white/[0.06] bg-[#1c1815] text-slate-300",
+          "flex flex-col border-r border-white/[0.06] bg-[#121327] text-slate-300",
           "fixed inset-y-0 left-0 z-50 lg:static lg:z-auto",
           "transition-transform duration-200 ease-in-out",
           mobileSidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0",
           collapsed ? "lg:w-[64px] w-64" : "w-64 lg:w-60",
         )}
       >
-        {/* Brand */}
+        {/* Brand Intellix — wordmark del producto. Colapsado (desktop) → icono. */}
         <div className={cn(
           "flex items-center gap-2.5 h-16 px-4 border-b border-white/[0.06] shrink-0",
           collapsed && "lg:justify-center lg:px-2"
         )}>
-          <div
-            className="relative w-8 h-8 flex items-center justify-center shrink-0 rounded-lg overflow-hidden ring-1 ring-white/10"
-            style={!brandLogoUrl ? { background: brandColor } : undefined}
+          <Link
+            href={isSuperAdmin ? "/superadmin" : "/admin/documents"}
+            onClick={handleNavClick}
+            className="flex items-center min-w-0"
+            aria-label="Intellix"
           >
-            {brandLogoUrl ? (
-              <Image src={brandLogoUrl} alt={brandName} width={32} height={32} className="w-full h-full object-contain" priority unoptimized />
-            ) : (
-              <span className="text-white font-bold text-sm">
-                {(brandName.trim()[0] ?? "?").toUpperCase()}
-              </span>
-            )}
-          </div>
-          <span className={cn(
-            "font-semibold text-[15px] tracking-tight text-white flex-1 truncate",
-            collapsed && "lg:hidden"
-          )}>
-            {brandName}
-          </span>
+            <Image
+              src="/brand/intellix-icon.png"
+              alt="Intellix"
+              width={32}
+              height={32}
+              priority
+              unoptimized
+              className={cn("w-8 h-8 object-contain shrink-0", collapsed ? "hidden lg:block" : "hidden")}
+            />
+            <Image
+              src="/brand/intellix-wordmark-white.png"
+              alt="Intellix"
+              width={520}
+              height={170}
+              priority
+              unoptimized
+              className={cn("h-[26px] w-auto object-contain", collapsed && "lg:hidden")}
+            />
+          </Link>
           <button
             onClick={closeMobileSidebar}
-            className="lg:hidden flex items-center justify-center w-8 h-8 rounded-lg text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+            className="lg:hidden ml-auto flex items-center justify-center w-8 h-8 rounded-lg text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
             aria-label="Cerrar menú"
           >
             <X className="h-4 w-4" />
@@ -267,20 +275,16 @@ export function Sidebar() {
                           )}
                           title={titleAttr}
                         >
-                          {/* Barra de acento = color de marca del tenant */}
+                          {/* Barra de acento = gradient Intellix */}
                           {active && (
-                            <span
-                              style={{ background: brandColor }}
-                              className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-[3px] rounded-r-full"
-                            />
+                            <span className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-[3px] rounded-r-full bg-action-gradient" />
                           )}
                           <Icon className="h-[18px] w-[18px] shrink-0" />
                           <span className={cn("flex-1", collapsed && "lg:hidden")}>{item.label}</span>
                           {pendingCount > 0 && (
                             <span
-                              style={{ background: brandColor }}
                               className={cn(
-                                "inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full px-1 text-[10px] font-bold text-white",
+                                "inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full px-1 text-[10px] font-bold text-white bg-action-gradient",
                                 collapsed ? "lg:absolute lg:right-1 lg:top-1 lg:h-2 lg:w-2 lg:min-w-0 lg:rounded-full lg:px-0" : "ml-auto"
                               )}>
                               <span className={cn(collapsed && "lg:hidden")}>
@@ -302,8 +306,25 @@ export function Sidebar() {
 
         {/* User + logout */}
         <div className={cn("p-3 space-y-1 shrink-0", collapsed && "lg:flex lg:flex-col lg:items-center lg:p-2 lg:space-y-1")}>
-          <div className={cn("px-2.5 py-1", collapsed && "lg:hidden")}>
-            <p className="text-xs text-slate-500 truncate" title={userRole || undefined}>{userEmail}</p>
+          {/* Contexto del tenant — "estás operando en {organización}". Identidad
+              del cliente como dato, no como branding que invade el panel. */}
+          <div className={cn("flex items-center gap-2.5 px-1.5 py-1.5 min-w-0", collapsed && "lg:hidden")}>
+            <div
+              className="relative w-7 h-7 flex items-center justify-center shrink-0 rounded-md overflow-hidden ring-1 ring-white/10"
+              style={!brandLogoUrl ? { background: brandColor } : undefined}
+            >
+              {brandLogoUrl ? (
+                <Image src={brandLogoUrl} alt={brandName} width={28} height={28} className="w-full h-full object-contain" unoptimized />
+              ) : (
+                <span className="text-white font-bold text-[11px]">
+                  {(brandName.trim()[0] ?? "?").toUpperCase()}
+                </span>
+              )}
+            </div>
+            <div className="min-w-0 leading-tight">
+              <p className="text-[13px] font-medium text-white truncate">{brandName}</p>
+              <p className="text-[11px] text-slate-500 truncate" title={userRole || undefined}>{userEmail}</p>
+            </div>
           </div>
           {isAdmin && (
             <Link
@@ -338,7 +359,7 @@ export function Sidebar() {
         {/* Collapse toggle — desktop only */}
         <button
           onClick={toggleSidebar}
-          className="hidden lg:flex absolute -right-3 top-16 z-10 h-6 w-6 items-center justify-center rounded-full border border-white/10 bg-[#1c1815] text-slate-300 shadow-md hover:text-white hover:border-white/20 transition-all"
+          className="hidden lg:flex absolute -right-3 top-16 z-10 h-6 w-6 items-center justify-center rounded-full border border-white/10 bg-[#121327] text-slate-300 shadow-md hover:text-white hover:border-white/20 transition-all"
         >
           {collapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronLeft className="h-3 w-3" />}
         </button>

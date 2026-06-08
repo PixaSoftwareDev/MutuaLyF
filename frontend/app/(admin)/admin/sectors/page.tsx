@@ -101,12 +101,26 @@ export default function SectorsPage() {
         </Button>
       </div>
 
-      {/* Resumen */}
+      {/* Resumen editorial inline — sin tarjetas decorativas. */}
       {!isLoading && activeSectors.length > 0 && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-          <StatCard icon={Folder} label="Sectores activos" value={String(activeSectors.length)} />
-          <StatCard icon={Users} label="Operadores asignados" value={String(totalOperators)} />
-          <StatCard icon={Star} label="Predeterminado" value={defaultSector?.nombre ?? "—"} small />
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 text-sm text-muted-foreground">
+          <span>
+            <span className="font-semibold text-foreground tabular-nums">{activeSectors.length}</span>{" "}
+            {activeSectors.length === 1 ? "sector activo" : "sectores activos"}
+          </span>
+          <span className="h-1 w-1 rounded-full bg-border" />
+          <span>
+            <span className="font-semibold text-foreground tabular-nums">{totalOperators}</span>{" "}
+            {totalOperators === 1 ? "operador asignado" : "operadores asignados"}
+          </span>
+          {defaultSector && (
+            <>
+              <span className="h-1 w-1 rounded-full bg-border" />
+              <span>
+                Predeterminado: <span className="font-semibold text-foreground">{defaultSector.nombre}</span>
+              </span>
+            </>
+          )}
         </div>
       )}
 
@@ -323,24 +337,6 @@ function AssignedOperators({ sectorId }: { sectorId: string }) {
   );
 }
 
-// ── Stat card (resumen) ──────────────────────────────────────────────────────
-
-function StatCard({ icon: Icon, label, value, small }: {
-  icon: typeof Folder; label: string; value: string; small?: boolean;
-}) {
-  return (
-    <div className="flex items-center gap-3 rounded-2xl border bg-card px-4 py-3.5 shadow-xs">
-      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-action/10 text-action shrink-0">
-        <Icon className="h-5 w-5" />
-      </div>
-      <div className="min-w-0">
-        <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
-        <p className={`font-bold text-foreground truncate ${small ? "text-base" : "text-xl tabular-nums"}`}>{value}</p>
-      </div>
-    </div>
-  );
-}
-
 // ── Sector card ──────────────────────────────────────────────────────────────
 
 function SectorCard({
@@ -353,15 +349,23 @@ function SectorCard({
   defaultBusy: boolean;
 }) {
   return (
-    <div className="group relative flex flex-col rounded-2xl border bg-card p-5 shadow-sm transition-all duration-200 hover:shadow-md hover:border-action/40 hover:-translate-y-0.5">
-      {/* Cabecera: icono en contenedor de acento + menú */}
+    <div className="group relative flex flex-col overflow-hidden rounded-2xl border bg-card p-5 shadow-sm transition-all duration-200 hover:shadow-md hover:-translate-y-0.5">
+      {/* Acento gradient Intellix en el borde superior — solo el predeterminado. */}
+      {sector.is_default && <span className="absolute inset-x-0 top-0 h-[3px] bg-action-gradient" aria-hidden="true" />}
+
+      {/* Cabecera: nombre + badge + menú */}
       <div className="flex items-start justify-between gap-2">
-        <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-action/10 text-action shrink-0 ring-1 ring-action/10">
-          <Folder className="h-[22px] w-[22px]" />
+        <div className="min-w-0 flex flex-wrap items-center gap-2">
+          <h3 className="font-semibold text-[16px] tracking-tight text-foreground truncate">{sector.nombre}</h3>
+          {sector.is_default && (
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-action/30 bg-action/[0.06] px-2 py-0.5 text-[11px] font-semibold text-action shrink-0">
+              <span className="h-1.5 w-1.5 rounded-full bg-action-gradient" /> Predeterminado
+            </span>
+          )}
         </div>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button size="icon" variant="ghost" className="h-8 w-8 -mr-1 text-muted-foreground opacity-0 group-hover:opacity-100 focus:opacity-100 data-[state=open]:opacity-100 transition-opacity" aria-label="Acciones">
+            <Button size="icon" variant="ghost" className="h-8 w-8 -mr-1 -mt-0.5 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100 focus:opacity-100 data-[state=open]:opacity-100 transition-opacity" aria-label="Acciones">
               <MoreVertical className="h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>
@@ -373,7 +377,7 @@ function SectorCard({
             {!sector.is_default && (
               <DropdownMenuItem onSelect={onSetDefault} disabled={defaultBusy}>
                 <Star className="h-4 w-4 mr-2" />
-                Marcar como default
+                Marcar como predeterminado
               </DropdownMenuItem>
             )}
             {!sector.is_default && (
@@ -386,26 +390,16 @@ function SectorCard({
         </DropdownMenu>
       </div>
 
-      {/* Nombre + badge + descripción */}
-      <div className="mt-4 min-w-0">
-        <div className="flex items-center gap-2">
-          <h3 className="font-semibold text-[15px] text-foreground truncate">{sector.nombre}</h3>
-          {sector.is_default && (
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-action/10 text-action px-2.5 py-0.5 text-[11px] font-semibold shrink-0">
-              <span className="h-1.5 w-1.5 rounded-full bg-action" /> Por defecto
-            </span>
-          )}
-        </div>
-        <p className="text-sm text-muted-foreground mt-1 line-clamp-2 min-h-[2.5rem]">
-          {sector.descripcion || "Sin descripción"}
-        </p>
-      </div>
+      {/* Descripción */}
+      <p className="text-sm text-muted-foreground mt-2 line-clamp-2 min-h-[2.5rem]">
+        {sector.descripcion || "Sin descripción"}
+      </p>
 
       {/* Footer: operadores asignados */}
-      <div className="mt-auto pt-4 border-t border-border/70 flex items-center gap-2 text-xs text-muted-foreground">
-        <Users className="h-4 w-4 text-action/70" />
-        <span className="font-medium text-foreground/80">{sector.operator_count}</span>
-        {sector.operator_count === 1 ? "operador asignado" : "operadores asignados"}
+      <div className="mt-auto pt-4 border-t border-border/70 flex items-center gap-1.5 text-[13px] text-muted-foreground">
+        <Users className="h-4 w-4 text-muted-foreground/70" />
+        <span className="font-semibold text-foreground tabular-nums">{sector.operator_count}</span>
+        {sector.operator_count === 1 ? "operador" : "operadores"}
       </div>
     </div>
   );

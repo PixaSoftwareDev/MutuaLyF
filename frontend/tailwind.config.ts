@@ -80,6 +80,15 @@ const config: Config = {
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
       },
+      backgroundImage: {
+        // Gradient de marca Intellix (cyan→índigo→violeta) — el del login.
+        // Lo usan los CTAs primarios y los acentos destacados. NO es relleno
+        // plano: es la firma visual de la marca.
+        "action-gradient":
+          "linear-gradient(135deg, hsl(var(--ix-cyan)) 0%, hsl(var(--ix-indigo)) 50%, hsl(var(--ix-violet)) 100%)",
+        "action-gradient-soft":
+          "linear-gradient(135deg, hsl(var(--ix-cyan) / 0.12) 0%, hsl(var(--ix-indigo) / 0.12) 50%, hsl(var(--ix-violet) / 0.12) 100%)",
+      },
       // Escala de elevación suave (Linear/Vercel). Color azul-gris (#101828) en
       // vez de negro puro → sombras más limpias, menos "sucias". Baja opacidad,
       // multi-capa. Reemplaza el shadow-sm plano que daba el aspecto "viejo".

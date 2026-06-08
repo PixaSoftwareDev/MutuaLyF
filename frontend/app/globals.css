@@ -9,36 +9,41 @@
        Neutrales fríos suaves. Acento = color de marca del tenant (--brand),
        usado de forma selectiva; los CTAs primarios son oscuros neutros. */
 
-    /* Identidad "cálido premium": canvas off-white cálido (no gris frío) + cards
-       blancas que resaltan. Neutros con temperatura cálida (familia stone/arena). */
-    --background: 40 36% 97.5%;
-    --foreground: 28 18% 13%;
+    /* ── Identidad INTELLIX ────────────────────────────────────────────────
+       La marca real de Intellix (la del login): gradient cyan→índigo→violeta
+       sobre canvas claro neutro frío. El panel ES el producto Intellix; el
+       branding del tenant vive solo en la cara al afiliado (widget/chat). */
+
+    /* Canvas claro neutro frío (mismo espíritu que el bg-slate-50 del login),
+       cards blancas que resaltan con sombra suave. */
+    --background: 220 33% 98.5%;
+    --foreground: 222 28% 12%;
 
     --card: 0 0% 100%;
-    --card-foreground: 28 18% 13%;
+    --card-foreground: 222 28% 12%;
     --popover: 0 0% 100%;
-    --popover-foreground: 28 18% 13%;
+    --popover-foreground: 222 28% 12%;
 
-    /* Primary = marrón muy oscuro cálido (texto/botones oscuros), no slate frío. */
-    --primary: 28 20% 15%;
-    --primary-foreground: 40 36% 98%;
+    /* Primary = casi-negro frío neutro (texto, variante link). */
+    --primary: 222 30% 14%;
+    --primary-foreground: 220 33% 98.5%;
 
-    --secondary: 38 26% 94.5%;
-    --secondary-foreground: 28 18% 22%;
+    --secondary: 220 22% 95%;
+    --secondary-foreground: 222 24% 24%;
 
-    --muted: 38 26% 95%;
-    --muted-foreground: 30 9% 42%;
+    --muted: 220 22% 96%;
+    --muted-foreground: 220 10% 44%;
 
-    --accent: 38 30% 92%;
-    --accent-foreground: 28 18% 18%;
+    --accent: 222 26% 94%;
+    --accent-foreground: 222 24% 18%;
 
     --destructive: 4 74% 50%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 36 24% 89%;
-    --input: 36 24% 87%;
-    --ring: 32 95% 44%;
-    --radius: 0.85rem;
+    --border: 220 18% 90%;
+    --input: 220 18% 88%;
+    --ring: 240 100% 68%;
+    --radius: 0.8rem;
 
     /* ── Tokens semánticos de estado (antes hardcodeados por página) ──────────
        Pensados para chips/badges suaves (bg-{color}/10 text-{color}) y para
@@ -50,15 +55,22 @@
     --info: 214 80% 50%;
     --info-foreground: 0 0% 100%;
 
-    /* Acento de ACCIÓN (CTAs, foco, estado activo) — ÁMBAR dorado. Es el color de
-       identidad de la app: cálido, premium, distintivo (no el índigo genérico). */
-    --action: 32 95% 44%;
+    /* Acento de ACCIÓN (foco, estado activo, links, íconos) = índigo Intellix
+       #5B5BFF. Los CTAs primarios usan el gradient de marca (bg-action-gradient),
+       no relleno plano — igual que el botón del login. */
+    --action: 240 100% 68%;
     --action-foreground: 0 0% 100%;
-    --action-dark: 28 92% 38%;
+    --action-dark: 248 88% 62%;
+
+    /* Paleta de marca Intellix (la del login). Alimenta el gradient de CTAs,
+       el shell oscuro y los acentos. cyan #4FC3F7 · indigo #5B5BFF · violet #7A2DFF */
+    --ix-cyan: 199 92% 64%;
+    --ix-indigo: 240 100% 68%;
+    --ix-violet: 262 100% 59%;
 
     /* Brand = color institucional del tenant (lo inyecta branding-preload).
-       Default genérico = un azul sobrio (no el bordó "viejo") para que sin
-       branding la app igual luzca moderna. */
+       Solo se usa en la cara al afiliado (widget/chat público) y como dato del
+       tenant; el panel ya no lo usa como acento estructural. */
     --brand: 222 47% 30%;
     --brand-foreground: 0 0% 100%;
     --brand-dark: 222 47% 22%;
