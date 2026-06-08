@@ -20,11 +20,6 @@ export function PageHeader({ eyebrow, title, badge, description, actions, classN
   return (
     <div className={cn("flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between", className)}>
       <div className="min-w-0">
-        {eyebrow && (
-          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-action mb-2">
-            {eyebrow}
-          </p>
-        )}
         <div className="flex items-center gap-2.5 flex-wrap">
           <h1 className="text-[26px] sm:text-[30px] font-bold tracking-tight text-foreground leading-none">
             {title}

@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Search, Bot, Clock, UserCheck, XCircle, ChevronLeft, ChevronRight,
-  MessageSquare, CalendarDays, SlidersHorizontal, X, User, Loader2,
+  MessageSquare, CalendarDays, SlidersHorizontal, X, Loader2,
   AlertCircle, Mail, Fingerprint, Building2, Inbox as InboxIcon,
 } from "lucide-react";
 import { api, type ConversationHistoryRow, type ConversationDetail } from "@/lib/api";
@@ -444,7 +444,6 @@ function ConvRow({ conv, selected, onClick }: {
   const date    = conv.last_message_at ?? conv.created_at;
   const dateStr = date ? fmtDate(date) : "—";
   const dateTitle = date ? fmtDateFull(date) : undefined;
-  const initials = (conv.afiliado_nombre ?? "?").split(" ").slice(0, 2).map(w => w[0]).join("").toUpperCase();
 
   const name = conv.afiliado_nombre || (conv.afiliado_ip ? `IP ${conv.afiliado_ip}` : null);
   const subInfo = conv.afiliado_email || (conv.afiliado_dni ? `DNI ${conv.afiliado_dni}` : null);
@@ -453,41 +452,35 @@ function ConvRow({ conv, selected, onClick }: {
     <button
       onClick={onClick}
       className={cn(
-        "w-full text-left px-3 py-3 flex gap-3 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+        "w-full text-left px-3.5 py-3 block transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
         selected
-          ? "bg-action/[0.07] border-l-2 border-action"
-          : "hover:bg-muted/50 border-l-2 border-transparent",
+          ? "bg-action/[0.07] border-l-2 border-action pl-[calc(0.875rem-2px)]"
+          : "hover:bg-muted/50 border-l-2 border-transparent pl-[calc(0.875rem-2px)]",
       )}
     >
-      <div className="w-10 h-10 rounded-full shrink-0 flex items-center justify-center text-xs font-semibold bg-muted text-muted-foreground border border-border">
-        {initials || <User className="h-4 w-4" />}
+      {/* línea 1: nombre + tiempo */}
+      <div className="flex items-center gap-2">
+        <span className="flex items-center gap-1.5 min-w-0 flex-1">
+          {conv.is_test && <span className="shrink-0 text-[9px] font-bold bg-violet-100 text-violet-700 rounded px-1 py-0.5 uppercase tracking-wide">TEST</span>}
+          <span className="text-sm font-semibold truncate">
+            {name ?? <span className="font-normal text-muted-foreground italic">Anónimo</span>}
+          </span>
+        </span>
+        <span className="text-[11px] text-muted-foreground tabular-nums shrink-0 whitespace-nowrap" title={dateTitle}>{dateStr}</span>
       </div>
 
-      <div className="flex-1 min-w-0">
-        {/* línea 1: nombre + tiempo */}
-        <div className="flex items-center gap-2">
-          <span className="flex items-center gap-1.5 min-w-0 flex-1">
-            {conv.is_test && <span className="shrink-0 text-[9px] font-bold bg-violet-100 text-violet-700 rounded px-1 py-0.5 uppercase tracking-wide">TEST</span>}
-            <span className="text-sm font-medium truncate">
-              {name ?? <span className="text-muted-foreground italic">Anónimo</span>}
-            </span>
-          </span>
-          <span className="text-[11px] text-muted-foreground tabular-nums shrink-0 whitespace-nowrap" title={dateTitle}>{dateStr}</span>
-        </div>
+      {/* línea 2: sub info */}
+      {subInfo && <p className="text-xs text-muted-foreground truncate mt-0.5">{subInfo}</p>}
 
-        {/* línea 2: sub info */}
-        {subInfo && <p className="text-xs text-muted-foreground truncate mt-0.5">{subInfo}</p>}
-
-        {/* línea 3: estado + sector + mensajes */}
-        <div className="flex items-center gap-2 mt-1.5 min-w-0">
-          <StatusBadge status={conv.status} />
-          <span className="text-[11px] text-muted-foreground truncate min-w-0">
-            {conv.sector_nombre || "Sin sector"}
-          </span>
-          <span className="text-[11px] text-muted-foreground tabular-nums shrink-0 inline-flex items-center gap-1 ml-auto">
-            <MessageSquare className="h-3 w-3 opacity-50" />{conv.message_count ?? "—"}
-          </span>
-        </div>
+      {/* línea 3: estado + sector + mensajes */}
+      <div className="flex items-center gap-2 mt-2 min-w-0">
+        <StatusBadge status={conv.status} />
+        <span className="text-[11px] text-muted-foreground truncate min-w-0">
+          {conv.sector_nombre || "Sin sector"}
+        </span>
+        <span className="text-[11px] text-muted-foreground tabular-nums shrink-0 inline-flex items-center gap-1 ml-auto">
+          <MessageSquare className="h-3 w-3 opacity-50" />{conv.message_count ?? "—"}
+        </span>
       </div>
     </button>
   );
@@ -522,8 +515,6 @@ function ConvDetail({ detail, loading, isError, onRetry, onClose, inline }: {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [detail?.messages?.length]);
 
-  const initials = (detail?.afiliado_nombre ?? "?").split(" ").slice(0, 2).map(w => w[0]).join("").toUpperCase();
-
   return (
     <div className="flex flex-col h-full min-h-0">
       {/* Header */}
@@ -544,9 +535,6 @@ function ConvDetail({ detail, loading, isError, onRetry, onClose, inline }: {
           </div>
         ) : (
           <>
-            <div className="w-9 h-9 rounded-full shrink-0 flex items-center justify-center text-xs font-semibold bg-muted text-muted-foreground border border-border">
-              {initials || <User className="h-4 w-4" />}
-            </div>
             <div className="flex-1 min-w-0">
               <p className="font-semibold text-sm truncate">
                 {detail.afiliado_nombre || (detail.afiliado_ip ? `IP ${detail.afiliado_ip}` : "Anónimo")}
