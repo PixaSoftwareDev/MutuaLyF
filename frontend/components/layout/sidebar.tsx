@@ -186,7 +186,7 @@ export function Sidebar() {
         style={{ background: brandColor }}
         className={cn(
           // Base
-          "flex flex-col border-r border-white/10 text-white",
+          "flex flex-col border-r border-white/10 text-brand-foreground",
           // Mobile: fixed overlay drawer
           "fixed inset-y-0 left-0 z-50 lg:static lg:z-auto",
           // Mobile visibility via transform
@@ -219,13 +219,13 @@ export function Sidebar() {
                 unoptimized
               />
             ) : (
-              <span className="text-white font-bold text-xs">
+              <span className="text-brand-foreground font-bold text-xs">
                 {(brandName.trim()[0] ?? "?").toUpperCase()}
               </span>
             )}
           </div>
           <span className={cn(
-            "font-semibold text-sm tracking-tight text-white flex-1 truncate",
+            "font-semibold text-sm tracking-tight text-brand-foreground flex-1 truncate",
             collapsed && "lg:hidden"
           )}>
             {brandName}
@@ -233,7 +233,7 @@ export function Sidebar() {
           {/* Close button — mobile only */}
           <button
             onClick={closeMobileSidebar}
-            className="lg:hidden flex items-center justify-center w-7 h-7 rounded-md text-white/70 hover:text-white hover:bg-white/10 transition-colors"
+            className="lg:hidden flex items-center justify-center w-7 h-7 rounded-md text-brand-foreground/70 hover:text-brand-foreground hover:bg-white/10 transition-colors"
             aria-label="Cerrar menú"
           >
             <X className="h-4 w-4" />
@@ -256,7 +256,7 @@ export function Sidebar() {
                   {/* Section label — solo si el grupo lo tiene Y no está colapsado */}
                   {group.label && !collapsed && (
                     <div className={cn(
-                      "px-2.5 text-[10px] font-semibold uppercase tracking-wider text-white/40",
+                      "px-2.5 text-[10px] font-semibold uppercase tracking-wider text-brand-foreground/40",
                       isFirstVisible ? "mb-1.5" : "mt-5 mb-1.5"
                     )}>
                       {group.label}
@@ -276,7 +276,7 @@ export function Sidebar() {
                         onClick={handleOpenChatTester}
                         className={cn(
                           "w-full flex items-center gap-3 rounded-md px-2.5 py-2.5 text-sm font-medium transition-colors",
-                          "text-white/75 hover:bg-white/10 hover:text-white",
+                          "text-brand-foreground/75 hover:bg-white/10 hover:text-brand-foreground",
                           collapsed && "lg:justify-center lg:px-2"
                         )}
                         title={collapsed ? "Probar chat (nueva pestaña)" : "Abre el widget en una pestaña nueva"}
@@ -304,8 +304,8 @@ export function Sidebar() {
                           className={cn(
                             "relative flex items-center gap-3 rounded-md px-2.5 py-2.5 text-sm font-medium transition-colors",
                             active
-                              ? "bg-white/15 text-white shadow-sm"
-                              : "text-white/75 hover:bg-white/10 hover:text-white",
+                              ? "bg-white/15 text-brand-foreground shadow-sm"
+                              : "text-brand-foreground/75 hover:bg-white/10 hover:text-brand-foreground",
                             collapsed && "lg:justify-center lg:px-2"
                           )}
                           title={titleAttr}
@@ -341,7 +341,7 @@ export function Sidebar() {
         {/* User + logout */}
         <div className={cn("p-3 space-y-2 shrink-0", collapsed && "lg:flex lg:flex-col lg:items-center lg:p-2 lg:space-y-2")}>
           <div className={cn("px-2.5 py-1", collapsed && "lg:hidden")}>
-            <p className="text-xs text-white/70 truncate" title={userRole || undefined}>{userEmail}</p>
+            <p className="text-xs text-brand-foreground/70 truncate" title={userRole || undefined}>{userEmail}</p>
           </div>
           {isAdmin && (
             <Link
@@ -350,8 +350,8 @@ export function Sidebar() {
               className={cn(
                 "flex items-center gap-3 rounded-md px-2.5 py-2.5 text-sm w-full transition-colors",
                 pathname === "/admin/cuenta"
-                  ? "bg-white/15 text-white shadow-sm"
-                  : "text-white/75 hover:bg-white/10 hover:text-white",
+                  ? "bg-white/15 text-brand-foreground shadow-sm"
+                  : "text-brand-foreground/75 hover:bg-white/10 hover:text-brand-foreground",
                 collapsed && "lg:justify-center"
               )}
               title="Mi cuenta"
@@ -363,7 +363,7 @@ export function Sidebar() {
           <button
             onClick={handleLogout}
             className={cn(
-              "flex items-center gap-3 rounded-md px-2.5 py-2.5 text-sm text-white/75 hover:bg-white/10 hover:text-white w-full transition-colors",
+              "flex items-center gap-3 rounded-md px-2.5 py-2.5 text-sm text-brand-foreground/75 hover:bg-white/10 hover:text-brand-foreground w-full transition-colors",
               collapsed && "lg:justify-center"
             )}
             title="Cerrar sesión"
@@ -377,7 +377,7 @@ export function Sidebar() {
         <button
           onClick={toggleSidebar}
           style={{ background: brandColor }}
-          className="hidden lg:flex absolute -right-3 top-16 z-10 h-6 w-6 items-center justify-center rounded-full border border-white/20 text-white shadow-md hover:brightness-110 transition-all"
+          className="hidden lg:flex absolute -right-3 top-16 z-10 h-6 w-6 items-center justify-center rounded-full border border-white/20 text-brand-foreground shadow-md hover:brightness-110 transition-all"
         >
           {collapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronLeft className="h-3 w-3" />}
         </button>

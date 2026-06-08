@@ -47,7 +47,7 @@ export function OperatorTopbar() {
   return (
     <header
       style={{ background: branding.primary_color }}
-      className="h-14 text-white flex items-center px-3 sm:px-4 gap-3 shrink-0 border-b border-black/20"
+      className="h-14 text-brand-foreground flex items-center px-3 sm:px-4 gap-3 shrink-0 border-b border-black/20"
     >
       {/* Brand: logo + tenant name */}
       <div className="flex items-center gap-2 min-w-0">
@@ -66,7 +66,7 @@ export function OperatorTopbar() {
               unoptimized
             />
           ) : (
-            <span className="text-white font-bold text-sm">
+            <span className="text-brand-foreground font-bold text-sm">
               {(branding.display_name.trim()[0] ?? "?").toUpperCase()}
             </span>
           )}
@@ -91,8 +91,8 @@ export function OperatorTopbar() {
               className={cn(
                 "flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs transition-colors",
                 active
-                  ? "bg-white/15 text-white font-medium"
-                  : "text-white/70 hover:text-white hover:bg-white/10",
+                  ? "bg-white/15 text-brand-foreground font-medium"
+                  : "text-brand-foreground/70 hover:text-brand-foreground hover:bg-white/10",
               )}
             >
               <Icon className="h-3.5 w-3.5" />
@@ -106,8 +106,8 @@ export function OperatorTopbar() {
 
       {/* Operator identity */}
       <div className="hidden sm:flex flex-col items-end leading-tight min-w-0">
-        <span className="text-xs font-medium text-white truncate max-w-[220px]">{userEmail}</span>
-        <span className="text-[10px] text-white/60">Operador · {branding.display_name}</span>
+        <span className="text-xs font-medium text-brand-foreground truncate max-w-[220px]">{userEmail}</span>
+        <span className="text-[10px] text-brand-foreground/60">Operador · {branding.display_name}</span>
       </div>
 
       {/* Actions */}
@@ -115,7 +115,7 @@ export function OperatorTopbar() {
         <DropdownMenuTrigger asChild>
           <button
             type="button"
-            className="flex items-center justify-center w-8 h-8 rounded-md text-white/80 hover:text-white hover:bg-white/10 transition-colors shrink-0"
+            className="flex items-center justify-center w-8 h-8 rounded-md text-brand-foreground/80 hover:text-brand-foreground hover:bg-white/10 transition-colors shrink-0"
             aria-label="Acciones de cuenta"
           >
             <MoreVertical className="h-4 w-4" />

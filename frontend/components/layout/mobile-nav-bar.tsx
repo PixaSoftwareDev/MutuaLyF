@@ -21,11 +21,11 @@ export function MobileNavBar() {
   return (
     <header
       style={{ background: branding.primary_color }}
-      className="lg:hidden flex items-center gap-3 h-14 px-4 border-b text-white shrink-0"
+      className="lg:hidden flex items-center gap-3 h-14 px-4 border-b text-brand-foreground shrink-0"
     >
       <button
         onClick={openMobileSidebar}
-        className="flex items-center justify-center w-8 h-8 rounded-md text-white/80 hover:text-white hover:bg-white/10 transition-colors"
+        className="flex items-center justify-center w-8 h-8 rounded-md text-brand-foreground/80 hover:text-brand-foreground hover:bg-white/10 transition-colors"
         aria-label="Abrir menú"
       >
         <Menu className="h-5 w-5" />
@@ -46,7 +46,7 @@ export function MobileNavBar() {
               unoptimized
             />
           ) : (
-            <span className="text-white font-bold text-[10px]">
+            <span className="text-brand-foreground font-bold text-[10px]">
               {(branding.display_name.trim()[0] ?? "?").toUpperCase()}
             </span>
           )}

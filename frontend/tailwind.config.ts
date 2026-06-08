@@ -25,10 +25,13 @@ const config: Config = {
           foreground: "hsl(var(--primary-foreground))",
         },
         brand: {
-          DEFAULT: "hsl(var(--brand))",
-          foreground: "hsl(var(--brand-foreground))",
-          dark: "hsl(var(--brand-dark))",
-          light: "hsl(var(--brand-light))",
+          // <alpha-value> habilita opacidad (text-brand-foreground/70, bg-brand/10)
+          // sin romper los usos sólidos. Necesario para unificar el color de texto
+          // sobre la marca (sidebar/topbar) al valor WCAG-safe --brand-foreground.
+          DEFAULT: "hsl(var(--brand) / <alpha-value>)",
+          foreground: "hsl(var(--brand-foreground) / <alpha-value>)",
+          dark: "hsl(var(--brand-dark) / <alpha-value>)",
+          light: "hsl(var(--brand-light) / <alpha-value>)",
         },
         success: {
           DEFAULT: "hsl(var(--success))",
