@@ -38,9 +38,10 @@ function LoginForm() {
   const searchParams = useSearchParams();
   const { setAuth } = useAuthStore();
 
-  // Inicializar siempre con "email" para que server y client rendericen lo mismo.
-  // El param ?platform=1 se lee en useEffect para evitar el hydration mismatch.
+  // Inicializar siempre con "email" y isSuperAdmin=false para que server y client
+  // rendericen lo mismo. Los params se leen en useEffect para evitar hydration mismatch.
   const [step, setStep]               = useState<Step>("email");
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const [email, setEmail]             = useState("");
   const [password, setPassword]       = useState("");
   const [showPwd, setShowPwd]         = useState(false);
@@ -58,7 +59,10 @@ function LoginForm() {
 
   // Leer ?platform=1 solo en el cliente para no crear mismatch con el SSR.
   useEffect(() => {
-    if (searchParams.get("platform") === "1") setStep("fallback");
+    if (searchParams.get("platform") === "1") {
+      setIsSuperAdmin(true);
+      setStep("fallback");
+    }
   }, [searchParams]);
 
   // ── Handlers ─────────────────────────────────────────────────────────────
