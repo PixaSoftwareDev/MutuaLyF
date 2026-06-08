@@ -116,17 +116,16 @@ export function DocumentUploader({ onUploaded }: { onUploaded?: () => void }) {
       <div
         {...getRootProps()}
         className={cn(
-          "relative group border-2 border-dashed rounded-xl px-6 py-6 text-center cursor-pointer transition-all overflow-hidden",
+          "relative group border-2 border-dashed rounded-2xl px-6 py-8 text-center cursor-pointer transition-all overflow-hidden",
           isDragActive
-            ? "border-primary bg-primary/5 scale-[1.01]"
-            : "border-border hover:border-primary/50",
+            ? "border-action bg-action-gradient-soft scale-[1.01] shadow-sm"
+            : "border-border hover:border-action/50 hover:shadow-xs",
         )}
       >
-        {/* Gradient sutil al hover, debajo del contenido */}
+        {/* Mesh de marca sutil al hover/drag, debajo del contenido */}
         <div
           className={cn(
-            "absolute inset-0 -z-0 opacity-0 transition-opacity duration-300 pointer-events-none",
-            "bg-gradient-to-br from-primary/[0.04] via-transparent to-primary/[0.06]",
+            "absolute inset-0 -z-0 opacity-0 transition-opacity duration-300 pointer-events-none bg-action-gradient-soft",
             "group-hover:opacity-100",
             isDragActive && "opacity-100",
           )}
@@ -134,32 +133,34 @@ export function DocumentUploader({ onUploaded }: { onUploaded?: () => void }) {
 
         <input {...getInputProps()} />
 
-        {/* Icono con halo */}
-        <div className="relative inline-flex items-center justify-center mb-2.5">
+        {/* Icono con halo de marca */}
+        <div className="relative inline-flex items-center justify-center mb-3">
           <div
             className={cn(
-              "absolute inset-0 rounded-xl blur-xl transition-opacity",
-              "bg-primary/30",
-              isDragActive ? "opacity-60" : "opacity-0 group-hover:opacity-30",
+              "absolute inset-0 rounded-2xl blur-xl transition-opacity bg-action/30",
+              isDragActive ? "opacity-70" : "opacity-0 group-hover:opacity-40",
             )}
           />
           <div
             className={cn(
-              "relative w-11 h-11 rounded-xl flex items-center justify-center transition-colors",
-              isDragActive ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground group-hover:bg-primary/10 group-hover:text-primary",
+              "relative w-12 h-12 rounded-2xl flex items-center justify-center transition-all shadow-xs",
+              isDragActive
+                ? "text-white scale-110"
+                : "bg-card text-action ring-1 ring-action/15 group-hover:scale-105",
             )}
+            style={isDragActive ? { backgroundImage: "linear-gradient(135deg, #4FC3F7 0%, #5B5BFF 50%, #7A2DFF 100%)" } : undefined}
           >
             <Upload className="h-5 w-5" />
           </div>
         </div>
 
-        <p className="text-sm font-semibold text-foreground">
+        <p className="text-[15px] font-semibold text-foreground">
           {isDragActive ? "Soltá los archivos acá" : "Arrastrá tus documentos"}
-          <span className="font-normal text-muted-foreground"> · o hacé click</span>
+          <span className="font-normal text-muted-foreground"> · o hacé click para elegir</span>
         </p>
 
         {/* Chips de formatos + tamaño máx en una sola línea */}
-        <div className="flex flex-wrap items-center justify-center gap-1.5 mt-2.5">
+        <div className="flex flex-wrap items-center justify-center gap-1.5 mt-3">
           {["PDF", "DOCX", "TXT", "HTML", "JSON"].map((fmt) => (
             <span
               key={fmt}
