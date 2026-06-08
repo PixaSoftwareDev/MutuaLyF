@@ -17,7 +17,6 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent } from "@/components/ui/card";
-import { PageShell } from "@/components/layout/page-shell";
 import { PageHeader } from "@/components/layout/page-header";
 
 // ── Types & constants ──────────────────────────────────────────────────────────
@@ -202,9 +201,9 @@ export default function AdminConversationsPage() {
 
   return (
     <>
-      <PageShell>
+      <div className="h-full flex flex-col max-w-7xl mx-auto w-full p-4 sm:p-6 gap-4 min-h-0">
         <PageHeader
-          eyebrow="Atención"
+          className="shrink-0"
           title="Conversaciones"
           description="Historial de conversaciones del asistente y de la atención humana."
           actions={
@@ -228,7 +227,7 @@ export default function AdminConversationsPage() {
         />
 
         {/* ── Toolbar: tabs + search + filtros ──────────────────────────────── */}
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between shrink-0">
           {/* Status tabs — segmented control */}
           <div role="tablist" aria-label="Filtrar por estado" className="inline-flex items-center gap-1 p-1 bg-muted rounded-lg overflow-x-auto">
             {STATUS_TABS.map(tab => {
@@ -297,7 +296,7 @@ export default function AdminConversationsPage() {
 
         {/* ── Advanced filters — expandable ─────────────────────────────────── */}
         {showFilters && (
-          <Card>
+          <Card className="shrink-0">
             <CardContent className="p-4 flex flex-col sm:flex-row sm:items-end gap-4 flex-wrap">
               {/* Sector */}
               <div className="flex flex-col gap-1.5 min-w-[180px]">
@@ -356,7 +355,7 @@ export default function AdminConversationsPage() {
 
         {/* ── Active filter chips ───────────────────────────────────────────── */}
         {hasActiveFilters && !showFilters && (
-          <div className="flex items-center gap-2 flex-wrap -mt-1">
+          <div className="flex items-center gap-2 flex-wrap shrink-0">
             {sectorName && <FilterChip label={sectorName} onClear={() => setSectorId("")} />}
             {(dateFrom || dateTo) && (
               <FilterChip
@@ -368,9 +367,9 @@ export default function AdminConversationsPage() {
         )}
 
         {/* ── Inbox split: lista + conversación ─────────────────────────────── */}
-        <div className="grid gap-4 lg:grid-cols-[minmax(340px,400px)_1fr] lg:h-[calc(100vh-15rem)]">
+        <div className="grid gap-4 lg:grid-cols-[minmax(320px,380px)_1fr] flex-1 min-h-0">
           {/* Lista (scroll propio) */}
-          <Card className="overflow-hidden flex flex-col lg:h-full min-h-0">
+          <Card className="overflow-hidden flex flex-col h-full min-h-0">
             <div className="flex items-center justify-between px-3 py-2 border-b bg-muted/40 shrink-0">
               <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                 {total > 0 ? `${total.toLocaleString("es-AR")} conversaciones` : "Conversaciones"}
@@ -384,7 +383,7 @@ export default function AdminConversationsPage() {
           </Card>
 
           {/* Conversación (desktop inline) */}
-          <Card className="hidden lg:flex flex-col overflow-hidden lg:h-full min-h-0">
+          <Card className="hidden lg:flex flex-col overflow-hidden h-full min-h-0">
             {selectedId ? (
               <ConvDetail
                 detail={detailQuery.data ?? null}
@@ -399,7 +398,7 @@ export default function AdminConversationsPage() {
             )}
           </Card>
         </div>
-      </PageShell>
+      </div>
 
       {/* ── Detail overlay (solo mobile/tablet) ─────────────────────────────── */}
       <div
