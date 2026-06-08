@@ -51,6 +51,13 @@
     --info: 214 80% 50%;
     --info-foreground: 0 0% 100%;
 
+    /* Acento de ACCIÓN (CTAs) — índigo Intellix, distinto del color de marca del
+       tenant. El chrome (sidebar) lleva la marca del cliente; las acciones llevan
+       el acento de plataforma → contraste y vida, no todo del mismo color. */
+    --action: 243 75% 59%;
+    --action-foreground: 0 0% 100%;
+    --action-dark: 243 70% 50%;
+
     /* Brand = color institucional del tenant (lo inyecta branding-preload).
        Default genérico = un azul sobrio (no el bordó "viejo") para que sin
        branding la app igual luzca moderna. */
@@ -96,15 +103,13 @@
   }
   body {
     @apply bg-background text-foreground;
-    /* Afinado de Inter como Linear/Vercel: stylistic sets + antialias. */
-    font-feature-settings: "cv02", "cv03", "cv04", "cv11", "ss01";
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
   }
-  /* Títulos: tracking ligeramente cerrado, más prolijo a tamaños grandes. */
+  /* Títulos: tracking cerrado para look moderno con Plus Jakarta Sans. */
   h1, h2, h3, h4 {
-    letter-spacing: -0.011em;
+    letter-spacing: -0.02em;
   }
 }
 

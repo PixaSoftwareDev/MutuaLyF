@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/components/providers";
 import { Toaster } from "@/components/ui/toast";
 import { BRANDING_PRELOAD_SCRIPT } from "./branding-preload";
 
-const inter = Inter({ subsets: ["latin"] });
+// Fuente geométrica moderna con carácter (reemplaza Inter, que se lee genérico).
+const jakarta = Plus_Jakarta_Sans({ subsets: ["latin"], display: "swap" });
 
 export const metadata: Metadata = {
   title: "Intellix",
@@ -22,7 +23,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             no toca nada y queda el branding generico. */}
         <script dangerouslySetInnerHTML={{ __html: BRANDING_PRELOAD_SCRIPT }} />
       </head>
-      <body className={inter.className}>
+      <body className={jakarta.className}>
         <Providers>
           {children}
           <Toaster />

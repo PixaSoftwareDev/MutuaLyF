@@ -183,10 +183,10 @@ export function Sidebar() {
       )}
 
       <aside
-        style={{ background: brandColor }}
+        style={{ background: `linear-gradient(180deg, ${brandColor} 0%, ${brandColorDark} 100%)` }}
         className={cn(
           // Base
-          "flex flex-col border-r border-white/10 text-brand-foreground",
+          "flex flex-col border-r border-black/10 text-brand-foreground",
           // Mobile: fixed overlay drawer
           "fixed inset-y-0 left-0 z-50 lg:static lg:z-auto",
           // Mobile visibility via transform
@@ -302,10 +302,10 @@ export function Sidebar() {
                           onMouseEnter={() => prefetchMap[item.href]?.()}
                           onFocus={() => prefetchMap[item.href]?.()}
                           className={cn(
-                            "relative flex items-center gap-3 rounded-md px-2.5 py-2.5 text-sm font-medium transition-colors",
+                            "relative flex items-center gap-3 rounded-lg px-2.5 py-2.5 text-sm font-medium transition-all",
                             active
-                              ? "bg-white/15 text-brand-foreground shadow-sm"
-                              : "text-brand-foreground/75 hover:bg-white/10 hover:text-brand-foreground",
+                              ? "bg-white/20 text-brand-foreground font-semibold shadow-sm before:absolute before:left-0 before:top-1/2 before:-translate-y-1/2 before:h-5 before:w-1 before:rounded-r-full before:bg-brand-foreground"
+                              : "text-brand-foreground/70 hover:bg-white/10 hover:text-brand-foreground",
                             collapsed && "lg:justify-center lg:px-2"
                           )}
                           title={titleAttr}
