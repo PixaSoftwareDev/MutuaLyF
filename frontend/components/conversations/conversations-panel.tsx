@@ -29,9 +29,9 @@ const COLLAPSED_KEY = "ia_ops_collapsed_v2";
 // para no mezclar y evitar que el operador piense que tiene que hacer algo.
 type SectionKey = "handoff_requested" | "human_attending";
 
-const SECTION_DEFS: Array<{ key: SectionKey; label: string; tone: string; defaultOpen: boolean }> = [
-  { key: "handoff_requested", label: "En espera",   tone: "text-amber-600",   defaultOpen: true },
-  { key: "human_attending",   label: "En atención", tone: "text-emerald-600", defaultOpen: true },
+const SECTION_DEFS: Array<{ key: SectionKey; label: string; tone: string; badge: string; defaultOpen: boolean }> = [
+  { key: "handoff_requested", label: "En espera",   tone: "text-warning", badge: "bg-warning/15 text-warning", defaultOpen: true },
+  { key: "human_attending",   label: "En atención", tone: "text-success", badge: "bg-success/15 text-success", defaultOpen: true },
 ];
 
 export type ConversationsPanelMode = "operator" | "admin-readonly";
@@ -311,8 +311,11 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
 
   const attachM = useMutation({
     mutationFn: ({ id, file }: { id: string; file: File }) => api.operator.uploadAttachment(id, file),
-    onSuccess: () => { inv(); },
-    onError:   (err: any) => { alert(err?.response?.data?.detail || "No se pudo enviar el archivo."); },
+    onSuccess: () => { inv(); toast({ title: "Archivo enviado", variant: "success" }); },
+    onError:   (err: any) => {
+      const d = err?.response?.data?.detail;
+      toast({ title: "No se pudo enviar el archivo", description: typeof d === "string" ? d : "Intentá de nuevo.", variant: "destructive" });
+    },
   });
 
   function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
@@ -320,27 +323,52 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
     e.target.value = "";
     if (!file || !detail) return;
     const ok = ["image/png", "image/jpeg", "image/jpg", "image/webp", "application/pdf"];
-    if (!ok.includes(file.type)) { alert("Solo se permiten imágenes (PNG/JPG/WEBP) o PDF."); return; }
-    if (file.size > 10 * 1024 * 1024) { alert("El archivo supera el máximo de 10 MB."); return; }
+    if (!ok.includes(file.type)) { toast({ title: "Formato no permitido", description: "Solo imágenes (PNG/JPG/WEBP) o PDF.", variant: "destructive" }); return; }
+    if (file.size > 10 * 1024 * 1024) { toast({ title: "Archivo muy grande", description: "El máximo es 10 MB.", variant: "destructive" }); return; }
     attachM.mutate({ id: detail.id, file });
   }
 
   const replyM = useMutation({
     mutationFn: ({ id, content }: { id: string; content: string }) => api.operator.reply(id, content),
-    onSuccess: () => { inv(); setReplyText(""); textareaRef.current?.focus(); },
-    onError:   (err: any) => {
+    // Optimista: insertamos la burbuja del operador al instante con estado
+    // "enviando" y limpiamos el textarea. Antes el operador escribía, apretaba
+    // Enter y no veía nada hasta el refetch (~2s) — dudaba si se había enviado.
+    onMutate: async ({ id, content }) => {
+      await qc.cancelQueries({ queryKey: ["conversation-detail", id] });
+      const snapshot = qc.getQueryData(["conversation-detail", id]);
+      const tempId = `temp-${Date.now()}`;
+      qc.setQueryData(["conversation-detail", id], (old: any) => {
+        if (!old) return old;
+        return {
+          ...old,
+          messages: [...(old.messages ?? []), {
+            id: tempId, sender_type: "operator", content,
+            created_at: new Date().toISOString(), pending: true,
+          }],
+        };
+      });
+      const prevReply = replyText;
+      setReplyText("");
+      return { snapshot, prevReply, id };
+    },
+    onError: (err: any, _vars, ctx) => {
+      // Revertir la burbuja optimista y restaurar el texto para que no se pierda.
+      if (ctx?.snapshot !== undefined) qc.setQueryData(["conversation-detail", ctx.id], ctx.snapshot);
+      if (ctx?.prevReply !== undefined) setReplyText(ctx.prevReply);
       // Backend devuelve 409 con detail descriptivo cuando la conversación
-      // está cerrada o el afiliado abandonó (>12h inactivo). Mostrar el
-      // mensaje del backend en vez del genérico "Error al enviar".
+      // está cerrada o el afiliado abandonó (>12h inactivo).
       const detail = err?.response?.data?.detail || "Error al enviar el mensaje.";
       toast({
         title: "No se pudo enviar",
         description: typeof detail === "string" ? detail : "Intentá de nuevo.",
         variant: "destructive",
       });
-      // Si la conversación quedó cerrada, refrescar el detalle para que
-      // la UI bloquee el reply y muestre el banner de cerrada.
-      if (err?.response?.status === 409) inv();
+    },
+    onSuccess: () => { textareaRef.current?.focus(); },
+    // Refetch siempre: reemplaza la burbuja temporal por el mensaje real del backend.
+    onSettled: (_d, _e, vars) => {
+      qc.invalidateQueries({ queryKey: ["conversation-detail", vars.id] });
+      qc.invalidateQueries({ queryKey: ["operator-conversations"] });
     },
   });
 
@@ -449,13 +477,13 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
             <div className="flex gap-2">
               <span className={cn(
                 "flex-1 text-center text-xs font-semibold rounded-md py-1.5",
-                waitingCount > 0 ? "bg-amber-100 text-amber-700" : "bg-muted text-muted-foreground"
+                waitingCount > 0 ? "bg-warning/10 text-warning" : "bg-muted text-muted-foreground"
               )}>
                 {waitingCount} en espera
               </span>
               <span className={cn(
                 "flex-1 text-center text-xs font-semibold rounded-md py-1.5",
-                attendingCount > 0 ? "bg-emerald-100 text-emerald-700" : "bg-muted text-muted-foreground"
+                attendingCount > 0 ? "bg-success/10 text-success" : "bg-muted text-muted-foreground"
               )}>
                 {attendingCount} en atención
               </span>
@@ -526,11 +554,13 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
                   <div key={def.key}>
                     <button
                       onClick={() => toggleSection(def.key)}
-                      className="w-full flex items-center gap-1.5 px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors"
+                      className="w-full flex items-center gap-1.5 px-2 py-1.5 hover:bg-muted/40 rounded-md transition-colors"
                     >
-                      <ChevronDown className={cn("h-3 w-3 transition-transform", !open && "-rotate-90")} />
-                      <span className={def.tone}>{def.label}</span>
-                      <span className="ml-auto font-normal">{items.length}</span>
+                      <ChevronDown className={cn("h-3.5 w-3.5 text-muted-foreground transition-transform", !open && "-rotate-90")} />
+                      <span className={cn("text-[11px] font-bold uppercase tracking-wide", def.tone)}>{def.label}</span>
+                      <span className={cn("ml-auto text-[11px] font-semibold rounded-full px-1.5 min-w-[20px] text-center", def.badge)}>
+                        {items.length}
+                      </span>
                     </button>
                     {open && (
                       <div className="space-y-1 mb-2">
@@ -875,10 +905,10 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
 
 export function StatusBadge({ status }: { status: string }) {
   const map: Record<string, { label: string; cls: string }> = {
-    bot_active:        { label: "Bot activo",   cls: "bg-slate-100 text-slate-600" },
-    handoff_requested: { label: "En espera",    cls: "bg-amber-100 text-amber-700" },
-    human_attending:   { label: "En atención",  cls: "bg-emerald-100 text-emerald-700" },
-    closed:            { label: "Cerrada",       cls: "bg-slate-100 text-slate-500" },
+    bot_active:        { label: "Bot activo",   cls: "bg-muted text-muted-foreground" },
+    handoff_requested: { label: "En espera",    cls: "bg-warning/10 text-warning" },
+    human_attending:   { label: "En atención",  cls: "bg-success/10 text-success" },
+    closed:            { label: "Cerrada",       cls: "bg-muted text-muted-foreground" },
   };
   const s = map[status] ?? { label: status, cls: "bg-muted text-muted-foreground" };
   return <span className={cn("text-xs font-medium px-2 py-0.5 rounded-full", s.cls)}>{s.label}</span>;
@@ -1060,7 +1090,7 @@ function AttachmentView({ conversationId, messageId, name, mime }:
 
 export function MessageBubble({ msg, conversationId }:
   { msg: { id: string; sender_type: string; content: string; created_at: string;
-           attachment_name?: string | null; attachment_mime?: string | null }; conversationId: string }) {
+           attachment_name?: string | null; attachment_mime?: string | null; pending?: boolean }; conversationId: string }) {
   const isUser     = msg.sender_type === "user";
   const isSystem   = msg.sender_type === "system";
   const isOperator = msg.sender_type === "operator";
@@ -1091,17 +1121,20 @@ export function MessageBubble({ msg, conversationId }:
       )}
       <div className="max-w-[85%] min-w-[120px] flex flex-col">
         <div className={cn(
-          "rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed break-words",
+          "rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed break-words transition-opacity",
           isUser     && "bg-brand text-brand-foreground rounded-br-sm shadow-sm",
           isOperator && "bg-white border border-emerald-200 text-slate-800 rounded-bl-sm shadow-sm",
           !isUser && !isOperator && "bg-white border border-slate-200 text-slate-800 rounded-bl-sm shadow-sm",
+          msg.pending && "opacity-65",
         )}>
           {msg.content && <p className="whitespace-pre-wrap break-words">{renderWithLinks(msg.content)}</p>}
           {msg.attachment_name && (
             <AttachmentView conversationId={conversationId} messageId={msg.id}
                             name={msg.attachment_name} mime={msg.attachment_mime || ""} />
           )}
-          <p className={cn("text-[10px] mt-1 opacity-60", isUser ? "text-right" : "text-left")}>{time}</p>
+          <p className={cn("text-[11px] mt-1 opacity-60 flex items-center gap-1", isUser ? "justify-end" : "justify-start")}>
+            {msg.pending ? <><Loader2 className="h-2.5 w-2.5 animate-spin" /> enviando…</> : time}
+          </p>
         </div>
         {isOperator && (
           <p className="text-[10px] text-emerald-600 mt-1 ml-1 font-medium">Operador</p>

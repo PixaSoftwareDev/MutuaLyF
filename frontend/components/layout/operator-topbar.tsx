@@ -129,6 +129,18 @@ export function OperatorTopbar() {
             </div>
           </DropdownMenuLabel>
           <DropdownMenuSeparator className="sm:hidden" />
+          {/* En mobile la nav (Bandeja/Historial) está oculta arriba: la repetimos
+              acá para que el operador no pierda el acceso a Historial en el teléfono. */}
+          {NAV_ITEMS.map(item => {
+            const Icon = item.icon;
+            return (
+              <DropdownMenuItem key={item.href} className="sm:hidden" onSelect={() => router.push(item.href)}>
+                <Icon className="h-4 w-4 mr-2" />
+                {item.label}
+              </DropdownMenuItem>
+            );
+          })}
+          <DropdownMenuSeparator className="sm:hidden" />
           <DropdownMenuItem onSelect={() => router.push("/operator/cuenta")}>
             <UserCircle className="h-4 w-4 mr-2" />
             Mi cuenta
