@@ -153,6 +153,7 @@ export default function AdminConversationsPage() {
     <>
       <PageShell>
         <PageHeader
+          eyebrow="Atención"
           title="Conversaciones"
           description="Historial de conversaciones del asistente y de la atención humana."
           actions={

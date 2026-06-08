@@ -20,6 +20,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { toast } from "@/components/ui/toast";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageShell } from "@/components/layout/page-shell";
+import { PageHeader, CountChip } from "@/components/layout/page-header";
 
 export default function SectorsPage() {
   const qc = useQueryClient();
@@ -80,49 +81,25 @@ export default function SectorsPage() {
   };
 
   const activeSectors = sectors.filter(s => s.is_active);
-  const totalOperators = activeSectors.reduce((sum, s) => sum + s.operator_count, 0);
-  const defaultSector = activeSectors.find(s => s.is_default);
 
   return (
     <PageShell>
-      {/* Header */}
-      <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0">
-          <h1 className="text-[26px] sm:text-[30px] font-bold tracking-tight text-foreground leading-tight">
-            Sectores de atención
-          </h1>
-          <p className="text-[15px] text-muted-foreground mt-2 max-w-xl leading-relaxed">
-            Las áreas que el afiliado elige al consultar. El sector{" "}
-            <span className="font-semibold text-foreground">predeterminado</span> se asigna cuando no elige ninguno.
-          </p>
-        </div>
-        <Button onClick={() => setShowCreate(true)} className="shadow-sm shrink-0">
-          <Plus className="h-[18px] w-[18px] mr-1.5" /> Nuevo sector
-        </Button>
-      </div>
-
-      {/* Resumen editorial inline — sin tarjetas decorativas. */}
-      {!isLoading && activeSectors.length > 0 && (
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 text-sm text-muted-foreground">
-          <span>
-            <span className="font-semibold text-foreground tabular-nums">{activeSectors.length}</span>{" "}
-            {activeSectors.length === 1 ? "sector activo" : "sectores activos"}
-          </span>
-          <span className="h-1 w-1 rounded-full bg-border" />
-          <span>
-            <span className="font-semibold text-foreground tabular-nums">{totalOperators}</span>{" "}
-            {totalOperators === 1 ? "operador asignado" : "operadores asignados"}
-          </span>
-          {defaultSector && (
-            <>
-              <span className="h-1 w-1 rounded-full bg-border" />
-              <span>
-                Predeterminado: <span className="font-semibold text-foreground">{defaultSector.nombre}</span>
-              </span>
-            </>
-          )}
-        </div>
-      )}
+      <PageHeader
+        eyebrow="Equipo"
+        title="Sectores de atención"
+        badge={!isLoading && activeSectors.length > 0
+          ? <CountChip>{activeSectors.length} {activeSectors.length === 1 ? "activo" : "activos"}</CountChip>
+          : undefined}
+        description={
+          <>Las áreas que el afiliado elige al consultar. El sector{" "}
+          <span className="font-semibold text-foreground">predeterminado</span> se asigna cuando no elige ninguno.</>
+        }
+        actions={
+          <Button onClick={() => setShowCreate(true)} className="shrink-0">
+            <Plus className="h-[18px] w-[18px] mr-1.5" /> Nuevo sector
+          </Button>
+        }
+      />
 
       {/* Grid de sectores */}
       {isLoading ? (

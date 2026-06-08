@@ -16,6 +16,7 @@ function SettingsContent() {
   return (
     <PageShell>
       <PageHeader
+        eyebrow="Sistema"
         title="Configuración del bot"
         description="Ajustes del comportamiento del asistente y reglas de derivación a operadores humanos."
       />

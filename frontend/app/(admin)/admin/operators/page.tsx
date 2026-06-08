@@ -117,6 +117,7 @@ export default function OperatorsPage() {
   return (
     <PageShell>
       <PageHeader
+        eyebrow="Equipo"
         title="Operadores"
         description="Creá operadores y asignales los sectores que pueden atender."
         actions={

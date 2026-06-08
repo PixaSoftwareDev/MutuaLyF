@@ -136,6 +136,7 @@ export default function DocumentsPage() {
   return (
     <PageShell>
       <PageHeader
+        eyebrow="Conocimiento"
         title="Documentos"
         description="Subí documentos para que la IA los use en sus respuestas."
         actions={<ExportKbButton />}

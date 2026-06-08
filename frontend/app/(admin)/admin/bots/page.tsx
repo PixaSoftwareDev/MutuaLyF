@@ -47,6 +47,7 @@ export default function BotsPage() {
   return (
     <PageShell>
       <PageHeader
+        eyebrow="Sistema"
         title="Personalidad del bot"
         description="Elegí cómo se comunica tu asistente. Solo puede estar activa una personalidad a la vez."
       />

@@ -525,6 +525,7 @@ export default function DuplicatesPage() {
   return (
     <PageShell>
       <PageHeader
+        eyebrow="Conocimiento"
         title="Fragmentos duplicados"
         description="Pares de fragmentos con contenido similar entre documentos. Decidí cuál conservar."
       />

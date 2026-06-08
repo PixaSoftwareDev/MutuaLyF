@@ -164,12 +164,18 @@ export function Sidebar() {
           como contexto (logo + nombre) en el pie, no como branding estructural. */}
       <aside
         className={cn(
-          "flex flex-col border-r border-white/[0.06] bg-[#121327] text-slate-300",
+          "flex flex-col border-r border-white/[0.06] text-slate-300",
           "fixed inset-y-0 left-0 z-50 lg:static lg:z-auto",
           "transition-transform duration-200 ease-in-out",
           mobileSidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0",
           collapsed ? "lg:w-[64px] w-64" : "w-64 lg:w-60",
         )}
+        style={{
+          // Identidad Intellix: glow de marca (índigo/violeta) detrás del wordmark
+          // + degradé vertical con profundidad. No es negro plano.
+          background:
+            "radial-gradient(130% 55% at 50% 0%, rgba(110,90,255,0.20) 0%, transparent 58%), linear-gradient(180deg, #17183a 0%, #121327 52%, #0d0e1e 100%)",
+        }}
       >
         {/* Brand Intellix — wordmark del producto. Colapsado (desktop) → icono. */}
         <div className={cn(
@@ -267,9 +273,9 @@ export function Sidebar() {
                           onMouseEnter={() => prefetchMap[item.href]?.()}
                           onFocus={() => prefetchMap[item.href]?.()}
                           className={cn(
-                            "relative flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm font-medium transition-colors",
+                            "relative flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm font-medium transition-all",
                             active
-                              ? "bg-white/[0.08] text-white"
+                              ? "bg-gradient-to-r from-white/[0.12] to-white/[0.02] text-white"
                               : "text-slate-400 hover:bg-white/5 hover:text-white",
                             collapsed && "lg:justify-center lg:px-2"
                           )}
@@ -331,9 +337,9 @@ export function Sidebar() {
               href="/admin/cuenta"
               onClick={handleNavClick}
               className={cn(
-                "flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm w-full transition-colors",
+                "flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm w-full transition-all",
                 pathname === "/admin/cuenta"
-                  ? "bg-white/[0.08] text-white"
+                  ? "bg-gradient-to-r from-white/[0.12] to-white/[0.02] text-white"
                   : "text-slate-400 hover:bg-white/5 hover:text-white",
                 collapsed && "lg:justify-center"
               )}

@@ -119,7 +119,7 @@ export default function BrandingPage() {
   if (isLoading || !branding) {
     return (
       <PageShell>
-        <PageHeader title="Branding" description="Personalizá la apariencia de tu organización" />
+        <PageHeader eyebrow="Sistema" title="Branding" description="Personalizá la apariencia de tu organización" />
         <FormColumn>
           <Skeleton className="h-72 rounded-2xl" />
           <Skeleton className="h-48 rounded-2xl" />
@@ -131,6 +131,7 @@ export default function BrandingPage() {
   return (
     <PageShell>
       <PageHeader
+        eyebrow="Sistema"
         title="Branding"
         description="Personalizá el nombre, el color y el logo que ven tus afiliados y operadores."
       />

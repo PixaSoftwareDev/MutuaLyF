@@ -147,6 +147,7 @@ export default function IntentionsPage() {
   return (
     <PageShell>
       <PageHeader
+        eyebrow="Conocimiento"
         title="Temas reconocidos"
         description="Los temas que el bot identifica en las consultas. Aprobá los que correspondan a tu organización."
         actions={

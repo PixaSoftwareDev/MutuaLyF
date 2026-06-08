@@ -95,6 +95,7 @@ export default function AuditPage() {
   return (
     <PageShell>
       <PageHeader
+        eyebrow="Sistema"
         title="Auditoría"
         description="Registro de acciones realizadas por los usuarios."
       />

@@ -83,6 +83,7 @@ export default function AdminAccountPage() {
   return (
     <PageShell>
       <PageHeader
+        eyebrow="Cuenta"
         title="Mi cuenta"
         description="Editá tu nombre y contraseña de administrador."
       />

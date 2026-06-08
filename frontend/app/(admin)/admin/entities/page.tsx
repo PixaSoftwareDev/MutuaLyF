@@ -468,6 +468,7 @@ export default function EntitiesPage() {
   return (
     <PageShell>
       <PageHeader
+        eyebrow="Conocimiento"
         title="Entidades"
         description="Personas, áreas y conceptos extraídos automáticamente de tus documentos."
       />

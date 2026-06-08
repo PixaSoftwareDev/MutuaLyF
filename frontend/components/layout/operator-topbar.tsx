@@ -52,7 +52,13 @@ export function OperatorTopbar() {
   return (
     // Topbar índigo-navy Intellix, coherente con el sidebar del admin. La marca
     // de la barra es Intellix (el producto); el tenant es contexto a la derecha.
-    <header className="h-14 bg-[#121327] text-slate-300 flex items-center px-3 sm:px-4 gap-3 shrink-0 border-b border-white/[0.06]">
+    <header
+      className="h-14 text-slate-300 flex items-center px-3 sm:px-4 gap-3 shrink-0 border-b border-white/[0.06]"
+      style={{
+        background:
+          "radial-gradient(80% 180% at 0% 0%, rgba(110,90,255,0.20) 0%, transparent 55%), linear-gradient(90deg, #17183a 0%, #121327 60%, #0d0e1e 100%)",
+      }}
+    >
       {/* Brand Intellix */}
       <Link href="/operator" className="flex items-center min-w-0" aria-label="Intellix">
         <Image
