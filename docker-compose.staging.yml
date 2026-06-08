@@ -29,13 +29,13 @@ services:
   # ── Backend de pruebas ─────────────────────────────────────────────────────
   backend_staging:
     build:
-      context: ./backend
+      context: /opt/mutualyf-staging/backend
       dockerfile: Dockerfile
     container_name: ia_backend_staging
     restart: unless-stopped
     # 1 worker alcanza para pruebas; mantiene el consumo bajo. Prod usa 4.
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1 --log-level info --timeout-keep-alive 30 --timeout-graceful-shutdown 30
-    env_file: .env
+    env_file: /opt/mutualyf-staging/.env
     environment:
       ENVIRONMENT: staging
       # Redis en DBs separadas de prod (0/1/2). Evita colisión de broker/cache/ratelimit.
@@ -49,7 +49,9 @@ services:
       # Solo loopback, para debug por túnel SSH. No se expone público (eso lo hace nginx).
       - "127.0.0.1:8002:8000"
     volumes:
-      - ./backend:/app
+      # Ruta ABSOLUTA al worktree dev: con `./backend` relativo, un recreate desde
+      # otro cwd lo resolvía a /opt/mutualyf (prod) y staging servía código de prod.
+      - /opt/mutualyf-staging/backend:/app
       # Cache de modelos HF compartido con prod (read-mostly, content-addressed e
       # inmutable) → staging arranca sin re-descargar ~2.5GB ni esperar el warmup.
       - mutualyf_models_data:/root/.cache/huggingface
@@ -80,11 +82,11 @@ services:
   # El HMR (websocket) pasa por nginx, que ya tiene Upgrade/Connection en /.
   frontend_staging:
     build:
-      context: ./frontend
+      context: /opt/mutualyf-staging/frontend
       dockerfile: Dockerfile.dev
     container_name: ia_frontend_staging
     restart: unless-stopped
-    env_file: .env
+    env_file: /opt/mutualyf-staging/.env
     environment:
       NODE_ENV: development
       NEXT_PUBLIC_API_URL: ""
@@ -96,7 +98,8 @@ services:
       WATCHPACK_POLLING: "true"
       CHOKIDAR_USEPOLLING: "true"
     volumes:
-      - ./frontend:/app
+      # Ruta ABSOLUTA al worktree dev (ver nota en backend_staging).
+      - /opt/mutualyf-staging/frontend:/app
       - /app/node_modules
       - /app/.next
     command: ["npm", "run", "dev"]
