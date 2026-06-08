@@ -173,10 +173,10 @@ export function Sidebar() {
           collapsed ? "lg:w-[68px] w-64" : "w-64 lg:w-60",
         )}
         style={{
-          // Mismo mesh de marca del login, sobre base clara: el navbar conversa
-          // con la pantalla de entrada. cyan #4FC3F7 · violeta #7A2DFF · índigo #5B5BFF.
-          background:
-            "radial-gradient(62% 20% at 50% 0%, rgba(79,195,247,0.12) 0%, transparent 72%), radial-gradient(75% 26% at 84% 30%, rgba(122,45,255,0.09) 0%, transparent 66%), radial-gradient(85% 34% at 16% 76%, rgba(91,91,255,0.09) 0%, transparent 70%), linear-gradient(180deg, #ffffff 0%, #fbfcff 58%, #f6f7fd 100%)",
+          // Superficie clara con un tinte de marca (índigo) MUY leve y UNIFORME
+          // en todo el navbar — sin manchones de gradiente. El tinte lo distingue
+          // del contenido (blanco neutro) sin que toda la app quede blanca.
+          background: "#f1f2fb",
         }}
       >
         {/* Brand Intellix + control de colapso integrado en el header. */}
