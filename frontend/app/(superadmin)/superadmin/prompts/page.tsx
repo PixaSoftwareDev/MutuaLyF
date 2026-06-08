@@ -9,6 +9,8 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { EmptyState } from "@/components/ui/empty-state";
 import { toast } from "@/components/ui/toast";
 import { Textarea } from "@/components/ui/textarea";
 import { Bot, Plus, Pencil, Trash2, Users, Loader2, X, Save, Cpu, ChevronLeft } from "lucide-react";
@@ -23,7 +25,7 @@ const PLANS = [
 ] as const;
 
 const PLAN_COLORS: Record<string, string> = {
-  starter:      "bg-slate-100 text-slate-600",
+  starter:      "bg-muted text-muted-foreground",
   professional: "bg-blue-100 text-blue-700",
   enterprise:   "bg-violet-100 text-violet-700",
 };
@@ -284,10 +286,11 @@ export default function PromptsPage() {
                   </button>
                 ))}
                 {!isLoading && allTemplates.length === 0 && (
-                  <div className="px-4 py-10 text-center text-sm text-muted-foreground">
-                    <Bot className="h-8 w-8 mx-auto mb-2 opacity-20" />
-                    No hay personalidades creadas. Creá la primera.
-                  </div>
+                  <EmptyState
+                    icon={Bot}
+                    title="No hay personalidades creadas"
+                    description="Creá la primera para empezar."
+                  />
                 )}
               </div>
             </div>
@@ -298,10 +301,7 @@ export default function PromptsPage() {
               !selected ? "hidden sm:flex sm:items-center sm:justify-center" : "flex flex-col"
             )}>
               {!selected ? (
-                <div className="text-center text-sm text-muted-foreground">
-                  <Bot className="h-10 w-10 mx-auto mb-3 opacity-20" />
-                  Seleccioná una personalidad para ver su detalle
-                </div>
+                <EmptyState icon={Bot} title="Seleccioná una personalidad para ver su detalle" />
               ) : detailLoading ? (
                 <div className="flex justify-center py-20">
                   <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -368,19 +368,20 @@ export default function PromptsPage() {
                         const available = allTenants.filter((t: any) => !assignedIds.has(t.id));
                         return (
                           <div className="flex gap-2">
-                            <select
-                              value={assignTenantId}
-                              onChange={e => setAssignTenantId(e.target.value)}
-                              className="flex-1 h-8 text-sm border rounded-md px-2 bg-background"
-                            >
-                              <option value="none">Elegir organización…</option>
-                              {available.map((t: any) => (
-                                <option key={t.id} value={t.id}>{t.name} ({t.id})</option>
-                              ))}
-                              {available.length === 0 && (
-                                <option disabled>Todas las organizaciones ya tienen esta personalidad</option>
-                              )}
-                            </select>
+                            <Select value={assignTenantId} onValueChange={setAssignTenantId}>
+                              <SelectTrigger className="flex-1 h-8 text-sm">
+                                <SelectValue placeholder="Elegir organización…" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="none">Elegir organización…</SelectItem>
+                                {available.map((t: any) => (
+                                  <SelectItem key={t.id} value={t.id}>{t.name} ({t.id})</SelectItem>
+                                ))}
+                                {available.length === 0 && (
+                                  <SelectItem value="__none__" disabled>Todas las organizaciones ya tienen esta personalidad</SelectItem>
+                                )}
+                              </SelectContent>
+                            </Select>
                             <Button
                               size="sm" className="h-8 shrink-0"
                               disabled={!assignTenantId || assignTenantId === "none" || assignM.isPending}
@@ -401,7 +402,7 @@ export default function PromptsPage() {
                                 <span className="text-sm font-medium">{a.tenant_name}</span>
                                 <span className="ml-2 text-xs text-muted-foreground font-mono">{a.tenant_id}</span>
                                 {a.is_active && (
-                                  <Badge className="ml-2 text-xs bg-green-100 text-green-700">activo</Badge>
+                                  <Badge className="ml-2 text-xs bg-success/10 text-success">activo</Badge>
                                 )}
                               </div>
                               <button
@@ -449,10 +450,10 @@ export default function PromptsPage() {
                     : catKey === "asistente" ? "Asistente"
                     : catKey === "sistema" ? "Sistema"
                     : catLabel(catKey);
-                  const color = catKey === "anti_alucinacion" ? "bg-amber-100 text-amber-700"
+                  const color = catKey === "anti_alucinacion" ? "bg-warning/10 text-warning"
                     : catKey === "calidad" ? "bg-blue-100 text-blue-700"
                     : catKey === "intenciones" ? "bg-violet-100 text-violet-700"
-                    : catKey === "sistema" ? "bg-slate-100 text-slate-600"
+                    : catKey === "sistema" ? "bg-muted text-muted-foreground"
                     : catColor(catKey);
 
                   return (
@@ -465,7 +466,7 @@ export default function PromptsPage() {
                       )}
                     >
                       <div className="flex items-center gap-2">
-                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0" />
+                        <span className="h-1.5 w-1.5 rounded-full bg-success shrink-0" />
                         <span className="text-sm font-medium truncate">{s.nombre}</span>
                       </div>
                       <div className="mt-1 pl-3.5">
@@ -485,10 +486,7 @@ export default function PromptsPage() {
               !selectedSystem ? "hidden sm:flex sm:items-center sm:justify-center" : "flex flex-col"
             )}>
               {!selectedSystem ? (
-                <div className="text-center text-sm text-muted-foreground">
-                  <Cpu className="h-10 w-10 mx-auto mb-3 opacity-20" />
-                  Seleccioná un componente para ver su contenido
-                </div>
+                <EmptyState icon={Cpu} title="Seleccioná un componente para ver su contenido" />
               ) : (
                 <div className="p-4 sm:p-6 max-w-2xl w-full space-y-5">
                   {/* Mobile back button */}
@@ -502,13 +500,13 @@ export default function PromptsPage() {
                   {/* Header */}
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex items-start gap-3">
-                      <span className="mt-1.5 h-2 w-2 rounded-full bg-emerald-500 shrink-0" />
+                      <span className="mt-1.5 h-2 w-2 rounded-full bg-success shrink-0" />
                       <div>
                         <h2 className="text-xl font-bold">{selectedSystem.nombre}</h2>
                         {selectedSystem.descripcion && (
                           <p className="text-sm text-muted-foreground mt-1">{selectedSystem.descripcion}</p>
                         )}
-                        <span className="inline-block mt-2 text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
+                        <span className="inline-block mt-2 text-[11px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-success/10 text-success">
                           Infraestructura del sistema
                         </span>
                       </div>
@@ -611,13 +609,17 @@ export default function PromptsPage() {
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">Plan mínimo</Label>
-                <select
+                <Select
                   value={form.plan_minimo}
-                  onChange={e => setForm(f => ({ ...f, plan_minimo: e.target.value }))}
-                  className="w-full h-9 text-sm border rounded-md px-3 bg-background"
+                  onValueChange={v => setForm(f => ({ ...f, plan_minimo: v }))}
                 >
-                  {PLANS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
-                </select>
+                  <SelectTrigger className="h-9 text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {PLANS.map(p => <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
             <div className="space-y-1">

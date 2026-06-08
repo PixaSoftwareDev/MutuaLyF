@@ -18,6 +18,9 @@ import { Separator } from "@/components/ui/separator";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
+import { EmptyState } from "@/components/ui/empty-state";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 
@@ -205,16 +208,20 @@ export default function TenantDetailPage() {
             <div className="flex flex-wrap gap-2">
               {editPlan ? (
                 <div className="flex items-center gap-2">
-                  <select
-                    className="text-sm border rounded-md px-2 py-1.5 bg-background h-8"
+                  <Select
                     defaultValue={t.plan}
-                    onChange={e => planM.mutate(e.target.value)}
+                    onValueChange={v => planM.mutate(v)}
                     disabled={planM.isPending}
                   >
-                    <option value="starter">Starter</option>
-                    <option value="professional">Professional</option>
-                    <option value="enterprise">Enterprise</option>
-                  </select>
+                    <SelectTrigger className="h-8 text-sm w-auto gap-2">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="starter">Starter</SelectItem>
+                      <SelectItem value="professional">Professional</SelectItem>
+                      <SelectItem value="enterprise">Enterprise</SelectItem>
+                    </SelectContent>
+                  </Select>
                   {planM.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                   <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={() => setEditPlan(false)}>Cancelar</Button>
                 </div>
@@ -227,7 +234,7 @@ export default function TenantDetailPage() {
               {isActive ? (
                 <Button
                   size="sm" variant="outline"
-                  className="h-8 gap-1.5 text-xs text-amber-600 border-amber-200 hover:bg-amber-50"
+                  className="h-8 gap-1.5 text-xs text-warning border-warning/20 hover:bg-warning/10"
                   disabled={suspendM.isPending}
                   onClick={() => suspendM.mutate()}
                 >
@@ -237,7 +244,7 @@ export default function TenantDetailPage() {
               ) : (
                 <Button
                   size="sm" variant="outline"
-                  className="h-8 gap-1.5 text-xs text-emerald-600 border-emerald-200 hover:bg-emerald-50"
+                  className="h-8 gap-1.5 text-xs text-success border-success/20 hover:bg-success/10"
                   disabled={activateM.isPending}
                   onClick={() => activateM.mutate()}
                 >
@@ -248,7 +255,7 @@ export default function TenantDetailPage() {
 
               <Button
                 size="sm" variant="outline"
-                className="h-8 gap-1.5 text-xs text-rose-600 border-rose-200 hover:bg-rose-50"
+                className="h-8 gap-1.5 text-xs text-destructive border-destructive/20 hover:bg-destructive/10"
                 onClick={() => setShowResetConfirm(true)}
               >
                 <RefreshCw className="h-3.5 w-3.5" />
@@ -272,34 +279,32 @@ export default function TenantDetailPage() {
               {[1,2,3].map(i => <Skeleton key={i} className="h-16 w-full rounded-xl" />)}
             </div>
           ) : tenantUsers.length === 0 ? (
-            <div className="rounded-xl border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
-              Sin usuarios registrados.
-            </div>
+            <EmptyState icon={Users} title="Sin usuarios registrados" className="rounded-xl border border-dashed" />
           ) : (
             <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b bg-muted/40">
-                    <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Usuario</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground hidden sm:table-cell">Email</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Rol</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Estado</th>
-                    <th className="px-4 py-2.5" />
-                  </tr>
-                </thead>
-                <tbody className="divide-y">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-muted/40 hover:bg-muted/40">
+                    <TableHead>Usuario</TableHead>
+                    <TableHead className="hidden sm:table-cell">Email</TableHead>
+                    <TableHead>Rol</TableHead>
+                    <TableHead>Estado</TableHead>
+                    <TableHead />
+                  </TableRow>
+                </TableHeader>
+                <TableBody className="divide-y">
                   {tenantUsers.map(u => (
-                    <tr key={u.id} className="hover:bg-muted/20 transition-colors">
-                      <td className="px-4 py-3">
+                    <TableRow key={u.id}>
+                      <TableCell>
                         <div className="flex items-center gap-2.5">
                           <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
                             <span className="text-xs font-bold text-primary uppercase">{u.name?.[0] ?? u.email[0]}</span>
                           </div>
                           <span className="font-medium truncate max-w-[120px]">{u.name}</span>
                         </div>
-                      </td>
-                      <td className="px-4 py-3 text-muted-foreground text-xs hidden sm:table-cell">{u.email}</td>
-                      <td className="px-4 py-3">
+                      </TableCell>
+                      <TableCell className="text-muted-foreground text-xs hidden sm:table-cell">{u.email}</TableCell>
+                      <TableCell>
                         <span className={cn(
                           "text-xs px-2 py-1 rounded-full font-medium",
                           u.role === "admin"    ? "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300" :
@@ -308,24 +313,24 @@ export default function TenantDetailPage() {
                         )}>
                           {u.role === "admin" ? "Admin" : u.role === "operator" ? "Operador" : u.role}
                         </span>
-                      </td>
-                      <td className="px-4 py-3">
+                      </TableCell>
+                      <TableCell>
                         <span className={cn(
                           "text-xs px-2 py-1 rounded-full font-medium",
-                          u.is_active ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" : "bg-rose-100 text-rose-600 dark:bg-rose-900/30 dark:text-rose-400"
+                          u.is_active ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"
                         )}>
                           {u.is_active ? "Activo" : "Inactivo"}
                         </span>
-                      </td>
-                      <td className="px-4 py-3 text-right">
+                      </TableCell>
+                      <TableCell className="text-right">
                         <Button size="sm" variant="ghost" className="h-7 text-xs gap-1" onClick={() => setEditingUser(u)}>
                           <Settings2 className="h-3.5 w-3.5" />Editar
                         </Button>
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   ))}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
             </div>
           )}
 
@@ -347,14 +352,14 @@ export default function TenantDetailPage() {
             <KPI label="Consultas 7d"    value={fmtNum(m.usage.queries_7d)}     color="text-primary" />
             <KPI label="Consultas 30d"   value={fmtNum(m.usage.queries_30d)}    color="text-primary" />
             <KPI label="Ingestas 30d"    value={fmtNum(m.usage.ingests_30d)}    color="text-violet-600" />
-            <KPI label="Tokens LLM 30d"  value={fmtNum(m.usage.llm_tokens_30d)} color="text-amber-600" sublabel="aprox." />
-            <KPI label="Consultas log."  value={fmtNum(m.performance.total_logged)} color="text-slate-600" sublabel="30d" />
+            <KPI label="Tokens LLM 30d"  value={fmtNum(m.usage.llm_tokens_30d)} color="text-warning" sublabel="aprox." />
+            <KPI label="Consultas log."  value={fmtNum(m.performance.total_logged)} color="text-muted-foreground" sublabel="30d" />
           </div>
 
           {/* ── Performance ──────────────────────────────────────────── */}
           <SectionTitle icon={Zap} label="Rendimiento" sublabel="últimos 30d, datos de consultas_log" />
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-            <KPI label="Latencia p50"    value={fmtMs(m.performance.latency_p50)}   color="text-emerald-600" />
+            <KPI label="Latencia p50"    value={fmtMs(m.performance.latency_p50)}   color="text-success" />
             <KPI label="Latencia p95"    value={fmtMs(m.performance.latency_p95)}   color={latencyColor(m.performance.latency_p95)} />
             <KPI label="Cache hit rate"  value={fmtPct(m.performance.cache_hit_rate)} color="text-blue-600" />
             <KPI label="Conf. promedio"  value={m.performance.avg_confidence != null ? (m.performance.avg_confidence * 100).toFixed(0) + "%" : "—"} color="text-violet-600" />
@@ -365,9 +370,9 @@ export default function TenantDetailPage() {
           <div className="rounded-xl border bg-card shadow-sm divide-y">
             <div className="grid grid-cols-2 sm:grid-cols-4 divide-x">
               <DocStat label="Total"      value={m.docs.total}                color="" />
-              <DocStat label="Listos"     value={m.docs.ready}               color="text-emerald-600" />
+              <DocStat label="Listos"     value={m.docs.ready}               color="text-success" />
               <DocStat label="Fallidos"   value={m.docs.failed}              color={m.docs.failed > 0 ? "text-destructive" : ""} />
-              <DocStat label="Procesando" value={m.docs.processing}          color="text-amber-600" />
+              <DocStat label="Procesando" value={m.docs.processing}          color="text-warning" />
             </div>
             <div className="px-4 py-3 flex items-center gap-2 text-sm text-muted-foreground">
               <Database className="h-3.5 w-3.5 shrink-0" />
@@ -395,8 +400,8 @@ export default function TenantDetailPage() {
           {/* ── Quality gate ─────────────────────────────────────────── */}
           <SectionTitle icon={CheckCircle2} label="Quality gate" sublabel="últimos 30d" />
           <div className="grid grid-cols-3 gap-2.5">
-            <KPI label="Aprobadas"  value={fmtNum(m.quality.passed)}  color="text-emerald-600" />
-            <KPI label="Pendientes" value={fmtNum(m.quality.pending)} color="text-amber-600" />
+            <KPI label="Aprobadas"  value={fmtNum(m.quality.passed)}  color="text-success" />
+            <KPI label="Pendientes" value={fmtNum(m.quality.pending)} color="text-warning" />
             <KPI label="Saltadas"   value={fmtNum(m.quality.skipped)} color={m.quality.skipped > 0 ? "text-destructive" : "text-muted-foreground"} />
           </div>
 
@@ -422,9 +427,9 @@ export default function TenantDetailPage() {
                       <div className="mt-2 flex flex-wrap gap-1.5">
                         {Object.entries(gm.calls as Record<string, number>).map(([status, count]) => (
                           <span key={status} className={cn("text-xs px-2 py-0.5 rounded-full",
-                            status === "success"    ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" :
-                            status === "error"      ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" :
-                            status === "timeout"    ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400" :
+                            status === "success"    ? "bg-success/10 text-success" :
+                            status === "error"      ? "bg-destructive/10 text-destructive" :
+                            status === "timeout"    ? "bg-warning/10 text-warning" :
                             status === "rate_limit" ? "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400" :
                             "bg-muted text-muted-foreground"
                           )}>
@@ -489,7 +494,7 @@ export default function TenantDetailPage() {
                           </span>
                         )}
                         {q.from_cache && (
-                          <span className="text-xs bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400 px-1.5 py-0.5 rounded-full">
+                          <span className="text-xs bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 px-1.5 py-0.5 rounded-full">
                             cache
                           </span>
                         )}
@@ -505,10 +510,12 @@ export default function TenantDetailPage() {
 
           {/* Empty state for no consultas_log data */}
           {m.performance.total_logged === 0 && (
-            <div className="rounded-xl border border-dashed bg-card px-6 py-10 text-center">
-              <Activity className="h-8 w-8 mx-auto mb-2 text-muted-foreground/40" />
-              <p className="text-sm text-muted-foreground">Este tenant aún no tiene consultas registradas en los últimos 30 días.</p>
-            </div>
+            <EmptyState
+              icon={Activity}
+              title="Sin consultas registradas"
+              description="Este tenant aún no tiene consultas en los últimos 30 días."
+              className="rounded-xl border border-dashed bg-card"
+            />
           )}
 
         </div>
@@ -536,7 +543,7 @@ export default function TenantDetailPage() {
         <Dialog open onOpenChange={v => !v && setShowResetConfirm(false)}>
           <DialogContent className="w-full max-w-sm mx-4 sm:mx-auto">
             <DialogHeader>
-              <DialogTitle className="flex items-center gap-2 text-rose-600">
+              <DialogTitle className="flex items-center gap-2 text-destructive">
                 <AlertTriangle className="h-4 w-4" />
                 Resetear onboarding
               </DialogTitle>
@@ -604,7 +611,7 @@ function KPI({ label, value, color, sublabel }: { label: string; value: string; 
     <div className="rounded-lg border bg-card px-4 py-3">
       <p className={cn("text-xl font-bold tabular-nums leading-none", color)}>{value}</p>
       <p className="text-xs text-muted-foreground mt-1.5 leading-tight">{label}</p>
-      {sublabel && <p className="text-[10px] text-muted-foreground/70">{sublabel}</p>}
+      {sublabel && <p className="text-[11px] text-muted-foreground/70">{sublabel}</p>}
     </div>
   );
 }
@@ -629,7 +636,7 @@ function QuotaBar({ label, used, limit, pct }: { label: string; used: number; li
         <span className="text-xs font-medium text-muted-foreground">{label}</span>
         {unlimited
           ? <span className="text-xs text-violet-600 font-medium">Ilimitado</span>
-          : <span className={cn("text-xs font-medium", danger ? "text-destructive" : warn ? "text-amber-600" : "text-muted-foreground")}>
+          : <span className={cn("text-xs font-medium", danger ? "text-destructive" : warn ? "text-warning" : "text-muted-foreground")}>
               {pct != null ? pct.toFixed(1) + "%" : "—"}
             </span>
         }
@@ -637,7 +644,7 @@ function QuotaBar({ label, used, limit, pct }: { label: string; used: number; li
       {!unlimited && (
         <div className="h-1.5 bg-muted rounded-full overflow-hidden mb-2">
           <div
-            className={cn("h-full rounded-full transition-all", danger ? "bg-destructive" : warn ? "bg-amber-500" : "bg-primary")}
+            className={cn("h-full rounded-full transition-all", danger ? "bg-destructive" : warn ? "bg-warning" : "bg-primary")}
             style={{ width: `${Math.min(pct ?? 0, 100)}%` }}
           />
         </div>
@@ -653,8 +660,8 @@ function QuotaBar({ label, used, limit, pct }: { label: string; used: number; li
 function latencyColor(ms: number | null | undefined): string {
   if (ms == null) return "text-muted-foreground";
   if (ms > 5000)  return "text-destructive";
-  if (ms > 3000)  return "text-amber-600";
-  return "text-emerald-600";
+  if (ms > 3000)  return "text-warning";
+  return "text-success";
 }
 
 function LoadingState() {
@@ -691,10 +698,11 @@ function BotSelector({ allTemplates, bots, activeBot, activateBotM, deactivateBo
 
   if (activeTemplates.length === 0) {
     return (
-      <div className="rounded-xl border bg-card shadow-sm px-5 py-6 text-center">
-        <Bot className="h-8 w-8 mx-auto mb-2 text-muted-foreground/30" />
-        <p className="text-sm text-muted-foreground">No hay bots creados en la plataforma aún.</p>
-      </div>
+      <EmptyState
+        icon={Bot}
+        title="No hay bots creados en la plataforma aún"
+        className="rounded-xl border bg-card shadow-sm"
+      />
     );
   }
 
@@ -716,18 +724,18 @@ function BotSelector({ allTemplates, bots, activeBot, activateBotM, deactivateBo
       {/* Status strip */}
       <div className={cn(
         "flex items-center justify-between gap-3 rounded-lg border px-4 py-3 text-sm",
-        activeBot ? "bg-green-50 border-green-200" : "bg-slate-50 border-slate-200"
+        activeBot ? "bg-success/10 border-success/20" : "bg-muted border-border"
       )}>
         <div className="flex items-center gap-2">
           {activeBot ? (
             <>
-              <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />
-              <span className="font-medium text-green-800">
+              <CheckCircle2 className="h-4 w-4 text-success shrink-0" />
+              <span className="font-medium text-success">
                 {activeBot.nombre} activo
               </span>
             </>
           ) : (
-            <span className="text-slate-600">Modo estándar — hacé clic en un bot para activarlo</span>
+            <span className="text-muted-foreground">Modo estándar — hacé clic en un bot para activarlo</span>
           )}
         </div>
         {activeBot && (
@@ -768,7 +776,7 @@ function BotSelector({ allTemplates, bots, activeBot, activateBotM, deactivateBo
                   <p className="text-xs text-muted-foreground truncate">{t.descripcion}</p>
                 )}
                 {!isAssigned && (
-                  <p className="text-[10px] text-muted-foreground/60 mt-0.5">No asignado</p>
+                  <p className="text-[11px] text-muted-foreground/60 mt-0.5">No asignado</p>
                 )}
               </div>
               <div className="shrink-0">
@@ -846,15 +854,15 @@ function EditUserModal({ tenantId, user, onClose, onSaved }: {
 
           <div className="space-y-1.5">
             <Label htmlFor="eu-role" className="text-xs font-medium">Rol</Label>
-            <select
-              id="eu-role"
-              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              value={role}
-              onChange={e => setRole(e.target.value)}
-            >
-              <option value="admin">Admin</option>
-              <option value="operator">Operador</option>
-            </select>
+            <Select value={role} onValueChange={setRole}>
+              <SelectTrigger id="eu-role">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="admin">Admin</SelectItem>
+                <SelectItem value="operator">Operador</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="flex items-center justify-between rounded-lg border px-4 py-3 bg-muted/30">
@@ -867,7 +875,7 @@ function EditUserModal({ tenantId, user, onClose, onSaved }: {
               onClick={() => setIsActive(v => !v)}
               className={cn(
                 "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors",
-                isActive ? "bg-emerald-500" : "bg-muted-foreground/30"
+                isActive ? "bg-success" : "bg-muted-foreground/30"
               )}
             >
               <span className={cn(
@@ -1060,7 +1068,7 @@ function EmailDomainsSection({ tenantId }: { tenantId: string }) {
                 <AtSign className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                 <span className="font-mono text-sm flex-1 truncate">{d.domain}</span>
                 {d.is_primary && (
-                  <span className="inline-flex items-center gap-1 text-[11px] rounded-full bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5">
+                  <span className="inline-flex items-center gap-1 text-[11px] rounded-full bg-warning/10 text-warning border border-warning/20 px-2 py-0.5">
                     <Star className="h-3 w-3" />Principal
                   </span>
                 )}

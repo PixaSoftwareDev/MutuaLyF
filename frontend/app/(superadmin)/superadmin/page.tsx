@@ -17,6 +17,8 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { EmptyState } from "@/components/ui/empty-state";
 import { toast } from "@/components/ui/toast";
 import { cn, toSlug } from "@/lib/utils";
 
@@ -146,15 +148,15 @@ export default function SuperAdminPage() {
           <div className={cn(
             "rounded-lg border px-4 py-2.5 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-sm",
             hasAnomalies
-              ? "bg-amber-50 border-amber-200 dark:bg-amber-950/30 dark:border-amber-800"
-              : "bg-emerald-50 border-emerald-200 dark:bg-emerald-950/30 dark:border-emerald-800"
+              ? "bg-warning/10 border-warning/20"
+              : "bg-success/10 border-success/20"
           )}>
             {health ? (
               <>
                 <span className="flex items-center gap-1.5 font-medium">
                   {hasAnomalies
-                    ? <AlertTriangle className="h-4 w-4 text-amber-500" />
-                    : <CheckCircle2 className="h-4 w-4 text-emerald-500" />}
+                    ? <AlertTriangle className="h-4 w-4 text-warning" />
+                    : <CheckCircle2 className="h-4 w-4 text-success" />}
                   {health.active_tenants} / {health.total_tenants} activas
                 </span>
                 <span className="flex items-center gap-1.5 text-muted-foreground">
@@ -163,10 +165,10 @@ export default function SuperAdminPage() {
                 </span>
                 {system && (
                   <>
-                    <span className={cn("flex items-center gap-1 text-xs", system.postgres.up ? "text-emerald-600" : "text-destructive")}>
+                    <span className={cn("flex items-center gap-1 text-xs", system.postgres.up ? "text-success" : "text-destructive")}>
                       <Database className="h-3 w-3" /> PG {system.postgres.up ? "OK" : "DOWN"}
                     </span>
-                    <span className={cn("flex items-center gap-1 text-xs", system.redis.up ? "text-emerald-600" : "text-destructive")}>
+                    <span className={cn("flex items-center gap-1 text-xs", system.redis.up ? "text-success" : "text-destructive")}>
                       <Zap className="h-3 w-3" /> Redis {system.redis.up ? "OK" : "DOWN"}
                     </span>
                     {system.backend.error_rate_5m > 0.01 && (
@@ -179,10 +181,10 @@ export default function SuperAdminPage() {
                 {health.anomalies.map(a => (
                   <span
                     key={a.tenant_id}
-                    className="text-xs text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/40 px-2 py-0.5 rounded-full cursor-pointer hover:bg-amber-200 transition-colors"
+                    className="inline-flex items-center gap-1 text-xs text-warning bg-warning/10 px-2 py-0.5 rounded-full cursor-pointer hover:bg-warning/20 transition-colors"
                     onClick={() => { setTab("orgs"); router.push(`/superadmin/tenants/${a.tenant_id}`); }}
                   >
-                    ⚠ {a.tenant_name} {a.pct}% cuota
+                    <AlertTriangle className="h-3 w-3" /> {a.tenant_name} {a.pct}% cuota
                   </span>
                 ))}
               </>
@@ -211,10 +213,11 @@ export default function SuperAdminPage() {
                   {[1,2,3].map(i => <Skeleton key={i} className="h-16 w-full rounded-xl" />)}
                 </div>
               ) : filtered.length === 0 ? (
-                <div className="text-center py-20 text-muted-foreground text-sm">
-                  <Building2 className="h-10 w-10 mx-auto mb-3 opacity-20" />
-                  {search ? "Sin resultados." : "No hay organizaciones. Creá la primera."}
-                </div>
+                <EmptyState
+                  icon={Building2}
+                  title={search ? "Sin resultados" : "No hay organizaciones"}
+                  description={search ? undefined : "Creá la primera organización para empezar."}
+                />
               ) : (
                 <div className="space-y-2 pb-6">
                   {filtered.map(t => (
@@ -262,16 +265,16 @@ function SystemTab({ system, loading }: { system: any; loading: boolean }) {
           <SysKPI label="Consultas totales" value={fmtNum(system.app.total_queries)} color="text-primary" />
           <SysKPI label="Cache hits"        value={fmtNum(system.app.total_cache_hits)} color="text-blue-600" />
           <SysKPI label="Ingestas totales"  value={fmtNum(system.app.total_ingests)} color="text-violet-600" />
-          <SysKPI label="HTTP requests"     value={fmtNum(system.backend.total_requests)} color="text-slate-600" />
+          <SysKPI label="HTTP requests"     value={fmtNum(system.backend.total_requests)} color="text-muted-foreground" />
         </div>
         {Object.keys(system.app.quality).length > 0 && (
           <div className="mt-2.5 flex flex-wrap gap-2 text-xs">
             <span className="text-muted-foreground">Quality gate:</span>
             {Object.entries(system.app.quality as Record<string, number>).map(([k, v]) => (
               <span key={k} className={cn("px-2 py-0.5 rounded-full font-medium",
-                k === "passed"  ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" :
-                k === "skipped" ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" :
-                                  "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+                k === "passed"  ? "bg-success/10 text-success" :
+                k === "skipped" ? "bg-destructive/10 text-destructive" :
+                                  "bg-warning/10 text-warning"
               )}>
                 {k}: {fmtNum(v)}
               </span>
@@ -286,7 +289,7 @@ function SystemTab({ system, loading }: { system: any; loading: boolean }) {
           <SysKPI
             label="Estado"
             value={system.backend.up ? "OK" : "DOWN"}
-            color={system.backend.up ? "text-emerald-600" : "text-destructive"}
+            color={system.backend.up ? "text-success" : "text-destructive"}
           />
           <SysKPI
             label="Latencia p95"
@@ -294,13 +297,13 @@ function SystemTab({ system, loading }: { system: any; loading: boolean }) {
             color={
               system.backend.latency_p95_ms == null ? "text-muted-foreground" :
               system.backend.latency_p95_ms > 2000 ? "text-destructive" :
-              system.backend.latency_p95_ms > 1000 ? "text-amber-600" : "text-emerald-600"
+              system.backend.latency_p95_ms > 1000 ? "text-warning" : "text-success"
             }
           />
           <SysKPI
             label="Error rate 5m"
             value={system.backend.error_rate_5m > 0 ? (system.backend.error_rate_5m * 100).toFixed(2) + "%" : "0%"}
-            color={system.backend.error_rate_5m > 0.01 ? "text-destructive" : "text-emerald-600"}
+            color={system.backend.error_rate_5m > 0.01 ? "text-destructive" : "text-success"}
           />
         </div>
       </Section>
@@ -311,7 +314,7 @@ function SystemTab({ system, loading }: { system: any; loading: boolean }) {
           <SysKPI
             label="Estado"
             value={system.postgres.up ? "OK" : "DOWN"}
-            color={system.postgres.up ? "text-emerald-600" : "text-destructive"}
+            color={system.postgres.up ? "text-success" : "text-destructive"}
           />
           <SysKPI label="Conexiones activas" value={String(system.postgres.connections)} color="text-foreground" />
           <SysKPI
@@ -319,14 +322,14 @@ function SystemTab({ system, loading }: { system: any; loading: boolean }) {
             value={system.postgres.cache_hit_rate != null ? (system.postgres.cache_hit_rate * 100).toFixed(1) + "%" : "—"}
             color={
               system.postgres.cache_hit_rate == null ? "text-muted-foreground" :
-              system.postgres.cache_hit_rate < 0.9 ? "text-amber-600" : "text-emerald-600"
+              system.postgres.cache_hit_rate < 0.9 ? "text-warning" : "text-success"
             }
             sublabel="buffer pool"
           />
           <SysKPI
             label="Deadlocks"
             value={String(system.postgres.deadlocks_total)}
-            color={system.postgres.deadlocks_total > 0 ? "text-destructive" : "text-emerald-600"}
+            color={system.postgres.deadlocks_total > 0 ? "text-destructive" : "text-success"}
             sublabel="acumulados"
           />
         </div>
@@ -338,7 +341,7 @@ function SystemTab({ system, loading }: { system: any; loading: boolean }) {
           <SysKPI
             label="Estado"
             value={system.redis.up ? "OK" : "DOWN"}
-            color={system.redis.up ? "text-emerald-600" : "text-destructive"}
+            color={system.redis.up ? "text-success" : "text-destructive"}
           />
           <SysKPI
             label="Memoria usada"
@@ -351,7 +354,7 @@ function SystemTab({ system, loading }: { system: any; loading: boolean }) {
             value={system.redis.keyspace_hit_rate != null ? (system.redis.keyspace_hit_rate * 100).toFixed(1) + "%" : "—"}
             color={
               system.redis.keyspace_hit_rate == null ? "text-muted-foreground" :
-              system.redis.keyspace_hit_rate < 0.3 ? "text-amber-600" : "text-emerald-600"
+              system.redis.keyspace_hit_rate < 0.3 ? "text-warning" : "text-success"
             }
           />
           <SysKPI label="Clientes conectados" value={String(system.redis.connected_clients)} color="text-foreground" />
@@ -369,15 +372,15 @@ function SystemTab({ system, loading }: { system: any; loading: boolean }) {
           <SysKPI
             label="Evictions"
             value={String(system.redis.evicted_keys)}
-            color={system.redis.evicted_keys > 0 ? "text-destructive" : "text-emerald-600"}
-            sublabel={system.redis.evicted_keys > 0 ? "⚠ memoria insuficiente" : "OK"}
+            color={system.redis.evicted_keys > 0 ? "text-destructive" : "text-success"}
+            sublabel={system.redis.evicted_keys > 0 ? "memoria insuficiente" : "OK"}
           />
           <SysKPI
             label="Fragmentación"
             value={system.redis.fragmentation_ratio.toFixed(2) + "x"}
             color={
-              system.redis.fragmentation_ratio > 1.5 ? "text-amber-600" :
-              system.redis.fragmentation_ratio < 0.7 ? "text-amber-600" : "text-emerald-600"
+              system.redis.fragmentation_ratio > 1.5 ? "text-warning" :
+              system.redis.fragmentation_ratio < 0.7 ? "text-warning" : "text-success"
             }
             sublabel={system.redis.slowlog_length > 0 ? `slowlog: ${system.redis.slowlog_length}` : undefined}
           />
@@ -404,9 +407,9 @@ function SystemTab({ system, loading }: { system: any; loading: boolean }) {
                 <div className="mt-2 flex flex-wrap gap-1.5">
                   {Object.entries(m.calls as Record<string, number>).map(([status, count]) => (
                     <span key={status} className={cn("text-xs px-2 py-0.5 rounded-full",
-                      status === "success"    ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" :
-                      status === "error"      ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" :
-                      status === "timeout"    ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400" :
+                      status === "success"    ? "bg-success/10 text-success" :
+                      status === "error"      ? "bg-destructive/10 text-destructive" :
+                      status === "timeout"    ? "bg-warning/10 text-warning" :
                       status === "rate_limit" ? "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400" :
                       "bg-muted text-muted-foreground"
                     )}>
@@ -445,7 +448,7 @@ function SysKPI({ label, value, color, sublabel }: { label: string; value: strin
     <div className="rounded-lg border bg-background px-3 py-2.5">
       <p className={cn("text-lg font-bold tabular-nums leading-none", color)}>{value}</p>
       <p className="text-xs text-muted-foreground mt-1.5 leading-tight">{label}</p>
-      {sublabel && <p className="text-[10px] text-muted-foreground/70 mt-0.5">{sublabel}</p>}
+      {sublabel && <p className="text-[11px] text-muted-foreground/70 mt-0.5">{sublabel}</p>}
     </div>
   );
 }
@@ -473,7 +476,7 @@ function TenantRowCard({ tenant: t, anomaly, onClick }: {
           <div className="flex items-center gap-2 flex-wrap">
             <span className="font-medium text-sm">{t.name}</span>
             <code className="text-xs text-muted-foreground font-mono bg-muted px-1.5 py-0.5 rounded hidden sm:inline">{t.id}</code>
-            {anomaly && <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">⚠ {anomaly.pct}% cuota</span>}
+            {anomaly && <span className="inline-flex items-center gap-1 text-xs text-warning font-medium"><AlertTriangle className="h-3 w-3" /> {anomaly.pct}% cuota</span>}
           </div>
           <p className="text-xs text-muted-foreground truncate mt-0.5">{t.admin_email} · desde {created}</p>
         </div>
@@ -590,16 +593,20 @@ function CreateTenantModal({ open, onClose, onCreated }: { open: boolean; onClos
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs font-medium">Plan</Label>
-              <select
-                className="w-full h-9 text-sm border rounded-md px-3 bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+              <Select
                 value={form.plan}
-                onChange={e => { set("plan")(e); setForm(f => ({ ...f, plan: e.target.value, personality_id: "" })); }}
+                onValueChange={v => setForm(f => ({ ...f, plan: v, personality_id: "" }))}
               >
-                <option value="starter">Starter</option>
-                <option value="professional">Professional</option>
-                <option value="enterprise">Enterprise</option>
-              </select>
-              <p className="text-[10px] text-muted-foreground leading-tight">
+                <SelectTrigger className="h-9 text-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="starter">Starter</SelectItem>
+                  <SelectItem value="professional">Professional</SelectItem>
+                  <SelectItem value="enterprise">Enterprise</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-[11px] text-muted-foreground leading-tight">
                 {form.plan === "starter" && "5 usuarios · 500 docs · 5K consultas/mes"}
                 {form.plan === "professional" && "50 usuarios · 10K docs · 100K consultas/mes"}
                 {form.plan === "enterprise" && "Sin límites"}
@@ -622,16 +629,19 @@ function CreateTenantModal({ open, onClose, onCreated }: { open: boolean; onClos
                 No hay personalidades para este plan
               </div>
             ) : (
-              <select
-                className="w-full h-9 text-sm border rounded-md px-3 bg-background focus:outline-none focus:ring-2 focus:ring-ring"
-                value={form.personality_id}
-                onChange={set("personality_id")}
+              <Select
+                value={form.personality_id || undefined}
+                onValueChange={v => setForm(f => ({ ...f, personality_id: v }))}
               >
-                <option value="">Elegir personalidad…</option>
-                {availablePersonalities.map((p: any) => (
-                  <option key={p.id} value={p.id}>{p.nombre}</option>
-                ))}
-              </select>
+                <SelectTrigger className="h-9 text-sm">
+                  <SelectValue placeholder="Elegir personalidad…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {availablePersonalities.map((p: any) => (
+                    <SelectItem key={p.id} value={p.id}>{p.nombre}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             )}
             {selectedPersonality?.descripcion && (
               <p className="text-[11px] text-muted-foreground leading-snug pl-0.5">{selectedPersonality.descripcion}</p>

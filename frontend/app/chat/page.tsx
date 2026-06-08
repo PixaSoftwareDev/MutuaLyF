@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
-import { Loader2, Send, Bot, ChevronLeft, UserCheck } from "lucide-react";
+import { Loader2, Send, Bot, ChevronLeft, UserCheck, AlertTriangle } from "lucide-react";
 import { api, type TenantBranding } from "@/lib/api";
 import { applyBrandingVars, readCachedBranding, writeCachedBranding } from "@/lib/use-tenant-branding";
 import { renderWithLinks } from "@/lib/render-with-links";
@@ -16,12 +16,12 @@ interface Message { id: string; role: "user" | "bot" | "operator" | "system"; co
 export default function ChatPage() {
   return (
     <Suspense fallback={
-      <div className="h-screen flex items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
+      <div className="h-screen flex items-center justify-center bg-muted/40">
         <div className="flex flex-col items-center gap-4">
-          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-brand-light to-brand-dark flex items-center justify-center shadow-lg shadow-black/30">
-            <Bot className="h-7 w-7 text-white" />
+          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-brand-light to-brand-dark flex items-center justify-center shadow-lg shadow-black/20">
+            <Bot className="h-7 w-7 text-brand-foreground" />
           </div>
-          <Loader2 className="h-5 w-5 animate-spin text-brand-light" />
+          <Loader2 className="h-5 w-5 animate-spin text-brand" />
         </div>
       </div>
     }>
@@ -459,18 +459,18 @@ function ChatInner() {
     "En línea";
 
   const statusDot =
-    status === "human_attending"    ? "bg-emerald-400" :
-    status === "handoff_requested"  ? "bg-amber-400 animate-pulse" :
-    "bg-emerald-400 animate-pulse";
+    status === "human_attending"    ? "bg-success" :
+    status === "handoff_requested"  ? "bg-warning animate-pulse" :
+    "bg-success animate-pulse";
 
   // ── Error ────────────────────────────────────────────────────────────────────
   if (error) {
     return (
-      <div className="h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 flex items-center justify-center p-4">
-        <div className="bg-white/10 backdrop-blur-md border border-white/20 rounded-3xl p-10 max-w-sm w-full text-center space-y-4">
-          <div className="text-5xl">⚠️</div>
-          <h2 className="text-white font-semibold text-lg">No se pudo conectar</h2>
-          <p className="text-slate-300 text-sm leading-relaxed">{error}</p>
+      <div className="h-screen bg-muted/40 flex items-center justify-center p-4">
+        <div className="bg-card border rounded-xl p-8 max-w-sm w-full text-center space-y-3 shadow-sm">
+          <AlertTriangle className="h-10 w-10 text-destructive mx-auto" />
+          <h2 className="text-foreground font-semibold text-lg">No se pudo conectar</h2>
+          <p className="text-muted-foreground text-sm leading-relaxed">{error}</p>
         </div>
       </div>
     );
@@ -478,7 +478,7 @@ function ChatInner() {
 
   // ── Layout ───────────────────────────────────────────────────────────────────
   return (
-    <div className="h-screen flex flex-col bg-slate-50 overflow-hidden">
+    <div className="h-screen flex flex-col bg-muted/40 overflow-hidden">
 
       {/* ── Top bar ──────────────────────────────────────────────────────────────
           Header estable con el color de marca (antes cambiaba todo el fondo a
@@ -496,7 +496,7 @@ function ChatInner() {
                   lastMessageIdRef.current = null;
                   setPhase("selecting"); setConversationId(null); setMessages([]); setSelectedSector(null);
                 }}
-                className="mr-1 text-white/70 hover:text-white transition-colors p-1 -ml-1 rounded-lg hover:bg-white/10"
+                className="mr-1 text-brand-foreground/70 hover:text-brand-foreground transition-colors p-1 -ml-1 rounded-lg hover:bg-white/10"
                 aria-label="Cambiar área"
               >
                 <ChevronLeft className="h-5 w-5" />
@@ -504,24 +504,24 @@ function ChatInner() {
             ) : null}
             {/* Avatar del bot — fijo para todos los tenants, no depende del logo del cliente */}
             <div className="w-9 h-9 rounded-xl bg-white/20 backdrop-blur-sm border border-white/30 flex items-center justify-center shadow-inner">
-              <Bot className="h-5 w-5 text-white" />
+              <Bot className="h-5 w-5 text-brand-foreground" />
             </div>
             <div>
-              <p className="text-white font-semibold text-sm leading-none">
+              <p className="text-brand-foreground font-semibold text-sm leading-none">
                 {selectedSector ? selectedSector.nombre : (branding?.bot_name || branding?.display_name || "Asistente")}
               </p>
               <div className="flex items-center gap-1.5 mt-1">
                 <span className={`w-1.5 h-1.5 rounded-full ${statusDot}`} />
-                <span className="text-white/80 text-xs">{phase === "selecting" ? "Elige un área para comenzar" : statusLabel}</span>
+                <span className="text-brand-foreground/80 text-xs">{phase === "selecting" ? "Elige un área para comenzar" : statusLabel}</span>
                 {phase === "chat" && operatorsOnline !== null && status === "bot_active" && (
                   operatorsOnline.count > 0 ? (
-                    <span className="text-white/70 text-xs">
+                    <span className="text-brand-foreground/70 text-xs">
                       · {operatorsOnline.count === 1
                           ? "1 operador disponible"
                           : `${operatorsOnline.count} operadores disponibles`}
                     </span>
                   ) : (
-                    <span className="text-white/50 text-xs">· Sin operadores disponibles</span>
+                    <span className="text-brand-foreground/50 text-xs">· Sin operadores disponibles</span>
                   )
                 )}
               </div>
@@ -541,9 +541,9 @@ function ChatInner() {
               {/* Hero */}
               <div className="text-center space-y-3">
                 <div className="w-20 h-20 rounded-3xl bg-gradient-to-br from-brand-light to-brand-dark flex items-center justify-center mx-auto shadow-xl shadow-black/20">
-                  <Bot className="h-10 w-10 text-white" />
+                  <Bot className="h-10 w-10 text-brand-foreground" />
                 </div>
-                <p className="text-slate-600 text-sm sm:text-base whitespace-pre-line max-w-md mx-auto">
+                <p className="text-muted-foreground text-sm sm:text-base whitespace-pre-line max-w-md mx-auto">
                   {greeting}
                 </p>
               </div>
@@ -552,18 +552,18 @@ function ChatInner() {
               {sectorsLoading ? (
                 <div className="flex flex-wrap gap-3 justify-center">
                   {[1, 2, 3, 4].map(i => (
-                    <div key={i} className="h-10 w-28 rounded-full bg-slate-200 animate-pulse" />
+                    <div key={i} className="h-10 w-28 rounded-full bg-muted animate-pulse" />
                   ))}
                 </div>
               ) : sectors.length === 0 ? (
-                <p className="text-slate-400 text-sm">No hay sectores disponibles.</p>
+                <p className="text-muted-foreground text-sm">No hay sectores disponibles.</p>
               ) : (
                 <div className="flex flex-wrap gap-3 justify-center max-w-lg">
                   {sectors.map(s => (
                     <button
                       key={s.id}
                       onClick={() => startChat(s)}
-                      className="group relative bg-white hover:bg-gradient-to-br hover:from-brand hover:to-brand-dark border-2 border-brand/30 hover:border-transparent text-brand hover:text-white font-medium text-sm rounded-full px-5 py-2.5 transition-all duration-200 shadow-sm hover:shadow-lg hover:shadow-black/20 active:scale-95"
+                      className="group relative bg-card hover:bg-gradient-to-br hover:from-brand hover:to-brand-dark border-2 border-brand/30 hover:border-transparent text-brand hover:text-brand-foreground font-medium text-sm rounded-full px-5 py-2.5 transition-all duration-200 shadow-sm hover:shadow-lg hover:shadow-black/20 active:scale-95"
                     >
                       {s.nombre}
                     </button>
@@ -571,13 +571,11 @@ function ChatInner() {
                 </div>
               )}
 
-              {/* Divider */}
+              {/* Hint discreto — el input está fijo abajo, evitamos el divisor colgado */}
               {!sectorsLoading && sectors.length > 0 && (
-                <div className="w-full max-w-sm flex items-center gap-3">
-                  <div className="flex-1 h-px bg-slate-200" />
-                  <span className="text-xs text-slate-400 shrink-0">o escribí directamente</span>
-                  <div className="flex-1 h-px bg-slate-200" />
-                </div>
+                <p className="text-muted-foreground text-xs text-center -mt-3">
+                  Elegí un área o escribí tu consulta abajo
+                </p>
               )}
             </div>
           ) : (
@@ -601,13 +599,13 @@ function ChatInner() {
       </div>
 
       {/* ── Input bar ────────────────────────────────────────────────────────── */}
-      <div className="shrink-0 border-t border-slate-200 bg-white/80 backdrop-blur-md">
+      <div className="shrink-0 border-t bg-card/80 backdrop-blur-md">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 py-3 sm:py-4">
           <div className="flex gap-3 items-center">
             <div className="flex-1 relative">
               <input
                 ref={inputRef}
-                className="w-full bg-slate-100 hover:bg-slate-50 focus:bg-white border border-transparent focus:border-brand rounded-2xl px-5 py-3 text-sm text-slate-800 placeholder-slate-400 outline-none focus:ring-2 focus:ring-brand/30 transition-all"
+                className="w-full bg-muted hover:bg-muted/70 focus:bg-card border border-transparent focus:border-brand rounded-2xl px-5 py-3 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:ring-2 focus:ring-brand/30 transition-all"
                 placeholder={
                   phase === "selecting"
                     ? sectorsLoading || sectors.length === 0
@@ -649,7 +647,7 @@ function ChatInner() {
                   ? (!input.trim() || sending)
                   : !input.trim() || sectorsLoading || sectors.length === 0
               }
-              className="w-12 h-12 rounded-2xl bg-gradient-to-br from-brand to-brand-dark text-white flex items-center justify-center shadow-md shadow-black/20 hover:shadow-lg hover:shadow-black/25 hover:scale-105 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100 disabled:shadow-md transition-all duration-150"
+              className="w-12 h-12 rounded-2xl bg-gradient-to-br from-brand to-brand-dark text-brand-foreground flex items-center justify-center shadow-md shadow-black/20 hover:shadow-lg hover:shadow-black/25 hover:scale-105 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100 disabled:shadow-md transition-all duration-150"
             >
               {sending
                 ? <Loader2 className="h-4 w-4 animate-spin" />
