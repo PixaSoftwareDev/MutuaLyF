@@ -172,10 +172,11 @@ export function Sidebar() {
           collapsed ? "lg:w-[68px] w-64" : "w-64 lg:w-60",
         )}
         style={{
-          // Identidad Intellix: glow de marca (índigo/violeta) detrás del wordmark
-          // + degradé vertical con profundidad. Navy un punto más elevado (respira).
+          // Mismo MESH de marca del login (cyan + índigo + violeta repartidos),
+          // pero en versión oscura: el navbar es "el hermano oscuro" del login.
+          // cyan #4FC3F7 arriba · violeta #7A2DFF medio · índigo #5B5BFF abajo.
           background:
-            "radial-gradient(135% 56% at 50% 0%, rgba(124,104,255,0.22) 0%, transparent 60%), linear-gradient(180deg, #1d1e44 0%, #17182f 52%, #101126 100%)",
+            "radial-gradient(58% 20% at 50% 0%, rgba(79,195,247,0.20) 0%, transparent 72%), radial-gradient(75% 28% at 82% 32%, rgba(122,45,255,0.16) 0%, transparent 66%), radial-gradient(85% 36% at 18% 72%, rgba(91,91,255,0.16) 0%, transparent 70%), linear-gradient(180deg, #1a1b3e 0%, #16172f 55%, #101126 100%)",
         }}
       >
         {/* Brand Intellix + control de colapso integrado en el header. */}

@@ -55,8 +55,10 @@ export function OperatorTopbar() {
     <header
       className="h-14 text-slate-300 flex items-center px-3 sm:px-4 gap-3 shrink-0 border-b border-white/[0.06]"
       style={{
+        // Mismo mesh de marca del login (cyan/violeta/índigo) en versión oscura,
+        // coherente con el sidebar del admin.
         background:
-          "radial-gradient(80% 180% at 0% 0%, rgba(110,90,255,0.20) 0%, transparent 55%), linear-gradient(90deg, #17183a 0%, #121327 60%, #0d0e1e 100%)",
+          "radial-gradient(40% 140% at 2% 0%, rgba(79,195,247,0.20) 0%, transparent 60%), radial-gradient(45% 150% at 35% 100%, rgba(122,45,255,0.16) 0%, transparent 60%), radial-gradient(50% 160% at 75% 0%, rgba(91,91,255,0.16) 0%, transparent 62%), linear-gradient(90deg, #1a1b3e 0%, #16172f 60%, #101126 100%)",
       }}
     >
       {/* Brand Intellix */}
