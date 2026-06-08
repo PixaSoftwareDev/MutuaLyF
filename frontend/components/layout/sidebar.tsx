@@ -153,18 +153,19 @@ export function Sidebar() {
       {/* Mobile backdrop */}
       {mobileSidebarOpen && (
         <div
-          className="lg:hidden fixed inset-0 z-40 bg-black/60 backdrop-blur-sm"
+          className="lg:hidden fixed inset-0 z-40 bg-slate-900/40 backdrop-blur-sm"
           onClick={closeMobileSidebar}
           aria-hidden="true"
         />
       )}
 
-      {/* Shell índigo-navy Intellix. El panel ES el producto Intellix: la marca
-          de la cabecera y el acento activo son de Intellix. El tenant aparece
-          como contexto (logo + nombre) en el pie, no como branding estructural. */}
+      {/* Shell CLARO, coherente con el login (mismo mesh de marca cyan/índigo/
+          violeta sobre fondo claro). El panel ES el producto Intellix: la marca
+          de la cabecera y el acento activo son de Intellix; el tenant aparece
+          como contexto (logo + nombre) en el pie. */}
       <aside
         className={cn(
-          "flex flex-col border-r border-white/[0.06] text-slate-300",
+          "flex flex-col border-r border-slate-200 text-slate-600",
           "fixed inset-y-0 left-0 z-50 lg:static lg:z-auto",
           // Transición tranquila de ancho + slide. Easing suave (ease-out-quint).
           "transition-[transform,width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
@@ -172,16 +173,15 @@ export function Sidebar() {
           collapsed ? "lg:w-[68px] w-64" : "w-64 lg:w-60",
         )}
         style={{
-          // Mismo MESH de marca del login (cyan + índigo + violeta repartidos),
-          // pero en versión oscura: el navbar es "el hermano oscuro" del login.
-          // cyan #4FC3F7 arriba · violeta #7A2DFF medio · índigo #5B5BFF abajo.
+          // Mismo mesh de marca del login, sobre base clara: el navbar conversa
+          // con la pantalla de entrada. cyan #4FC3F7 · violeta #7A2DFF · índigo #5B5BFF.
           background:
-            "radial-gradient(58% 20% at 50% 0%, rgba(79,195,247,0.20) 0%, transparent 72%), radial-gradient(75% 28% at 82% 32%, rgba(122,45,255,0.16) 0%, transparent 66%), radial-gradient(85% 36% at 18% 72%, rgba(91,91,255,0.16) 0%, transparent 70%), linear-gradient(180deg, #1a1b3e 0%, #16172f 55%, #101126 100%)",
+            "radial-gradient(62% 20% at 50% 0%, rgba(79,195,247,0.12) 0%, transparent 72%), radial-gradient(75% 26% at 84% 30%, rgba(122,45,255,0.09) 0%, transparent 66%), radial-gradient(85% 34% at 16% 76%, rgba(91,91,255,0.09) 0%, transparent 70%), linear-gradient(180deg, #ffffff 0%, #fbfcff 58%, #f6f7fd 100%)",
         }}
       >
         {/* Brand Intellix + control de colapso integrado en el header. */}
         <div className={cn(
-          "flex items-center gap-2.5 h-16 px-4 border-b border-white/[0.06] shrink-0",
+          "flex items-center gap-2.5 h-16 px-4 border-b border-slate-200 shrink-0",
           collapsed && "lg:px-2"
         )}>
           {/* Wordmark (expandido) — link al dashboard */}
@@ -208,7 +208,7 @@ export function Sidebar() {
             aria-label="Expandir menú"
             title="Expandir menú"
             className={cn(
-              "mx-auto items-center justify-center rounded-lg p-1 hover:bg-white/10 transition-colors",
+              "mx-auto items-center justify-center rounded-lg p-1 hover:bg-slate-100 transition-colors",
               collapsed ? "hidden lg:flex" : "hidden"
             )}
           >
@@ -221,7 +221,7 @@ export function Sidebar() {
             aria-label="Contraer menú"
             title="Contraer menú"
             className={cn(
-              "hidden lg:flex ml-auto items-center justify-center h-8 w-8 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 active:scale-95 transition-all shrink-0",
+              "hidden lg:flex ml-auto items-center justify-center h-8 w-8 rounded-lg text-slate-400 hover:text-slate-900 hover:bg-slate-100 active:scale-95 transition-all shrink-0",
               collapsed && "lg:hidden"
             )}
           >
@@ -231,7 +231,7 @@ export function Sidebar() {
           {/* Cerrar (mobile) */}
           <button
             onClick={closeMobileSidebar}
-            className="lg:hidden ml-auto flex items-center justify-center w-8 h-8 rounded-lg text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+            className="lg:hidden ml-auto flex items-center justify-center w-8 h-8 rounded-lg text-slate-400 hover:text-slate-900 hover:bg-slate-100 transition-colors"
             aria-label="Cerrar menú"
           >
             <X className="h-4 w-4" />
@@ -253,17 +253,17 @@ export function Sidebar() {
                 <React.Fragment key={groupIdx}>
                   {group.label && !collapsed && (
                     <div className={cn(
-                      "px-2.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500",
+                      "px-2.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400",
                       isFirstVisible ? "mb-1.5" : "mt-6 mb-1.5"
                     )}>
                       {group.label}
                     </div>
                   )}
                   {!group.label && !isFirstVisible && (
-                    <div className="h-px bg-white/[0.06] my-3 mx-1" />
+                    <div className="h-px bg-slate-200 my-3 mx-1" />
                   )}
                   {collapsed && group.label && !isFirstVisible && (
-                    <div className="h-px bg-white/[0.06] my-3 mx-1 hidden lg:block" />
+                    <div className="h-px bg-slate-200 my-3 mx-1 hidden lg:block" />
                   )}
                   <div className="space-y-0.5">
                     {showChatTester && (
@@ -271,7 +271,7 @@ export function Sidebar() {
                         onClick={handleOpenChatTester}
                         className={cn(
                           "w-full flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm font-medium transition-colors",
-                          "text-slate-400 hover:bg-white/5 hover:text-white",
+                          "text-slate-600 hover:bg-slate-100 hover:text-slate-900",
                           collapsed && "lg:justify-center lg:px-2"
                         )}
                         title={collapsed ? "Probar chat (nueva pestaña)" : "Abre el widget en una pestaña nueva"}
@@ -297,8 +297,8 @@ export function Sidebar() {
                           className={cn(
                             "relative flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm font-medium transition-all",
                             active
-                              ? "bg-gradient-to-r from-white/[0.12] to-white/[0.02] text-white"
-                              : "text-slate-400 hover:bg-white/5 hover:text-white",
+                              ? "bg-action/[0.08] text-foreground font-semibold"
+                              : "text-slate-600 hover:bg-slate-100 hover:text-slate-900",
                             collapsed && "lg:justify-center lg:px-2"
                           )}
                           title={titleAttr}
@@ -307,7 +307,7 @@ export function Sidebar() {
                           {active && (
                             <span className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-[3px] rounded-r-full bg-action-gradient" />
                           )}
-                          <Icon className="h-[18px] w-[18px] shrink-0" />
+                          <Icon className={cn("h-[18px] w-[18px] shrink-0", active && "text-action")} />
                           <span className={cn("flex-1", collapsed && "lg:hidden")}>{item.label}</span>
                           {pendingCount > 0 && (
                             <span
@@ -330,7 +330,7 @@ export function Sidebar() {
           })()}
         </nav>
 
-        <div className="h-px bg-white/[0.06] shrink-0" />
+        <div className="h-px bg-slate-200 shrink-0" />
 
         {/* User + logout */}
         <div className={cn("p-3 space-y-1 shrink-0", collapsed && "lg:flex lg:flex-col lg:items-center lg:p-2 lg:space-y-1")}>
@@ -338,7 +338,7 @@ export function Sidebar() {
               del cliente como dato, no como branding que invade el panel. */}
           <div className={cn("flex items-center gap-2.5 px-1.5 py-1.5 min-w-0", collapsed && "lg:hidden")}>
             <div
-              className="relative w-7 h-7 flex items-center justify-center shrink-0 rounded-md overflow-hidden ring-1 ring-white/10"
+              className="relative w-7 h-7 flex items-center justify-center shrink-0 rounded-md overflow-hidden ring-1 ring-slate-200"
               style={!brandLogoUrl ? { background: brandColor } : undefined}
             >
               {brandLogoUrl ? (
@@ -350,7 +350,7 @@ export function Sidebar() {
               )}
             </div>
             <div className="min-w-0 leading-tight">
-              <p className="text-[13px] font-medium text-white truncate">{brandName}</p>
+              <p className="text-[13px] font-medium text-foreground truncate">{brandName}</p>
               <p className="text-[11px] text-slate-500 truncate" title={userRole || undefined}>{userEmail}</p>
             </div>
           </div>
@@ -361,20 +361,20 @@ export function Sidebar() {
               className={cn(
                 "flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm w-full transition-all",
                 pathname === "/admin/cuenta"
-                  ? "bg-gradient-to-r from-white/[0.12] to-white/[0.02] text-white"
-                  : "text-slate-400 hover:bg-white/5 hover:text-white",
+                  ? "bg-action/[0.08] text-foreground font-semibold"
+                  : "text-slate-600 hover:bg-slate-100 hover:text-slate-900",
                 collapsed && "lg:justify-center"
               )}
               title="Mi cuenta"
             >
-              <UserCog className="h-[18px] w-[18px] shrink-0" />
+              <UserCog className={cn("h-[18px] w-[18px] shrink-0", pathname === "/admin/cuenta" && "text-action")} />
               <span className={cn(collapsed && "lg:hidden")}>Mi cuenta</span>
             </Link>
           )}
           <button
             onClick={handleLogout}
             className={cn(
-              "flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm text-slate-400 hover:bg-white/5 hover:text-white w-full transition-colors",
+              "flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm text-slate-600 hover:bg-slate-100 hover:text-slate-900 w-full transition-colors",
               collapsed && "lg:justify-center"
             )}
             title="Cerrar sesión"

@@ -50,15 +50,14 @@ export function OperatorTopbar() {
   };
 
   return (
-    // Topbar índigo-navy Intellix, coherente con el sidebar del admin. La marca
-    // de la barra es Intellix (el producto); el tenant es contexto a la derecha.
+    // Topbar CLARO, coherente con el login y el sidebar del admin. La marca de
+    // la barra es Intellix (el producto); el tenant es contexto a la derecha.
     <header
-      className="h-14 text-slate-300 flex items-center px-3 sm:px-4 gap-3 shrink-0 border-b border-white/[0.06]"
+      className="h-14 text-slate-600 flex items-center px-3 sm:px-4 gap-3 shrink-0 border-b border-slate-200"
       style={{
-        // Mismo mesh de marca del login (cyan/violeta/índigo) en versión oscura,
-        // coherente con el sidebar del admin.
+        // Mismo mesh de marca del login (cyan/violeta/índigo) sobre base clara.
         background:
-          "radial-gradient(40% 140% at 2% 0%, rgba(79,195,247,0.20) 0%, transparent 60%), radial-gradient(45% 150% at 35% 100%, rgba(122,45,255,0.16) 0%, transparent 60%), radial-gradient(50% 160% at 75% 0%, rgba(91,91,255,0.16) 0%, transparent 62%), linear-gradient(90deg, #1a1b3e 0%, #16172f 60%, #101126 100%)",
+          "radial-gradient(40% 140% at 2% 0%, rgba(79,195,247,0.12) 0%, transparent 60%), radial-gradient(45% 150% at 38% 100%, rgba(122,45,255,0.08) 0%, transparent 60%), radial-gradient(50% 160% at 78% 0%, rgba(91,91,255,0.08) 0%, transparent 62%), linear-gradient(90deg, #ffffff 0%, #fbfcff 60%, #f6f7fd 100%)",
       }}
     >
       {/* Brand Intellix */}
@@ -76,7 +75,7 @@ export function OperatorTopbar() {
 
       {/* Nav tabs */}
       <nav className="hidden sm:flex items-center gap-1 ml-2">
-        <span className="h-4 w-px bg-white/10 mr-1" />
+        <span className="h-4 w-px bg-slate-200 mr-1" />
         {NAV_ITEMS.map(item => {
           const active = item.href === "/operator"
             ? pathname === "/operator"
@@ -89,11 +88,11 @@ export function OperatorTopbar() {
               className={cn(
                 "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors",
                 active
-                  ? "bg-white/[0.08] text-white"
-                  : "text-slate-400 hover:text-white hover:bg-white/5",
+                  ? "bg-action/[0.08] text-foreground font-semibold"
+                  : "text-slate-600 hover:text-slate-900 hover:bg-slate-100",
               )}
             >
-              <Icon className="h-3.5 w-3.5" />
+              <Icon className={cn("h-3.5 w-3.5", active && "text-action")} />
               {item.label}
             </Link>
           );
@@ -105,7 +104,7 @@ export function OperatorTopbar() {
       {/* Contexto del tenant — logo + organización en la que opera. */}
       <div className="hidden md:flex items-center gap-2 min-w-0">
         <div
-          className="relative w-7 h-7 flex items-center justify-center shrink-0 rounded-md overflow-hidden ring-1 ring-white/10"
+          className="relative w-7 h-7 flex items-center justify-center shrink-0 rounded-md overflow-hidden ring-1 ring-slate-200"
           style={!brandLogoUrl ? { background: branding.primary_color } : undefined}
         >
           {brandLogoUrl ? (
@@ -116,14 +115,14 @@ export function OperatorTopbar() {
             </span>
           )}
         </div>
-        <span className="text-[13px] font-medium text-white truncate max-w-[160px]">{branding.display_name}</span>
+        <span className="text-[13px] font-medium text-foreground truncate max-w-[160px]">{branding.display_name}</span>
       </div>
 
-      <span className="hidden md:block h-5 w-px bg-white/10" />
+      <span className="hidden md:block h-5 w-px bg-slate-200" />
 
       {/* Operator identity — rol como identidad principal, email como secundario. */}
       <div className="hidden sm:flex flex-col items-end leading-tight min-w-0">
-        <span className="text-xs font-medium text-white truncate max-w-[220px]">{roleLabel}</span>
+        <span className="text-xs font-medium text-foreground truncate max-w-[220px]">{roleLabel}</span>
         {userEmail && (
           <span className="text-[11px] text-slate-500 truncate max-w-[220px]">{userEmail}</span>
         )}
@@ -134,7 +133,7 @@ export function OperatorTopbar() {
         <DropdownMenuTrigger asChild>
           <button
             type="button"
-            className="flex items-center justify-center w-8 h-8 rounded-lg text-slate-400 hover:text-white hover:bg-white/5 transition-colors shrink-0"
+            className="flex items-center justify-center w-8 h-8 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors shrink-0"
             aria-label="Acciones de cuenta"
           >
             <MoreVertical className="h-4 w-4" />
