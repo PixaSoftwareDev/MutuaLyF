@@ -5,7 +5,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   MessageSquare, Loader2, Send, UserCheck, UserMinus, XCircle, User, Bot,
   Info, ChevronDown, ChevronLeft, Search, Flame, ArrowRightLeft, Eye, Wifi, WifiOff,
-  RotateCcw, MoreVertical, Paperclip,
+  RotateCcw, MoreVertical, Paperclip, X,
 } from "lucide-react";
 import { api, type ConversationRow } from "@/lib/api";
 import { renderWithLinks } from "@/lib/render-with-links";
@@ -54,6 +54,11 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
   const fileInputRef   = useRef<HTMLInputElement>(null);
   const handoffIds     = useRef<Set<string>>(new Set());
   const readOnly = mode === "admin-readonly";
+
+  // Adjunto pendiente: el operador elige el archivo y lo PREVISUALIZA antes de
+  // enviarlo (antes se subía y mandaba al instante, sin chance de verificar).
+  const [pendingFile, setPendingFile]       = useState<File | null>(null);
+  const [pendingPreview, setPendingPreview] = useState<string | null>(null);
 
   // Tick for relative timestamps + urgency
   useEffect(() => {
@@ -325,7 +330,24 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
     const ok = ["image/png", "image/jpeg", "image/jpg", "image/webp", "application/pdf"];
     if (!ok.includes(file.type)) { toast({ title: "Formato no permitido", description: "Solo imágenes (PNG/JPG/WEBP) o PDF.", variant: "destructive" }); return; }
     if (file.size > 10 * 1024 * 1024) { toast({ title: "Archivo muy grande", description: "El máximo es 10 MB.", variant: "destructive" }); return; }
-    attachM.mutate({ id: detail.id, file });
+    // No se envía todavía: queda como adjunto pendiente con preview.
+    if (pendingPreview) URL.revokeObjectURL(pendingPreview);
+    setPendingFile(file);
+    setPendingPreview(file.type.startsWith("image/") ? URL.createObjectURL(file) : null);
+  }
+
+  function clearPending() {
+    if (pendingPreview) URL.revokeObjectURL(pendingPreview);
+    setPendingFile(null);
+    setPendingPreview(null);
+  }
+
+  // Envía el mensaje: primero el adjunto pendiente (si hay), luego el texto (si hay).
+  function handleSend() {
+    if (!detail) return;
+    if (pendingFile) { attachM.mutate({ id: detail.id, file: pendingFile }); clearPending(); }
+    const t = replyText.trim();
+    if (t) replyM.mutate({ id: detail.id, content: t });
   }
 
   const replyM = useMutation({
@@ -601,8 +623,17 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
             </div>
           </div>
         ) : detailLoading ? (
-          <div className="flex-1 flex items-center justify-center">
-            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          // Skeleton de chat (no un panel vacío): al saltar entre conversaciones
+          // el operador ve la estructura cargando, no un parpadeo en blanco.
+          <div className="flex-1 flex flex-col">
+            <div className="px-4 py-3 border-b bg-card">
+              <Skeleton className="h-4 w-40" />
+            </div>
+            <div className="flex-1 p-4 space-y-3 bg-muted/30">
+              <Skeleton className="h-12 w-2/3 rounded-2xl" />
+              <Skeleton className="h-12 w-1/2 rounded-2xl ml-auto" />
+              <Skeleton className="h-10 w-3/5 rounded-2xl" />
+            </div>
           </div>
         ) : detail ? (
           <>
@@ -790,35 +821,58 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
 
             {/* ── Reply ── */}
             {!readOnly && detail.status === "human_attending" && (
-              <div className="px-4 py-3 border-t bg-card flex gap-2 items-end">
-                <input ref={fileInputRef} type="file" className="hidden"
-                       accept="image/png,image/jpeg,image/jpg,image/webp,application/pdf" onChange={onPickFile} />
-                <Button variant="ghost" size="icon" className="h-10 w-10 shrink-0"
-                        disabled={attachM.isPending} title="Adjuntar imagen o PDF (máx. 10 MB)"
-                        onClick={() => fileInputRef.current?.click()}>
-                  {attachM.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}
-                </Button>
-                <textarea
-                  ref={textareaRef}
-                  rows={2}
-                  placeholder="Escribí tu mensaje…"
-                  value={replyText}
-                  onChange={e => setReplyText(e.target.value)}
-                  onKeyDown={e => {
-                    if (e.key === "Enter" && !e.shiftKey && replyText.trim()) {
-                      e.preventDefault();
-                      replyM.mutate({ id: detail.id, content: replyText.trim() });
-                    }
-                  }}
-                  className="flex-1 resize-none rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary min-h-[60px] max-h-40"
-                />
-                <Button
-                  className="h-10 px-3 shrink-0"
-                  disabled={!replyText.trim() || replyM.isPending}
-                  onClick={() => replyM.mutate({ id: detail.id, content: replyText.trim() })}
-                >
-                  {replyM.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                </Button>
+              <div className="border-t bg-card">
+                {/* Preview del adjunto pendiente — revisar antes de enviar */}
+                {pendingFile && (
+                  <div className="px-4 pt-3">
+                    <div className="inline-flex items-center gap-2 rounded-lg border bg-muted/40 pl-2 pr-1.5 py-1.5 max-w-full">
+                      {pendingPreview ? (
+                        <img src={pendingPreview} alt={pendingFile.name} className="h-9 w-9 rounded object-cover shrink-0" />
+                      ) : (
+                        <span className="h-9 w-9 rounded bg-muted flex items-center justify-center shrink-0">
+                          <Paperclip className="h-4 w-4 text-muted-foreground" />
+                        </span>
+                      )}
+                      <span className="text-xs truncate max-w-[180px]">{pendingFile.name}</span>
+                      <span className="text-[11px] text-muted-foreground shrink-0">{(pendingFile.size / 1024).toFixed(0)} KB</span>
+                      <button onClick={clearPending}
+                              className="ml-1 h-6 w-6 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0"
+                              aria-label="Quitar adjunto">
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+                <div className="px-4 py-3 flex gap-2 items-end">
+                  <input ref={fileInputRef} type="file" className="hidden"
+                         accept="image/png,image/jpeg,image/jpg,image/webp,application/pdf" onChange={onPickFile} />
+                  <Button variant="ghost" size="icon" className="h-10 w-10 shrink-0"
+                          disabled={attachM.isPending} title="Adjuntar imagen o PDF (máx. 10 MB)"
+                          onClick={() => fileInputRef.current?.click()}>
+                    {attachM.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}
+                  </Button>
+                  <textarea
+                    ref={textareaRef}
+                    rows={2}
+                    placeholder="Escribí tu mensaje…"
+                    value={replyText}
+                    onChange={e => setReplyText(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === "Enter" && !e.shiftKey && (replyText.trim() || pendingFile)) {
+                        e.preventDefault();
+                        handleSend();
+                      }
+                    }}
+                    className="flex-1 resize-none rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary min-h-[60px] max-h-40"
+                  />
+                  <Button
+                    className="h-10 px-3 shrink-0"
+                    disabled={(!replyText.trim() && !pendingFile) || replyM.isPending || attachM.isPending}
+                    onClick={handleSend}
+                  >
+                    {(replyM.isPending || attachM.isPending) ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                  </Button>
+                </div>
               </div>
             )}
 
@@ -841,10 +895,8 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
                 level === "urgent"   ? "text-amber-800" :
                 "text-amber-700";
 
-              const buttonClass =
-                level === "critical" ? "bg-red-600 hover:bg-red-700 text-white"     :
-                level === "urgent"   ? "bg-amber-600 hover:bg-amber-700 text-white" :
-                "bg-amber-500 hover:bg-amber-600 text-white";
+              // Botón estable (la urgencia la lleva el fondo del banner, no el botón).
+              const buttonClass = "bg-primary hover:bg-primary/90 text-primary-foreground";
 
               return (
                 <div className={cn("px-4 py-3 text-center", bannerBg)}>
@@ -972,12 +1024,10 @@ function ConvCard({ conv, now, selected, readOnly, onlineNames, onSelect, onAcce
     attending                   ? "font-medium text-emerald-700"   :
     "text-muted-foreground";
 
-  // Atender button colour mirrors the urgency level so the affordance carries
-  // the same pressure signal as the leading dot.
-  const acceptClass =
-    urgencyLevel === "critical" ? "bg-red-600 hover:bg-red-700"     :
-    urgencyLevel === "urgent"   ? "bg-amber-600 hover:bg-amber-700" :
-    "bg-amber-500 hover:bg-amber-600";
+  // El botón "Atender" mantiene un color de acción ESTABLE (no cambia por
+  // urgencia): un botón que se vuelve rojo se lee como destructivo. La presión
+  // de tiempo ya la comunican el punto y el fondo de la tarjeta.
+  const acceptClass = "bg-primary hover:bg-primary/90";
 
   // Unread count only while operator is actively attending — for "en espera"
   // every message is unread by definition, so the badge adds no information.
@@ -1040,7 +1090,7 @@ function ConvCard({ conv, now, selected, readOnly, onlineNames, onSelect, onAcce
               onClick={e => { e.stopPropagation(); onAccept(); }}
               disabled={accepting}
               className={cn(
-                "inline-flex items-center gap-1 rounded-md text-white text-[11px] font-medium px-2 h-6 transition-colors disabled:opacity-60",
+                "inline-flex items-center gap-1 rounded-md text-primary-foreground text-[11px] font-medium px-2 h-6 transition-colors disabled:opacity-60",
                 acceptClass,
               )}
             >
