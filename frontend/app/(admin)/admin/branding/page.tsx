@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  Upload, Trash2, Loader2, Save, MoreVertical, Edit2,
+  Upload, Trash2, Loader2, Save, Pencil,
 } from "lucide-react";
 import { api, type TenantBranding } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -12,9 +12,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
-} from "@/components/ui/dropdown-menu";
 import { toast } from "@/components/ui/toast";
 import { PageShell } from "@/components/layout/page-shell";
 import { PageHeader } from "@/components/layout/page-header";
@@ -155,7 +152,7 @@ export default function BrandingPage() {
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between gap-2">
                 <CardTitle className="text-base">Identidad</CardTitle>
-                {!editingName && <SectionMenu onEdit={() => setEditingName(true)} />}
+                {!editingName && <EditButton onEdit={() => setEditingName(true)} />}
               </div>
             </CardHeader>
             <CardContent>
@@ -201,7 +198,7 @@ export default function BrandingPage() {
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between gap-2">
                 <CardTitle className="text-base">Color institucional</CardTitle>
-                {!editingColor && <SectionMenu onEdit={() => setEditingColor(true)} />}
+                {!editingColor && <EditButton onEdit={() => setEditingColor(true)} />}
               </div>
             </CardHeader>
             <CardContent>
@@ -321,23 +318,14 @@ export default function BrandingPage() {
   );
 }
 
-// ── Dropdown 3 puntos compartido por sección editable ────────────────────────
+// ── Botón "Editar" visible, compartido por sección editable ──────────────────
 
-function SectionMenu({ onEdit }: { onEdit: () => void }) {
+function EditButton({ onEdit }: { onEdit: () => void }) {
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button size="icon" variant="ghost" className="h-8 w-8 -mr-1" aria-label="Acciones">
-          <MoreVertical className="h-4 w-4" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-32">
-        <DropdownMenuItem onSelect={onEdit}>
-          <Edit2 className="h-4 w-4 mr-2" />
-          Editar
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <Button size="sm" variant="ghost" className="h-8 -mr-1 text-muted-foreground" onClick={onEdit}>
+      <Pencil className="h-3.5 w-3.5 mr-1.5" />
+      Editar
+    </Button>
   );
 }
 
@@ -431,10 +419,10 @@ function ContrastFeedback({ primary }: { primary: string }) {
   const aaNormal    = ratio >= 4.5;
   const aaLarge     = ratio >= 3.0;
   const badge       = aaNormal
-    ? { label: "AA ✓",       cls: "bg-emerald-50 text-emerald-700 border-emerald-200" }
+    ? { label: "AA ✓",       cls: "bg-success/10 text-success border-success/20" }
     : aaLarge
-    ? { label: "AA Large",   cls: "bg-amber-50 text-amber-700 border-amber-200" }
-    : { label: "Insuficiente", cls: "bg-rose-50 text-rose-700 border-rose-200" };
+    ? { label: "AA Large",   cls: "bg-warning/10 text-warning border-warning/20" }
+    : { label: "Insuficiente", cls: "bg-destructive/10 text-destructive border-destructive/20" };
   return (
     <div className="mt-3 rounded-md border bg-muted/30 p-3 text-xs">
       <div className="flex items-center gap-2">

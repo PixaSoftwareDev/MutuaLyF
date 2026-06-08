@@ -5,7 +5,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   User, Building2, Briefcase, Clock, Globe, Calendar,
   MapPin, Tag, Search, X, ChevronRight, FileText, ChevronDown,
-  Pencil, Trash2, Loader2,
+  Pencil, Trash2, Loader2, Network,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { EmptyState } from "@/components/ui/empty-state";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
@@ -29,7 +30,7 @@ function highlightEntity(text: string, name: string): React.ReactNode[] {
   const re = new RegExp(`(${escaped})`, "gi");
   const parts = text.split(re);
   return parts.map((p, i) =>
-    re.test(p) ? <mark key={i} className="bg-amber-200 text-amber-900 rounded px-0.5">{p}</mark> : p,
+    re.test(p) ? <mark key={i} className="bg-warning/20 text-warning rounded px-0.5">{p}</mark> : p,
   );
 }
 
@@ -76,7 +77,7 @@ function FilterChip({
       {label}
       <span
         className={cn(
-          "ml-0.5 inline-flex items-center justify-center min-w-4 h-4 px-1 rounded text-[10px] font-semibold tabular-nums",
+          "ml-0.5 inline-flex items-center justify-center min-w-4 h-4 px-1 rounded text-[11px] font-semibold tabular-nums",
           active ? "bg-brand-foreground/20" : "bg-muted text-foreground/70"
         )}
       >
@@ -201,7 +202,11 @@ function EntityDetailDialog({
             )}
 
             {!isLoading && data && Object.entries(byDoc).length === 0 && (
-              <p className="text-sm text-muted-foreground py-4 text-center">Sin resultados</p>
+              <EmptyState
+                icon={FileText}
+                title="Sin documentos"
+                description="Esta entidad no está vinculada a ningún fragmento todavía."
+              />
             )}
 
             {!isLoading && data && Object.entries(byDoc).map(([docId, info]) => {
@@ -233,7 +238,7 @@ function EntityDetailDialog({
                       {info.chunks.map((c, idx) => (
                         <div key={c.chunk_id} className="text-xs leading-relaxed">
                           {info.chunks.length > 1 && (
-                            <p className="text-[10px] font-semibold text-muted-foreground/80 mb-1 uppercase tracking-wide">
+                            <p className="text-[11px] font-semibold text-muted-foreground/80 mb-1 uppercase tracking-wide">
                               Fragmento {idx + 1}
                             </p>
                           )}
@@ -527,11 +532,15 @@ export default function EntitiesPage() {
           )}
 
           {!listLoading && (!entities || entities.length === 0) && (
-            <p className="text-sm text-muted-foreground text-center py-8">
-              {search
-                ? `Sin resultados para "${search}".`
-                : "Todavía no hay entidades. Ingresá documentos para empezar."}
-            </p>
+            <EmptyState
+              icon={search ? Search : Network}
+              title={search ? "Sin resultados" : "Todavía no hay entidades"}
+              description={
+                search
+                  ? `Ninguna entidad coincide con "${search}".`
+                  : "Ingresá documentos para que el sistema extraiga personas, áreas y conceptos automáticamente."
+              }
+            />
           )}
 
           {!listLoading && entities && entities.length > 0 && (

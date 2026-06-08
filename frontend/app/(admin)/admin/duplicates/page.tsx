@@ -2,11 +2,12 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ChevronLeft, ChevronRight, Loader2, Pencil } from "lucide-react";
+import { ChevronLeft, ChevronRight, Loader2, Pencil, CopyCheck } from "lucide-react";
 import { api, type ChunkDuplicatePair } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
@@ -87,15 +88,19 @@ function DiffView({
 }) {
   const [tokensA, tokensB] = diffWords(textA, textB);
 
+  // Resalto las diferencias con un color distinto por lado para que se lea de un
+  // vistazo qué texto es exclusivo de A (info/azul) vs exclusivo de B (warning).
   const renderTokens = (tokens: DiffToken[]) => (
     <p className="text-sm leading-relaxed">
       {tokens.map((tok, idx) => {
-        const isDiff = tok.type !== "common";
+        const cls =
+          tok.type === "only_a"
+            ? "bg-info/10 text-info rounded px-0.5"
+            : tok.type === "only_b"
+            ? "bg-warning/10 text-warning rounded px-0.5"
+            : "";
         return (
-          <span
-            key={idx}
-            className={isDiff ? "bg-amber-100 text-amber-900 rounded px-0.5" : ""}
-          >
+          <span key={idx} className={cls}>
             {tok.word}{" "}
           </span>
         );
@@ -104,10 +109,26 @@ function DiffView({
   );
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3">
-      <div className="rounded-md border p-3 bg-muted/30 relative">
+    <>
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-3 text-[11px] text-muted-foreground">
+      <span className="inline-flex items-center gap-1.5">
+        <span className="h-2 w-2 rounded-full bg-info" />
+        Solo en A
+      </span>
+      <span className="inline-flex items-center gap-1.5">
+        <span className="h-2 w-2 rounded-full bg-warning" />
+        Solo en B
+      </span>
+      <span className="inline-flex items-center gap-1.5">
+        <span className="h-2 w-2 rounded-full bg-muted-foreground/30" />
+        En ambos
+      </span>
+    </div>
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+      <div className="rounded-md border border-info/30 p-3 bg-info/5 relative">
         <div className="flex items-center justify-between mb-2">
-          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+          <p className="text-xs font-semibold uppercase tracking-wide text-info inline-flex items-center gap-1.5">
+            <span className="h-2 w-2 rounded-full bg-info" />
             Fragmento A
           </p>
           <button
@@ -121,9 +142,10 @@ function DiffView({
         </div>
         {renderTokens(tokensA)}
       </div>
-      <div className="rounded-md border p-3 bg-muted/30 relative">
+      <div className="rounded-md border border-warning/30 p-3 bg-warning/5 relative">
         <div className="flex items-center justify-between mb-2">
-          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+          <p className="text-xs font-semibold uppercase tracking-wide text-warning inline-flex items-center gap-1.5">
+            <span className="h-2 w-2 rounded-full bg-warning" />
             Fragmento B
           </p>
           <button
@@ -138,6 +160,7 @@ function DiffView({
         {renderTokens(tokensB)}
       </div>
     </div>
+    </>
   );
 }
 
@@ -306,7 +329,7 @@ function PairCard({
                   </>
                 )}
                 {sameDoc && (
-                  <span className="text-amber-600 font-medium">{hasTitles ? "· " : ""}mismo documento</span>
+                  <span className="text-warning font-medium">{hasTitles ? "· " : ""}mismo documento</span>
                 )}
               </div>
             )}
@@ -314,28 +337,30 @@ function PairCard({
 
           <div className="flex items-center gap-1.5 shrink-0">
             <Button
-              size="sm" variant="outline"
+              size="sm"
               disabled={resolving}
               onClick={() => onResolve("keep_both")}
               className="h-8 text-xs"
             >
+              {resolving && <Loader2 className="h-3 w-3 animate-spin mr-1" />}
               Mantener ambos
             </Button>
             <Button
               size="sm" variant="outline"
               disabled={resolving}
               onClick={() => onResolve("keep_a")}
-              className="h-8 text-xs"
+              className="h-8 text-xs text-info border-info/40 hover:bg-info/10"
             >
-              {resolving && <Loader2 className="h-3 w-3 animate-spin mr-1" />}
+              <span className="h-1.5 w-1.5 rounded-full bg-info mr-1.5" />
               Mantener A
             </Button>
             <Button
               size="sm" variant="outline"
               disabled={resolving}
               onClick={() => onResolve("keep_b")}
-              className="h-8 text-xs"
+              className="h-8 text-xs text-warning border-warning/40 hover:bg-warning/10"
             >
+              <span className="h-1.5 w-1.5 rounded-full bg-warning mr-1.5" />
               Mantener B
             </Button>
           </div>
@@ -517,9 +542,11 @@ export default function DuplicatesPage() {
           <Skeleton className="h-48 w-full" />
         </div>
       ) : pendingPairs.length === 0 ? (
-        <p className="text-sm text-muted-foreground text-center py-10">
-          No hay duplicados pendientes de revisión.
-        </p>
+        <EmptyState
+          icon={CopyCheck}
+          title="No hay duplicados pendientes"
+          description="Cuando el sistema detecte fragmentos con contenido muy similar entre documentos, vas a poder revisarlos acá."
+        />
       ) : (
         <div className="space-y-4">
           {pagedPairs.map((pair) => (

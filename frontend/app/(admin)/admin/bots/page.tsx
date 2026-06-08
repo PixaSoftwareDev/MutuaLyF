@@ -10,6 +10,7 @@ import { Bot, CheckCircle2, Loader2, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageShell } from "@/components/layout/page-shell";
 import { PageHeader } from "@/components/layout/page-header";
+import { EmptyState } from "@/components/ui/empty-state";
 
 function catLabel(cat: string): string {
   return cat.charAt(0).toUpperCase() + cat.slice(1).replace(/[_-]/g, " ");
@@ -54,18 +55,18 @@ export default function BotsPage() {
       <div className={cn(
         "rounded-lg border px-4 py-3 flex items-center justify-between gap-3",
         activeTemplate
-          ? "bg-green-50 border-green-200 dark:bg-green-950/30 dark:border-green-800"
+          ? "bg-success/10 border-success/20"
           : "bg-muted/40 border-border"
       )}>
         <div className="flex items-center gap-2">
           {activeTemplate ? (
             <>
-              <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />
+              <CheckCircle2 className="h-4 w-4 text-success shrink-0" />
               <div>
-                <span className="text-sm font-semibold text-green-800 dark:text-green-300">
+                <span className="text-sm font-semibold text-foreground">
                   {activeTemplate.nombre}
                 </span>
-                <span className="text-xs text-green-700/70 dark:text-green-400/70 ml-2">
+                <span className="text-xs text-muted-foreground ml-2">
                   — {catLabel(activeTemplate.categoria)}
                 </span>
               </div>
@@ -98,13 +99,11 @@ export default function BotsPage() {
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>
       ) : templates.length === 0 ? (
-        <div className="rounded-lg border border-dashed px-6 py-16 text-center">
-          <Bot className="h-10 w-10 mx-auto mb-3 opacity-20" />
-          <p className="text-sm font-medium">No tenés personalidades disponibles</p>
-          <p className="text-xs text-muted-foreground mt-1 max-w-xs mx-auto">
-            El administrador de la plataforma puede habilitarte personalidades según tu plan.
-          </p>
-        </div>
+        <EmptyState
+          icon={Bot}
+          title="No tenés personalidades disponibles"
+          description="El administrador de la plataforma puede habilitarte personalidades según tu plan."
+        />
       ) : (
         <div className="grid gap-3 sm:grid-cols-2">
           {templates.map(t => {
@@ -124,12 +123,12 @@ export default function BotsPage() {
                   <div className="flex items-start justify-between gap-2">
                     <div>
                       <p className="font-semibold text-sm leading-tight">{t.nombre}</p>
-                      <Badge variant="secondary" className="mt-1 text-[10px] px-1.5 py-0">
+                      <Badge variant="secondary" className="mt-1 text-[11px] px-1.5 py-0">
                         {catLabel(t.categoria)}
                       </Badge>
                     </div>
                     {isActive && (
-                      <Badge className="text-[10px] bg-green-100 text-green-700 border-green-200 shrink-0">
+                      <Badge className="text-[11px] bg-success/10 text-success border-success/20 shrink-0">
                         Activa
                       </Badge>
                     )}

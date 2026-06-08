@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Check, Loader2, Plus, Trash2, MoreVertical, Pencil, AlertTriangle } from "lucide-react";
+import { Check, Loader2, Plus, Trash2, MoreVertical, Pencil, AlertTriangle, Users } from "lucide-react";
 import { PageShell } from "@/components/layout/page-shell";
 import { PageHeader } from "@/components/layout/page-header";
 import { apiClient } from "@/lib/api";
@@ -22,6 +22,7 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { toast } from "@/components/ui/toast";
+import { EmptyState } from "@/components/ui/empty-state";
 import { cn } from "@/lib/utils";
 
 interface OperatorUser {
@@ -133,8 +134,18 @@ export default function OperatorsPage() {
         </div>
       ) : operatorsFiltered.length === 0 ? (
         <Card>
-          <CardContent className="py-10 text-center text-muted-foreground text-sm">
-            No hay operadores activos. Creá el primero con el botón de arriba.
+          <CardContent className="p-0">
+            <EmptyState
+              icon={Users}
+              title="No hay operadores activos"
+              description="Creá el primero para empezar a asignar sectores y atender consultas."
+              action={
+                <Button size="sm" onClick={() => setShowCreate(true)}>
+                  <Plus className="h-4 w-4 mr-1" />
+                  Nuevo operador
+                </Button>
+              }
+            />
           </CardContent>
         </Card>
       ) : (
@@ -194,7 +205,7 @@ export default function OperatorsPage() {
                 </div>
               )}
               {createSectors.size === 0 && activeSectors.length > 0 && (
-                <p className="text-xs text-amber-600">
+                <p className="text-xs text-warning">
                   Seleccioná al menos un sector. Sin sectores el operador no recibe consultas.
                 </p>
               )}
@@ -253,7 +264,7 @@ function OperatorCard({
                 </div>
                 <span className={cn(
                   "absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-white",
-                  isOnline ? "bg-emerald-500" : "bg-slate-300"
+                  isOnline ? "bg-success" : "bg-muted-foreground/30"
                 )} />
               </div>
               <div className="min-w-0">
@@ -263,7 +274,7 @@ function OperatorCard({
             </div>
             <div className="flex items-center gap-2 shrink-0">
               {isOnline
-                ? <Badge className="text-xs bg-emerald-100 text-emerald-700 border-emerald-200 hover:bg-emerald-100">En línea</Badge>
+                ? <Badge className="text-xs bg-success/10 text-success border-success/20 hover:bg-success/10">En línea</Badge>
                 : <Badge variant="secondary" className="text-xs">Desconectado</Badge>
               }
               <DropdownMenu>
@@ -415,7 +426,7 @@ function EditSectorsDialog({
             </div>
           )}
           {selected.size === 0 && activeSectors.length > 0 && (
-            <p className="text-xs text-amber-600 mt-3">
+            <p className="text-xs text-warning mt-3">
               Tenés que asignar al menos un sector. Sin sectores el operador no recibe ninguna consulta.
             </p>
           )}
@@ -460,7 +471,7 @@ function DeactivateDialog({
       <DialogContent className="max-w-sm">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <AlertTriangle className="h-5 w-5 text-amber-500" />
+            <AlertTriangle className="h-5 w-5 text-destructive" />
             Eliminar operador
           </DialogTitle>
           <DialogDescription className="pt-2">

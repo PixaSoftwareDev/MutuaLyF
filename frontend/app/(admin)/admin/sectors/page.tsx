@@ -18,6 +18,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/toast";
+import { EmptyState } from "@/components/ui/empty-state";
 import { PageShell } from "@/components/layout/page-shell";
 import { PageHeader } from "@/components/layout/page-header";
 
@@ -105,8 +106,18 @@ export default function SectorsPage() {
         </div>
       ) : activeSectors.length === 0 ? (
         <Card>
-          <CardContent className="py-10 text-center text-muted-foreground text-sm">
-            No hay sectores activos. Creá el primero con el botón de arriba.
+          <CardContent className="p-0">
+            <EmptyState
+              icon={Folder}
+              title="No hay sectores activos"
+              description="Creá el primero para que los usuarios puedan elegir un área al consultar."
+              action={
+                <Button size="sm" onClick={() => setShowCreate(true)}>
+                  <Plus className="h-4 w-4 mr-1" />
+                  Nuevo sector
+                </Button>
+              }
+            />
           </CardContent>
         </Card>
       ) : (
@@ -222,7 +233,7 @@ export default function SectorsPage() {
                 <>
                   Vas a desactivar el sector <span className="font-semibold text-foreground">{deleting.nombre}</span>.
                   {deleting.operator_count > 0 && (
-                    <span className="block mt-2 text-amber-600">
+                    <span className="block mt-2 text-warning">
                       ⚠️ {deleting.operator_count} {deleting.operator_count === 1 ? "operador tiene" : "operadores tienen"} este sector asignado.
                       Sus asignaciones quedarán activas pero el sector dejará de aparecer en el listado.
                     </span>
@@ -325,7 +336,7 @@ function SectorCard({
               <div className="flex items-center gap-2">
                 <p className="font-semibold text-sm truncate">{sector.nombre}</p>
                 {sector.is_default && (
-                  <Badge className="text-xs bg-amber-200 text-amber-900 border border-amber-400 hover:bg-amber-200">
+                  <Badge className="text-xs bg-warning/10 text-warning border border-warning/20 hover:bg-warning/10">
                     Default
                   </Badge>
                 )}

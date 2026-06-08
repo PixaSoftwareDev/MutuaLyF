@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Key, Copy, Check, RefreshCw, Loader2, Save, CheckCircle2, MoreVertical, Edit2 } from "lucide-react";
+import { Key, Copy, Check, RefreshCw, Loader2, Save, CheckCircle2, Pencil, Sparkles } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { Button } from "@/components/ui/button";
@@ -10,9 +10,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
-} from "@/components/ui/dropdown-menu";
+import { EmptyState } from "@/components/ui/empty-state";
 import { cn } from "@/lib/utils";
 import { toast } from "@/components/ui/toast";
 
@@ -156,7 +154,7 @@ export function GeneralSettings() {
           <div className="flex items-center justify-between gap-2">
             <h2 className="font-semibold text-sm">Identidad del bot</h2>
             {!editingIdentity && (
-              <SectionMenu onEdit={() => setEditingIdentity(true)} />
+              <EditButton onEdit={() => setEditingIdentity(true)} />
             )}
           </div>
         </CardHeader>
@@ -217,7 +215,7 @@ export function GeneralSettings() {
               </p>
             </div>
             {!editingDescription && (
-              <SectionMenu onEdit={() => setEditingDescription(true)} />
+              <EditButton onEdit={() => setEditingDescription(true)} />
             )}
           </div>
         </CardHeader>
@@ -263,7 +261,7 @@ export function GeneralSettings() {
           <div className="flex items-center justify-between gap-2">
             <h2 className="font-semibold text-sm">Mensaje de saludo</h2>
             {!editingGreeting && (
-              <SectionMenu onEdit={() => setEditingGreeting(true)} />
+              <EditButton onEdit={() => setEditingGreeting(true)} />
             )}
           </div>
         </CardHeader>
@@ -319,9 +317,11 @@ export function GeneralSettings() {
           {botsLoading ? (
             <div className="flex justify-center py-6"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
           ) : templates.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-6">
-              Sin personalidades disponibles. El administrador de la plataforma puede habilitarte opciones.
-            </p>
+            <EmptyState
+              icon={Sparkles}
+              title="Sin personalidades disponibles"
+              description="El administrador de la plataforma puede habilitarte opciones."
+            />
           ) : (
             <div className="grid gap-2 sm:grid-cols-2">
               {templates.map(t => {
@@ -387,11 +387,11 @@ export function GeneralSettings() {
                 {widgetToken.slice(0, 60)}…
               </code>
               <Button size="icon" variant="outline" className="shrink-0 h-8 w-8" onClick={copyToken}>
-                {copied ? <Check className="h-3.5 w-3.5 text-green-600" /> : <Copy className="h-3.5 w-3.5" />}
+                {copied ? <Check className="h-3.5 w-3.5 text-success" /> : <Copy className="h-3.5 w-3.5" />}
               </Button>
             </div>
             <pre className="text-xs bg-muted rounded p-3 overflow-x-auto whitespace-pre">{widgetScript}</pre>
-            <p className="text-[11px] text-amber-700">
+            <p className="text-[11px] text-warning">
               Al regenerar, el token anterior queda invalidado.
             </p>
           </CardContent>
@@ -402,22 +402,13 @@ export function GeneralSettings() {
   );
 }
 
-// ── Dropdown 3 puntos compartido por cada sección editable ───────────────────
+// ── Botón "Editar" visible, compartido por cada sección editable ─────────────
 
-function SectionMenu({ onEdit }: { onEdit: () => void }) {
+function EditButton({ onEdit }: { onEdit: () => void }) {
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button size="icon" variant="ghost" className="h-8 w-8 -mr-1" aria-label="Acciones">
-          <MoreVertical className="h-4 w-4" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-32">
-        <DropdownMenuItem onSelect={onEdit}>
-          <Edit2 className="h-4 w-4 mr-2" />
-          Editar
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <Button size="sm" variant="ghost" className="h-8 -mr-1 text-muted-foreground" onClick={onEdit}>
+      <Pencil className="h-3.5 w-3.5 mr-1.5" />
+      Editar
+    </Button>
   );
 }

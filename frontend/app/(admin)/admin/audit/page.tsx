@@ -7,7 +7,14 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ChevronLeft, ChevronRight, Loader2, Search } from "lucide-react";
+import {
+  Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
+} from "@/components/ui/select";
+import {
+  Table, TableHeader, TableBody, TableRow, TableHead, TableCell,
+} from "@/components/ui/table";
+import { EmptyState } from "@/components/ui/empty-state";
+import { ChevronLeft, ChevronRight, Loader2, Search, ScrollText } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageShell } from "@/components/layout/page-shell";
 import { PageHeader } from "@/components/layout/page-header";
@@ -110,15 +117,21 @@ export default function AuditPage() {
                   className="pl-8 h-8 text-sm"
                 />
               </div>
-              <select
-                value={action}
-                onChange={e => { setAction(e.target.value); setPage(0); }}
-                className="h-8 rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring shrink-0"
+              <Select
+                value={action || "all"}
+                onValueChange={v => { setAction(v === "all" ? "" : v); setPage(0); }}
               >
-                {Object.entries(ACTION_LABELS).map(([val, label]) => (
-                  <option key={val} value={val}>{label}</option>
-                ))}
-              </select>
+                <SelectTrigger className="h-8 w-auto shrink-0 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(ACTION_LABELS).map(([val, label]) => (
+                    <SelectItem key={val || "all"} value={val || "all"} className="text-xs">
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
         </CardHeader>
@@ -133,9 +146,15 @@ export default function AuditPage() {
             <div className="py-8 text-center text-destructive text-sm">No se pudo cargar el registro.</div>
           )}
           {data && filteredEvents.length === 0 && !isLoading && (
-            <p className="py-8 text-center text-muted-foreground text-sm">
-              {search ? "Ningún evento coincide con la búsqueda." : "No hay eventos registrados."}
-            </p>
+            <EmptyState
+              icon={ScrollText}
+              title={search ? "Sin coincidencias" : "No hay eventos registrados"}
+              description={
+                search
+                  ? "Ningún evento coincide con la búsqueda."
+                  : "Las acciones de los usuarios aparecerán acá a medida que ocurran."
+              }
+            />
           )}
 
           {/* Mobile cards */}
@@ -144,7 +163,7 @@ export default function AuditPage() {
               {filteredEvents.map(ev => {
                 const isCritical = CRITICAL_ACTIONS.has(ev.action);
                 return (
-                  <div key={ev.id} className={cn("px-4 py-3 space-y-1.5", isCritical && "bg-amber-50/60")}>
+                  <div key={ev.id} className={cn("px-4 py-3 space-y-1.5", isCritical && "bg-warning/5")}>
                     <div className="flex items-center justify-between gap-2">
                       <span className="font-mono text-xs text-muted-foreground">{fmtDate(ev.created_at)}</span>
                       <RoleBadge role={ev.actor_role} />
@@ -153,7 +172,7 @@ export default function AuditPage() {
                       <span className="text-sm font-medium truncate">{ev.actor_email ?? "—"}</span>
                       <span className={cn(
                         "text-xs shrink-0",
-                        isCritical ? "text-amber-900 font-medium" : "text-muted-foreground"
+                        isCritical ? "text-warning font-medium" : "text-muted-foreground"
                       )}>
                         {actionLabel(ev.action)}
                       </span>
@@ -177,46 +196,46 @@ export default function AuditPage() {
 
           {/* Desktop table */}
           {filteredEvents.length > 0 && (
-            <div className="hidden sm:block overflow-x-auto">
-              <table className="w-full text-sm min-w-[700px]">
-                <thead className="bg-muted/40">
-                  <tr className="text-left text-[11px] uppercase tracking-wider text-muted-foreground">
-                    <th className="px-4 py-2 font-medium w-[145px]">Fecha</th>
-                    <th className="px-4 py-2 font-medium">Usuario</th>
-                    <th className="px-4 py-2 font-medium w-[100px]">Perfil</th>
-                    <th className="px-4 py-2 font-medium w-[180px]">Acción</th>
-                    <th className="px-4 py-2 font-medium">Recurso</th>
-                    <th className="px-4 py-2 font-medium w-[110px]">IP</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y">
+            <div className="hidden sm:block">
+              <Table className="min-w-[700px]">
+                <TableHeader className="bg-muted/40">
+                  <TableRow className="hover:bg-transparent">
+                    <TableHead className="px-4 w-[145px]">Fecha</TableHead>
+                    <TableHead className="px-4">Usuario</TableHead>
+                    <TableHead className="px-4 w-[100px]">Perfil</TableHead>
+                    <TableHead className="px-4 w-[180px]">Acción</TableHead>
+                    <TableHead className="px-4">Recurso</TableHead>
+                    <TableHead className="px-4 w-[110px]">IP</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
                   {filteredEvents.map(ev => {
                     const isCritical = CRITICAL_ACTIONS.has(ev.action);
                     return (
-                      <tr
+                      <TableRow
                         key={ev.id}
                         className={cn(
-                          isCritical ? "bg-amber-50/50 hover:bg-amber-50" : "hover:bg-muted/30",
+                          isCritical && "bg-warning/5 hover:bg-warning/10",
                         )}
                       >
-                        <td className="px-4 py-2.5 align-top whitespace-nowrap font-mono text-xs text-muted-foreground">
+                        <TableCell className="px-4 py-2.5 align-top whitespace-nowrap font-mono text-xs text-muted-foreground">
                           {fmtDate(ev.created_at)}
-                        </td>
-                        <td className="px-4 py-2.5 align-top">
+                        </TableCell>
+                        <TableCell className="px-4 py-2.5 align-top">
                           <div className="font-medium truncate max-w-[220px]">
                             {ev.actor_email ?? <span className="text-muted-foreground">—</span>}
                           </div>
-                        </td>
-                        <td className="px-4 py-2.5 align-top">
+                        </TableCell>
+                        <TableCell className="px-4 py-2.5 align-top">
                           <RoleBadge role={ev.actor_role} />
-                        </td>
-                        <td className={cn(
+                        </TableCell>
+                        <TableCell className={cn(
                           "px-4 py-2.5 align-top",
-                          isCritical && "text-amber-900 font-medium"
+                          isCritical && "text-warning font-medium"
                         )}>
                           {actionLabel(ev.action)}
-                        </td>
-                        <td className="px-4 py-2.5 align-top">
+                        </TableCell>
+                        <TableCell className="px-4 py-2.5 align-top">
                           <div className="font-mono text-xs truncate max-w-[240px]">
                             {ev.resource ?? <span className="text-muted-foreground">—</span>}
                           </div>
@@ -225,15 +244,15 @@ export default function AuditPage() {
                               {Object.entries(ev.detail).map(([k, v]) => `${k}: ${v}`).join(" · ")}
                             </div>
                           )}
-                        </td>
-                        <td className="px-4 py-2.5 align-top font-mono text-xs text-muted-foreground whitespace-nowrap">
+                        </TableCell>
+                        <TableCell className="px-4 py-2.5 align-top font-mono text-xs text-muted-foreground whitespace-nowrap">
                           {ev.ip_address ?? "—"}
-                        </td>
-                      </tr>
+                        </TableCell>
+                      </TableRow>
                     );
                   })}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
             </div>
           )}
         </CardContent>

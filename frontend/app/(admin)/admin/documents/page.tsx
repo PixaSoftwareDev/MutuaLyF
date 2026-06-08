@@ -256,20 +256,20 @@ function DuplicatesAlert({
   return (
     <div className="relative rounded-lg border border-amber-200 bg-amber-50/40 overflow-hidden">
       {/* Banda lateral para impacto visual */}
-      <div className="absolute left-0 top-0 bottom-0 w-1 bg-amber-400" />
+      <div className="absolute left-0 top-0 bottom-0 w-1 bg-warning" />
 
       <div className="pl-5 pr-4 py-3.5">
         <div className="flex items-start justify-between gap-4">
           {/* Número grande + texto */}
           <div className="flex items-baseline gap-2.5 min-w-0">
-            <span className="text-2xl font-bold text-amber-900 leading-none tabular-nums">
+            <span className="text-2xl font-bold text-warning leading-none tabular-nums">
               {pendingCount}
             </span>
             <div className="min-w-0">
-              <p className="text-sm font-semibold text-amber-900 leading-tight">
+              <p className="text-sm font-semibold text-warning leading-tight">
                 {pendingCount === 1 ? "par de fragmentos similares" : "pares de fragmentos similares"}
               </p>
-              <p className="text-[11px] text-amber-700/90 mt-0.5">
+              <p className="text-[11px] text-warning/90 mt-0.5">
                 Revisá si son duplicados reales o coincidencias.
               </p>
             </div>
@@ -278,7 +278,7 @@ function DuplicatesAlert({
           <Button
             size="sm"
             variant="outline"
-            className="border-amber-300 bg-white text-amber-800 hover:bg-amber-50 hover:text-amber-900 shrink-0"
+            className="border-amber-300 bg-white text-warning hover:bg-amber-50 hover:text-warning shrink-0"
             onClick={() => router.push("/admin/duplicates")}
           >
             Revisar
@@ -291,7 +291,7 @@ function DuplicatesAlert({
             {affectedDocs.map((name) => (
               <span
                 key={name}
-                className="inline-flex items-center text-[11px] bg-white text-amber-900 rounded-md px-2 py-1 border border-amber-200/80 font-medium"
+                className="inline-flex items-center text-[11px] bg-white text-warning rounded-md px-2 py-1 border border-warning/20 font-medium"
               >
                 {name}
               </span>
@@ -330,7 +330,7 @@ function ReviewQueue({
     if (hasPendingDuplicates || hasProcessingDocs) return null;
     return (
       <div className="flex items-center gap-2 text-sm text-muted-foreground py-1">
-        <ShieldCheck className="h-4 w-4 text-green-500 shrink-0" />
+        <ShieldCheck className="h-4 w-4 text-success shrink-0" />
         Todo el contenido está verificado — no hay fragmentos pendientes de revisión.
       </div>
     );
@@ -341,11 +341,11 @@ function ReviewQueue({
   return (
     <Card className="border-amber-200 bg-amber-50/50">
       <CardHeader className="pb-3">
-        <CardTitle className="text-base flex items-center gap-2 text-amber-900">
+        <CardTitle className="text-base flex items-center gap-2 text-warning">
           <AlertTriangle className="h-4 w-4 shrink-0" />
           {pendingChunks.length} fragmento{pendingChunks.length !== 1 ? "s" : ""} por revisar
         </CardTitle>
-        <CardDescription className="text-amber-700 text-xs mt-1">
+        <CardDescription className="text-warning text-xs mt-1">
           El verificador automático no pudo decidir sobre estos fragmentos. Aprobá los que sean útiles para responder consultas y descartá el resto — desaparecen de la cola al decidir.
         </CardDescription>
       </CardHeader>
@@ -353,10 +353,10 @@ function ReviewQueue({
         <div className="space-y-4">
           {Object.entries(pendingByDocId).map(([docId, group]) => (
             <div key={docId}>
-              <p className="text-xs font-semibold text-amber-800 flex items-center gap-1.5 mb-2">
+              <p className="text-xs font-semibold text-warning flex items-center gap-1.5 mb-2">
                 <FileText className="h-3.5 w-3.5 shrink-0" />
                 {group.title}
-                <span className="font-normal text-amber-700">
+                <span className="font-normal text-warning">
                   · {group.chunks.length} fragmento{group.chunks.length !== 1 ? "s" : ""}
                 </span>
               </p>
@@ -424,11 +424,11 @@ function DocumentRow({
   return (
     <div className={cn(
       "relative rounded-lg border overflow-hidden transition-colors",
-      hasPendingWork && "border-amber-200/80 bg-amber-50/20"
+      hasPendingWork && "border-warning/20 bg-amber-50/20"
     )}>
       {/* Banda lateral cuando hay trabajo pendiente — mismo lenguaje que la alerta de duplicados */}
       {hasPendingWork && (
-        <div className="absolute left-0 top-0 bottom-0 w-1 bg-amber-400" />
+        <div className="absolute left-0 top-0 bottom-0 w-1 bg-warning" />
       )}
 
       <div
@@ -464,13 +464,13 @@ function DocumentRow({
               </span>
             )}
             {pendingChunkCount > 0 && (
-              <span className="inline-flex items-center text-[11px] bg-amber-100 text-amber-900 rounded-md px-2 py-0.5 font-medium border border-amber-200/80">
+              <span className="inline-flex items-center text-[11px] bg-warning/10 text-warning rounded-md px-2 py-0.5 font-medium border border-warning/20">
                 {pendingChunkCount} sin verificar
               </span>
             )}
             {pendingDuplicateCount > 0 && (
               <button
-                className="inline-flex items-center text-[11px] bg-amber-100 text-amber-900 rounded-md px-2 py-0.5 font-medium border border-amber-200/80 hover:bg-amber-200/60 transition-colors"
+                className="inline-flex items-center text-[11px] bg-warning/10 text-warning rounded-md px-2 py-0.5 font-medium border border-warning/20 hover:bg-amber-200/60 transition-colors"
                 onClick={(e) => { e.stopPropagation(); router.push("/admin/duplicates"); }}
                 title="Ir a revisar duplicados"
               >
@@ -540,7 +540,7 @@ function DocumentRow({
                 <p className="text-xs text-muted-foreground">
                   {chunks.length} fragmento{chunks.length !== 1 ? "s" : ""} · {chunks.filter(c => c.quality_gate_status === "passed").length} verificado{chunks.filter(c => c.quality_gate_status === "passed").length !== 1 ? "s" : ""}
                   {chunks.filter(c => c.quality_gate_status === "pending").length > 0 && (
-                    <span className="text-amber-700 font-medium">
+                    <span className="text-warning font-medium">
                       {" "}· {chunks.filter(c => c.quality_gate_status === "pending").length} sin verificar
                     </span>
                   )}
@@ -582,7 +582,7 @@ function DocumentRow({
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-amber-500" />
+              <AlertTriangle className="h-5 w-5 text-warning" />
               Eliminar documento
             </DialogTitle>
             <DialogDescription className="pt-2">
@@ -610,7 +610,7 @@ function DocumentRow({
 function ConfidenceBar({ value }: { value: number | null }) {
   if (value === null) return null;
   const pct = Math.round(value * 100);
-  const color = pct >= 85 ? "bg-green-500" : pct >= 60 ? "bg-amber-400" : "bg-red-400";
+  const color = pct >= 85 ? "bg-success" : pct >= 60 ? "bg-warning" : "bg-destructive";
   return (
     <div className="flex items-center gap-1.5" title={`Confianza del verificador: ${pct}%`}>
       <div className="w-16 h-1.5 bg-muted rounded-full overflow-hidden">
@@ -664,9 +664,9 @@ function PendingChunkCard({ chunk, onReviewed }: { chunk: PendingChunkResponse; 
           <ConfidenceBar value={chunk.quality_gate_confidence} />
         </div>
         <div className="flex items-center gap-2 shrink-0">
+          {/* Jerarquía: Incluir es la acción recomendada (sólida), Excluir secundaria. */}
           <Button
-            size="sm" variant="outline"
-            className="h-8 px-3 text-xs border-green-300 text-green-700 hover:bg-green-50 hover:text-green-900"
+            size="sm" className="h-8 px-3 text-xs"
             disabled={reviewing}
             onClick={() => review("approve")}
           >
@@ -675,7 +675,7 @@ function PendingChunkCard({ chunk, onReviewed }: { chunk: PendingChunkResponse; 
           </Button>
           <Button
             size="sm" variant="outline"
-            className="h-8 px-3 text-xs border-red-200 text-red-600 hover:bg-red-50 hover:text-red-800"
+            className="h-8 px-3 text-xs text-muted-foreground"
             disabled={reviewing}
             onClick={() => review("reject")}
           >
@@ -685,7 +685,7 @@ function PendingChunkCard({ chunk, onReviewed }: { chunk: PendingChunkResponse; 
         </div>
       </div>
       {humanMsg && (
-        <p className="text-xs text-amber-700 bg-amber-50 rounded px-2.5 py-1.5 border border-amber-100">
+        <p className="text-xs text-warning bg-amber-50 rounded px-2.5 py-1.5 border border-amber-100">
           {humanMsg}
         </p>
       )}
@@ -776,7 +776,7 @@ function ChunkCard({ chunk, documentId, editable }: { chunk: ChunkResponse; docu
             <button
               disabled={reviewing}
               onClick={() => review("approve")}
-              className="flex items-center gap-1 text-xs text-green-700 hover:text-green-900 disabled:opacity-50 font-medium transition-colors"
+              className="flex items-center gap-1 text-xs text-success hover:opacity-80 disabled:opacity-50 font-medium transition-opacity"
             >
               {reviewing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
               Incluir
@@ -786,7 +786,7 @@ function ChunkCard({ chunk, documentId, editable }: { chunk: ChunkResponse; docu
             <button
               disabled={reviewing}
               onClick={() => review("reject")}
-              className="flex items-center gap-1 text-xs text-red-500 hover:text-red-700 disabled:opacity-50 transition-colors"
+              className="flex items-center gap-1 text-xs text-destructive hover:opacity-80 disabled:opacity-50 transition-opacity"
             >
               {reviewing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <XCircle className="h-3.5 w-3.5" />}
               {isPassed ? "Excluir" : "Rechazar"}
@@ -795,7 +795,7 @@ function ChunkCard({ chunk, documentId, editable }: { chunk: ChunkResponse; docu
         </div>
       </div>
       {!isPassed && humanMsg && (
-        <p className="text-[11px] text-amber-700 italic">{humanMsg}</p>
+        <p className="text-[11px] text-warning italic">{humanMsg}</p>
       )}
       <div>
         <p className="text-xs leading-relaxed whitespace-pre-wrap break-words text-slate-700">{displayText}</p>

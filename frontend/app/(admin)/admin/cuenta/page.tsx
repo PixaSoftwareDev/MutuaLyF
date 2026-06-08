@@ -5,10 +5,10 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Eye, EyeOff } from "lucide-react";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Card, CardHeader, CardContent, CardTitle, CardDescription } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/toast";
-import { cn } from "@/lib/utils";
 import { PageShell } from "@/components/layout/page-shell";
 import { PageHeader } from "@/components/layout/page-header";
 
@@ -95,22 +95,21 @@ export default function AdminAccountPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <Field label="Nombre completo">
-              <input
+              <Input
                 type="text"
                 value={name}
                 onChange={e => setName(e.target.value)}
                 maxLength={120}
-                className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
                 placeholder="Ej: María García"
               />
             </Field>
 
             <Field label="Email">
-              <input
+              <Input
                 type="email"
                 value={me.email}
                 disabled
-                className="w-full h-9 rounded-md border border-input bg-muted text-muted-foreground px-3 text-sm cursor-not-allowed"
+                className="bg-muted text-muted-foreground"
               />
               <p className="text-[11px] text-muted-foreground mt-1">
                 El email es tu identificador de acceso y no se puede cambiar.
@@ -216,15 +215,12 @@ function PasswordInput({
 }) {
   return (
     <div className="relative">
-      <input
+      <Input
         type={show ? "text" : "password"}
         value={value}
         onChange={e => onChange(e.target.value)}
         placeholder={placeholder}
-        className={cn(
-          "w-full h-9 rounded-md border border-input bg-background pl-3 pr-9 text-sm",
-          "focus:outline-none focus:ring-1 focus:ring-primary",
-        )}
+        className="pr-9"
         autoComplete="off"
       />
       <button

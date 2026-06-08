@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Plus, Search, Play, BrainCircuit, ChevronDown, ChevronUp, Check, X, MoreHorizontal } from "lucide-react";
+import { Loader2, Plus, Search, Play, BrainCircuit, ChevronDown, ChevronUp, Check, X, MoreHorizontal, Inbox, Sparkles, Tag } from "lucide-react";
+import { EmptyState } from "@/components/ui/empty-state";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -233,7 +234,17 @@ export default function IntentionsPage() {
               </div>
             )}
             {active.length === 0 ? (
-              <EmptyState text="No hay temas activos. Creá uno o aprobá los pendientes." />
+              <EmptyState
+                icon={Tag}
+                title="No hay temas activos"
+                description="Creá un tema manualmente o aprobá los que el bot detectó en las pestañas Sugeridos y Pendientes."
+                action={
+                  <Button size="sm" onClick={() => setShowCreate(true)}>
+                    <Plus className="h-4 w-4 mr-1" />
+                    Nuevo tema
+                  </Button>
+                }
+              />
             ) : (
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 {active.map((intent) => (
@@ -255,7 +266,11 @@ export default function IntentionsPage() {
           {/* Pendientes */}
           <TabsContent value="pending" className="mt-4 space-y-3">
             {pending.length === 0 ? (
-              <EmptyState text="No hay temas pendientes." />
+              <EmptyState
+                icon={Inbox}
+                title="No hay temas pendientes"
+                description="Cuando el bot detecte consultas que necesitan tu validación, van a aparecer acá."
+              />
             ) : (
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                   {pending.map((intent) => (
@@ -278,7 +293,24 @@ export default function IntentionsPage() {
           {/* Grupos sugeridos (clusters descubiertos automáticamente) */}
           <TabsContent value="clusters" className="mt-4 space-y-3">
             {clusters.length === 0 ? (
-              <EmptyState text="Sin grupos sugeridos. Usá 'Detectar temas nuevos' para que el sistema agrupe consultas similares." />
+              <EmptyState
+                icon={Sparkles}
+                title="Sin grupos sugeridos"
+                description="Usá 'Detectar temas nuevos' para que el sistema agrupe consultas similares y te proponga temas."
+                action={
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => clusterMutation.mutate()}
+                    disabled={clusterMutation.isPending}
+                  >
+                    {clusterMutation.isPending
+                      ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      : <Play className="h-4 w-4 mr-2" />}
+                    Detectar temas nuevos
+                  </Button>
+                }
+              />
             ) : (
               <div className="space-y-3">
                 {clusters.map((cluster) => (
@@ -463,7 +495,7 @@ function ClusterCard({
           <Button
             size="sm"
             variant="outline"
-            className="h-8 text-xs gap-1 text-muted-foreground"
+            className="h-8 text-xs gap-1 text-destructive"
             onClick={onDismiss}
             disabled={isDismissing}
           >
@@ -481,14 +513,6 @@ function ClusterCard({
           </Button>
         </div>
       </div>
-    </div>
-  );
-}
-
-function EmptyState({ text }: { text: string }) {
-  return (
-    <div className="text-center py-16 text-muted-foreground text-sm max-w-sm mx-auto">
-      {text}
     </div>
   );
 }

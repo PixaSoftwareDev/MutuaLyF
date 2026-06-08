@@ -125,7 +125,7 @@ export function IntentionCard({
         className={[
           "transition-shadow",
           !isPending && "cursor-pointer hover:shadow-sm",
-          isPending ? "border-amber-300 bg-amber-50/40 dark:bg-amber-950/20" : "",
+          isPending ? "border-warning/20 bg-warning/5" : "",
           !isActive && !isPending ? "opacity-60" : "",
         ].filter(Boolean).join(" ")}
         onClick={() => !isPending && setDetailOpen(true)}
@@ -144,7 +144,7 @@ export function IntentionCard({
                 <>
                   <Button
                     size="icon" variant="ghost"
-                    className="h-7 w-7 text-green-600 hover:text-green-700 hover:bg-green-100"
+                    className="h-7 w-7 text-success hover:text-success hover:bg-success/10"
                     onClick={() => onApprove?.(id)}
                     title="Aprobar"
                   >
