@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import Image from "next/image";
 import {
-  Inbox, FileText, Tags, Settings, LogOut, PanelLeftClose, PanelLeftOpen,
+  Inbox, FileText, Tags, Settings, LogOut, PanelLeftClose,
   Shield, Building2, GitMerge, Users, ExternalLink, FlaskConical, ClipboardList, Bot, Network, X, Palette, UserCog,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -178,26 +178,18 @@ export function Sidebar() {
             "radial-gradient(135% 56% at 50% 0%, rgba(124,104,255,0.22) 0%, transparent 60%), linear-gradient(180deg, #1d1e44 0%, #17182f 52%, #101126 100%)",
         }}
       >
-        {/* Brand Intellix — wordmark del producto. Colapsado (desktop) → icono. */}
+        {/* Brand Intellix + control de colapso integrado en el header. */}
         <div className={cn(
           "flex items-center gap-2.5 h-16 px-4 border-b border-white/[0.06] shrink-0",
-          collapsed && "lg:justify-center lg:px-2"
+          collapsed && "lg:px-2"
         )}>
+          {/* Wordmark (expandido) — link al dashboard */}
           <Link
             href={isSuperAdmin ? "/superadmin" : "/admin/documents"}
             onClick={handleNavClick}
-            className="flex items-center min-w-0"
             aria-label="Intellix"
+            className={cn("flex items-center min-w-0", collapsed && "lg:hidden")}
           >
-            <Image
-              src="/brand/intellix-icon.png"
-              alt="Intellix"
-              width={32}
-              height={32}
-              priority
-              unoptimized
-              className={cn("w-8 h-8 object-contain shrink-0", collapsed ? "hidden lg:block" : "hidden")}
-            />
             <Image
               src="/brand/intellix-wordmark-white.png"
               alt="Intellix"
@@ -205,9 +197,37 @@ export function Sidebar() {
               height={170}
               priority
               unoptimized
-              className={cn("h-[26px] w-auto object-contain", collapsed && "lg:hidden")}
+              className="h-[26px] w-auto object-contain"
             />
           </Link>
+
+          {/* Colapsado (desktop): el ícono de marca actúa como botón "expandir". */}
+          <button
+            onClick={toggleSidebar}
+            aria-label="Expandir menú"
+            title="Expandir menú"
+            className={cn(
+              "mx-auto items-center justify-center rounded-lg p-1 hover:bg-white/10 transition-colors",
+              collapsed ? "hidden lg:flex" : "hidden"
+            )}
+          >
+            <Image src="/brand/intellix-icon.png" alt="Intellix" width={32} height={32} priority unoptimized className="w-8 h-8 object-contain" />
+          </button>
+
+          {/* Toggle contraer (expandido, desktop) — a la derecha del wordmark. */}
+          <button
+            onClick={toggleSidebar}
+            aria-label="Contraer menú"
+            title="Contraer menú"
+            className={cn(
+              "hidden lg:flex ml-auto items-center justify-center h-8 w-8 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 active:scale-95 transition-all shrink-0",
+              collapsed && "lg:hidden"
+            )}
+          >
+            <PanelLeftClose className="h-[18px] w-[18px]" />
+          </button>
+
+          {/* Cerrar (mobile) */}
           <button
             onClick={closeMobileSidebar}
             className="lg:hidden ml-auto flex items-center justify-center w-8 h-8 rounded-lg text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
@@ -363,16 +383,6 @@ export function Sidebar() {
           </button>
         </div>
 
-        {/* Collapse toggle — desktop only. Ícono de panel moderno (no chevron),
-            con micro-interacción (scale en hover/active) para sensación de calidad. */}
-        <button
-          onClick={toggleSidebar}
-          aria-label={collapsed ? "Expandir menú" : "Contraer menú"}
-          title={collapsed ? "Expandir menú" : "Contraer menú"}
-          className="hidden lg:flex absolute -right-3.5 top-[70px] z-10 h-7 w-7 items-center justify-center rounded-lg border border-white/10 bg-[#1a1b3a] text-slate-400 shadow-lg shadow-black/30 hover:text-white hover:bg-[#24264c] hover:border-white/25 hover:scale-105 active:scale-95 transition-all duration-200"
-        >
-          {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
-        </button>
       </aside>
     </>
   );
