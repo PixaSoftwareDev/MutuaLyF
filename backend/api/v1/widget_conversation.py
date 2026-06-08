@@ -109,7 +109,7 @@ async def start_conversation(
         if not sector_id:
             sector_id = await get_default_sector_id(tenant_id)
 
-        # Fetch sector name for greeting
+        # Fetch sector name for greeting fallback
         sector_name = "consultas"
         if sector_id:
             sector_result = await session.execute(
@@ -137,8 +137,20 @@ async def start_conversation(
             "is_test": body.is_test,
         })
 
+        # Leer greeting_message y bot_name configurados en el tenant (tabla global)
+        tenant_cfg = await session.execute(
+            text("SELECT greeting_message, bot_name FROM tenants WHERE id = :tid"),
+            {"tid": tenant_id},
+        )
+        tenant_row = tenant_cfg.mappings().fetchone()
+        custom_greeting = tenant_row["greeting_message"] if tenant_row else None
+        bot_name = (tenant_row["bot_name"] if tenant_row else None) or "Asistente"
+
         # Insert greeting as first bot message so it survives polling
-        greeting = f"¡Hola! Soy el asistente de {sector_name}. ¿En qué te puedo ayudar hoy?"
+        if custom_greeting:
+            greeting = custom_greeting
+        else:
+            greeting = f"¡Hola! Soy {bot_name}, el asistente de {sector_name}. ¿En qué te puedo ayudar hoy?"
         await session.execute(text("""
             INSERT INTO mensajes (conversation_id, sender_type, content)
             VALUES (:cid, 'bot', :msg)
