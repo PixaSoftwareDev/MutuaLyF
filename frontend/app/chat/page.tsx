@@ -480,14 +480,11 @@ function ChatInner() {
   return (
     <div className="h-screen flex flex-col bg-slate-50 overflow-hidden">
 
-      {/* ── Top bar ──────────────────────────────────────────────────────────── */}
-      <header className={`shrink-0 shadow-lg z-10 transition-colors duration-500 ${
-        status === "handoff_requested"
-          ? "bg-gradient-to-r from-amber-600 via-amber-500 to-orange-500 shadow-amber-900/30"
-          : status === "human_attending"
-          ? "bg-gradient-to-r from-emerald-700 via-emerald-600 to-teal-600 shadow-emerald-900/30"
-          : "bg-gradient-to-r from-brand-dark via-brand to-brand-light shadow-black/30"
-      }`}>
+      {/* ── Top bar ──────────────────────────────────────────────────────────────
+          Header estable con el color de marca (antes cambiaba todo el fondo a
+          ámbar/verde según estado — efecto "semáforo"). El estado ahora se lee
+          en el punto + label de abajo, más sobrio. */}
+      <header className="shrink-0 shadow-md z-10 bg-gradient-to-r from-brand-dark via-brand to-brand-light shadow-black/20">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
           {/* Left: brand + status */}
           <div className="flex items-center gap-3">

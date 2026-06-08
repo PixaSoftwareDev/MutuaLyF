@@ -18,17 +18,17 @@ export default function ForbiddenPage() {
   const roleLabel = userRole ? ROLE_LABELS[userRole] ?? userRole : null;
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 p-4">
+    <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <div className="max-w-md w-full text-center space-y-6">
         <div className="flex justify-center">
-          <div className="w-20 h-20 rounded-full bg-red-100 flex items-center justify-center">
-            <ShieldX className="w-10 h-10 text-red-500" />
+          <div className="w-20 h-20 rounded-full bg-destructive/10 flex items-center justify-center">
+            <ShieldX className="w-10 h-10 text-destructive" />
           </div>
         </div>
 
         <div className="space-y-2">
-          <h1 className="text-3xl font-bold text-slate-900">Acceso denegado</h1>
-          <p className="text-slate-500">
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Acceso denegado</h1>
+          <p className="text-muted-foreground">
             {isAuthenticated && roleLabel
               ? `Tu rol de ${roleLabel} no tiene permiso para acceder a esta sección.`
               : "No tenés permisos para ver esta página."}
@@ -36,9 +36,9 @@ export default function ForbiddenPage() {
         </div>
 
         {isAuthenticated && userRole && (
-          <div className="rounded-lg bg-amber-50 border border-amber-200 p-4 text-sm text-amber-800">
-            <strong>Secciones disponibles para tu rol:</strong>
-            <ul className="mt-1 space-y-0.5 text-amber-700">
+          <div className="rounded-lg bg-muted border border-border p-4 text-sm text-left text-muted-foreground">
+            <strong className="text-foreground">Secciones disponibles para tu rol:</strong>
+            <ul className="mt-1 space-y-0.5">
               {userRole === "operator" && <li>• Panel de operador (/operator)</li>}
               {(userRole === "admin" || userRole === "super_admin") && (
                 <>
