@@ -8,13 +8,6 @@ import { useAuthStore } from "@/lib/store";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useTenantBranding } from "@/lib/use-tenant-branding";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
-function fullLogoUrl(url: string | null): string | null {
-  if (!url) return null;
-  if (url.startsWith("http")) return url;
-  return `${API_URL}${url}`;
-}
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -23,6 +16,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu";
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
+function fullLogoUrl(url: string | null): string | null {
+  if (!url) return null;
+  if (url.startsWith("http")) return url;
+  return `${API_URL}${url}`;
+}
 
 const NAV_ITEMS: Array<{ href: string; label: string; icon: typeof Inbox }> = [
   { href: "/operator",           label: "Bandeja",   icon: Inbox   },
@@ -49,19 +49,16 @@ export function OperatorTopbar() {
     router.push("/login");
   };
 
-  // Display the tenant as a stable, recognizable badge for the worker
-
   return (
-    <header
-      style={{ background: branding.primary_color }}
-      className="h-14 text-brand-foreground flex items-center px-3 sm:px-4 gap-3 shrink-0 border-b border-black/20"
-    >
+    // Topbar oscuro premium, coherente con el sidebar del admin. El color de marca
+    // del tenant vive como acento (logo + tab activa), no como bloque de fondo.
+    <header className="h-14 bg-[#0b0e16] text-slate-300 flex items-center px-3 sm:px-4 gap-3 shrink-0 border-b border-white/[0.06]">
       {/* Brand: logo + tenant name */}
-      <div className="flex items-center gap-2 min-w-0">
-        <div className={cn(
-          "relative w-8 h-8 flex items-center justify-center shrink-0",
-          !brandLogoUrl && "rounded-sm overflow-hidden bg-white/10",
-        )}>
+      <div className="flex items-center gap-2.5 min-w-0">
+        <div
+          className="relative w-8 h-8 flex items-center justify-center shrink-0 rounded-lg overflow-hidden ring-1 ring-white/10"
+          style={!brandLogoUrl ? { background: branding.primary_color } : undefined}
+        >
           {brandLogoUrl ? (
             <Image
               src={brandLogoUrl}
@@ -73,19 +70,19 @@ export function OperatorTopbar() {
               unoptimized
             />
           ) : (
-            <span className="text-brand-foreground font-bold text-sm">
+            <span className="text-white font-bold text-sm">
               {(branding.display_name.trim()[0] ?? "?").toUpperCase()}
             </span>
           )}
         </div>
-        <span className="font-semibold text-sm tracking-tight truncate">
+        <span className="font-semibold text-[15px] tracking-tight text-white truncate">
           {branding.display_name}
         </span>
       </div>
 
       {/* Nav tabs */}
       <nav className="hidden sm:flex items-center gap-1 ml-2">
-        <span className="h-4 w-px bg-white/20 mr-1" />
+        <span className="h-4 w-px bg-white/10 mr-1" />
         {NAV_ITEMS.map(item => {
           const active = item.href === "/operator"
             ? pathname === "/operator"
@@ -96,10 +93,10 @@ export function OperatorTopbar() {
               key={item.href}
               href={item.href}
               className={cn(
-                "flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs transition-colors",
+                "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors",
                 active
-                  ? "bg-white/15 text-brand-foreground font-medium"
-                  : "text-brand-foreground/70 hover:text-brand-foreground hover:bg-white/10",
+                  ? "bg-white/[0.08] text-white"
+                  : "text-slate-400 hover:text-white hover:bg-white/5",
               )}
             >
               <Icon className="h-3.5 w-3.5" />
@@ -111,12 +108,11 @@ export function OperatorTopbar() {
 
       <div className="flex-1" />
 
-      {/* Operator identity — rol como identidad principal, email como secundario
-          (el store no expone el nombre del operador todavía). */}
+      {/* Operator identity — rol como identidad principal, email como secundario. */}
       <div className="hidden sm:flex flex-col items-end leading-tight min-w-0">
-        <span className="text-xs font-medium text-brand-foreground truncate max-w-[220px]">{roleLabel}</span>
+        <span className="text-xs font-medium text-white truncate max-w-[220px]">{roleLabel}</span>
         {userEmail && (
-          <span className="text-[11px] text-brand-foreground/60 truncate max-w-[220px]">{userEmail}</span>
+          <span className="text-[11px] text-slate-500 truncate max-w-[220px]">{userEmail}</span>
         )}
       </div>
 
@@ -125,7 +121,7 @@ export function OperatorTopbar() {
         <DropdownMenuTrigger asChild>
           <button
             type="button"
-            className="flex items-center justify-center w-8 h-8 rounded-md text-brand-foreground/80 hover:text-brand-foreground hover:bg-white/10 transition-colors shrink-0"
+            className="flex items-center justify-center w-8 h-8 rounded-lg text-slate-400 hover:text-white hover:bg-white/5 transition-colors shrink-0"
             aria-label="Acciones de cuenta"
           >
             <MoreVertical className="h-4 w-4" />
@@ -141,8 +137,6 @@ export function OperatorTopbar() {
             </div>
           </DropdownMenuLabel>
           <DropdownMenuSeparator className="sm:hidden" />
-          {/* En mobile la nav (Bandeja/Historial) está oculta arriba: la repetimos
-              acá para que el operador no pierda el acceso a Historial en el teléfono. */}
           {NAV_ITEMS.map(item => {
             const Icon = item.icon;
             return (
