@@ -2,11 +2,11 @@
 
 import { useState, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Key, Copy, Check, RefreshCw, Loader2, Save, CheckCircle2, Pencil, Sparkles } from "lucide-react";
+import { Key, Copy, Check, RefreshCw, Loader2, CheckCircle2, Sparkles } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -28,12 +28,6 @@ export function GeneralSettings() {
   const [botDescription, setBotDescription] = useState("");
   const [greetingMessage, setGreetingMessage] = useState("");
 
-  // Modo edición por sección — read-only por default para evitar cambios accidentales.
-  // Se entra con el dropdown 3 puntos, se sale con Guardar o Cancelar.
-  const [editingIdentity,    setEditingIdentity]    = useState(false);
-  const [editingDescription, setEditingDescription] = useState(false);
-  const [editingGreeting,    setEditingGreeting]    = useState(false);
-
   const { data: botConfig } = useQuery({
     queryKey: ["bot-config", tenantId],
     queryFn: () => api.tenants.getBotConfig(tenantId!),
@@ -54,24 +48,11 @@ export function GeneralSettings() {
     }
   }, [botConfig]);
 
-  // Dirty flags por sección
+  // Dirty flags por sección — el form está siempre editable, el botón Guardar
+  // se habilita solo cuando hay cambios respecto a la config del backend.
   const identityDirty    = botConfig != null && (botName.trim() !== (botConfig.bot_name ?? ""));
   const descriptionDirty = botConfig != null && (botDescription !== (botConfig.bot_description ?? ""));
   const greetingDirty    = botConfig != null && (greetingMessage !== (botConfig.greeting_message ?? ""));
-
-  // Cancelar restaura el valor original desde la última config del backend
-  const cancelIdentity = () => {
-    setBotName(botConfig?.bot_name ?? "");
-    setEditingIdentity(false);
-  };
-  const cancelDescription = () => {
-    setBotDescription(botConfig?.bot_description ?? "");
-    setEditingDescription(false);
-  };
-  const cancelGreeting = () => {
-    setGreetingMessage(botConfig?.greeting_message ?? "");
-    setEditingGreeting(false);
-  };
 
   const saveIdentityM = useMutation({
     mutationFn: () => api.tenants.updateBotConfig(tenantId!, {
@@ -79,7 +60,6 @@ export function GeneralSettings() {
     }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["bot-config", tenantId] });
-      setEditingIdentity(false);
       toast({ title: "Nombre actualizado", variant: "success" });
     },
     onError: () => toast({ title: "Error al guardar", variant: "destructive" }),
@@ -91,7 +71,6 @@ export function GeneralSettings() {
     }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["bot-config", tenantId] });
-      setEditingDescription(false);
       toast({ title: "Descripción actualizada", variant: "success" });
     },
     onError: () => toast({ title: "Error al guardar", variant: "destructive" }),
@@ -103,7 +82,6 @@ export function GeneralSettings() {
     }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["bot-config", tenantId] });
-      setEditingGreeting(false);
       toast({ title: "Mensaje de saludo actualizado", variant: "success" });
     },
     onError: () => toast({ title: "Error al guardar", variant: "destructive" }),
@@ -143,7 +121,6 @@ export function GeneralSettings() {
     : null;
 
   const templates = botsData?.templates ?? [];
-  const activeTemplate = templates.find(t => t.is_active);
 
   return (
     <div className="space-y-6">
@@ -151,167 +128,101 @@ export function GeneralSettings() {
       {/* ── Identidad del bot ── */}
       <Card>
         <CardHeader className="pb-3">
-          <div className="flex items-center justify-between gap-2">
-            <h2 className="font-semibold text-sm">Identidad del bot</h2>
-            {!editingIdentity && (
-              <EditButton onEdit={() => setEditingIdentity(true)} />
-            )}
-          </div>
+          <CardTitle className="text-base">Identidad del bot</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-1.5 max-w-md">
             <Label htmlFor="bot-name" className="text-xs">Nombre del bot</Label>
-            {editingIdentity ? (
-              <Input
-                id="bot-name"
-                value={botName}
-                onChange={e => setBotName(e.target.value)}
-                maxLength={80}
-                placeholder={DEFAULT_BOT_NAME}
-                autoFocus
-              />
-            ) : (
-              <>
-                <p className="text-sm text-muted-foreground leading-relaxed rounded-md border bg-muted/30 px-3 py-2">
-                  {botName.trim() || DEFAULT_BOT_NAME}
-                </p>
-                {!botName.trim() && (
-                  <p className="text-[11px] text-muted-foreground/80">
-                    Nombre por defecto · editá para personalizarlo
-                  </p>
-                )}
-              </>
+            <Input
+              id="bot-name"
+              value={botName}
+              onChange={e => setBotName(e.target.value)}
+              maxLength={80}
+              placeholder={DEFAULT_BOT_NAME}
+            />
+            {!botName.trim() && (
+              <p className="text-[11px] text-muted-foreground/80">
+                Si lo dejás vacío, se usa el nombre por defecto: {DEFAULT_BOT_NAME}
+              </p>
             )}
           </div>
 
-          {editingIdentity && (
-            <div className="flex gap-2">
-              <Button
-                size="sm"
-                onClick={() => saveIdentityM.mutate()}
-                disabled={!identityDirty || saveIdentityM.isPending}
-              >
-                {saveIdentityM.isPending
-                  ? <Loader2 className="h-4 w-4 animate-spin mr-1" />
-                  : <Save className="h-4 w-4 mr-1" />}
-                Guardar
-              </Button>
-              <Button size="sm" variant="outline" onClick={cancelIdentity} disabled={saveIdentityM.isPending}>
-                Cancelar
-              </Button>
-            </div>
-          )}
+          <div className="flex justify-end">
+            <Button
+              onClick={() => saveIdentityM.mutate()}
+              disabled={!identityDirty || saveIdentityM.isPending}
+            >
+              {saveIdentityM.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+              Guardar cambios
+            </Button>
+          </div>
         </CardContent>
       </Card>
 
       {/* ── Descripción del bot ── */}
       <Card>
         <CardHeader className="pb-3">
-          <div className="flex items-start justify-between gap-2">
-            <div>
-              <h2 className="font-semibold text-sm">Descripción del bot</h2>
-              <p className="text-[11px] text-muted-foreground mt-0.5">
-                Guía al asistente en cada conversación. Define quién es, a quién atiende y cómo se comporta.
-              </p>
-            </div>
-            {!editingDescription && (
-              <EditButton onEdit={() => setEditingDescription(true)} />
-            )}
-          </div>
+          <CardTitle className="text-base">Descripción del bot</CardTitle>
+          <p className="text-[11px] text-muted-foreground mt-0.5">
+            Guía al asistente en cada conversación. Define quién es, a quién atiende y cómo se comporta.
+          </p>
         </CardHeader>
         <CardContent className="space-y-3">
-          {editingDescription ? (
-            <Textarea
-              value={botDescription}
-              onChange={e => setBotDescription(e.target.value)}
-              rows={10}
-              placeholder="Sin descripción aún. Completá el onboarding o escribila acá."
-              className="text-sm resize-none leading-relaxed"
-              autoFocus
-            />
-          ) : (
-            <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap rounded-md border bg-muted/30 px-3 py-2 min-h-[60px]">
-              {botDescription.trim() || <span className="italic">Sin descripción</span>}
-            </p>
-          )}
+          <Textarea
+            value={botDescription}
+            onChange={e => setBotDescription(e.target.value)}
+            rows={10}
+            placeholder="Sin descripción aún. Completá el onboarding o escribila acá."
+            className="text-sm resize-none leading-relaxed"
+          />
 
-          {editingDescription && (
-            <div className="flex gap-2">
-              <Button
-                size="sm"
-                onClick={() => saveDescriptionM.mutate()}
-                disabled={!descriptionDirty || saveDescriptionM.isPending}
-              >
-                {saveDescriptionM.isPending
-                  ? <Loader2 className="h-4 w-4 animate-spin mr-1" />
-                  : <Save className="h-4 w-4 mr-1" />}
-                Guardar
-              </Button>
-              <Button size="sm" variant="outline" onClick={cancelDescription} disabled={saveDescriptionM.isPending}>
-                Cancelar
-              </Button>
-            </div>
-          )}
+          <div className="flex justify-end">
+            <Button
+              onClick={() => saveDescriptionM.mutate()}
+              disabled={!descriptionDirty || saveDescriptionM.isPending}
+            >
+              {saveDescriptionM.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+              Guardar cambios
+            </Button>
+          </div>
         </CardContent>
       </Card>
 
       {/* ── Mensaje de saludo ── */}
       <Card>
         <CardHeader className="pb-3">
-          <div className="flex items-center justify-between gap-2">
-            <h2 className="font-semibold text-sm">Mensaje de saludo</h2>
-            {!editingGreeting && (
-              <EditButton onEdit={() => setEditingGreeting(true)} />
-            )}
-          </div>
+          <CardTitle className="text-base">Mensaje de saludo</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          {editingGreeting ? (
-            <Textarea
-              value={greetingMessage}
-              onChange={e => setGreetingMessage(e.target.value)}
-              placeholder={DEFAULT_GREETING}
-              rows={2}
-              className="text-sm resize-none"
-              autoFocus
-            />
-          ) : (
-            <div className="space-y-1.5">
-              <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap rounded-md border bg-muted/30 px-3 py-2 min-h-[44px]">
-                {greetingMessage.trim() || DEFAULT_GREETING}
-              </p>
-              {!greetingMessage.trim() && (
-                <p className="text-[11px] text-muted-foreground/80">
-                  Mensaje por defecto · editá para personalizarlo
-                </p>
-              )}
-            </div>
+          <Textarea
+            value={greetingMessage}
+            onChange={e => setGreetingMessage(e.target.value)}
+            placeholder={DEFAULT_GREETING}
+            rows={2}
+            className="text-sm resize-none"
+          />
+          {!greetingMessage.trim() && (
+            <p className="text-[11px] text-muted-foreground/80">
+              Si lo dejás vacío, se usa el mensaje de saludo por defecto.
+            </p>
           )}
 
-          {editingGreeting && (
-            <div className="flex gap-2">
-              <Button
-                size="sm"
-                onClick={() => saveGreetingM.mutate()}
-                disabled={!greetingDirty || saveGreetingM.isPending}
-              >
-                {saveGreetingM.isPending
-                  ? <Loader2 className="h-4 w-4 animate-spin mr-1" />
-                  : <Save className="h-4 w-4 mr-1" />}
-                Guardar
-              </Button>
-              <Button size="sm" variant="outline" onClick={cancelGreeting} disabled={saveGreetingM.isPending}>
-                Cancelar
-              </Button>
-            </div>
-          )}
+          <div className="flex justify-end">
+            <Button
+              onClick={() => saveGreetingM.mutate()}
+              disabled={!greetingDirty || saveGreetingM.isPending}
+            >
+              {saveGreetingM.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+              Guardar cambios
+            </Button>
+          </div>
         </CardContent>
       </Card>
 
       {/* ── Personalidad ── */}
       <Card>
         <CardHeader className="pb-3">
-          <h2 className="font-semibold text-sm">Personalidad</h2>
+          <CardTitle className="text-base">Personalidad</CardTitle>
         </CardHeader>
         <CardContent>
           {botsLoading ? (
@@ -363,9 +274,9 @@ export function GeneralSettings() {
       <Card>
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between gap-4">
-            <h2 className="font-semibold text-sm flex items-center gap-2">
+            <CardTitle className="text-base flex items-center gap-2">
               <Key className="h-4 w-4" /> Widget Token
-            </h2>
+            </CardTitle>
             <Button
               size="sm"
               variant={widgetToken ? "outline" : "default"}
@@ -399,16 +310,5 @@ export function GeneralSettings() {
       </Card>
 
     </div>
-  );
-}
-
-// ── Botón "Editar" visible, compartido por cada sección editable ─────────────
-
-function EditButton({ onEdit }: { onEdit: () => void }) {
-  return (
-    <Button size="sm" variant="ghost" className="h-8 -mr-1 text-muted-foreground" onClick={onEdit}>
-      <Pencil className="h-3.5 w-3.5 mr-1.5" />
-      Editar
-    </Button>
   );
 }

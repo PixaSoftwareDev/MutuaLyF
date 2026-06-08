@@ -233,8 +233,17 @@ export default function OperatorHistoryPage() {
             </div>
           </div>
         ) : detailLoading ? (
-          <div className="flex-1 flex items-center justify-center">
-            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          // Skeleton de chat (no un spinner suelto): coherencia con la bandeja —
+          // se ve la estructura cargando, no un parpadeo en blanco.
+          <div className="flex-1 flex flex-col">
+            <div className="px-4 py-3 border-b bg-card">
+              <Skeleton className="h-4 w-40" />
+            </div>
+            <div className="flex-1 p-4 space-y-3">
+              <Skeleton className="h-12 w-2/3 rounded-2xl" />
+              <Skeleton className="h-12 w-1/2 rounded-2xl ml-auto" />
+              <Skeleton className="h-10 w-3/5 rounded-2xl" />
+            </div>
           </div>
         ) : detail ? (
           <>

@@ -19,6 +19,7 @@ import { Separator } from "@/components/ui/separator";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { EmptyState } from "@/components/ui/empty-state";
+import { PageHeader } from "@/components/layout/page-header";
 import { toast } from "@/components/ui/toast";
 import { cn, toSlug } from "@/lib/utils";
 
@@ -99,26 +100,28 @@ export default function SuperAdminPage() {
 
       {/* ── Top bar ───────────────────────────────────────────────────────── */}
       <div className="shrink-0 bg-background border-b px-4 sm:px-6">
-        <div className="max-w-7xl mx-auto flex items-center justify-between gap-3 h-14">
-          <div className="flex items-center gap-2 min-w-0">
-            <Shield className="h-5 w-5 text-primary shrink-0" />
-            <h1 className="font-semibold text-base sm:text-lg">Plataforma</h1>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <Button variant="ghost" size="icon" onClick={inv} className="h-8 w-8" title="Actualizar">
-              <RefreshCw className="h-4 w-4" />
-            </Button>
-            {tab === "orgs" && (
-              <Button size="sm" onClick={() => setShowCreate(true)} className="h-8 gap-1.5">
-                <Plus className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">Nueva org.</span>
-              </Button>
-            )}
-          </div>
+        <div className="max-w-7xl mx-auto pt-4 sm:pt-6">
+          <PageHeader
+            title="Plataforma"
+            description="Organizaciones, uso y salud de la infraestructura"
+            actions={
+              <>
+                <Button variant="ghost" size="icon" onClick={inv} className="h-9 w-9" title="Actualizar">
+                  <RefreshCw className="h-4 w-4" />
+                </Button>
+                {tab === "orgs" && (
+                  <Button size="sm" onClick={() => setShowCreate(true)} className="h-9 gap-1.5">
+                    <Plus className="h-3.5 w-3.5" />
+                    <span className="hidden sm:inline">Nueva org.</span>
+                  </Button>
+                )}
+              </>
+            }
+          />
         </div>
 
         {/* Tabs */}
-        <div className="max-w-7xl mx-auto flex gap-0 -mb-px">
+        <div className="max-w-7xl mx-auto flex gap-0 -mb-px mt-4">
           {([
             { id: "orgs",    label: "Organizaciones", icon: Building2 },
             { id: "sistema", label: "Sistema",         icon: Activity  },
@@ -143,6 +146,37 @@ export default function SuperAdminPage() {
       {/* ── Scrollable body ───────────────────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 space-y-4">
+
+          {/* ── KPIs de cabecera ──────────────────────────────────────── */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-3">
+            <HeaderKpi
+              label="Organizaciones"
+              value={health ? health.total_tenants : tenants.length}
+              loading={!health && isLoading}
+            />
+            <HeaderKpi
+              label="Activas"
+              value={health?.active_tenants ?? 0}
+              tone="success"
+              loading={!health}
+            />
+            <HeaderKpi
+              label="Consultas hoy"
+              value={health?.queries_today ?? 0}
+              loading={!health}
+            />
+            <HeaderKpi
+              label="En cuota"
+              value={health?.anomalies?.length ?? 0}
+              tone={(health?.anomalies?.length ?? 0) > 0 ? "warn" : "neutral"}
+              loading={!health}
+            />
+            <HeaderKpi
+              label="Error rate"
+              value={system ? (system.backend.error_rate_5m * 100).toFixed(1) + "%" : "—"}
+              tone={system && system.backend.error_rate_5m > 0.01 ? "danger" : "neutral"}
+            />
+          </div>
 
           {/* ── Health strip (always visible) ─────────────────────────── */}
           <div className={cn(
@@ -255,8 +289,57 @@ function SystemTab({ system, loading }: { system: any; loading: boolean }) {
   );
   if (!system) return null;
 
+  const services = [
+    { label: "PostgreSQL", up: system.postgres.up,  icon: Database },
+    { label: "Redis",      up: system.redis.up,     icon: Zap },
+    { label: "Backend",    up: system.backend.up,   icon: Server },
+    {
+      label: "Groq",
+      up: system.groq.total_calls === 0 ? true : (system.groq.by_model ?? []).every((m: any) => m.errors === 0 || m.errors < m.total),
+      icon: Bot,
+    },
+  ];
+
   return (
     <div className="space-y-5 pb-6">
+
+      {/* ── Estado de servicios — primer nivel, alto contraste ── */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+        {services.map(s => (
+          <div
+            key={s.label}
+            className={cn(
+              "flex items-center gap-3 rounded-xl border px-4 py-3.5 shadow-sm",
+              s.up
+                ? "bg-success/10 border-success/20"
+                : "bg-destructive/10 border-destructive/20"
+            )}
+          >
+            <span className={cn(
+              "flex items-center justify-center h-9 w-9 rounded-lg shrink-0",
+              s.up ? "bg-success/15 text-success" : "bg-destructive/15 text-destructive"
+            )}>
+              <s.icon className="h-4 w-4" />
+            </span>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold truncate">{s.label}</p>
+              <p className={cn(
+                "text-xs font-medium flex items-center gap-1",
+                s.up ? "text-success" : "text-destructive"
+              )}>
+                <span className={cn("h-1.5 w-1.5 rounded-full", s.up ? "bg-success" : "bg-destructive")} />
+                {s.up ? "Operativo" : "Caído"}
+              </p>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* ── Detalle granular — segundo nivel ── */}
+      <div className="flex items-center gap-2 pt-1">
+        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Métricas detalladas</span>
+        <Separator className="flex-1" />
+      </div>
 
       {/* Application counters */}
       <Section icon={BarChart3} label="Aplicación" sublabel="métricas acumuladas desde inicio">
@@ -428,6 +511,45 @@ function SystemTab({ system, loading }: { system: any; loading: boolean }) {
 }
 
 // ── Shared sub-components ──────────────────────────────────────────────────────
+
+// KPI de cabecera — mismo look que el Kpi de audit (acento lateral, número 2xl)
+function HeaderKpi({ label, value, tone = "neutral", loading }: {
+  label: string;
+  value: string | number;
+  tone?: "neutral" | "success" | "warn" | "danger";
+  loading?: boolean;
+}) {
+  const accent =
+    tone === "danger"  ? "before:bg-destructive" :
+    tone === "warn"    ? "before:bg-warning" :
+    tone === "success" ? "before:bg-success" :
+                         "before:bg-primary";
+  const numColor =
+    tone === "danger"  ? "text-destructive" :
+    tone === "warn"    ? "text-warning" :
+    tone === "success" ? "text-success" :
+                         "text-foreground";
+  return (
+    <div
+      className={cn(
+        "relative bg-card border border-border rounded-md pl-4 pr-4 py-3 shadow-[0_1px_0_rgba(0,0,0,0.02)] before:content-[''] before:absolute before:left-0 before:top-0 before:bottom-0 before:w-1 before:rounded-l-md",
+        accent
+      )}
+    >
+      <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+        {label}
+      </div>
+      {loading ? (
+        <Skeleton className="h-7 w-16 mt-1.5" />
+      ) : (
+        <div className={cn("mt-1 text-2xl font-semibold tabular-nums leading-none", numColor)}>
+          {typeof value === "number" ? value.toLocaleString("es-AR") : value}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Section({ icon: Icon, label, sublabel, children }: {
   icon: any; label: string; sublabel?: string; children: React.ReactNode;
 }) {

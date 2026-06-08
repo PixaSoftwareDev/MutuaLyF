@@ -11,6 +11,7 @@ import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import { PageShell } from "@/components/layout/page-shell";
 import { PageHeader } from "@/components/layout/page-header";
+import { FormColumn } from "@/components/layout/form-column";
 
 const ROLE_LABEL: Record<string, string> = {
   operator: "Operador",
@@ -69,24 +70,24 @@ export default function AccountPage() {
 
   if (isLoading || !me) {
     return (
-      <div className="h-full overflow-y-auto">
-        <PageShell className="max-w-2xl mx-auto">
-          <Skeleton className="h-8 w-48" />
+      <PageShell>
+        <Skeleton className="h-8 w-48" />
+        <FormColumn>
           <Skeleton className="h-48 rounded-lg" />
           <Skeleton className="h-64 rounded-lg" />
-        </PageShell>
-      </div>
+        </FormColumn>
+      </PageShell>
     );
   }
 
   return (
-    <div className="h-full overflow-y-auto">
-      <PageShell className="max-w-2xl mx-auto">
-        <PageHeader
-          title="Mi cuenta"
-          description="Editá tu nombre y contraseña. El nombre es lo que verán los afiliados cuando los atiendas."
-        />
+    <PageShell>
+      <PageHeader
+        title="Mi cuenta"
+        description="Editá tu nombre y contraseña. El nombre es lo que verán los afiliados cuando los atiendas."
+      />
 
+      <FormColumn>
         {/* Profile */}
         <Card>
           <CardHeader className="pb-3">
@@ -204,8 +205,8 @@ export default function AccountPage() {
             </div>
           </CardContent>
         </Card>
-      </PageShell>
-    </div>
+      </FormColumn>
+    </PageShell>
   );
 }
 

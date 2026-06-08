@@ -7,14 +7,14 @@ import {
   FileText, Clock, Trash2, Loader2,
   ChevronDown, ChevronRight, Search, CheckCircle2,
   XCircle, UserCheck, AlertTriangle, ShieldCheck, ChevronUp,
-  ArrowRight, MoreVertical, Edit2, Download, Pencil,
+  ArrowRight, MoreVertical, Download, Pencil, Copy,
 } from "lucide-react";
 import { api, type DocumentResponse, type ChunkResponse, type PendingChunkResponse } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
@@ -149,25 +149,19 @@ export default function DocumentsPage() {
         }}
       />
 
-      {/* Alerta de duplicados */}
-      <DuplicatesAlert
-        pendingCount={pendingDuplicatesTotal}
-        pairs={duplicatesData?.pairs ?? []}
-        isLoading={duplicatesLoading}
-      />
-
-      {/* Cola de revisión de calidad */}
-      <ReviewQueue
+      {/* Tareas pendientes — un solo banner compacto que unifica duplicados +
+          fragmentos por revisar. La cola de revisión queda expandible. */}
+      <PendingTasksBanner
+        pendingDuplicates={pendingDuplicatesTotal}
         pendingChunks={pendingChunks}
         pendingByDocId={pendingByDocId}
-        isLoading={pendingLoading}
-        hasPendingDuplicates={pendingDuplicatesTotal > 0}
+        isLoading={pendingLoading || duplicatesLoading}
         hasProcessingDocs={processingCount > 0}
         onReviewed={refresh}
       />
 
       {/* Lista de documentos */}
-      <Card>
+      <Card className="rounded-2xl">
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between gap-4">
             <CardTitle className="text-base">Documentos ({filtered.length})</CardTitle>
@@ -225,151 +219,128 @@ export default function DocumentsPage() {
   );
 }
 
-// ── DuplicatesAlert ───────────────────────────────────────────────────────────
+// ── PendingTasksBanner ────────────────────────────────────────────────────────
+// Unifica los dos carriles de pendientes (duplicados + fragmentos por revisar)
+// en un solo banner compacto con conteos. La cola de revisión de fragmentos
+// queda como sección expandible inline; los duplicados linkean a /admin/duplicates.
 
-function DuplicatesAlert({
-  pendingCount,
-  pairs,
-  isLoading,
-}: {
-  pendingCount: number;
-  pairs: { doc_id_a: string; doc_id_b: string; doc_title_a: string | null; doc_title_b: string | null; status: string }[];
-  isLoading: boolean;
-}) {
-  const router = useRouter();
-
-  // Hooks must be called unconditionally (Rules of Hooks) — keep above any return.
-  const affectedDocs = useMemo(() => {
-    const seen = new Set<string>();
-    const names: string[] = [];
-    for (const p of pairs) {
-      if (p.status !== "pending") continue;
-      if (p.doc_title_a && !seen.has(p.doc_id_a)) { seen.add(p.doc_id_a); names.push(p.doc_title_a); }
-      if (p.doc_title_b && !seen.has(p.doc_id_b)) { seen.add(p.doc_id_b); names.push(p.doc_title_b); }
-    }
-    return names;
-  }, [pairs]);
-
-  if (isLoading) return null;
-  if (pendingCount === 0) return null;
-
-  return (
-    <div className="relative rounded-lg border border-warning/20 bg-warning/5 overflow-hidden">
-      {/* Banda lateral para impacto visual */}
-      <div className="absolute left-0 top-0 bottom-0 w-1 bg-warning" />
-
-      <div className="pl-5 pr-4 py-3.5">
-        <div className="flex items-start justify-between gap-4">
-          {/* Número grande + texto */}
-          <div className="flex items-baseline gap-2.5 min-w-0">
-            <span className="text-2xl font-bold text-warning leading-none tabular-nums">
-              {pendingCount}
-            </span>
-            <div className="min-w-0">
-              <p className="text-sm font-semibold text-warning leading-tight">
-                {pendingCount === 1 ? "par de fragmentos similares" : "pares de fragmentos similares"}
-              </p>
-              <p className="text-[11px] text-warning/90 mt-0.5">
-                Revisá si son duplicados reales o coincidencias.
-              </p>
-            </div>
-          </div>
-
-          <Button
-            size="sm"
-            variant="outline"
-            className="border-warning/20 bg-white text-warning hover:bg-warning/10 hover:text-warning shrink-0"
-            onClick={() => router.push("/admin/duplicates")}
-          >
-            Revisar
-            <ArrowRight className="h-3.5 w-3.5 ml-1.5" />
-          </Button>
-        </div>
-
-        {affectedDocs.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 mt-3">
-            {affectedDocs.map((name) => (
-              <span
-                key={name}
-                className="inline-flex items-center text-[11px] bg-white text-warning rounded-md px-2 py-1 border border-warning/20 font-medium"
-              >
-                {name}
-              </span>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ── ReviewQueue ───────────────────────────────────────────────────────────────
-
-function ReviewQueue({
+function PendingTasksBanner({
+  pendingDuplicates,
   pendingChunks,
   pendingByDocId,
   isLoading,
-  hasPendingDuplicates,
   hasProcessingDocs,
   onReviewed,
 }: {
+  pendingDuplicates: number;
   pendingChunks: PendingChunkResponse[];
   pendingByDocId: Record<string, { title: string; chunks: PendingChunkResponse[] }>;
   isLoading: boolean;
-  hasPendingDuplicates: boolean;
   hasProcessingDocs: boolean;
   onReviewed: () => void;
 }) {
-  const hasPending = pendingChunks.length > 0;
+  const router = useRouter();
+  const [expanded, setExpanded] = useState(false);
 
-  if (!isLoading && !hasPending) {
-    // No mostrar "todo verificado" si:
-    //  - hay duplicados pendientes (ya se ve la alerta de duplicados)
-    //  - hay docs todavía procesando (es engañoso: parece que no hay
-    //    fragmentos pendientes cuando en realidad todavía no se procesaron)
-    if (hasPendingDuplicates || hasProcessingDocs) return null;
+  const pendingChunkCount = pendingChunks.length;
+  const hasDuplicates = pendingDuplicates > 0;
+  const hasChunks = pendingChunkCount > 0;
+
+  if (isLoading) return null;
+
+  // Sin pendientes: estado tranquilo. No mostramos el "todo verificado" si
+  // todavía hay docs procesando (sería engañoso: aún pueden aparecer fragmentos).
+  if (!hasDuplicates && !hasChunks) {
+    if (hasProcessingDocs) return null;
     return (
       <div className="flex items-center gap-2 text-sm text-muted-foreground py-1">
         <ShieldCheck className="h-4 w-4 text-success shrink-0" />
-        Todo el contenido está verificado — no hay fragmentos pendientes de revisión.
+        Todo el contenido está verificado — no hay tareas pendientes.
       </div>
     );
   }
 
-  if (isLoading) return null;
+  // Construir el resumen de conteos: "3 duplicados · 5 fragmentos por revisar"
+  const parts: string[] = [];
+  if (hasDuplicates) parts.push(`${pendingDuplicates} ${pendingDuplicates === 1 ? "duplicado" : "duplicados"}`);
+  if (hasChunks) parts.push(`${pendingChunkCount} fragmento${pendingChunkCount !== 1 ? "s" : ""} por revisar`);
 
   return (
-    <Card className="border-warning/20 bg-warning/5">
-      <CardHeader className="pb-3">
-        <CardTitle className="text-base flex items-center gap-2 text-warning">
-          <AlertTriangle className="h-4 w-4 shrink-0" />
-          {pendingChunks.length} fragmento{pendingChunks.length !== 1 ? "s" : ""} por revisar
-        </CardTitle>
-        <CardDescription className="text-warning text-xs mt-1">
-          El verificador automático no pudo decidir sobre estos fragmentos. Aprobá los que sean útiles para responder consultas y descartá el resto — desaparecen de la cola al decidir.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div className="space-y-4">
-          {Object.entries(pendingByDocId).map(([docId, group]) => (
-            <div key={docId}>
-              <p className="text-xs font-semibold text-warning flex items-center gap-1.5 mb-2">
-                <FileText className="h-3.5 w-3.5 shrink-0" />
-                {group.title}
-                <span className="font-normal text-warning">
-                  · {group.chunks.length} fragmento{group.chunks.length !== 1 ? "s" : ""}
-                </span>
-              </p>
-              <div className="space-y-2 pl-5">
-                {group.chunks.map((chunk) => (
-                  <PendingChunkCard key={chunk.id} chunk={chunk} onReviewed={onReviewed} />
-                ))}
-              </div>
-            </div>
-          ))}
+    <div className="relative rounded-2xl border border-warning/20 bg-warning/5 overflow-hidden">
+      {/* Banda lateral para impacto visual */}
+      <div className="absolute left-0 top-0 bottom-0 w-1 bg-warning" />
+
+      {/* Fila resumen compacta */}
+      <div className="pl-5 pr-4 py-3.5 flex items-center justify-between gap-4 flex-wrap">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <AlertTriangle className="h-4 w-4 text-warning shrink-0" />
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-warning leading-tight">
+              Tareas pendientes
+            </p>
+            <p className="text-[11px] text-warning/90 mt-0.5 truncate">
+              {parts.join(" · ")}
+            </p>
+          </div>
         </div>
-      </CardContent>
-    </Card>
+
+        <div className="flex items-center gap-2 shrink-0">
+          {hasChunks && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="border-warning/20 bg-white text-warning hover:bg-warning/10 hover:text-warning"
+              onClick={() => setExpanded((v) => !v)}
+            >
+              {expanded ? (
+                <>Ocultar fragmentos <ChevronUp className="h-3.5 w-3.5 ml-1.5" /></>
+              ) : (
+                <>Revisar fragmentos <ChevronDown className="h-3.5 w-3.5 ml-1.5" /></>
+              )}
+            </Button>
+          )}
+          {hasDuplicates && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="border-warning/20 bg-white text-warning hover:bg-warning/10 hover:text-warning"
+              onClick={() => router.push("/admin/duplicates")}
+            >
+              <Copy className="h-3.5 w-3.5 mr-1.5" />
+              Ver duplicados
+              <ArrowRight className="h-3.5 w-3.5 ml-1.5" />
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {/* Cola de revisión de fragmentos — expandible inline */}
+      {expanded && hasChunks && (
+        <div className="border-t border-warning/20 pl-5 pr-4 py-4">
+          <p className="text-xs text-warning/90 mb-3">
+            El verificador automático no pudo decidir sobre estos fragmentos. Incluí los que sean útiles para responder consultas y excluí el resto — desaparecen de la cola al decidir.
+          </p>
+          <div className="space-y-4">
+            {Object.entries(pendingByDocId).map(([docId, group]) => (
+              <div key={docId}>
+                <p className="text-xs font-semibold text-warning flex items-center gap-1.5 mb-2">
+                  <FileText className="h-3.5 w-3.5 shrink-0" />
+                  {group.title}
+                  <span className="font-normal text-warning">
+                    · {group.chunks.length} fragmento{group.chunks.length !== 1 ? "s" : ""}
+                  </span>
+                </p>
+                <div className="space-y-2 pl-5">
+                  {group.chunks.map((chunk) => (
+                    <PendingChunkCard key={chunk.id} chunk={chunk} onReviewed={onReviewed} />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -389,7 +360,6 @@ function DocumentRow({
   const router = useRouter();
   const [showDelete, setShowDelete] = useState(false);
   const [expanded, setExpanded] = useState(false);
-  const [editMode, setEditMode] = useState(false);
   const docStatus = DOC_STATUS_CONFIG[doc.status];
   const qgBadge = QG_DOC_CONFIG[doc.quality_gate_status];
   const canExpand = doc.status === "ready" && doc.chunk_count > 0;
@@ -492,21 +462,6 @@ function DocumentRow({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-48">
-              {canExpand && (
-                <DropdownMenuItem
-                  onSelect={() => {
-                    // Auto-expandir si está colapsado para que se vean los chunks editables
-                    if (!expanded) setExpanded(true);
-                    setEditMode(v => !v);
-                  }}
-                >
-                  {editMode ? (
-                    <><CheckCircle2 className="h-4 w-4 mr-2" /> Salir de edición</>
-                  ) : (
-                    <><Edit2 className="h-4 w-4 mr-2" /> Editar fragmentos</>
-                  )}
-                </DropdownMenuItem>
-              )}
               {doc.storage_key && (
                 <DropdownMenuItem onSelect={() => downloadDoc()} disabled={downloading}>
                   {downloading
@@ -550,26 +505,12 @@ function DocumentRow({
                     </span>
                   )}
                 </p>
-                {editMode && (
-                  <div className="flex items-center gap-2">
-                    <span className="text-[11px] text-primary font-medium">Modo edición</span>
-                    <Button
-                      size="sm" variant="outline"
-                      className="h-7 px-2.5 text-xs"
-                      onClick={() => setEditMode(false)}
-                    >
-                      <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
-                      Listo
-                    </Button>
-                  </div>
-                )}
               </div>
               {chunks.map((chunk) => (
                 <ChunkCard
                   key={chunk.id}
                   chunk={chunk}
                   documentId={doc.id}
-                  editable={editMode}
                 />
               ))}
             </>
@@ -706,7 +647,7 @@ function PendingChunkCard({ chunk, onReviewed }: { chunk: PendingChunkResponse; 
 
 // ── ChunkCard ─────────────────────────────────────────────────────────────────
 
-function ChunkCard({ chunk, documentId, editable }: { chunk: ChunkResponse; documentId: string; editable: boolean }) {
+function ChunkCard({ chunk, documentId }: { chunk: ChunkResponse; documentId: string }) {
   const queryClient = useQueryClient();
   const [showFull, setShowFull] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
@@ -747,7 +688,7 @@ function ChunkCard({ chunk, documentId, editable }: { chunk: ChunkResponse; docu
   });
 
   return (
-    <div className={`rounded border bg-background p-3 space-y-2 ${!isPassed ? "border-warning/20" : ""}`}>
+    <div className={`group rounded-xl border bg-background p-3 space-y-2 ${!isPassed ? "border-warning/20" : ""}`}>
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted-foreground">
@@ -762,17 +703,17 @@ function ChunkCard({ chunk, documentId, editable }: { chunk: ChunkResponse; docu
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <Badge variant={qg.variant} className="text-[10px] h-5 px-1.5">{qg.label}</Badge>
-          {editable && (
-            <button
-              onClick={() => setEditOpen(true)}
-              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-              title="Editar texto del fragmento (se re-procesa el embedding)"
-            >
-              <Pencil className="h-3.5 w-3.5" />
-              Editar
-            </button>
-          )}
-          {editable && !isPassed && (
+          {/* Editar siempre disponible — se revela al pasar el mouse sobre el
+              fragmento (sin "modo edición" global). Visible siempre en touch. */}
+          <button
+            onClick={() => setEditOpen(true)}
+            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-all opacity-100 md:opacity-0 md:group-hover:opacity-100 focus-visible:opacity-100"
+            title="Editar texto del fragmento (se re-procesa el embedding)"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+            Editar
+          </button>
+          {!isPassed && (
             <button
               disabled={reviewing}
               onClick={() => review("approve")}
@@ -782,14 +723,14 @@ function ChunkCard({ chunk, documentId, editable }: { chunk: ChunkResponse; docu
               Incluir
             </button>
           )}
-          {editable && !isSkipped && (
+          {!isSkipped && (
             <button
               disabled={reviewing}
               onClick={() => review("reject")}
               className="flex items-center gap-1 text-xs text-destructive hover:opacity-80 disabled:opacity-50 transition-opacity"
             >
               {reviewing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <XCircle className="h-3.5 w-3.5" />}
-              {isPassed ? "Excluir" : "Rechazar"}
+              Excluir
             </button>
           )}
         </div>

@@ -143,12 +143,17 @@ export default function GlobalAuditPage() {
 
       {/* Filters */}
       <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
-        <Input
-          placeholder="Buscar por usuario, recurso, org o IP…"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          className="sm:max-w-sm h-9"
-        />
+        <div className="flex flex-col gap-1 sm:max-w-sm w-full">
+          <Input
+            placeholder="Buscar por usuario, recurso, org o IP…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="h-9"
+          />
+          <p className="text-[11px] text-muted-foreground pl-0.5">
+            Busca solo en la página actual. Usá los filtros de acción y organización para acotar el conjunto completo.
+          </p>
+        </div>
         <Select
           value={action || "__all__"}
           onValueChange={v => { setAction(v === "__all__" ? "" : v); setPage(0); }}

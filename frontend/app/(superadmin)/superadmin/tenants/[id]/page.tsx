@@ -21,6 +21,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { EmptyState } from "@/components/ui/empty-state";
+import { PageHeader } from "@/components/layout/page-header";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 
@@ -174,7 +175,13 @@ export default function TenantDetailPage() {
       <TopBar onBack={() => router.push("/superadmin")} onRefresh={inv} label={t.name} loading={false} />
 
       <div className="flex-1 overflow-y-auto">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 space-y-4 pb-10">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 space-y-8 pb-10">
+
+          {/* ═══════════════════════════════════════════════════════════
+              ZONA 1 · ESTADO Y ACCIONES
+          ═══════════════════════════════════════════════════════════ */}
+          <section className="space-y-4">
+          <ZoneHeader label="Estado y acciones" />
 
           {/* ── Identity ─────────────────────────────────────────────── */}
           <div className="rounded-xl border bg-card shadow-sm px-5 py-4">
@@ -335,17 +342,30 @@ export default function TenantDetailPage() {
           )}
 
           {/* ── Bot activo ───────────────────────────────────────────── */}
-          <SectionTitle icon={Bot} label="Bot activo" sublabel="personalidad del asistente de este tenant" />
-          <BotSelector
-            allTemplates={allTemplates}
-            bots={bots}
-            activeBot={activeBot}
-            activateBotM={activateBotM}
-            deactivateBotM={deactivateBotM}
-            assignAndActivateM={assignAndActivateM}
-          />
+          <div className="space-y-2">
+            <SectionTitle icon={Bot} label="Bot activo" sublabel="personalidad del asistente de este tenant" />
+            <BotSelector
+              allTemplates={allTemplates}
+              bots={bots}
+              activeBot={activeBot}
+              activateBotM={activateBotM}
+              deactivateBotM={deactivateBotM}
+              assignAndActivateM={assignAndActivateM}
+            />
+          </div>
+
+          </section>
+
+          {/* ═══════════════════════════════════════════════════════════
+              ZONA 2 · ACTIVIDAD
+          ═══════════════════════════════════════════════════════════ */}
+          <section className="space-y-4">
+          <ZoneHeader label="Actividad" />
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-4 items-start">
 
           {/* ── Usage KPIs ───────────────────────────────────────────── */}
+          <div className="space-y-2 lg:col-span-2">
           <SectionTitle icon={TrendingUp} label="Uso" />
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
             <KPI label="Consultas hoy"   value={fmtNum(m.usage.queries_today)}  color="text-primary" />
@@ -355,8 +375,10 @@ export default function TenantDetailPage() {
             <KPI label="Tokens LLM 30d"  value={fmtNum(m.usage.llm_tokens_30d)} color="text-warning" sublabel="aprox." />
             <KPI label="Consultas log."  value={fmtNum(m.performance.total_logged)} color="text-muted-foreground" sublabel="30d" />
           </div>
+          </div>
 
           {/* ── Performance ──────────────────────────────────────────── */}
+          <div className="space-y-2 lg:col-span-2">
           <SectionTitle icon={Zap} label="Rendimiento" sublabel="últimos 30d, datos de consultas_log" />
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
             <KPI label="Latencia p50"    value={fmtMs(m.performance.latency_p50)}   color="text-success" />
@@ -364,8 +386,97 @@ export default function TenantDetailPage() {
             <KPI label="Cache hit rate"  value={fmtPct(m.performance.cache_hit_rate)} color="text-info" />
             <KPI label="Conf. promedio"  value={m.performance.avg_confidence != null ? (m.performance.avg_confidence * 100).toFixed(0) + "%" : "—"} color="text-violet-600" />
           </div>
+          </div>
+
+          {/* ── Top intents ──────────────────────────────────────────── */}
+          {m.top_intents.length > 0 && (
+            <div className="space-y-2">
+              <SectionTitle icon={Target} label="Intenciones más frecuentes" sublabel="30d" />
+              <div className="rounded-xl border bg-card shadow-sm divide-y overflow-hidden">
+                {m.top_intents.map((intent, i) => {
+                  const max = m.top_intents[0].count;
+                  const pct = Math.round((intent.count / max) * 100);
+                  return (
+                    <div key={intent.label} className="flex items-center gap-3 px-4 py-2.5">
+                      <span className="text-xs text-muted-foreground w-4 tabular-nums shrink-0">{i + 1}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{intent.label}</p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <div className="flex-1 h-1 bg-muted rounded-full overflow-hidden">
+                            <div className="h-full bg-primary/60 rounded-full" style={{ width: `${pct}%` }} />
+                          </div>
+                        </div>
+                      </div>
+                      <span className="text-xs tabular-nums text-muted-foreground shrink-0">{fmtNum(intent.count)} q</span>
+                      {intent.avg_confidence != null && (
+                        <span className="text-xs tabular-nums text-muted-foreground shrink-0 hidden sm:inline">
+                          {(intent.avg_confidence * 100).toFixed(0)}% conf.
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* ── Recent queries ───────────────────────────────────────── */}
+          {m.recent_queries.length > 0 && (
+            <div className="space-y-2">
+              <SectionTitle icon={MessageSquare} label="Últimas consultas" sublabel="máx. 10" />
+              <div className="rounded-xl border bg-card shadow-sm divide-y overflow-hidden">
+                {m.recent_queries.map((q, i) => (
+                  <div key={i} className="flex items-start gap-3 px-4 py-3">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-foreground truncate">
+                        {q.question_text ?? <span className="text-muted-foreground italic">sin texto</span>}
+                      </p>
+                      <div className="flex items-center gap-2 mt-1 flex-wrap">
+                        {q.intent_label && (
+                          <span className="text-xs bg-primary/10 text-primary px-1.5 py-0.5 rounded-full">
+                            {q.intent_label}
+                          </span>
+                        )}
+                        {q.from_cache && (
+                          <span className="text-xs bg-info/10 text-info px-1.5 py-0.5 rounded-full">
+                            cache
+                          </span>
+                        )}
+                        <span className="text-xs text-muted-foreground">{fmtMs(q.latency_ms)}</span>
+                      </div>
+                    </div>
+                    <span className="text-xs text-muted-foreground shrink-0 mt-0.5">{relTime(q.created_at)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Empty state for no consultas_log data */}
+          {m.performance.total_logged === 0 && (
+            <div className="lg:col-span-2">
+              <EmptyState
+                icon={Activity}
+                title="Sin consultas registradas"
+                description="Este tenant aún no tiene consultas en los últimos 30 días."
+                className="rounded-xl border border-dashed bg-card"
+              />
+            </div>
+          )}
+
+          </div>{/* /grid Actividad */}
+          </section>
+
+          {/* ═══════════════════════════════════════════════════════════
+              ZONA 3 · RECURSOS
+          ═══════════════════════════════════════════════════════════ */}
+          <section className="space-y-4">
+          <ZoneHeader label="Recursos" />
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-4 items-start">
 
           {/* ── Documents + Storage ──────────────────────────────────── */}
+          <div className="space-y-2">
           <SectionTitle icon={FileText} label="Documentos" />
           <div className="rounded-xl border bg-card shadow-sm divide-y">
             <div className="grid grid-cols-2 sm:grid-cols-4 divide-x">
@@ -379,8 +490,20 @@ export default function TenantDetailPage() {
               <span>Almacenamiento: <span className="font-medium text-foreground">{fmtBytes(m.docs.storage_bytes)}</span></span>
             </div>
           </div>
+          </div>
+
+          {/* ── Quality gate ─────────────────────────────────────────── */}
+          <div className="space-y-2">
+          <SectionTitle icon={CheckCircle2} label="Quality gate" sublabel="últimos 30d" />
+          <div className="grid grid-cols-3 gap-2.5">
+            <KPI label="Aprobadas"  value={fmtNum(m.quality.passed)}  color="text-success" />
+            <KPI label="Pendientes" value={fmtNum(m.quality.pending)} color="text-warning" />
+            <KPI label="Saltadas"   value={fmtNum(m.quality.skipped)} color={m.quality.skipped > 0 ? "text-destructive" : "text-muted-foreground"} />
+          </div>
+          </div>
 
           {/* ── Quotas ───────────────────────────────────────────────── */}
+          <div className="space-y-2 lg:col-span-2">
           <SectionTitle icon={Shield} label="Cuotas del plan" sublabel={t.plan} />
           <div className="grid sm:grid-cols-2 gap-3">
             <QuotaBar
@@ -396,18 +519,11 @@ export default function TenantDetailPage() {
               pct={quotaD.pct}
             />
           </div>
-
-          {/* ── Quality gate ─────────────────────────────────────────── */}
-          <SectionTitle icon={CheckCircle2} label="Quality gate" sublabel="últimos 30d" />
-          <div className="grid grid-cols-3 gap-2.5">
-            <KPI label="Aprobadas"  value={fmtNum(m.quality.passed)}  color="text-success" />
-            <KPI label="Pendientes" value={fmtNum(m.quality.pending)} color="text-warning" />
-            <KPI label="Saltadas"   value={fmtNum(m.quality.skipped)} color={m.quality.skipped > 0 ? "text-destructive" : "text-muted-foreground"} />
           </div>
 
           {/* ── Groq API (platform-wide, from Prometheus) ────────────── */}
           {sys && (
-            <>
+            <div className="space-y-2 lg:col-span-2">
               <SectionTitle icon={Bot} label="Groq API" sublabel="plataforma completa · desde inicio del proceso" />
               {sys.groq.total_calls === 0 ? (
                 <div className="rounded-lg border border-dashed px-4 py-3 text-sm text-muted-foreground">
@@ -441,82 +557,11 @@ export default function TenantDetailPage() {
                   ))}
                 </div>
               )}
-            </>
+            </div>
           )}
 
-          {/* ── Top intents ──────────────────────────────────────────── */}
-          {m.top_intents.length > 0 && (
-            <>
-              <SectionTitle icon={Target} label="Intenciones más frecuentes" sublabel="30d" />
-              <div className="rounded-xl border bg-card shadow-sm divide-y overflow-hidden">
-                {m.top_intents.map((intent, i) => {
-                  const max = m.top_intents[0].count;
-                  const pct = Math.round((intent.count / max) * 100);
-                  return (
-                    <div key={intent.label} className="flex items-center gap-3 px-4 py-2.5">
-                      <span className="text-xs text-muted-foreground w-4 tabular-nums shrink-0">{i + 1}</span>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate">{intent.label}</p>
-                        <div className="flex items-center gap-2 mt-1">
-                          <div className="flex-1 h-1 bg-muted rounded-full overflow-hidden">
-                            <div className="h-full bg-primary/60 rounded-full" style={{ width: `${pct}%` }} />
-                          </div>
-                        </div>
-                      </div>
-                      <span className="text-xs tabular-nums text-muted-foreground shrink-0">{fmtNum(intent.count)} q</span>
-                      {intent.avg_confidence != null && (
-                        <span className="text-xs tabular-nums text-muted-foreground shrink-0 hidden sm:inline">
-                          {(intent.avg_confidence * 100).toFixed(0)}% conf.
-                        </span>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </>
-          )}
-
-          {/* ── Recent queries ───────────────────────────────────────── */}
-          {m.recent_queries.length > 0 && (
-            <>
-              <SectionTitle icon={MessageSquare} label="Últimas consultas" sublabel="máx. 10" />
-              <div className="rounded-xl border bg-card shadow-sm divide-y overflow-hidden">
-                {m.recent_queries.map((q, i) => (
-                  <div key={i} className="flex items-start gap-3 px-4 py-3">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm text-foreground truncate">
-                        {q.question_text ?? <span className="text-muted-foreground italic">sin texto</span>}
-                      </p>
-                      <div className="flex items-center gap-2 mt-1 flex-wrap">
-                        {q.intent_label && (
-                          <span className="text-xs bg-primary/10 text-primary px-1.5 py-0.5 rounded-full">
-                            {q.intent_label}
-                          </span>
-                        )}
-                        {q.from_cache && (
-                          <span className="text-xs bg-info/10 text-info px-1.5 py-0.5 rounded-full">
-                            cache
-                          </span>
-                        )}
-                        <span className="text-xs text-muted-foreground">{fmtMs(q.latency_ms)}</span>
-                      </div>
-                    </div>
-                    <span className="text-xs text-muted-foreground shrink-0 mt-0.5">{relTime(q.created_at)}</span>
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
-
-          {/* Empty state for no consultas_log data */}
-          {m.performance.total_logged === 0 && (
-            <EmptyState
-              icon={Activity}
-              title="Sin consultas registradas"
-              description="Este tenant aún no tiene consultas en los últimos 30 días."
-              className="rounded-xl border border-dashed bg-card"
-            />
-          )}
+          </div>{/* /grid Recursos */}
+          </section>
 
         </div>
       </div>
@@ -577,21 +622,34 @@ export default function TenantDetailPage() {
 
 function TopBar({ onBack, onRefresh, label, loading }: { onBack: () => void; onRefresh: () => void; label: string; loading: boolean }) {
   return (
-    <div className="shrink-0 bg-background border-b px-4 sm:px-6 py-3">
-      <div className="max-w-7xl mx-auto flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 min-w-0">
-          <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={onBack}>
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-          <Shield className="h-4 w-4 text-primary shrink-0" />
-          <span className="text-xs text-muted-foreground hidden sm:inline">Plataforma</span>
-          <ChevronRight className="h-3.5 w-3.5 text-muted-foreground hidden sm:inline" />
-          <h1 className="font-semibold text-base truncate">{label}</h1>
-        </div>
-        <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={onRefresh} title="Actualizar">
-          <RefreshCw className="h-4 w-4" />
-        </Button>
+    <div className="shrink-0 bg-background border-b px-4 sm:px-6 pt-4 sm:pt-6 pb-4">
+      <div className="max-w-7xl mx-auto">
+        <button
+          onClick={onBack}
+          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors mb-2"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" />
+          Plataforma
+        </button>
+        <PageHeader
+          title={label}
+          description="Detalle, uso y recursos de la organización"
+          actions={
+            <Button variant="ghost" size="icon" className="h-9 w-9 shrink-0" onClick={onRefresh} title="Actualizar">
+              <RefreshCw className="h-4 w-4" />
+            </Button>
+          }
+        />
       </div>
+    </div>
+  );
+}
+
+function ZoneHeader({ label }: { label: string }) {
+  return (
+    <div className="flex items-center gap-3">
+      <h2 className="text-base font-bold tracking-tight text-foreground shrink-0">{label}</h2>
+      <Separator className="flex-1" />
     </div>
   );
 }

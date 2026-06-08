@@ -82,6 +82,7 @@ export default function PromptsPage() {
   const [form, setForm] = useState(emptyForm);
   const [formErr, setFormErr] = useState("");
   const [assignTenantId, setAssignTenantId] = useState("none");
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; nombre: string } | null>(null);
 
   // Motor tab state
   const [selectedSystem, setSelectedSystem] = useState<SystemComponent | null>(null);
@@ -142,7 +143,7 @@ export default function PromptsPage() {
 
   const deleteM = useMutation({
     mutationFn: (id: string) => api.promptTemplates.delete(id),
-    onSuccess: () => { invalidate(); setSelected(null); toast({ title: "Template eliminado" }); },
+    onSuccess: () => { invalidate(); setSelected(null); setDeleteTarget(null); toast({ title: "Template eliminado" }); },
   });
 
   const assignM = useMutation({
@@ -337,7 +338,7 @@ export default function PromptsPage() {
                       </Button>
                       <Button
                         variant="outline" size="sm" className="text-destructive hover:text-destructive"
-                        onClick={() => { if (confirm("¿Eliminar template?")) deleteM.mutate(detail.id); }}
+                        onClick={() => setDeleteTarget({ id: detail.id, nombre: detail.nombre })}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
@@ -627,13 +628,13 @@ export default function PromptsPage() {
                 Prompt del sistema
                 <span className="text-muted-foreground ml-1">({form.contenido.length}/4000 chars)</span>
               </Label>
-              <textarea
+              <Textarea
                 value={form.contenido}
                 onChange={e => setForm(f => ({ ...f, contenido: e.target.value }))}
                 placeholder={"Sos un asistente comercial...\nRespondés siempre en tono profesional...\nSolo respondés sobre productos y precios..."}
                 rows={8}
                 maxLength={4000}
-                className="w-full text-sm border rounded-md px-3 py-2 bg-background resize-none focus:outline-none focus:ring-1 focus:ring-ring font-mono"
+                className="text-sm resize-none font-mono"
               />
             </div>
             {formErr && <p className="text-xs text-destructive">{formErr}</p>}
@@ -648,6 +649,36 @@ export default function PromptsPage() {
                 <Loader2 className="h-4 w-4 animate-spin mr-2" />
               )}
               {editing ? "Guardar cambios" : "Crear personalidad"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Confirmación de borrado ── */}
+      <Dialog open={!!deleteTarget} onOpenChange={v => !v && setDeleteTarget(null)}>
+        <DialogContent className="w-full max-w-sm mx-4 sm:mx-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <Trash2 className="h-4 w-4" />
+              Eliminar personalidad
+            </DialogTitle>
+            <p className="text-sm text-muted-foreground pt-1">
+              ¿Seguro que querés eliminar{" "}
+              <span className="font-medium text-foreground">{deleteTarget?.nombre}</span>?
+              Esta acción no se puede deshacer.
+            </p>
+          </DialogHeader>
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button variant="outline" className="w-full sm:w-auto" onClick={() => setDeleteTarget(null)}>
+              Cancelar
+            </Button>
+            <Button
+              variant="destructive" className="w-full sm:w-auto"
+              disabled={deleteM.isPending}
+              onClick={() => { if (deleteTarget) deleteM.mutate(deleteTarget.id); }}
+            >
+              {deleteM.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+              Sí, eliminar
             </Button>
           </DialogFooter>
         </DialogContent>

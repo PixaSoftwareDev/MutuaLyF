@@ -11,6 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/toast";
 import { PageShell } from "@/components/layout/page-shell";
 import { PageHeader } from "@/components/layout/page-header";
+import { FormColumn } from "@/components/layout/form-column";
 
 const ROLE_LABEL: Record<string, string> = {
   operator: "Operador",
@@ -69,24 +70,24 @@ export default function AdminAccountPage() {
 
   if (isLoading || !me) {
     return (
-      <div className="h-full overflow-y-auto">
-        <PageShell className="max-w-2xl mx-auto">
-          <Skeleton className="h-8 w-48" />
-          <Skeleton className="h-48 rounded-lg" />
-          <Skeleton className="h-64 rounded-lg" />
-        </PageShell>
-      </div>
+      <PageShell>
+        <Skeleton className="h-8 w-48" />
+        <FormColumn>
+          <Skeleton className="h-48 rounded-2xl" />
+          <Skeleton className="h-64 rounded-2xl" />
+        </FormColumn>
+      </PageShell>
     );
   }
 
   return (
-    <div className="h-full overflow-y-auto">
-      <PageShell className="max-w-2xl mx-auto">
-        <PageHeader
-          title="Mi cuenta"
-          description="Editá tu nombre y contraseña de administrador."
-        />
+    <PageShell>
+      <PageHeader
+        title="Mi cuenta"
+        description="Editá tu nombre y contraseña de administrador."
+      />
 
+      <FormColumn>
         {/* Profile */}
         <Card>
           <CardHeader className="pb-3">
@@ -191,8 +192,8 @@ export default function AdminAccountPage() {
             </div>
           </CardContent>
         </Card>
-      </PageShell>
-    </div>
+      </FormColumn>
+    </PageShell>
   );
 }
 

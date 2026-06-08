@@ -472,7 +472,7 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
       {/* ── LEFT: queue ──────────────────────────────────────────────────── */}
       <div className={cn(
         "border-r flex flex-col shrink-0 bg-card",
-        "w-full sm:w-72",
+        "w-full sm:w-80",
         selectedId ? "hidden sm:flex" : "flex"
       )}>
 
@@ -487,7 +487,7 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
               {sseConnected
                 ? <Wifi    className="h-3.5 w-3.5 text-success" />
                 : <WifiOff className="h-3.5 w-3.5 text-muted-foreground animate-pulse" />}
-              <span className="text-[10px] text-muted-foreground">{sseConnected ? "En vivo" : "..."}</span>
+              <span className="text-[11px] text-muted-foreground">{sseConnected ? "En vivo" : "..."}</span>
             </div>
           </div>
         )}
@@ -695,7 +695,7 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
                           <ArrowRightLeft className="h-4 w-4 mr-2" />
                           <div className="flex flex-col">
                             <span>Transferir a otro sector</span>
-                            <span className="text-[10px] text-muted-foreground">
+                            <span className="text-[11px] text-muted-foreground">
                               Lo atiende otro equipo
                             </span>
                           </div>
@@ -704,7 +704,7 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
                           <UserMinus className="h-4 w-4 mr-2" />
                           <div className="flex flex-col">
                             <span>Liberar a la cola</span>
-                            <span className="text-[10px] text-muted-foreground">
+                            <span className="text-[11px] text-muted-foreground">
                               Otro operador del mismo sector la toma
                             </span>
                           </div>
@@ -713,7 +713,7 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
                           <RotateCcw className="h-4 w-4 mr-2" />
                           <div className="flex flex-col">
                             <span>Pasar al asistente automático</span>
-                            <span className="text-[10px] text-muted-foreground">
+                            <span className="text-[11px] text-muted-foreground">
                               El bot retoma la conversación
                             </span>
                           </div>
@@ -760,7 +760,7 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
               {operatorMessages.length > 0 && botMessages.length > 0 && (
                 <div className="flex items-center gap-2 py-1">
                   <div className="flex-1 border-t border-dashed border-border" />
-                  <span className="text-[10px] text-muted-foreground shrink-0 flex items-center gap-1">
+                  <span className="text-[11px] text-muted-foreground shrink-0 flex items-center gap-1">
                     <UserCheck className="h-3 w-3" /> Operador tomó la conversación
                   </span>
                   <div className="flex-1 border-t border-dashed border-border" />
@@ -1061,7 +1061,7 @@ function ConvCard({ conv, now, selected, readOnly, onlineNames, onSelect, onAcce
           {/* Operator name only matters cross-operator (admin view). Hidden
               in the operator's own inbox where every card is theirs. */}
           {readOnly && conv.operator_name && (
-            <p className="text-[10px] mt-0.5 flex items-center gap-1">
+            <p className="text-[11px] mt-0.5 flex items-center gap-1">
               <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", operatorOnline ? "bg-success" : "bg-muted-foreground/40")} />
               <span className={cn("truncate", operatorOnline ? "text-success font-medium" : "text-muted-foreground")}>
                 {conv.operator_name}
@@ -1082,7 +1082,7 @@ function ConvCard({ conv, now, selected, readOnly, onlineNames, onSelect, onAcce
           )}
 
           {yourTurn && (
-            <span className="text-[10px] font-semibold text-orange-600">tu turno</span>
+            <span className="text-[11px] font-semibold text-orange-600">tu turno</span>
           )}
 
           {!readOnly && isHandoff && (

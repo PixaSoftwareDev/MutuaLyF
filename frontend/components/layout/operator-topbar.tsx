@@ -29,8 +29,15 @@ const NAV_ITEMS: Array<{ href: string; label: string; icon: typeof Inbox }> = [
   { href: "/operator/historial", label: "Historial", icon: History },
 ];
 
+const ROLE_LABEL: Record<string, string> = {
+  operator: "Operador",
+  admin: "Administrador",
+  super_admin: "Super admin",
+};
+
 export function OperatorTopbar() {
-  const { userEmail, clearAuth } = useAuthStore();
+  const { userEmail, userRole, clearAuth } = useAuthStore();
+  const roleLabel = ROLE_LABEL[userRole ?? ""] ?? "Operador";
   const router = useRouter();
   const pathname = usePathname();
   const { branding } = useTenantBranding();
@@ -104,10 +111,13 @@ export function OperatorTopbar() {
 
       <div className="flex-1" />
 
-      {/* Operator identity */}
+      {/* Operator identity — rol como identidad principal, email como secundario
+          (el store no expone el nombre del operador todavía). */}
       <div className="hidden sm:flex flex-col items-end leading-tight min-w-0">
-        <span className="text-xs font-medium text-brand-foreground truncate max-w-[220px]">{userEmail}</span>
-        <span className="text-[10px] text-brand-foreground/60">Operador · {branding.display_name}</span>
+        <span className="text-xs font-medium text-brand-foreground truncate max-w-[220px]">{roleLabel}</span>
+        {userEmail && (
+          <span className="text-[11px] text-brand-foreground/60 truncate max-w-[220px]">{userEmail}</span>
+        )}
       </div>
 
       {/* Actions */}
@@ -124,8 +134,10 @@ export function OperatorTopbar() {
         <DropdownMenuContent align="end" className="w-56">
           <DropdownMenuLabel className="sm:hidden font-normal">
             <div className="flex flex-col gap-0.5">
-              <span className="text-xs font-medium truncate">{userEmail}</span>
-              <span className="text-[10px] text-muted-foreground">Operador · {branding.display_name}</span>
+              <span className="text-xs font-medium truncate">{roleLabel}</span>
+              {userEmail && (
+                <span className="text-[11px] text-muted-foreground truncate">{userEmail}</span>
+              )}
             </div>
           </DropdownMenuLabel>
           <DropdownMenuSeparator className="sm:hidden" />
