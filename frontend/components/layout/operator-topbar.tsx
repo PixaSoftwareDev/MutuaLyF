@@ -70,23 +70,45 @@ export function OperatorTopbar() {
     // Topbar CLARO, coherente con el login y el sidebar del admin. La marca de
     // la barra es Intellix (el producto); el tenant es contexto a la derecha.
     <header
-      className="h-14 text-slate-600 flex items-center px-3 sm:px-4 gap-3 shrink-0 border-b border-slate-200"
+      className="relative h-14 text-slate-600 flex items-center px-3 sm:px-4 gap-3 shrink-0 border-b border-slate-200"
       style={{
         // Superficie clara con tinte de marca leve y uniforme, igual que el
-        // sidebar del admin. Sin gradientes localizados.
+        // sidebar del admin.
         background: "#f1f2fb",
       }}
     >
-      {/* Brand Intellix */}
-      <Link href="/operator" className="flex items-center min-w-0" aria-label="Intellix">
+      {/* Mesh de marca sutil — el mismo lenguaje del sidebar del admin y el
+          login (cyan/violeta en las esquinas superiores). */}
+      <div
+        aria-hidden
+        className="absolute inset-0 pointer-events-none"
+        style={{
+          backgroundImage:
+            "radial-gradient(circle at 0% 0%, #4FC3F726 0%, transparent 62%)," +
+            "radial-gradient(circle at 100% 0%, #7A2DFF20 0%, transparent 60%)",
+        }}
+      />
+
+      {/* Brand Intellix — misma composición que el sidebar del admin:
+          isotipo + wordmark con los mismos assets y tamaños. */}
+      <Link href="/operator" className="flex items-center gap-2 min-w-0" aria-label="Intellix">
         <Image
-          src="/brand/intellix-wordmark-white.png"
-          alt="Intellix"
-          width={520}
-          height={170}
+          src="/brand/intellix-mark.png"
+          alt=""
+          width={1400}
+          height={1400}
           priority
           unoptimized
-          className="h-[22px] w-auto object-contain"
+          className="h-7 w-7 object-contain shrink-0"
+        />
+        <Image
+          src="/brand/intellix-wordmark.png"
+          alt=""
+          width={1518}
+          height={174}
+          priority
+          unoptimized
+          className="h-[14px] w-auto object-contain hidden min-[420px]:block"
         />
       </Link>
 
