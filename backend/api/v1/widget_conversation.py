@@ -64,7 +64,10 @@ class ConfirmHandoffRequest(BaseModel):
     operador. Sin estos datos, el handoff sigue funcionando (degraded mode).
     """
     afiliado_nombre: str | None = Field(default=None, min_length=1, max_length=200)
-    afiliado_dni:    str | None = Field(default=None, min_length=4, max_length=20)
+    # El DNI es solo un identificador para el operador (el handoff funciona incluso
+    # sin él, ver degraded mode). min_length=1 para coincidir con el front, que no
+    # impone un mínimo — antes estaba en 4 y un DNI corto rebotaba con 422 silencioso.
+    afiliado_dni:    str | None = Field(default=None, min_length=1, max_length=20)
 
 
 # ── Start / resume conversation ───────────────────────────────────────────────

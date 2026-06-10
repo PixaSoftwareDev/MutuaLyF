@@ -111,6 +111,7 @@
   var selectedSector = null;
   var handoffBubble  = null;   // referencia al bubble de oferta de handoff activo
   var handoffConfirmed = false;
+  var lastHandoffMessage = "";  // texto de la oferta, para re-mostrarla si el confirm falla
   var afiliadoIdentified = false;  // true si la conv ya tiene nombre + DNI
 
   // ── Styles ─────────────────────────────────────────────────────────────────────
@@ -668,6 +669,7 @@
   }
 
   function _renderHandoffOffer(message) {
+    lastHandoffMessage = message;
     handoffBubble.innerHTML = "";
     var p = document.createElement("p");
     p.className = "ia-w-hf-text";
@@ -715,7 +717,9 @@
       var n = nombreEl.value.trim(), d = dniEl.value.trim();
       if (!n) return showErr("Decinos tu nombre, por favor.");
       if (!d) return showErr("Decinos tu DNI, por favor.");
-      if (d.length < 4) return showErr("El DNI parece muy corto.");
+      // Sin mínimo de largo: es solo un identificador para el operador (mismo
+      // criterio que /chat y el back, min_length=1). Antes exigía 4 y quedaba
+      // inconsistente con el otro front.
       _confirmHandoff({ afiliado_nombre: n, afiliado_dni: d });
     }
     submitEl.addEventListener("click", submit);
@@ -736,7 +740,20 @@
       opts.body = JSON.stringify(identifyData);
     }
     fetch(API_BASE + "/api/v1/widget/conversation/" + conversationId + "/confirm-handoff?widget_session_id=" + encodeURIComponent(widgetSessionId), opts)
-      .then(function (r) { return r.json(); })
+      .then(function (r) {
+        return r.json().catch(function () { return {}; }).then(function (data) {
+          // ANTES no se chequeaba r.ok → ante 422/404/410 se mostraba "Esperando
+          // operador…" sin que el handoff se creara (falla silenciosa). Ahora
+          // un no-2xx tira error y se restaura la oferta para reintentar.
+          if (!r.ok) {
+            var detail = typeof data.detail === "string" ? data.detail
+              : (data.detail && data.detail[0] && data.detail[0].msg) ? data.detail[0].msg
+              : "";
+            throw new Error(detail || ("No pudimos conectarte (error " + r.status + ")."));
+          }
+          return data;
+        });
+      })
       .then(function (data) {
         convStatus = data.status; _updateHeader();
         if (data.message) _appendMessage("system", data.message);
@@ -744,7 +761,9 @@
       .catch(function (err) {
         console.error("[IA Widget] confirm handoff:", err);
         handoffConfirmed = false;
-        _appendMessage("error", "No pudimos conectarte. Probá de nuevo.");
+        // Restaurar la oferta (el loader había reemplazado el botón) para reintentar.
+        if (handoffBubble) _renderHandoffOffer(lastHandoffMessage);
+        _appendMessage("error", err && err.message ? err.message : "No pudimos conectarte. Probá de nuevo.");
       });
   }
 

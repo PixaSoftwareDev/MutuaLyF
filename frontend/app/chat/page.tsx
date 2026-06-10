@@ -446,11 +446,27 @@ function ChatInner() {
         headers,
         body,
       });
-      const data = await r.json();
+      const data = await r.json().catch(() => ({}));
+      // ANTES: no se chequeaba r.ok → ante un 422/404/410 igual se ponía
+      // "Esperando operador…" aunque el handoff nunca se creó (falla silenciosa,
+      // el afiliado esperaba para siempre). Ahora un no-2xx revierte y avisa.
+      if (!r.ok) {
+        const detail =
+          typeof data?.detail === "string" ? data.detail :
+          Array.isArray(data?.detail)      ? (data.detail[0]?.msg ?? "") :
+          "";
+        throw new Error(detail || `No se pudo conectar con un operador (error ${r.status}). Probá de nuevo.`);
+      }
       setStatus(data.status ?? "handoff_requested");
       if (data.message)
         setMessages(prev => [...prev, { id: Date.now().toString() + "c", role: "system", content: data.message }]);
-    } catch { /* ignore */ }
+    } catch (e) {
+      // Revertir el estado "confirmado" para que el afiliado pueda reintentar,
+      // y mostrarle el motivo en vez de dejarlo esperando sin feedback.
+      setHandoffConfirmed(false);
+      const msg = e instanceof Error ? e.message : "No se pudo conectar con un operador. Probá de nuevo.";
+      setMessages(prev => [...prev, { id: Date.now().toString() + "he", role: "system", content: msg }]);
+    }
   }
 
   const statusLabel =
