@@ -961,40 +961,8 @@ export const api = {
     },
   },
 
-  entities: {
-    stats: async () => {
-      const { data } = await apiClient.get<EntityStats[]>("/entities/stats");
-      return data;
-    },
-    list: async (params?: { label?: string; search?: string; limit?: number }) => {
-      const q = new URLSearchParams();
-      if (params?.label)  q.set("label",  params.label);
-      if (params?.search) q.set("search", params.search);
-      if (params?.limit)  q.set("limit",  String(params.limit));
-      const { data } = await apiClient.get<EntitySummary[]>(`/entities?${q}`);
-      return data;
-    },
-    detail: async (label: string, nombre: string) => {
-      const { data } = await apiClient.get<EntityDetail>(`/entities/${label}/${encodeURIComponent(nombre)}`);
-      return data;
-    },
-    /** Renombrar y/o cambiar el tipo de una entidad. */
-    update: async (
-      label: string,
-      nombre: string,
-      changes: { new_nombre?: string; new_label?: EntityLabel },
-    ): Promise<{ nombre: string; label: string }> => {
-      const { data } = await apiClient.patch(
-        `/entities/${label}/${encodeURIComponent(nombre)}`,
-        changes,
-      );
-      return data;
-    },
-    /** Eliminar una entidad detectada mal por GLiNER (no borra chunks). */
-    remove: async (label: string, nombre: string): Promise<void> => {
-      await apiClient.delete(`/entities/${label}/${encodeURIComponent(nombre)}`);
-    },
-  },
+  // NOTA: el cliente de /entities se eliminó junto con la página /admin/entities
+  // (backend ENTITIES_DISABLED). Si la feature vuelve, está en el historial de git.
 
   audit: {
     list: async (params?: { limit?: number; offset?: number; action?: string }) => {
@@ -1101,33 +1069,3 @@ interface AuditEvent {
   created_at: string;
 }
 
-export interface EntityStats {
-  label: string;
-  count: number;
-}
-
-export interface EntitySummary {
-  nombre: string;
-  nombre_normalizado: string;
-  label: string;
-  mention_count: number;
-  created_at: string | null;
-}
-
-export interface EntityChunk {
-  chunk_id: string;
-  doc_id: string;
-  doc_filename: string | null;
-  /** Texto del chunk (preview o completo) para mostrar contexto de la entidad. */
-  text: string | null;
-}
-
-export type EntityLabel =
-  | "Persona" | "Rol" | "Departamento" | "Horario" | "Dominio"
-  | "Organizacion" | "Fecha" | "Lugar" | "Entidad";
-
-export interface EntityDetail {
-  nombre: string;
-  label: string;
-  chunks: EntityChunk[];
-}
