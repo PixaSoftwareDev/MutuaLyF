@@ -118,6 +118,8 @@ CREATE TABLE IF NOT EXISTS conversaciones (
     afiliado_email          VARCHAR(320),
     afiliado_dni            VARCHAR(20),
     afiliado_ip             VARCHAR(45),
+    channel                 VARCHAR(20) NOT NULL DEFAULT 'widget',  -- 'widget' | 'whatsapp'
+    external_id             VARCHAR(64),                            -- wa_id (telefono) si channel='whatsapp'
     created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     handoff_requested_at    TIMESTAMPTZ,
@@ -126,6 +128,7 @@ CREATE TABLE IF NOT EXISTS conversaciones (
 CREATE INDEX IF NOT EXISTS ix_conversaciones_session ON conversaciones (widget_session_id);
 CREATE INDEX IF NOT EXISTS ix_conversaciones_status  ON conversaciones (status, created_at DESC);
 CREATE INDEX IF NOT EXISTS ix_conversaciones_sector  ON conversaciones (sector_id, status);
+CREATE INDEX IF NOT EXISTS ix_conversaciones_channel_ext ON conversaciones (channel, external_id) WHERE external_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS mensajes (
     id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),

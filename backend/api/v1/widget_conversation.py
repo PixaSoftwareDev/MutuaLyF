@@ -77,6 +77,23 @@ async def start_conversation(
     widget_user: CurrentUser = Depends(get_widget_or_chat_user),
 ):
     """Create a new conversation or resume existing active one for this session."""
+    # Canal widget desactivado desde el panel (Configuración → Canales) → 403.
+    # "Probar chat" (is_test) sigue funcionando para que el admin pueda probar.
+    # try/except: tolera bases que aún no corrieron la migración 023.
+    if not body.is_test:
+        try:
+            async with get_pg_session() as gsession:
+                row = (await gsession.execute(
+                    text("SELECT widget_enabled FROM public.tenants WHERE id = :tid"),
+                    {"tid": tenant_id},
+                )).fetchone()
+            if row is not None and row[0] is False:
+                raise HTTPException(status_code=403, detail="El canal de chat web está desactivado.")
+        except HTTPException:
+            raise
+        except Exception:
+            logger.warning("widget_enabled_check_failed tenant=%s (¿falta migración 023?)", tenant_id)
+
     async with get_pg_session(tenant_id) as session:
         # Advisory lock por widget_session_id para serializar requests
         # concurrentes del mismo afiliado (2 tabs abriendo a la vez). Sin esto,

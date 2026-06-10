@@ -16,7 +16,7 @@ from core.database import connect_all, disconnect_all
 from core.tenant import TenantMiddleware
 from core.metrics import setup_metrics
 from core.tracing import setup_tracing
-from api.v1 import auth, query, ingest, intentions, tenants, widget_conversation, operator_panel, duplicates, audit_log, system_prompts, branding, export, attachments
+from api.v1 import auth, query, ingest, intentions, tenants, widget_conversation, operator_panel, duplicates, audit_log, system_prompts, branding, export, attachments, channels
 # ENTITIES_DISABLED: from api.v1 import entities
 
 # ── Logging — must be first, before any other import that logs ─────────────────
@@ -147,6 +147,7 @@ app.include_router(system_prompts.router, prefix="/api/v1", tags=["system-prompt
 # ENTITIES_DISABLED: app.include_router(entities.router, prefix="/api/v1", tags=["entities"])
 app.include_router(branding.router, prefix="/api/v1", tags=["branding"])
 app.include_router(export.router, prefix="/api/v1", tags=["export"])
+app.include_router(channels.router, prefix="/api/v1", tags=["channels"])
 
 
 # ── Static: tenant uploads (logos, favicons) ──────────────────────────────────

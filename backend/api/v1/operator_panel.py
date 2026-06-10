@@ -459,6 +459,8 @@ async def accept_handoff(
     fire_and_log(publish(tenant_id, "conversation_updated", {
         "conversation_id": conversation_id, "status": ConvStatus.HUMAN_ATTENDING,
     }))
+    from services.whatsapp import relay_to_whatsapp
+    fire_and_log(relay_to_whatsapp(tenant_id, conversation_id, msg), "whatsapp.relay")
     return {"status": ConvStatus.HUMAN_ATTENDING, "system_message": msg}
 
 
@@ -524,6 +526,11 @@ async def reply(
     fire_and_log(publish(tenant_id, "new_message", {
         "conversation_id": conversation_id, "sender": "operator",
     }))
+    # Conversaciones de WhatsApp: la respuesta del operador sale por la Graph
+    # API (no-op para canal widget). Fire-and-forget: la entrega al panel no
+    # depende de Meta.
+    from services.whatsapp import relay_to_whatsapp
+    fire_and_log(relay_to_whatsapp(tenant_id, conversation_id, body.content), "whatsapp.relay")
     return {"status": "sent"}
 
 
@@ -746,6 +753,8 @@ async def close_conversation(
     fire_and_log(publish(tenant_id, "conversation_updated", {
         "conversation_id": conversation_id, "status": ConvStatus.CLOSED,
     }))
+    from services.whatsapp import relay_to_whatsapp
+    fire_and_log(relay_to_whatsapp(tenant_id, conversation_id, msg), "whatsapp.relay")
     return {"status": ConvStatus.CLOSED}
 
 
