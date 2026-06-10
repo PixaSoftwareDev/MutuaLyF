@@ -290,6 +290,88 @@ def chunk_document(
     return chunks
 
 
+# ── JSON aplanado: secciones alineadas a registros ────────────────────────────
+# El extractor de JSON emite líneas "base[N].campo: valor". Para una lista de
+# registros (nómina, catálogo), los splitters por tokens podían partir un
+# registro al medio (mitad de los campos en un chunk, mitad en otro). Acá se
+# corta SIEMPRE en el límite de un registro.
+_JSON_RECORD_RE = re.compile(r"^([\w.]+)\[(\d+)\]")
+
+# Palabras objetivo por parent al empaquetar registros — alineado al cap
+# general de parents (~700), con margen para el header.
+_JSON_PARENT_TARGET_WORDS = 600
+
+
+def _json_record_sections(text: str) -> list[tuple[str, str]] | None:
+    """Secciones (header, body) alineadas a registros para texto aplanado de JSON.
+
+    Detecta si el texto es una lista de registros (≥3 índices del mismo array
+    dominante). Agrupa registros ENTEROS en parents de hasta ~600 palabras y
+    separa cada registro con línea en blanco — el split de children luego hace
+    1 registro = 1 child, así cada embedding representa un solo registro.
+
+    Devuelve None si el texto no tiene esa forma (sigue el camino estructural
+    normal). Solo se invoca para mime application/json.
+    """
+    lines = [ln for ln in text.splitlines() if ln.strip()]
+    if not lines:
+        return None
+
+    preamble: list[str] = []
+    records: dict[tuple[str, str], list[str]] = {}   # (base, idx) → líneas
+    order: list[tuple[str, str]] = []
+    for ln in lines:
+        m = _JSON_RECORD_RE.match(ln)
+        if m:
+            key = (m.group(1), m.group(2))
+            if key not in records:
+                records[key] = []
+                order.append(key)
+            records[key].append(ln)
+        else:
+            preamble.append(ln)
+
+    if len(records) < 3:
+        return None
+    # Base dominante: si el JSON mezcla varios arrays, exigimos que uno
+    # concentre el grueso de los registros para tratarlo como lista.
+    from collections import Counter
+    base_counts = Counter(base for base, _ in order)
+    dominant_base, dominant_n = base_counts.most_common(1)[0]
+    record_lines = sum(len(v) for v in records.values())
+    if dominant_n < 3 or record_lines < 0.6 * len(lines):
+        return None
+
+    # Registros que no son del base dominante van al preámbulo (raro: JSON con
+    # dos arrays grandes — preferimos no inventar dos listas).
+    record_blocks: list[str] = []
+    for key in order:
+        block = "\n".join(records[key])
+        if key[0] == dominant_base:
+            record_blocks.append(block)
+        else:
+            preamble.append(block)
+
+    sections: list[tuple[str, str]] = []
+    if preamble:
+        sections.append(("", "\n".join(preamble)))
+
+    # Empaquetar registros enteros hasta el target — nunca partir uno.
+    current: list[str] = []
+    current_words = 0
+    for block in record_blocks:
+        block_words = _count_tokens(block)
+        if current and current_words + block_words > _JSON_PARENT_TARGET_WORDS:
+            sections.append((dominant_base, "\n\n".join(current)))
+            current, current_words = [], 0
+        current.append(block)
+        current_words += block_words
+    if current:
+        sections.append((dominant_base, "\n\n".join(current)))
+
+    return sections
+
+
 def chunk_document_hierarchical(
     text: str,
     document_id: str,
@@ -330,14 +412,25 @@ def chunk_document_hierarchical(
         return _build_single_parent(text, document_id, tenant_id, doc_type, meta)
 
     # ── FAQ: split by question/answer pairs ──────────────────────────────────
+    is_json_records = False
     if doc_type == "faq":
         sections = _faq_split(text)
     elif doc_type == "entity_list":
         # Lista de entidades: una sección por ítem (no agrupar por tamaño).
         sections = _entity_split(text)
     else:
-        # 1. Split into structural parent sections (type-aware cap)
-        sections = _structural_split(text, doc_type)
+        # JSON aplanado con forma de lista de registros → cortar por registro,
+        # nunca por tokens ciegos. Solo aplica a uploads application/json.
+        json_sections = (
+            _json_record_sections(text)
+            if meta.get("mime_type") == "application/json" else None
+        )
+        if json_sections:
+            sections = json_sections
+            is_json_records = True
+        else:
+            # 1. Split into structural parent sections (type-aware cap)
+            sections = _structural_split(text, doc_type)
 
     parents: list[HierarchicalChunk] = []
     children: list[Chunk] = []
@@ -366,6 +459,22 @@ def chunk_document_hierarchical(
         # su embedding representa una sola entidad y no una mezcla de varias.
         if doc_type == "entity_list":
             child_texts = [body] if body.strip() else []
+        elif is_json_records:
+            # 1 registro = 1 child (los registros vienen separados por línea en
+            # blanco). El splitter genérico los re-empaquetaría hasta llenar el
+            # chunk_size, mezclando varios registros en un embedding. Solo un
+            # registro anómalamente largo se sub-divide.
+            child_texts = []
+            for r in body.split("\n\n"):
+                r = r.strip()
+                if not r:
+                    continue
+                if _count_tokens(r) > settings.child_chunk_size_words * 2:
+                    child_texts.extend(t for t in _build_child_splitter().split_text(r) if t.strip())
+                else:
+                    child_texts.append(r)
+            if not child_texts:
+                child_texts = [body] if body.strip() else []
         else:
             child_texts = [t for t in _build_child_splitter().split_text(body) if t.strip()]
             if not child_texts:

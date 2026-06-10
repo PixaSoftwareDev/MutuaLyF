@@ -642,7 +642,7 @@ async def ingest_document(
     if mime_type not in ALLOWED_MIME_TYPES or mime_type == "application/octet-stream":
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            detail=f"Tipo de archivo no soportado: {file.content_type}. Use PDF, DOCX, TXT o HTML.",
+            detail=f"Tipo de archivo no soportado: {file.content_type}. Use PDF, DOCX, TXT, HTML o JSON.",
         )
 
     # Read and check size before writing to disk
@@ -655,7 +655,7 @@ async def ingest_document(
     if len(content) > _MAX_FILE_BYTES:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail=f"File exceeds maximum allowed size of {_MAX_FILE_BYTES // (1024*1024)} MB",
+            detail=f"El archivo supera el máximo de {_MAX_FILE_BYTES // (1024*1024)} MB.",
         )
 
     # ── Validar MIME real con libmagic ────────────────────────────────────────
@@ -684,6 +684,25 @@ async def ingest_document(
                 "Solo aceptamos PDF, DOCX, TXT, HTML o JSON."
             ),
         )
+
+    # ── JSON: validar el parseo en el upload ──────────────────────────────────
+    # Un JSON roto NO se rechazaba: caía al fallback "texto plano" del extractor
+    # y la sintaxis cruda se indexaba en silencio (basura en la KB que el bot
+    # puede citar). Mejor rebotarlo acá con la ubicación del error para que el
+    # admin lo corrija. Solo JSON: es el único formato parseable barato y completo.
+    if mime_type == "application/json":
+        import asyncio as _aio
+        import json as _json
+        try:
+            await _aio.to_thread(_json.loads, content.decode("utf-8", errors="replace"))
+        except _json.JSONDecodeError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"El archivo no es un JSON válido (error en línea {exc.lineno}, "
+                    f"columna {exc.colno}). Corregilo y volvé a subirlo."
+                ),
+            )
 
     # Plan limit: document count + per-file size cap
     from core.plan_limits import enforce_document_limit
