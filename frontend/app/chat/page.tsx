@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
-import { Loader2, Send, Bot, ChevronLeft, UserCheck, AlertTriangle } from "lucide-react";
+import { Loader2, Send, Bot, ChevronLeft, UserCheck, AlertTriangle, Paperclip } from "lucide-react";
 import { api, type TenantBranding } from "@/lib/api";
 import { applyBrandingVars, readCachedBranding, writeCachedBranding } from "@/lib/use-tenant-branding";
 import { renderWithLinks } from "@/lib/render-with-links";
@@ -11,7 +11,13 @@ import { renderWithLinks } from "@/lib/render-with-links";
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
 interface Sector { id: string; nombre: string; descripcion: string | null; is_default: boolean; }
-interface Message { id: string; role: "user" | "bot" | "operator" | "system"; content: string; handoffOffer?: boolean; }
+interface Message {
+  id: string;
+  role: "user" | "bot" | "operator" | "system";
+  content: string;
+  handoffOffer?: boolean;
+  attachment?: { name: string; mime: string } | null;
+}
 
 export default function ChatPage() {
   return (
@@ -53,6 +59,88 @@ function UserBubble({ content }: { content: string }) {
       <div className="max-w-[78%] sm:max-w-[65%]">
         <div className="bg-gradient-to-br from-brand to-brand-dark text-brand-foreground rounded-2xl rounded-br-sm px-4 py-3 text-sm leading-relaxed shadow-md shadow-black/15">
           {renderWithLinks(content)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Adjunto dentro de la conversación (imagen inline o link de descarga).
+ * Baja el archivo con fetch + headers de auth (un <img src> directo no puede
+ * mandar el Bearer) y muestra "expiró" si la retención de 60 días ya lo borró.
+ */
+function AttachmentMessage({ msg, url, headers, operatorName }: {
+  msg: Message;
+  url: string;
+  headers: Record<string, string>;
+  operatorName: string | null;
+}) {
+  const [src, setSrc] = useState<string | null>(null);
+  const [err, setErr] = useState<"expired" | "failed" | null>(null);
+  const isImage = (msg.attachment?.mime || "").startsWith("image/");
+  const fromUser = msg.role === "user";
+
+  useEffect(() => {
+    let active = true;
+    let created: string | null = null;
+    fetch(url, { headers })
+      .then(r => {
+        if (!r.ok) throw Object.assign(new Error("attachment_fetch_failed"), { status: r.status });
+        return r.blob();
+      })
+      .then(b => {
+        const u = URL.createObjectURL(b);
+        if (active) { created = u; setSrc(u); } else URL.revokeObjectURL(u);
+      })
+      .catch((e: any) => { if (active) setErr(e?.status === 410 ? "expired" : "failed"); });
+    return () => { active = false; if (created) URL.revokeObjectURL(created); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [url]);
+
+  const inner = err === "expired" ? (
+    <span className="inline-flex items-center gap-1.5 text-xs opacity-70">
+      <Paperclip className="h-3.5 w-3.5 shrink-0" />El archivo expiró y ya no está disponible
+    </span>
+  ) : err ? (
+    <span className="text-xs opacity-70">No se pudo cargar el archivo</span>
+  ) : !src ? (
+    <span className="inline-flex items-center gap-1.5 text-xs opacity-70">
+      <Loader2 className="h-3.5 w-3.5 animate-spin" />{msg.attachment?.name}
+    </span>
+  ) : isImage ? (
+    <img
+      src={src}
+      alt={msg.attachment?.name || "imagen"}
+      onClick={() => window.open(src, "_blank")}
+      className="max-w-[220px] max-h-[220px] rounded-xl cursor-pointer"
+    />
+  ) : (
+    <a href={src} download={msg.attachment?.name} className="inline-flex items-center gap-1.5 text-sm underline underline-offset-2 break-all">
+      <Paperclip className="h-4 w-4 shrink-0" />{msg.attachment?.name}
+    </a>
+  );
+
+  if (fromUser) {
+    return (
+      <div className="flex justify-end">
+        <div className="max-w-[78%] sm:max-w-[65%]">
+          <div className="bg-gradient-to-br from-brand to-brand-dark text-brand-foreground rounded-2xl rounded-br-sm px-3 py-2.5 shadow-md shadow-black/15">
+            {inner}
+          </div>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="flex gap-3 items-end">
+      <div className="w-8 h-8 rounded-xl bg-success flex items-center justify-center shrink-0 shadow-md shadow-black/10">
+        <UserCheck className="h-4 w-4 text-success-foreground" />
+      </div>
+      <div className="max-w-[78%] sm:max-w-[65%]">
+        {operatorName && <p className="text-[11px] text-muted-foreground mb-1 ml-1">{operatorName}</p>}
+        <div className="bg-white text-slate-800 rounded-2xl rounded-bl-sm px-3 py-2.5 shadow-sm border border-slate-100">
+          {inner}
         </div>
       </div>
     </div>
@@ -218,8 +306,10 @@ function ChatInner() {
   const [operatorsOnline, setOperatorsOnline] = useState<{ count: number; names: string[] } | null>(null);
   const [handoffConfirmed, setHandoffConfirmed] = useState(false);
   const [afiliadoIdentified, setAfiliadoIdentified] = useState(false);
+  const [uploadingFile, setUploadingFile]   = useState(false);
   const bottomRef                           = useRef<HTMLDivElement>(null);
   const inputRef                            = useRef<HTMLInputElement>(null);
+  const fileInputRef                        = useRef<HTMLInputElement>(null);
   const sessionId                           = useRef<string>("");
   const pollTimeoutRef                      = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollAliveRef                        = useRef<boolean>(false);
@@ -312,11 +402,12 @@ function ChatInner() {
       // solo lo respeta mientras la conversacion siga en bot_active — si ya
       // paso a handoff_requested, la tarjeta deja de ofrecer accion.
       const isStillBot = data.status === "bot_active";
-      const msgs = (data.messages || []).map((m: { id: string; sender_type: string; content: string; is_handoff_offer?: boolean }) => ({
+      const msgs = (data.messages || []).map((m: { id: string; sender_type: string; content: string; is_handoff_offer?: boolean; attachment_name?: string | null; attachment_mime?: string | null }) => ({
         id:   m.id,
         role: m.sender_type as Message["role"],
         content: m.content,
         handoffOffer: isStillBot && Boolean(m.is_handoff_offer),
+        attachment: m.attachment_name ? { name: m.attachment_name, mime: m.attachment_mime || "" } : null,
       }));
       setMessages(msgs);
       if (msgs.length > 0) lastMessageIdRef.current = msgs[msgs.length - 1].id;
@@ -429,6 +520,44 @@ function ChatInner() {
     if (!text || !conversationId || sending) return;
     setInput("");
     await sendMessageTo(conversationId, text);
+  }
+
+  // Mismos límites que el backend (attachments.py): imágenes/PDF, 10 MB.
+  const ALLOWED_ATTACH = ["image/png", "image/jpeg", "image/jpg", "image/webp", "application/pdf"];
+
+  async function uploadAttachment(file: File) {
+    if (!conversationId || uploadingFile) return;
+    if (!ALLOWED_ATTACH.includes(file.type)) {
+      setMessages(prev => [...prev, { id: Date.now() + "av", role: "system", content: "Solo se pueden enviar imágenes (PNG/JPG/WEBP) o PDF." }]);
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setMessages(prev => [...prev, { id: Date.now() + "as", role: "system", content: "El archivo supera el máximo de 10 MB." }]);
+      return;
+    }
+    setUploadingFile(true);
+    try {
+      const fd = new FormData();
+      fd.append("widget_session_id", sessionId.current);
+      fd.append("file", file);
+      const r = await fetch(`${API_BASE}/api/v1/widget/conversation/${conversationId}/attachment`, {
+        method: "POST",
+        // Sin Content-Type: el browser arma el multipart boundary solo.
+        headers: { Authorization: `Bearer ${resolvedToken}`, "X-Tenant-ID": tenantId },
+        body: fd,
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        const detail = typeof data?.detail === "string" ? data.detail : "No se pudo enviar el archivo. Probá de nuevo.";
+        throw new Error(detail);
+      }
+      await pollMessages(conversationId);  // refleja el adjunto recién subido
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "No se pudo enviar el archivo. Probá de nuevo.";
+      setMessages(prev => [...prev, { id: Date.now() + "ae", role: "system", content: msg }]);
+    } finally {
+      setUploadingFile(false);
+    }
   }
 
   async function confirmHandoff(identif?: { afiliado_nombre: string; afiliado_dni: string }) {
@@ -599,6 +728,16 @@ function ChatInner() {
             <>
               <div className="flex-1" />
               {messages.map(m => {
+                if (m.attachment && conversationId)
+                  return (
+                    <AttachmentMessage
+                      key={m.id}
+                      msg={m}
+                      url={`${API_BASE}/api/v1/widget/conversation/${conversationId}/attachment/${m.id}?widget_session_id=${encodeURIComponent(sessionId.current)}`}
+                      headers={{ Authorization: `Bearer ${resolvedToken}`, "X-Tenant-ID": tenantId }}
+                      operatorName={operatorName}
+                    />
+                  );
                 if (m.role === "user")     return <UserBubble     key={m.id} content={m.content} />;
                 if (m.role === "operator") return <OperatorBubble key={m.id} content={m.content} operatorName={operatorName} />;
                 if (m.role === "system" && m.handoffOffer)
@@ -618,6 +757,34 @@ function ChatInner() {
       <div className="shrink-0 border-t bg-card/80 backdrop-blur-md">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 py-3 sm:py-4">
           <div className="flex gap-3 items-center">
+            {/* Adjuntar — solo con conversación activa */}
+            {phase === "chat" && conversationId && (
+              <>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/jpg,image/webp,application/pdf"
+                  className="hidden"
+                  onChange={e => {
+                    const f = e.target.files?.[0];
+                    if (f) uploadAttachment(f);
+                    e.target.value = "";
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploadingFile}
+                  aria-label="Adjuntar imagen o PDF"
+                  title="Adjuntar imagen o PDF"
+                  className="w-12 h-12 rounded-2xl shrink-0 bg-muted hover:bg-muted/70 text-muted-foreground hover:text-foreground flex items-center justify-center transition-all disabled:opacity-50"
+                >
+                  {uploadingFile
+                    ? <Loader2 className="h-4 w-4 animate-spin" />
+                    : <Paperclip className="h-4 w-4" />}
+                </button>
+              </>
+            )}
             <div className="flex-1 relative">
               <input
                 ref={inputRef}

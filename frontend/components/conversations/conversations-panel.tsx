@@ -1136,15 +1136,23 @@ function ConvCard({ conv, now, selected, readOnly, onlineNames, onSelect, onAcce
 function AttachmentView({ conversationId, messageId, name, mime }:
   { conversationId: string; messageId: string; name: string; mime: string }) {
   const [url, setUrl] = useState<string | null>(null);
-  const [err, setErr] = useState(false);
+  const [err, setErr] = useState<"expired" | "failed" | null>(null);
   useEffect(() => {
     let active = true;
     let created: string | null = null;
     api.operator.attachmentBlobUrl(conversationId, messageId)
       .then(u => { if (active) { created = u; setUrl(u); } else { URL.revokeObjectURL(u); } })
-      .catch(() => { if (active) setErr(true); });
+      .catch((e: any) => {
+        // 410 = la retención (60 días) ya borró el archivo; el mensaje queda.
+        if (active) setErr(e?.response?.status === 410 ? "expired" : "failed");
+      });
     return () => { active = false; if (created) URL.revokeObjectURL(created); };
   }, [conversationId, messageId]);
+  if (err === "expired") return (
+    <span className="text-[11px] opacity-60 mt-1 inline-flex items-center gap-1">
+      <Paperclip className="h-3 w-3 shrink-0" />El adjunto expiró ({name})
+    </span>
+  );
   if (err) return <span className="text-[11px] opacity-60 mt-1">No se pudo cargar el adjunto</span>;
   if (!url) return (
     <span className="text-[11px] opacity-60 mt-1 inline-flex items-center gap-1">

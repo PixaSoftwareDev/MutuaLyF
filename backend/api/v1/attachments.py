@@ -178,7 +178,13 @@ async def widget_download_attachment(
             FROM mensajes m JOIN conversaciones c ON c.id = m.conversation_id
             WHERE m.id = :mid AND m.conversation_id = :cid AND c.widget_session_id = :sid
         """), {"mid": message_id, "cid": conversation_id, "sid": widget_session_id})).mappings().fetchone()
-    if not row or not row["attachment_key"]:
+    if not row:
+        raise HTTPException(status_code=404, detail="Adjunto no encontrado")
+    if not row["attachment_key"]:
+        # La limpieza de retención conserva el nombre pero borra el archivo:
+        # name presente + key NULL = adjunto expirado (no "no existe").
+        if row["attachment_name"]:
+            raise HTTPException(status_code=410, detail="El adjunto expiró y ya no está disponible.")
         raise HTTPException(status_code=404, detail="Adjunto no encontrado")
     return _stream_from_minio(row["attachment_key"], row["attachment_mime"], row["attachment_name"], download=False)
 
@@ -223,6 +229,10 @@ async def operator_download_attachment(
             FROM mensajes m JOIN conversaciones c ON c.id = m.conversation_id
             WHERE m.id = :mid AND m.conversation_id = :cid{scope_sql}
         """), {"mid": message_id, "cid": conversation_id, **scope_params})).mappings().fetchone()
-    if not row or not row["attachment_key"]:
+    if not row:
+        raise HTTPException(status_code=404, detail="Adjunto no encontrado")
+    if not row["attachment_key"]:
+        if row["attachment_name"]:
+            raise HTTPException(status_code=410, detail="El adjunto expiró y ya no está disponible.")
         raise HTTPException(status_code=404, detail="Adjunto no encontrado")
     return _stream_from_minio(row["attachment_key"], row["attachment_mime"], row["attachment_name"], download=True)

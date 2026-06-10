@@ -109,6 +109,10 @@ class Settings(BaseSettings):
     minio_root_password: str = "minioadmin123"
     minio_bucket: str = "documents"
     minio_secure: bool = False
+    # Retención de adjuntos de conversaciones (imágenes/PDF en MinIO). Pasados
+    # estos días, una task nocturna borra el archivo y deja la referencia en
+    # NULL — el mensaje sobrevive en el historial pero el archivo expira.
+    attachment_retention_days: int = 60
 
     # ── Redis ─────────────────────────────────────────────────────────────────
     redis_url_broker: str = "redis://redis:6379/0"

@@ -14,6 +14,7 @@ app = Celery(
         "workers.clustering_tasks",
         "workers.training_tasks",
         "workers.handoff_tasks",
+        "workers.cleanup_tasks",
     ],
 )
 
@@ -80,6 +81,10 @@ app.conf.update(
         "close-stale-conversations": {
             "task": "workers.handoff_tasks.close_stale_conversations",
             "schedule": 300,  # every 5 min — close bot_active idle > 30 min
+        },
+        "cleanup-expired-attachments": {
+            "task": "workers.cleanup_tasks.delete_expired_attachments",
+            "schedule": crontab(hour=1, minute=30),  # diario, antes del clustering de las 02:00
         },
     },
 )
