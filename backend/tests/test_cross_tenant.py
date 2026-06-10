@@ -53,9 +53,17 @@ class TestTokenCrossContamination:
         assert captured_tenant_id[0] == "tenant_a"
 
     def test_widget_token_cannot_access_other_tenant(self):
-        """Widget token scoped to tenant_a is used under tenant_a regardless of header."""
+        """Widget token scoped to tenant_a is used under tenant_a regardless of header.
+
+        Los widget tokens se validan ademas contra el hash registrado en
+        `tenants.widget_token_hash` (revocacion). En tests no hay DB, asi que
+        simulamos que el tenant tiene ESTE token registrado.
+        """
+        import hashlib
+        from unittest.mock import AsyncMock
         from core.security import create_widget_token
         widget_token = create_widget_token("tenant_a")
+        token_hash = hashlib.sha256(widget_token.encode()).hexdigest()
 
         captured_tenant_id = []
 
@@ -63,7 +71,8 @@ class TestTokenCrossContamination:
             captured_tenant_id.append(tenant_id)
             return {"answer": "ok", "sources": [], "intent_label": None, "intent_confidence": None, "from_cache": False, "latency_ms": 1}
 
-        with patch("services.orchestrator.handle_query", new=_mock_orchestrator):
+        with patch("services.orchestrator.handle_query", new=_mock_orchestrator), \
+             patch("core.security._get_widget_token_hash", new=AsyncMock(return_value=token_hash)):
             response = client.post(
                 "/api/v1/query/widget",
                 json={"question": "test"},
@@ -76,6 +85,28 @@ class TestTokenCrossContamination:
         assert response.status_code == 200
         # Widget endpoint ran under tenant_a (from JWT), not tenant_b
         assert captured_tenant_id[0] == "tenant_a"
+
+    def test_revoked_widget_token_is_rejected(self):
+        """Un widget token cuyo hash NO coincide con el registrado → 401.
+
+        Es la garantia de revocacion: al regenerar el token desde el admin,
+        el anterior deja de servir aunque su JWT siga vigente.
+        """
+        import hashlib
+        from unittest.mock import AsyncMock
+        from core.security import create_widget_token
+        old_token = create_widget_token("tenant_a")
+        # El tenant tiene registrado OTRO hash (token regenerado)
+        new_hash = hashlib.sha256(b"otro-token-mas-nuevo").hexdigest()
+
+        with patch("core.security._get_widget_token_hash", new=AsyncMock(return_value=new_hash)):
+            response = client.post(
+                "/api/v1/query/widget",
+                json={"question": "test"},
+                headers={"Authorization": f"Bearer {old_token}", "X-Tenant-ID": "tenant_a"},
+            )
+
+        assert response.status_code == 401
 
     def test_super_admin_token_can_access_any_tenant(self):
         """Super-admin tokens should be able to operate across tenants (not 401/403)."""

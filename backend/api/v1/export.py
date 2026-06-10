@@ -217,6 +217,11 @@ async def export_kb_json(
 
         # Conversaciones (opcional — contienen datos de usuarios)
         if include_conversations:
+            # CONTRATO DE PRIVACIDAD: afiliado_dni NUNCA se exporta (ni acá ni
+            # en el payload de abajo). El DNI es el dato más sensible del
+            # afiliado y un export descargable no es lugar para portarlo.
+            # Si alguna vez hace falta, requiere decisión explícita + step-up
+            # de autenticación, no solo agregarlo al SELECT.
             convs_result = await session.execute(
                 text(
                     "SELECT id, widget_session_id, sector_id, status, "

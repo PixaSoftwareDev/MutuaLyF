@@ -75,7 +75,8 @@ class TestRetrieval:
 
     @pytest.mark.asyncio
     async def test_retrieve_returns_empty_on_embed_failure(self):
-        with patch("services.retrieval.embed_query", return_value=None):
+        # retrieve() embebe via embed_query_cached (async) desde el refactor de cache.
+        with patch("services.retrieval.embed_query_cached", new=AsyncMock(return_value=None)):
             from services.retrieval import retrieve
             result = await retrieve("¿Quién maneja RRHH?", "tenant_a")
             assert result == []
@@ -83,7 +84,7 @@ class TestRetrieval:
     @pytest.mark.asyncio
     async def test_retrieve_returns_empty_on_qdrant_timeout(self):
         import asyncio
-        with patch("services.retrieval.embed_query", return_value=[0.1] * 1024):
+        with patch("services.retrieval.embed_query_cached", new=AsyncMock(return_value=[0.1] * 1024)):
             with patch("services.retrieval.get_qdrant_client") as mock_qdrant:
                 mock_qdrant.return_value.search = AsyncMock(side_effect=asyncio.TimeoutError)
                 from services.retrieval import retrieve

@@ -73,9 +73,11 @@ export function OperatorTopbar() {
         />
       </Link>
 
-      {/* Nav tabs */}
-      <nav className="hidden sm:flex items-center gap-1 ml-2">
-        <span className="h-4 w-px bg-slate-200 mr-1" />
+      {/* Nav tabs — visibles también en mobile (solo ícono): cambiar entre
+          Bandeja e Historial es la acción más frecuente del operador y no
+          debería requerir abrir el menú de tres puntos. */}
+      <nav className="flex items-center gap-1 ml-1 sm:ml-2">
+        <span className="hidden sm:block h-4 w-px bg-slate-200 mr-1" />
         {NAV_ITEMS.map(item => {
           const active = item.href === "/operator"
             ? pathname === "/operator"
@@ -85,15 +87,17 @@ export function OperatorTopbar() {
             <Link
               key={item.href}
               href={item.href}
+              aria-label={item.label}
+              title={item.label}
               className={cn(
-                "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors",
+                "flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-medium transition-colors",
                 active
                   ? "bg-action/[0.08] text-foreground font-semibold"
                   : "text-slate-600 hover:text-slate-900 hover:bg-slate-100",
               )}
             >
-              <Icon className={cn("h-3.5 w-3.5", active && "text-action")} />
-              {item.label}
+              <Icon className={cn("h-4 w-4 sm:h-3.5 sm:w-3.5", active && "text-action")} />
+              <span className="hidden sm:inline">{item.label}</span>
             </Link>
           );
         })}
@@ -148,16 +152,6 @@ export function OperatorTopbar() {
               )}
             </div>
           </DropdownMenuLabel>
-          <DropdownMenuSeparator className="sm:hidden" />
-          {NAV_ITEMS.map(item => {
-            const Icon = item.icon;
-            return (
-              <DropdownMenuItem key={item.href} className="sm:hidden" onSelect={() => router.push(item.href)}>
-                <Icon className="h-4 w-4 mr-2" />
-                {item.label}
-              </DropdownMenuItem>
-            );
-          })}
           <DropdownMenuSeparator className="sm:hidden" />
           <DropdownMenuItem onSelect={() => router.push("/operator/cuenta")}>
             <UserCircle className="h-4 w-4 mr-2" />

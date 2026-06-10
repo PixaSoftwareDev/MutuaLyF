@@ -191,14 +191,19 @@ class TestQualityGate:
             assert result.is_coherent is True  # Optimistic default
 
     @pytest.mark.asyncio
-    async def test_validate_chunk_skipped_on_incoherent(self, sample_chunk):
+    async def test_validate_chunk_incoherent_goes_to_pending(self, sample_chunk):
+        """Incoherente según la IA → PENDING (cola de revisión del admin), NO SKIPPED.
+
+        Decisión de la auditoría de casuística (commit 09364b5): la IA marca,
+        el admin decide. SKIPPED queda reservado para el rechazo manual del
+        admin — el chunk se indexa igual y participa en búsquedas penalizado.
+        """
         with patch(
             "services.quality_gate.complete_quality_gate",
             new=AsyncMock(return_value={"is_coherent": False, "reason": "boilerplate", "error": None}),
         ):
             result = await validate_chunk(sample_chunk)
-            # Groq responded successfully and said the chunk is incoherent → SKIPPED (no retry)
-            assert result.status == QualityStatus.SKIPPED
+            assert result.status == QualityStatus.PENDING
             assert result.is_coherent is False
 
     @pytest.mark.asyncio
