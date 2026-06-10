@@ -469,6 +469,17 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
   return (
     <div className="flex h-full overflow-hidden">
 
+      {/* Anuncio para lectores de pantalla: el panel cambia en tiempo real (SSE),
+          esta región avisa cuántas conversaciones esperan sin que el operador
+          tenga que re-tabular la lista. */}
+      {!readOnly && (
+        <div aria-live="polite" className="sr-only">
+          {waitingCount === 0
+            ? "Sin conversaciones en espera"
+            : `${waitingCount} ${waitingCount === 1 ? "conversación en espera" : "conversaciones en espera"}`}
+        </div>
+      )}
+
       {/* ── LEFT: queue ──────────────────────────────────────────────────── */}
       <div className={cn(
         "border-r flex flex-col shrink-0 bg-card",
@@ -486,8 +497,8 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
             <div className="flex items-center gap-1.5" title={sseConnected ? "Tiempo real activo" : "Reconectando..."}>
               {sseConnected
                 ? <Wifi    className="h-3.5 w-3.5 text-success" />
-                : <WifiOff className="h-3.5 w-3.5 text-muted-foreground animate-pulse" />}
-              <span className="text-[11px] text-muted-foreground">{sseConnected ? "En vivo" : "..."}</span>
+                : <WifiOff className="h-3.5 w-3.5 text-muted-foreground animate-pulse motion-reduce:animate-none" />}
+              <span className="text-[11px] text-muted-foreground">{sseConnected ? "En vivo" : "Reconectando"}</span>
             </div>
           </div>
         )}
@@ -517,10 +528,11 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
             <input
               type="text"
+              aria-label="Buscar conversaciones"
               placeholder="Buscar…"
               value={search}
               onChange={e => setSearch(e.target.value)}
-              className="w-full h-8 pl-8 pr-3 rounded-md border border-input bg-background text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+              className="w-full h-8 pl-8 pr-3 rounded-md border border-input bg-background text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             />
           </div>
 
@@ -529,9 +541,10 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
             <div className="relative">
               <select
                 value={sectorFilter}
+                aria-label="Filtrar por sector"
                 onChange={e => setSectorFilter(e.target.value)}
                 className={cn(
-                  "w-full h-8 pl-3 pr-8 rounded-md border bg-background text-xs cursor-pointer appearance-none focus:outline-none focus:ring-1 focus:ring-primary transition-colors",
+                  "w-full h-8 pl-3 pr-8 rounded-md border bg-background text-xs cursor-pointer appearance-none focus:outline-none focus-visible:ring-2 focus-visible:ring-ring transition-colors",
                   sectorFilter === "all"
                     ? "border-input text-muted-foreground"
                     : "border-primary/60 text-foreground font-medium"
@@ -548,7 +561,7 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
         </div>
 
         {/* List */}
-        <div className="flex-1 overflow-y-auto p-2 space-y-1">
+        <div className="flex-1 overflow-y-auto scrollbar-slim p-2 space-y-1">
           {isLoading ? (
             Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-16 rounded-lg" />)
           ) : error ? (
@@ -648,8 +661,11 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
                   <ChevronLeft className="h-4 w-4" />
                 </button>
                 <div className="min-w-0">
-                  <p className="font-semibold text-sm truncate">{detail.afiliado_nombre || (detail.afiliado_ip ? `IP ${detail.afiliado_ip}` : "Afiliado anónimo")}</p>
-                  <p className="text-xs text-muted-foreground truncate">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <p className="font-semibold text-sm truncate">{detail.afiliado_nombre || (detail.afiliado_ip ? `IP ${detail.afiliado_ip}` : "Afiliado anónimo")}</p>
+                    <StatusBadge status={detail.status} />
+                  </div>
+                  <p className="text-xs text-muted-foreground truncate mt-0.5">
                     {[
                       detail.sector_nombre,
                       detail.afiliado_dni   && `DNI ${detail.afiliado_dni}`,
@@ -661,7 +677,6 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
                 </div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
-                <StatusBadge status={detail.status} />
                 {!readOnly && detail.status === "human_attending" && (
                   <>
                     {/* Acción primaria — la más común al terminar una atención */}
@@ -731,8 +746,9 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
               <div className="px-4 py-3 border-b bg-muted/40 flex items-center gap-2">
                 <select
                   value={transferSector}
+                  aria-label="Sector de destino para transferir"
                   onChange={e => setTransferSector(e.target.value)}
-                  className="flex-1 h-8 rounded-md border border-input bg-background px-2 text-sm"
+                  className="flex-1 h-8 rounded-md border border-input bg-background px-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <option value="">Elegí un sector…</option>
                   {availableSectors
@@ -752,7 +768,7 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
             )}
 
             {/* ── Messages ── */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-muted/30">
+            <div className="flex-1 overflow-y-auto scrollbar-slim p-4 space-y-3 bg-muted/30">
               {/* Bot phase — shown inline, no collapsible box */}
               {botMessages.map(m => <MessageBubble key={m.id} msg={m} conversationId={detail.id} />)}
 
@@ -956,14 +972,17 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
 // ── Status badge ───────────────────────────────────────────────────────────────
 
 export function StatusBadge({ status }: { status: string }) {
+  // "Bot activo" y "Cerrada" eran ambos bg-muted → indistinguibles de un
+  // vistazo. "Cerrada" pasa a borde sin relleno (estado terminal, apagado);
+  // "Bot activo" mantiene el relleno suave (estado vivo).
   const map: Record<string, { label: string; cls: string }> = {
     bot_active:        { label: "Bot activo",   cls: "bg-muted text-muted-foreground" },
-    handoff_requested: { label: "En espera",    cls: "bg-warning/10 text-warning" },
-    human_attending:   { label: "En atención",  cls: "bg-success/10 text-success" },
-    closed:            { label: "Cerrada",       cls: "bg-muted text-muted-foreground" },
+    handoff_requested: { label: "En espera",    cls: "bg-warning/15 text-warning" },
+    human_attending:   { label: "En atención",  cls: "bg-success/15 text-success" },
+    closed:            { label: "Cerrada",       cls: "border border-border bg-background text-muted-foreground/80" },
   };
   const s = map[status] ?? { label: status, cls: "bg-muted text-muted-foreground" };
-  return <span className={cn("text-xs font-medium px-2 py-0.5 rounded-full", s.cls)}>{s.label}</span>;
+  return <span className={cn("shrink-0 text-xs font-medium px-2 py-0.5 rounded-full", s.cls)}>{s.label}</span>;
 }
 
 // ── Conversation card ──────────────────────────────────────────────────────────
@@ -1002,7 +1021,7 @@ function ConvCard({ conv, now, selected, readOnly, onlineNames, onSelect, onAcce
   const cardBg =
     urgencyLevel === "critical" ? "bg-destructive/10 hover:bg-destructive/20" :
     urgencyLevel === "urgent"   ? "bg-warning/10 hover:bg-warning/20"         :
-    yourTurn                    ? "bg-orange-50/70 hover:bg-orange-50"        :
+    yourTurn                    ? "bg-attention/10 hover:bg-attention/15"     :
     attending                   ? "bg-success/10 hover:bg-success/20"         :
     "hover:bg-muted/40";
 
@@ -1010,18 +1029,19 @@ function ConvCard({ conv, now, selected, readOnly, onlineNames, onSelect, onAcce
     urgencyLevel === "critical" ? "bg-destructive" :
     urgencyLevel === "urgent"   ? "bg-warning"     :
     urgencyLevel === "warn"     ? "bg-warning"     :
-    yourTurn                    ? "bg-orange-500"  :
+    yourTurn                    ? "bg-attention"   :
     attending                   ? "bg-success"     :
     "bg-transparent";
 
   const dotPulse = urgencyLevel === "critical" || yourTurn;
 
+  // El tiempo solo se tiñe cuando hay presión real (urgent/critical) o es tu
+  // turno. En warn y attending el dot + fondo ya comunican el estado, así que
+  // el tiempo queda neutro para no apilar tres señales del mismo color.
   const timeClass =
     urgencyLevel === "critical" ? "font-semibold text-destructive" :
     urgencyLevel === "urgent"   ? "font-semibold text-warning"     :
-    urgencyLevel === "warn"     ? "font-medium text-warning"       :
-    yourTurn                    ? "font-semibold text-orange-700"  :
-    attending                   ? "font-medium text-success"       :
+    yourTurn                    ? "font-semibold text-attention"   :
     "text-muted-foreground";
 
   // El botón "Atender" mantiene un color de acción ESTABLE (no cambia por
@@ -1045,14 +1065,14 @@ function ConvCard({ conv, now, selected, readOnly, onlineNames, onSelect, onAcce
           className={cn(
             "w-2 h-2 rounded-full shrink-0 mt-0.5 self-start",
             dotColor,
-            dotPulse && "animate-pulse",
+            dotPulse && "animate-pulse motion-reduce:animate-none",
           )}
           aria-hidden
         />
 
         <button onClick={onSelect} className="flex-1 min-w-0 text-left">
           <p className="text-sm font-medium truncate leading-tight flex items-center gap-1.5">
-            {conv.is_test && <span className="shrink-0 text-[9px] font-bold bg-violet-100 text-violet-700 rounded px-1 py-0.5 uppercase tracking-wide">TEST</span>}
+            {conv.is_test && <span aria-label="Conversación de prueba" className="shrink-0 text-[10px] font-bold bg-primary/10 text-primary rounded px-1 py-0.5 uppercase tracking-wide">TEST</span>}
             {conv.afiliado_nombre || (conv.afiliado_ip ? `IP ${conv.afiliado_ip}` : "Anónimo")}
           </p>
           <p className="text-[11px] text-muted-foreground truncate mt-0.5">
@@ -1071,7 +1091,12 @@ function ConvCard({ conv, now, selected, readOnly, onlineNames, onSelect, onAcce
         </button>
 
         <div className="shrink-0 flex flex-col items-end gap-1">
-          <span className={cn("text-[11px] tabular-nums", timeClass)}>
+          <span className={cn("text-[11px] tabular-nums flex items-center gap-1", timeClass)}>
+            {/* Señal NO-cromática de urgencia: el ícono de llama refuerza el color
+                para operadores con daltonismo (el color solo no alcanza). */}
+            {(urgencyLevel === "urgent" || urgencyLevel === "critical") && (
+              <Flame className="h-3 w-3 shrink-0" aria-hidden />
+            )}
             {ageStr}
           </span>
 
@@ -1082,7 +1107,7 @@ function ConvCard({ conv, now, selected, readOnly, onlineNames, onSelect, onAcce
           )}
 
           {yourTurn && (
-            <span className="text-[11px] font-semibold text-orange-600">tu turno</span>
+            <span className="text-[11px] font-semibold text-attention">tu turno</span>
           )}
 
           {!readOnly && isHandoff && (
@@ -1161,15 +1186,15 @@ export function MessageBubble({ msg, conversationId }:
         <div className={cn(
           "w-8 h-8 rounded-xl flex items-center justify-center shrink-0 shadow-sm",
           isOperator
-            ? "bg-gradient-to-br from-emerald-400 to-teal-600"
+            ? "bg-success"
             : "bg-gradient-to-br from-brand-light to-brand",
         )}>
           {isOperator
-            ? <UserCheck className="h-4 w-4 text-white" />
+            ? <UserCheck className="h-4 w-4 text-success-foreground" />
             : <Bot       className="h-4 w-4 text-brand-foreground" />}
         </div>
       )}
-      <div className="max-w-[85%] min-w-[120px] flex flex-col">
+      <div className="max-w-[85%] flex flex-col">
         <div className={cn(
           "rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed break-words transition-opacity",
           isUser     && "bg-brand text-brand-foreground rounded-br-sm shadow-sm",
@@ -1186,9 +1211,6 @@ export function MessageBubble({ msg, conversationId }:
             {msg.pending ? <><Loader2 className="h-2.5 w-2.5 animate-spin" /> enviando…</> : time}
           </p>
         </div>
-        {isOperator && (
-          <p className="text-[11px] text-success mt-1 ml-1 font-medium">Operador</p>
-        )}
       </div>
     </div>
   );

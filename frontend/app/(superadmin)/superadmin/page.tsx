@@ -100,7 +100,7 @@ export default function SuperAdminPage() {
 
       {/* ── Top bar ───────────────────────────────────────────────────────── */}
       <div className="shrink-0 bg-background border-b px-4 sm:px-6">
-        <div className="max-w-7xl mx-auto pt-4 sm:pt-6">
+        <div className="max-w-[1400px] mx-auto pt-4 sm:pt-6">
           <PageHeader
             title="Plataforma"
             description="Organizaciones, uso y salud de la infraestructura"
@@ -121,7 +121,7 @@ export default function SuperAdminPage() {
         </div>
 
         {/* Tabs */}
-        <div className="max-w-7xl mx-auto flex gap-0 -mb-px mt-4">
+        <div className="max-w-[1400px] mx-auto flex gap-0 -mb-px mt-4">
           {([
             { id: "orgs",    label: "Organizaciones", icon: Building2 },
             { id: "sistema", label: "Sistema",         icon: Activity  },
@@ -145,7 +145,7 @@ export default function SuperAdminPage() {
 
       {/* ── Scrollable body ───────────────────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 space-y-4">
+        <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-4 space-y-4">
 
           {/* ── KPIs de cabecera ──────────────────────────────────────── */}
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-3">

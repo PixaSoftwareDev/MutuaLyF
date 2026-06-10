@@ -2,8 +2,9 @@
 
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Loader2, Save } from "lucide-react";
+import { Loader2, Save, Eye } from "lucide-react";
 import { api } from "@/lib/api";
+import { useAuthStore } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,6 +12,10 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "@/components/ui/toast";
+import {
+  ChatPreview, PreviewDialog,
+  DEFAULT_BOT_NAME,
+} from "@/components/admin/settings/chat-preview";
 
 // Tres mensajes que cubren los tres momentos del flujo:
 //   1. Bot detecta que conviene derivar (insuficiente N veces) -> handoff_offer
@@ -35,9 +40,24 @@ const MESSAGE_KEYS: Array<{ key: string; label: string; hint: string }> = [
 ];
 
 export function HandoffSettings() {
+  const { tenantId } = useAuthStore();
+
   const { data: config, isLoading } = useQuery({
     queryKey: ["handoff-config"],
     queryFn: api.handoffConfig.get,
+  });
+
+  // Branding + identidad del bot solo para la vista previa.
+  const { data: branding } = useQuery({
+    queryKey: ["admin-branding"],
+    queryFn: () => api.branding.getAdmin(),
+    staleTime: 60_000,
+  });
+  const { data: botConfig } = useQuery({
+    queryKey: ["bot-config", tenantId],
+    queryFn: () => api.tenants.getBotConfig(tenantId!),
+    enabled: !!tenantId,
+    staleTime: 60_000,
   });
 
   const [timeout, setTimeout_]   = useState(15);
@@ -46,6 +66,7 @@ export function HandoffSettings() {
   const [contactInfo, setContactInfo] = useState("");
   const [messages, setMessages]   = useState<Record<string, string>>({});
   const [dirty, setDirty]         = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
 
   useEffect(() => {
     if (!config) return;
@@ -78,16 +99,21 @@ export function HandoffSettings() {
   const setMessage = (key: string, value: string) => { setMessages({ ...messages, [key]: value }); setDirty(true); };
 
   if (isLoading) return (
-    <div className="space-y-4">
-      {[1,2,3].map(i => <Skeleton key={i} className="h-32 rounded-lg" />)}
+    <div className="space-y-6">
+      {[1, 2].map(i => <Skeleton key={i} className="h-48 rounded-2xl" />)}
     </div>
   );
 
   return (
     <div className="space-y-6">
       {/* Reglas de activación */}
-      <Card>
-        <CardHeader className="pb-3"><h2 className="font-semibold text-sm">Cuándo derivar</h2></CardHeader>
+      <Card className="rounded-2xl">
+        <CardHeader className="pb-3">
+          <h2 className="font-semibold text-base tracking-tight">Cuándo derivar</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Las condiciones que activan el pase de la conversación a un operador humano.
+          </p>
+        </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex flex-wrap items-center gap-3">
             <Label className="text-sm whitespace-nowrap">Tras</Label>
@@ -140,21 +166,32 @@ export function HandoffSettings() {
       </Card>
 
       {/* Mensajes de transición — formato compacto: label + input lado a lado */}
-      <Card>
+      <Card className="rounded-2xl">
         <CardHeader className="pb-3">
-          <h2 className="font-semibold text-sm">Mensajes durante la transición</h2>
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <h2 className="font-semibold text-base tracking-tight">Mensajes durante la transición</h2>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Lo que ve el usuario en cada momento del pase a un operador.
+              </p>
+            </div>
+            <Button variant="outline" size="sm" className="shrink-0" onClick={() => setShowPreview(true)}>
+              <Eye className="h-4 w-4 mr-1.5" />
+              Vista previa
+            </Button>
+          </div>
         </CardHeader>
-        <CardContent className="space-y-2.5">
+        <CardContent className="space-y-4">
           {MESSAGE_KEYS.map(({ key, label, hint }) => (
-            <div key={key} className="grid grid-cols-1 sm:grid-cols-[200px,1fr] items-start gap-2">
-              <div className="pt-2">
+            <div key={key} className="grid grid-cols-1 sm:grid-cols-[220px,1fr] items-start gap-2 sm:gap-4">
+              <div className="sm:pt-2">
                 <Label className="text-xs text-foreground">{label}</Label>
                 <p className="text-[11px] text-muted-foreground mt-0.5 leading-snug">{hint}</p>
               </div>
               <Input
                 value={messages[key] || ""}
                 onChange={e => setMessage(key, e.target.value)}
-                placeholder="—"
+                placeholder="Mensaje por defecto del sistema"
                 className="h-9 text-sm"
               />
             </div>
@@ -162,12 +199,34 @@ export function HandoffSettings() {
         </CardContent>
       </Card>
 
-      {dirty && (
-        <Button className="w-full" onClick={() => updateM.mutate()} disabled={updateM.isPending}>
-          {updateM.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Save className="h-4 w-4 mr-1" />}
+      {/* Vista previa centrada, a demanda — el flujo completo de derivación
+          con los mensajes del form, aunque no estén guardados */}
+      <PreviewDialog
+        open={showPreview}
+        onOpenChange={setShowPreview}
+        hint="El flujo que ve el usuario cuando el bot deriva la conversación a un operador."
+      >
+        <ChatPreview
+          botName={botConfig?.bot_name || DEFAULT_BOT_NAME}
+          primaryColor={branding?.primary_color || "#4f46e5"}
+          logoUrl={branding?.logo_url ?? null}
+          conversation={[
+            { from: "user", text: "No encuentro lo que busco…" },
+            { from: "bot", note: "Oferta del bot",         text: messages["handoff_offer"] || "" },
+            { from: "bot", note: "Confirmando derivación", text: messages["handoff_confirmed"] || "" },
+            { from: "bot", note: "Espera prolongada",      text: messages["operator_inactive_alert"] || "" },
+          ]}
+        />
+      </PreviewDialog>
+
+      {/* Guardar siempre visible (deshabilitado sin cambios) — mismo patrón que
+          el resto de la app; el botón que aparecía y desaparecía era janky. */}
+      <div className="flex justify-end">
+        <Button onClick={() => updateM.mutate()} disabled={!dirty || updateM.isPending}>
+          {updateM.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
           Guardar cambios
         </Button>
-      )}
+      </div>
     </div>
   );
 }

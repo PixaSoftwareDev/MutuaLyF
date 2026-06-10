@@ -1,26 +1,27 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Edit2, Loader2, Star, MoreVertical, Users, Folder, UserX, Trash2, AlertTriangle } from "lucide-react";
+import { Plus, Edit2, Loader2, Star, MoreVertical, Users, Folder, Trash2, AlertTriangle } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { api, type SectorRow } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/toast";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageShell } from "@/components/layout/page-shell";
 import { PageHeader, CountChip } from "@/components/layout/page-header";
+import { FormSheet } from "@/components/layout/form-sheet";
 
 export default function SectorsPage() {
   const qc = useQueryClient();
@@ -60,7 +61,7 @@ export default function SectorsPage() {
 
   const defaultM = useMutation({
     mutationFn: (id: string) => api.sectors.setDefault(id),
-    onSuccess: () => { inv(); toast({ title: "Sector default actualizado", variant: "success" }); },
+    onSuccess: () => { inv(); toast({ title: "Sector predeterminado actualizado", variant: "success" }); },
     onError: () => toast({ title: "Error al cambiar el default", variant: "destructive" }),
   });
 
@@ -85,11 +86,8 @@ export default function SectorsPage() {
   return (
     <PageShell>
       <PageHeader
-        eyebrow="Equipo"
         title="Sectores de atención"
-        badge={!isLoading && activeSectors.length > 0
-          ? <CountChip>{activeSectors.length} {activeSectors.length === 1 ? "activo" : "activos"}</CountChip>
-          : undefined}
+        badge={!isLoading ? <CountChip>{activeSectors.length} {activeSectors.length === 1 ? "activo" : "activos"}</CountChip> : undefined}
         description={
           <>Las áreas que el afiliado elige al consultar. El sector{" "}
           <span className="font-semibold text-foreground">predeterminado</span> se asigna cuando no elige ninguno.</>
@@ -104,24 +102,20 @@ export default function SectorsPage() {
       {/* Grid de sectores */}
       {isLoading ? (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {[1, 2, 3].map(i => <Skeleton key={i} className="h-40 rounded-2xl" />)}
+          {[1, 2, 3].map(i => <Skeleton key={i} className="h-44 rounded-2xl" />)}
         </div>
       ) : activeSectors.length === 0 ? (
-        <Card>
-          <CardContent className="p-0">
-            <EmptyState
-              icon={Folder}
-              title="No hay sectores activos"
-              description="Creá el primero para que los usuarios puedan elegir un área al consultar."
-              action={
-                <Button size="sm" onClick={() => setShowCreate(true)}>
-                  <Plus className="h-4 w-4 mr-1" />
-                  Nuevo sector
-                </Button>
-              }
-            />
-          </CardContent>
-        </Card>
+        <EmptyState
+          icon={Folder}
+          title="No hay sectores activos"
+          description="Creá el primero para que los usuarios puedan elegir un área al consultar."
+          action={
+            <Button size="sm" onClick={() => setShowCreate(true)}>
+              <Plus className="h-4 w-4 mr-1" />
+              Nuevo sector
+            </Button>
+          }
+        />
       ) : (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {activeSectors.map(s => (
@@ -137,117 +131,146 @@ export default function SectorsPage() {
         </div>
       )}
 
-      {/* Modal crear */}
-      <Dialog open={showCreate} onOpenChange={setShowCreate}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Nuevo sector</DialogTitle>
-            <DialogDescription>
-              Áreas que el usuario puede elegir en el chat.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="new-nombre">Nombre</Label>
-              <Input
-                id="new-nombre"
-                placeholder="Ej. Ventas"
-                value={newNombre}
-                onChange={e => setNewNombre(e.target.value)}
-                autoFocus
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="new-desc">Descripción</Label>
-              <Input
-                id="new-desc"
-                placeholder="Breve descripción (opcional)"
-                value={newDesc}
-                onChange={e => setNewDesc(e.target.value)}
-              />
-            </div>
-          </div>
-          <DialogFooter>
+      {/* Panel crear */}
+      <FormSheet
+        open={showCreate}
+        onOpenChange={setShowCreate}
+        icon={Folder}
+        title="Nuevo sector"
+        description="Áreas que el usuario puede elegir en el chat."
+        footer={
+          <>
             <Button variant="outline" onClick={() => setShowCreate(false)}>Cancelar</Button>
             <Button
               onClick={() => createM.mutate()}
               disabled={!newNombre.trim() || createM.isPending}
             >
-              {createM.isPending && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
-              Crear
+              {createM.isPending && <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />}
+              Crear sector
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Modal editar */}
-      <Dialog open={!!editing} onOpenChange={(open) => !open && setEditing(null)}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Editar sector</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="edit-nombre">Nombre</Label>
-              <Input
-                id="edit-nombre"
-                value={editNombre}
-                onChange={e => setEditNombre(e.target.value)}
-                autoFocus
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="edit-desc">Descripción</Label>
-              <Input
-                id="edit-desc"
-                value={editDesc}
-                onChange={e => setEditDesc(e.target.value)}
-                placeholder="Opcional"
-              />
-            </div>
-
-            {/* Operadores asignados — read-only, link a /admin/operators para gestionar */}
-            {editing && <AssignedOperators sectorId={editing.id} />}
+          </>
+        }
+      >
+        <div className="space-y-5">
+          <div className="space-y-2">
+            <Label htmlFor="new-nombre">Nombre</Label>
+            <Input
+              id="new-nombre"
+              placeholder="Ej. Ventas"
+              value={newNombre}
+              onChange={e => setNewNombre(e.target.value)}
+              autoFocus
+            />
           </div>
-          <DialogFooter>
+          <div className="space-y-2">
+            <Label htmlFor="new-desc">
+              Descripción <span className="font-normal text-muted-foreground">(opcional)</span>
+            </Label>
+            <Input
+              id="new-desc"
+              placeholder="Breve descripción del área"
+              value={newDesc}
+              onChange={e => setNewDesc(e.target.value)}
+            />
+          </div>
+        </div>
+      </FormSheet>
+
+      {/* Panel editar */}
+      <FormSheet
+        open={!!editing}
+        onOpenChange={(open) => !open && setEditing(null)}
+        icon={Edit2}
+        title="Editar sector"
+        description="Renombrá el sector o ajustá su descripción."
+        footer={
+          <>
             <Button variant="outline" onClick={() => setEditing(null)}>Cancelar</Button>
             <Button
               onClick={() => editing && updateM.mutate({ id: editing.id })}
               disabled={!editNombre.trim() || updateM.isPending}
             >
-              {updateM.isPending && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
-              Guardar
+              {updateM.isPending && <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />}
+              Guardar cambios
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </>
+        }
+      >
+        <div className="space-y-5">
+          <div className="space-y-2">
+            <Label htmlFor="edit-nombre">Nombre</Label>
+            <Input
+              id="edit-nombre"
+              value={editNombre}
+              onChange={e => setEditNombre(e.target.value)}
+              autoFocus
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="edit-desc">
+              Descripción <span className="font-normal text-muted-foreground">(opcional)</span>
+            </Label>
+            <Input
+              id="edit-desc"
+              value={editDesc}
+              onChange={e => setEditDesc(e.target.value)}
+              placeholder="Breve descripción del área"
+            />
+          </div>
 
-      {/* Modal eliminar */}
+          {/* Quién atiende — solo el conteo + acceso a Operadores (gestionar
+              asignaciones vive allá). El panel queda en lo suyo: renombrar. */}
+          {editing && (
+            <div className="flex items-center justify-between gap-2 rounded-xl border bg-muted/30 px-3.5 py-3 text-sm">
+              <span className="flex items-center gap-2 text-muted-foreground min-w-0">
+                <Users className="h-4 w-4 shrink-0" />
+                <span className="truncate">
+                  <span className="font-semibold text-foreground tabular-nums">{editing.operator_count}</span>{" "}
+                  {editing.operator_count === 1 ? "operador atiende" : "operadores atienden"} este sector
+                </span>
+              </span>
+              <Link href="/admin/operators" className="text-action hover:underline text-xs font-medium shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded px-0.5">
+                Gestionar
+              </Link>
+            </div>
+          )}
+        </div>
+      </FormSheet>
+
+      {/* Confirmación eliminar */}
       <Dialog open={!!deleting} onOpenChange={(v) => !v && setDeleting(null)}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-destructive" />
-              Eliminar sector
-            </DialogTitle>
-            <DialogDescription>
-              {deleting && (
-                <>
-                  Vas a desactivar el sector <span className="font-semibold text-foreground">{deleting.nombre}</span>.
-                  {deleting.operator_count > 0 && (
-                    <span className="block mt-2 text-warning">
-                      ⚠️ {deleting.operator_count} {deleting.operator_count === 1 ? "operador tiene" : "operadores tienen"} este sector asignado.
-                      Sus asignaciones quedarán activas pero el sector dejará de aparecer en el listado.
-                    </span>
-                  )}
-                  <span className="block mt-2 text-xs">
-                    El borrado es reversible (soft-delete). Si te equivocás, podemos reactivarlo desde la base de datos.
-                  </span>
-                </>
-              )}
-            </DialogDescription>
+            <div className="flex items-start gap-3 text-left">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-destructive/10">
+                <AlertTriangle className="h-5 w-5 text-destructive" />
+              </div>
+              <div className="min-w-0 space-y-1.5 pt-0.5">
+                <DialogTitle>Eliminar sector</DialogTitle>
+                <DialogDescription asChild>
+                  <div>
+                    {deleting && (
+                      <>
+                        <p>
+                          Vas a desactivar el sector <span className="font-semibold text-foreground">{deleting.nombre}</span>.
+                        </p>
+                        {deleting.operator_count > 0 && (
+                          <p className="mt-2 text-warning">
+                            {deleting.operator_count} {deleting.operator_count === 1 ? "operador tiene" : "operadores tienen"} este sector asignado.
+                            Sus asignaciones quedarán activas pero el sector dejará de aparecer en el listado.
+                          </p>
+                        )}
+                        <p className="mt-2 text-xs">
+                          El borrado es reversible (soft-delete). Si te equivocás, podemos reactivarlo desde la base de datos.
+                        </p>
+                      </>
+                    )}
+                  </div>
+                </DialogDescription>
+              </div>
+            </div>
           </DialogHeader>
-          <DialogFooter>
+          <DialogFooter className="mt-2">
             <Button variant="outline" onClick={() => setDeleting(null)}>Cancelar</Button>
             <Button
               variant="destructive"
@@ -264,56 +287,6 @@ export default function SectorsPage() {
   );
 }
 
-// ── Lista de operadores asignados al sector (read-only) ──────────────────────
-
-function AssignedOperators({ sectorId }: { sectorId: string }) {
-  const { data: operators = [], isLoading } = useQuery({
-    queryKey: ["sector-operators", sectorId],
-    queryFn: () => api.sectors.getSectorOperators(sectorId),
-    staleTime: 30_000,
-  });
-
-  return (
-    <div className="space-y-2 pt-2 border-t">
-      <Label className="text-xs">Operadores asignados</Label>
-
-      {isLoading ? (
-        <div className="space-y-1.5">
-          <Skeleton className="h-10 rounded-md" />
-          <Skeleton className="h-10 rounded-md" />
-        </div>
-      ) : operators.length === 0 ? (
-        <div className="flex items-center gap-2 rounded-md border border-dashed bg-muted/30 px-3 py-3 text-xs text-muted-foreground">
-          <UserX className="h-4 w-4 shrink-0" />
-          Ningún operador atiende este sector todavía.
-        </div>
-      ) : (
-        <div className="space-y-1 max-h-44 overflow-y-auto pr-1">
-          {operators.map(op => (
-            <div
-              key={op.id}
-              className="flex items-center gap-2.5 rounded-md border bg-card px-3 py-2"
-            >
-              <div className="w-7 h-7 rounded-full bg-muted text-muted-foreground flex items-center justify-center text-xs font-bold shrink-0">
-                {op.name.charAt(0).toUpperCase()}
-              </div>
-              <div className="min-w-0">
-                <p className="text-sm font-medium truncate leading-tight">{op.name}</p>
-                <p className="text-[11px] text-muted-foreground truncate">{op.email}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      <p className="text-[11px] text-muted-foreground">
-        Para asignar o quitar operadores, andá a{" "}
-        <span className="font-medium">Operadores</span> y editá cada uno.
-      </p>
-    </div>
-  );
-}
-
 // ── Sector card ──────────────────────────────────────────────────────────────
 
 function SectorCard({
@@ -326,27 +299,29 @@ function SectorCard({
   defaultBusy: boolean;
 }) {
   return (
-    <div className="group relative flex flex-col overflow-hidden rounded-2xl border bg-card p-5 shadow-sm transition-all duration-200 hover:shadow-md hover:-translate-y-0.5">
-      {/* Acento gradient Intellix en el borde superior — solo el predeterminado. */}
-      {sector.is_default && <span className="absolute inset-x-0 top-0 h-[3px] bg-action-gradient" aria-hidden="true" />}
-
-      {/* Cabecera: nombre + badge + menú */}
+    <div className="group flex flex-col rounded-2xl border bg-card p-5 shadow-sm transition-all duration-200 hover:shadow-md hover:-translate-y-0.5 hover:border-action/25">
+      {/* Nombre al lado del tile (misma estructura que la card de Operadores) + menú */}
       <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0 flex flex-wrap items-center gap-2">
-          <h3 className="font-semibold text-[16px] tracking-tight text-foreground truncate">{sector.nombre}</h3>
-          {sector.is_default && (
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-action/30 bg-action/[0.06] px-2 py-0.5 text-[11px] font-semibold text-action shrink-0">
-              <span className="h-1.5 w-1.5 rounded-full bg-action-gradient" /> Predeterminado
-            </span>
-          )}
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-action-gradient-soft">
+            <Folder className="h-5 w-5 text-action" />
+          </div>
+          <div className="min-w-0 flex flex-wrap items-center gap-2">
+            <h3 className="font-semibold text-[15px] tracking-tight text-foreground truncate">{sector.nombre}</h3>
+            {sector.is_default && (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-action/30 bg-action/[0.06] px-2 py-0.5 text-[11px] font-semibold text-action shrink-0">
+                <span className="h-1.5 w-1.5 rounded-full bg-action-gradient" /> Predeterminado
+              </span>
+            )}
+          </div>
         </div>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button size="icon" variant="ghost" className="h-8 w-8 -mr-1 -mt-0.5 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100 focus:opacity-100 data-[state=open]:opacity-100 transition-opacity" aria-label="Acciones">
+            <Button size="icon" variant="ghost" className="h-8 w-8 -mr-1 -mt-0.5 shrink-0 text-muted-foreground" aria-label="Acciones">
               <MoreVertical className="h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-48">
+          <DropdownMenuContent align="end" className="w-52">
             <DropdownMenuItem onSelect={onEdit}>
               <Edit2 className="h-4 w-4 mr-2" />
               Editar
@@ -358,19 +333,25 @@ function SectorCard({
               </DropdownMenuItem>
             )}
             {!sector.is_default && (
-              <DropdownMenuItem onSelect={onDelete} className="text-destructive focus:text-destructive">
-                <Trash2 className="h-4 w-4 mr-2" />
-                Eliminar
-              </DropdownMenuItem>
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={onDelete} className="text-destructive focus:text-destructive">
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Eliminar
+                </DropdownMenuItem>
+              </>
             )}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
 
-      {/* Descripción */}
-      <p className="text-sm text-muted-foreground mt-2 line-clamp-2 min-h-[2.5rem]">
-        {sector.descripcion || "Sin descripción"}
-      </p>
+      {/* Descripción — condicional, sin alto mínimo: las cards respiran según su
+          contenido real. El mt-auto del footer mantiene los pies alineados. */}
+      {sector.descripcion && (
+        <p className="text-sm text-muted-foreground mt-3 line-clamp-2">
+          {sector.descripcion}
+        </p>
+      )}
 
       {/* Footer: operadores asignados */}
       <div className="mt-auto pt-4 border-t border-border/70 flex items-center gap-1.5 text-[13px] text-muted-foreground">

@@ -175,7 +175,7 @@ export default function TenantDetailPage() {
       <TopBar onBack={() => router.push("/superadmin")} onRefresh={inv} label={t.name} loading={false} />
 
       <div className="flex-1 overflow-y-auto">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 space-y-8 pb-10">
+        <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-4 space-y-8 pb-10">
 
           {/* ═══════════════════════════════════════════════════════════
               ZONA 1 · ESTADO Y ACCIONES
@@ -623,7 +623,7 @@ export default function TenantDetailPage() {
 function TopBar({ onBack, onRefresh, label, loading }: { onBack: () => void; onRefresh: () => void; label: string; loading: boolean }) {
   return (
     <div className="shrink-0 bg-background border-b px-4 sm:px-6 pt-4 sm:pt-6 pb-4">
-      <div className="max-w-7xl mx-auto">
+      <div className="max-w-[1400px] mx-auto">
         <button
           onClick={onBack}
           className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors mb-2"
@@ -727,7 +727,7 @@ function LoadingState() {
     <div className="h-full flex flex-col overflow-hidden bg-muted/20">
       <div className="shrink-0 bg-background border-b px-4 sm:px-6 py-3 h-14" />
       <div className="flex-1 overflow-y-auto">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 space-y-4">
+        <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-4 space-y-4">
           <Skeleton className="h-32 w-full rounded-xl" />
           <div className="grid grid-cols-3 gap-2.5">
             {[1,2,3,4,5,6].map(i => <Skeleton key={i} className="h-16 rounded-lg" />)}

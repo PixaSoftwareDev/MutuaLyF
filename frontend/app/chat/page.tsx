@@ -552,7 +552,7 @@ function ChatInner() {
               {sectorsLoading ? (
                 <div className="flex flex-wrap gap-3 justify-center">
                   {[1, 2, 3, 4].map(i => (
-                    <div key={i} className="h-10 w-28 rounded-full bg-muted animate-pulse" />
+                    <div key={i} className="h-10 w-28 rounded-full bg-muted skeleton-shimmer" />
                   ))}
                 </div>
               ) : sectors.length === 0 ? (

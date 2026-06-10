@@ -123,3 +123,6 @@ report_*.json
 
 # Secrets locales del VPS (telegram_token, etc) — nunca commitear
 secrets/
+
+# Artefactos del browser de prueba (Playwright MCP)
+.playwright-mcp/

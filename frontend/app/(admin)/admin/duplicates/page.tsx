@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/toast";
 import { PageShell } from "@/components/layout/page-shell";
-import { PageHeader } from "@/components/layout/page-header";
+import { PageHeader, CountChip } from "@/components/layout/page-header";
 
 // ── LCS-based word diff ────────────────────────────────────────────────────────
 
@@ -525,8 +525,10 @@ export default function DuplicatesPage() {
   return (
     <PageShell>
       <PageHeader
-        eyebrow="Conocimiento"
         title="Fragmentos duplicados"
+        badge={!isLoading && pendingPairs.length > 0
+          ? <CountChip>{pendingPairs.length} {pendingPairs.length === 1 ? "pendiente" : "pendientes"}</CountChip>
+          : undefined}
         description="Pares de fragmentos con contenido similar entre documentos. Decidí cuál conservar."
       />
 

@@ -2,14 +2,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Check, Loader2, Plus, Trash2, MoreVertical, Pencil, AlertTriangle, Users } from "lucide-react";
+import { Check, Loader2, Plus, Trash2, MoreVertical, Pencil, AlertTriangle, Users, UserPlus, User } from "lucide-react";
 import { PageShell } from "@/components/layout/page-shell";
-import { PageHeader } from "@/components/layout/page-header";
-import { apiClient } from "@/lib/api";
-import { api, type SectorRow } from "@/lib/api";
+import { PageHeader, CountChip } from "@/components/layout/page-header";
+import { FormSheet } from "@/components/layout/form-sheet";
+import { api, apiClient, type SectorRow } from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -68,7 +66,7 @@ export default function OperatorsPage() {
   const activeSectors = useMemo(() => sectors.filter(s => s.is_active), [sectors]);
   const defaultSectorId = useMemo(() => activeSectors.find(s => s.is_default)?.id ?? null, [activeSectors]);
 
-  // Cuando se abre el modal, pre-seleccionar el sector default. Si el admin
+  // Cuando se abre el panel, pre-seleccionar el sector default. Si el admin
   // no toca nada, el operador queda con "Consultas Generales".
   useEffect(() => {
     if (showCreate) {
@@ -114,105 +112,66 @@ export default function OperatorsPage() {
     .filter(o => o.role === "operator" && o.is_active)
     .sort((a, b) => (onlineIds.has(b.id) ? 1 : 0) - (onlineIds.has(a.id) ? 1 : 0));
 
+  const onlineCount = operatorsFiltered.filter(o => onlineIds.has(o.id)).length;
+
   return (
     <PageShell>
       <PageHeader
-        eyebrow="Equipo"
         title="Operadores"
+        badge={!loadingOps ? (
+          <CountChip>
+            {operatorsFiltered.length} {operatorsFiltered.length === 1 ? "activo" : "activos"}
+            {onlineCount > 0 && <span className="text-success"> · {onlineCount} en línea</span>}
+          </CountChip>
+        ) : undefined}
         description="Creá operadores y asignales los sectores que pueden atender."
         actions={
-          <Button size="sm" onClick={() => setShowCreate(true)}>
-            <Plus className="h-4 w-4 mr-1" />
-            Nuevo operador
+          <Button onClick={() => setShowCreate(true)} className="shrink-0">
+            <Plus className="h-[18px] w-[18px] mr-1.5" /> Nuevo operador
           </Button>
         }
       />
 
-      {/* List */}
+      {/* Grid de operadores — misma anatomía de card que Sectores */}
       {loadingOps || loadingSectors ? (
-        <div className="space-y-3">
-          {[1, 2, 3].map(i => <Skeleton key={i} className="h-32 rounded-lg" />)}
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {[1, 2, 3].map(i => <Skeleton key={i} className="h-44 rounded-2xl" />)}
         </div>
       ) : operatorsFiltered.length === 0 ? (
-        <Card>
-          <CardContent className="p-0">
-            <EmptyState
-              icon={Users}
-              title="No hay operadores activos"
-              description="Creá el primero para empezar a asignar sectores y atender consultas."
-              action={
-                <Button size="sm" onClick={() => setShowCreate(true)}>
-                  <Plus className="h-4 w-4 mr-1" />
-                  Nuevo operador
-                </Button>
-              }
-            />
-          </CardContent>
-        </Card>
+        <EmptyState
+          icon={Users}
+          title="No hay operadores activos"
+          description="Creá el primero para empezar a asignar sectores y atender consultas."
+          action={
+            <Button size="sm" onClick={() => setShowCreate(true)}>
+              <Plus className="h-4 w-4 mr-1" />
+              Nuevo operador
+            </Button>
+          }
+        />
       ) : (
-        <div className="space-y-4">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {operatorsFiltered.map(op => (
-            <OperatorCard key={op.id} operator={op} sectors={sectors} isOnline={onlineIds.has(op.id)} onDeleted={() => qc.invalidateQueries({ queryKey: ["operators"] })} />
+            <OperatorCard
+              key={op.id}
+              operator={op}
+              sectors={sectors}
+              isOnline={onlineIds.has(op.id)}
+              onDeleted={() => qc.invalidateQueries({ queryKey: ["operators"] })}
+            />
           ))}
         </div>
       )}
 
-      {/* Create dialog */}
-      <Dialog open={showCreate} onOpenChange={setShowCreate}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Nuevo operador</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3 py-2">
-            <div className="space-y-1">
-              <Label htmlFor="op-name">Nombre</Label>
-              <Input id="op-name" placeholder="María García" value={name} onChange={e => setName(e.target.value)} />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="op-email">Email</Label>
-              <Input id="op-email" type="email" placeholder="maria@empresa.com" value={email} onChange={e => setEmail(e.target.value)} />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="op-password">Contraseña</Label>
-              <Input id="op-password" type="password" placeholder="Mínimo 8 caracteres" value={password} onChange={e => setPassword(e.target.value)} />
-            </div>
-            <div className="space-y-1.5 pt-1">
-              <Label>Sectores que puede atender</Label>
-              {activeSectors.length === 0 ? (
-                <p className="text-xs text-muted-foreground">
-                  No hay sectores activos. Creá sectores primero desde la sección "Sectores".
-                </p>
-              ) : (
-                <div className="flex flex-wrap gap-1.5">
-                  {activeSectors.map(sector => {
-                    const isSelected = createSectors.has(sector.id);
-                    return (
-                      <button
-                        key={sector.id}
-                        type="button"
-                        onClick={() => toggleCreateSector(sector.id)}
-                        className={cn(
-                          "px-2.5 py-1 rounded-md text-xs border transition-colors",
-                          isSelected
-                            ? "bg-primary text-primary-foreground border-primary"
-                            : "bg-background text-muted-foreground border-border hover:border-primary/40 hover:text-foreground",
-                        )}
-                      >
-                        {sector.nombre}
-                        {sector.is_default && <span className="ml-1 opacity-60">(default)</span>}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-              {createSectors.size === 0 && activeSectors.length > 0 && (
-                <p className="text-xs text-warning">
-                  Seleccioná al menos un sector. Sin sectores el operador no recibe consultas.
-                </p>
-              )}
-            </div>
-          </div>
-          <DialogFooter>
+      {/* Panel crear */}
+      <FormSheet
+        open={showCreate}
+        onOpenChange={setShowCreate}
+        icon={UserPlus}
+        title="Nuevo operador"
+        description="Datos de acceso y los sectores que va a atender."
+        footer={
+          <>
             <Button variant="outline" onClick={() => setShowCreate(false)}>Cancelar</Button>
             <Button
               onClick={() => createM.mutate()}
@@ -224,15 +183,61 @@ export default function OperatorsPage() {
                 createM.isPending
               }
             >
-              {createM.isPending && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
-              Crear
+              {createM.isPending && <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />}
+              Crear operador
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </>
+        }
+      >
+        <div className="space-y-5">
+          <div className="space-y-2">
+            <Label htmlFor="op-name">Nombre</Label>
+            <Input id="op-name" placeholder="María García" value={name} onChange={e => setName(e.target.value)} autoFocus />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="op-email">Email</Label>
+            <Input id="op-email" type="email" placeholder="maria@empresa.com" value={email} onChange={e => setEmail(e.target.value)} />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="op-password">Contraseña</Label>
+            <Input id="op-password" type="password" placeholder="Mínimo 8 caracteres" value={password} onChange={e => setPassword(e.target.value)} />
+          </div>
+
+          <div className="space-y-2 pt-1">
+            <Label>Sectores que puede atender</Label>
+            {activeSectors.length === 0 ? (
+              <p className="text-xs text-muted-foreground">
+                No hay sectores activos. Creá sectores primero desde la sección "Sectores".
+              </p>
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {activeSectors.map(sector => (
+                  <SectorChip
+                    key={sector.id}
+                    label={sector.nombre}
+                    isDefault={sector.is_default}
+                    selected={createSectors.has(sector.id)}
+                    onToggle={() => toggleCreateSector(sector.id)}
+                  />
+                ))}
+              </div>
+            )}
+            {createSectors.size === 0 && activeSectors.length > 0 && (
+              <p className="text-xs text-warning">
+                Seleccioná al menos un sector. Sin sectores el operador no recibe consultas.
+              </p>
+            )}
+          </div>
+        </div>
+      </FormSheet>
     </PageShell>
   );
 }
+
+// ── Card de operador ─────────────────────────────────────────────────────────
+// Misma anatomía que la card de Sectores: tile + menú arriba, nombre + pill de
+// estado, texto secundario y footer con la info clave. Una sola vía de
+// acciones (el menú de 3 puntos) — sin botones que aparecen al hover.
 
 function OperatorCard({
   operator, sectors, isOnline, onDeleted,
@@ -243,7 +248,7 @@ function OperatorCard({
   onDeleted: () => void;
 }) {
   const activeSectors = sectors.filter(s => s.is_active);
-  const [showEdit, setShowEdit]       = useState(false);
+  const [showEdit, setShowEdit]             = useState(false);
   const [showDeactivate, setShowDeactivate] = useState(false);
 
   const { data: assignedSectors = [], isLoading: assignedLoading } = useQuery({
@@ -254,75 +259,82 @@ function OperatorCard({
 
   return (
     <>
-      <Card>
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3 min-w-0">
-              {/* Avatar — neutral bg, status communicated by the dot only */}
-              <div className="relative shrink-0">
-                <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold bg-muted text-muted-foreground">
-                  {operator.name.charAt(0).toUpperCase()}
-                </div>
-                <span className={cn(
-                  "absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-white",
-                  isOnline ? "bg-success" : "bg-muted-foreground/30"
-                )} />
-              </div>
-              <div className="min-w-0">
-                <p className="font-semibold text-sm truncate">{operator.name}</p>
-                <p className="text-xs text-muted-foreground truncate">{operator.email}</p>
-              </div>
+      <div className="group flex flex-col rounded-2xl border bg-card p-5 shadow-sm transition-all duration-200 hover:shadow-md hover:-translate-y-0.5 hover:border-action/25">
+        {/* Identidad al lado del tile (layout clásico de card de persona) + menú */}
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-action-gradient-soft">
+              <User className="h-5 w-5 text-action" />
             </div>
-            <div className="flex items-center gap-2 shrink-0">
-              {isOnline
-                ? <Badge className="text-xs bg-success/10 text-success border-success/20 hover:bg-success/10">En línea</Badge>
-                : <Badge variant="secondary" className="text-xs">Desconectado</Badge>
-              }
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button size="icon" variant="ghost" className="h-8 w-8" aria-label="Acciones">
-                    <MoreVertical className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-44">
-                  <DropdownMenuItem onSelect={() => setShowEdit(true)}>
-                    <Pencil className="h-4 w-4 mr-2" />
-                    Editar sectores
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    onSelect={() => setShowDeactivate(true)}
-                    className="text-destructive focus:text-destructive"
-                  >
-                    <Trash2 className="h-4 w-4 mr-2" />
-                    Eliminar
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+            <div className="flex flex-wrap items-center gap-2 min-w-0">
+              <h3 className="font-semibold text-[15px] tracking-tight text-foreground truncate">{operator.name}</h3>
+              {isOnline ? (
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-success/30 bg-success/[0.08] px-2 py-0.5 text-[11px] font-semibold text-success shrink-0">
+                  <span className="h-1.5 w-1.5 rounded-full bg-success" /> En línea
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/50 px-2 py-0.5 text-[11px] font-semibold text-muted-foreground shrink-0">
+                  <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/40" /> Desconectado
+                </span>
+              )}
             </div>
           </div>
-        </CardHeader>
-        <CardContent>
-          <p className="text-xs text-muted-foreground mb-2">Sectores asignados</p>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button size="icon" variant="ghost" className="h-8 w-8 -mr-1 -mt-0.5 shrink-0 text-muted-foreground" aria-label="Acciones">
+                <MoreVertical className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-44">
+              <DropdownMenuItem onSelect={() => setShowEdit(true)}>
+                <Pencil className="h-4 w-4 mr-2" />
+                Editar sectores
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onSelect={() => setShowDeactivate(true)}
+                className="text-destructive focus:text-destructive"
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Eliminar
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+
+        {/* Email — debajo del header, a lo ancho (como la descripción en Sectores) */}
+        <p className="text-sm text-muted-foreground mt-3 truncate">{operator.email}</p>
+
+        {/* Footer: sectores asignados */}
+        <div className="mt-auto pt-4 border-t border-border/70">
           {assignedLoading ? (
-            <Skeleton className="h-7 w-48 rounded-md" />
+            <Skeleton className="h-5 w-36 rounded-full" />
           ) : assignedSectors.length === 0 ? (
-            <p className="text-xs text-muted-foreground italic">
+            <p className="text-xs text-warning flex items-center gap-1.5">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
               Sin sectores asignados — solo recibe consultas de "Consultas Generales".
             </p>
           ) : (
-            <div className="flex flex-wrap gap-1.5">
-              {assignedSectors.map(s => (
-                <Badge key={s.id} variant="secondary" className="text-xs font-normal">
-                  {s.nombre}
-                </Badge>
-              ))}
-            </div>
+            <>
+              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70 mb-1.5">
+                Sectores que atiende
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {assignedSectors.map(s => (
+                  <span
+                    key={s.id}
+                    className="inline-flex items-center rounded-full border border-border bg-muted/50 px-2.5 py-0.5 text-xs font-medium text-foreground/70"
+                  >
+                    {s.nombre}
+                  </span>
+                ))}
+              </div>
+            </>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
-      <EditSectorsDialog
+      <EditSectorsSheet
         open={showEdit}
         onOpenChange={setShowEdit}
         operator={operator}
@@ -340,9 +352,9 @@ function OperatorCard({
   );
 }
 
-// ── Edit sectors modal ───────────────────────────────────────────────────────
+// ── Panel editar sectores ────────────────────────────────────────────────────
 
-function EditSectorsDialog({
+function EditSectorsSheet({
   open, onOpenChange, operator, activeSectors, initialAssigned,
 }: {
   open: boolean;
@@ -390,64 +402,53 @@ function EditSectorsDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>Editar sectores</DialogTitle>
-          <DialogDescription>
-            Elegí las áreas que <span className="font-medium text-foreground">{operator.name}</span> puede atender.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="py-2">
-          {activeSectors.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-6">
-              No hay sectores activos. Creá sectores primero desde la sección "Sectores".
-            </p>
-          ) : (
-            <div className="flex flex-wrap gap-2">
-              {activeSectors.map(sector => {
-                const isSelected = selected.has(sector.id);
-                return (
-                  <button
-                    key={sector.id}
-                    type="button"
-                    onClick={() => toggle(sector.id)}
-                    className={cn(
-                      "px-3 py-1.5 rounded-lg text-sm border transition-colors",
-                      isSelected
-                        ? "bg-primary text-primary-foreground border-primary"
-                        : "bg-background text-muted-foreground border-border hover:border-primary/40 hover:text-foreground",
-                    )}
-                  >
-                    {sector.nombre}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-          {selected.size === 0 && activeSectors.length > 0 && (
-            <p className="text-xs text-warning mt-3">
-              Tenés que asignar al menos un sector. Sin sectores el operador no recibe ninguna consulta.
-            </p>
-          )}
-        </div>
-
-        <DialogFooter>
+    <FormSheet
+      open={open}
+      onOpenChange={onOpenChange}
+      icon={Pencil}
+      title="Editar sectores"
+      description={
+        <>Elegí las áreas que <span className="font-medium text-foreground">{operator.name}</span> puede atender.</>
+      }
+      footer={
+        <>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
           <Button onClick={() => saveM.mutate()} disabled={!dirty || saveM.isPending || selected.size === 0}>
             {saveM.isPending
-              ? <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-              : <Check className="h-4 w-4 mr-1" />}
-            Guardar
+              ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+              : <Check className="h-4 w-4 mr-1.5" />}
+            Guardar cambios
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </>
+      }
+    >
+      {activeSectors.length === 0 ? (
+        <p className="text-sm text-muted-foreground text-center py-6">
+          No hay sectores activos. Creá sectores primero desde la sección "Sectores".
+        </p>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          {activeSectors.map(sector => (
+            <SectorChip
+              key={sector.id}
+              label={sector.nombre}
+              isDefault={sector.is_default}
+              selected={selected.has(sector.id)}
+              onToggle={() => toggle(sector.id)}
+            />
+          ))}
+        </div>
+      )}
+      {selected.size === 0 && activeSectors.length > 0 && (
+        <p className="text-xs text-warning mt-3">
+          Tenés que asignar al menos un sector. Sin sectores el operador no recibe ninguna consulta.
+        </p>
+      )}
+    </FormSheet>
   );
 }
 
-// ── Deactivate confirm modal ─────────────────────────────────────────────────
+// ── Confirmación de eliminación ──────────────────────────────────────────────
 
 function DeactivateDialog({
   open, onOpenChange, operator, onDeactivated,
@@ -469,16 +470,20 @@ function DeactivateDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-sm">
+      <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <AlertTriangle className="h-5 w-5 text-destructive" />
-            Eliminar operador
-          </DialogTitle>
-          <DialogDescription className="pt-2">
-            <span className="font-medium text-foreground">{operator.name}</span> ya no va a recibir
-            conversaciones. Las conversaciones que tenga abiertas vuelven a la cola.
-          </DialogDescription>
+          <div className="flex items-start gap-3 text-left">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-destructive/10">
+              <AlertTriangle className="h-5 w-5 text-destructive" />
+            </div>
+            <div className="min-w-0 space-y-1.5 pt-0.5">
+              <DialogTitle>Eliminar operador</DialogTitle>
+              <DialogDescription>
+                <span className="font-medium text-foreground">{operator.name}</span> ya no va a recibir
+                conversaciones. Las conversaciones que tenga abiertas vuelven a la cola.
+              </DialogDescription>
+            </div>
+          </div>
         </DialogHeader>
         <DialogFooter className="mt-2">
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={deleteM.isPending}>
@@ -491,5 +496,35 @@ function DeactivateDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// ── Chip de sector seleccionable (compartido por crear y editar) ─────────────
+// Toggle con check + acento de marca. Un solo estilo para los dos paneles.
+
+function SectorChip({
+  label, selected, onToggle, isDefault,
+}: {
+  label: string;
+  selected: boolean;
+  onToggle: () => void;
+  isDefault?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-pressed={selected}
+      className={cn(
+        "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        selected
+          ? "bg-action/10 border-action/40 text-action"
+          : "bg-background border-border text-muted-foreground hover:border-action/40 hover:text-foreground",
+      )}
+    >
+      {selected && <Check className="h-3.5 w-3.5 shrink-0" />}
+      {label}
+      {isDefault && <span className="opacity-60 text-xs font-normal">· predet.</span>}
+    </button>
   );
 }

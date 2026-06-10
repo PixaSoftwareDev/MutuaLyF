@@ -4,8 +4,8 @@ import { useState, useRef, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Search, Bot, Clock, UserCheck, XCircle, ChevronLeft, ChevronRight,
-  MessageSquare, CalendarDays, SlidersHorizontal, X, Loader2,
-  AlertCircle, Mail, Fingerprint, Building2, Inbox as InboxIcon,
+  MessageSquare, CalendarDays, SlidersHorizontal, X,
+  AlertCircle, Inbox as InboxIcon,
 } from "lucide-react";
 import { api, type ConversationHistoryRow, type ConversationDetail } from "@/lib/api";
 import { MessageBubble, StatusBadge } from "@/components/conversations/conversations-panel";
@@ -17,18 +17,24 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent } from "@/components/ui/card";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import { PageShell } from "@/components/layout/page-shell";
 import { PageHeader } from "@/components/layout/page-header";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 // ── Types & constants ──────────────────────────────────────────────────────────
 
 type StatusFilter = "all" | "handoff_requested" | "human_attending" | "bot_active" | "closed";
 
+// Los estados "vivos" (espera/atención) usan dot de color semántico; los
+// neutros (todas/bot/cerradas) usan ícono → segunda señal no-cromática para
+// daltonismo y para no depender de dos grises casi iguales.
 const STATUS_TABS: Array<{ key: StatusFilter; label: string; icon: React.ElementType; dot?: string }> = [
   { key: "all",               label: "Todas",       icon: MessageSquare },
   { key: "handoff_requested", label: "En espera",   icon: Clock,      dot: "bg-warning" },
   { key: "human_attending",   label: "En atención", icon: UserCheck,  dot: "bg-success" },
-  { key: "bot_active",        label: "Bot activo",  icon: Bot,        dot: "bg-slate-400" },
-  { key: "closed",            label: "Cerradas",    icon: XCircle,    dot: "bg-slate-300" },
+  { key: "bot_active",        label: "Bot activo",  icon: Bot },
+  { key: "closed",            label: "Cerradas",    icon: XCircle },
 ];
 
 const PAGE_SIZE = 25;
@@ -51,6 +57,26 @@ export default function AdminConversationsPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [panelOpen,  setPanelOpen]  = useState(false);
 
+  // El detalle es inline en desktop (≥lg) y un Sheet deslizante en mobile/tablet.
+  // El Sheet solo debe ABRIR en mobile: en desktop su overlay taparía el inline.
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 1023px)");
+    const update = () => setIsMobile(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+
+  // Al cruzar el breakpoint con un detalle abierto, cerralo: si no, pasar de
+  // desktop (inline) a mobile materializa de golpe un Sheet que el usuario no
+  // pidió. Depende solo de isMobile a propósito (incluir panelOpen lo cerraría
+  // apenas se abre).
+  useEffect(() => {
+    if (panelOpen) closeDetail();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isMobile]);
+
   // Debounced search
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -63,13 +89,14 @@ export default function AdminConversationsPage() {
   // Reset page when filters change
   useEffect(() => { setPage(1); }, [status, sectorId, dateFrom, dateTo]);
 
-  // Close detail with ESC
+  // Cerrar detalle con ESC — solo para el inline de desktop; en mobile el
+  // Sheet (Radix) ya cierra con Escape por su cuenta.
   useEffect(() => {
-    if (!panelOpen) return;
+    if (!panelOpen || isMobile) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") closeDetail(); };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [panelOpen]);
+  }, [panelOpen, isMobile]);
 
   // ── Queries ────────────────────────────────────────────────────────────────
 
@@ -85,7 +112,10 @@ export default function AdminConversationsPage() {
       pageSize: PAGE_SIZE,
     }),
     staleTime: 10_000,
-    refetchInterval: 15_000,
+    // El historial filtrado/paginado no necesita refresco agresivo; reordenar
+    // bajo el cursor del admin mientras lee es molesto. Los conteos en vivo
+    // los lleva activeQuery (8s), que es lo que sí justifica poll.
+    refetchInterval: 45_000,
   });
 
   // Live counts for the summary chips — polls active conversations
@@ -109,7 +139,9 @@ export default function AdminConversationsPage() {
     queryFn:  () => api.operator.getConversation(selectedId!),
     enabled:  !!selectedId && panelOpen,
     staleTime: 5_000,
-    refetchInterval: panelOpen ? 5_000 : false,
+    // No tiene sentido pollear una conversación cerrada: no va a cambiar.
+    refetchInterval: (query) =>
+      panelOpen && (query.state.data as ConversationDetail | undefined)?.status !== "closed" ? 5_000 : false,
   });
 
   // ── Derived ────────────────────────────────────────────────────────────────
@@ -147,7 +179,7 @@ export default function AdminConversationsPage() {
 
   const listBody = historyQuery.isLoading ? (
     <div className="divide-y">
-      {Array.from({ length: 8 }).map((_, i) => <RowSkeleton key={i} />)}
+      {Array.from({ length: 12 }).map((_, i) => <RowSkeleton key={i} />)}
     </div>
   ) : historyQuery.isError ? (
     <div className="flex flex-col items-center justify-center py-16 text-muted-foreground gap-2">
@@ -179,17 +211,17 @@ export default function AdminConversationsPage() {
   );
 
   const pagination = !historyQuery.isLoading && !historyQuery.isError && total > 0 && (
-    <div className="border-t px-3 py-2.5 flex items-center justify-between gap-3 bg-muted/20 shrink-0">
-      <span className="text-[11px] text-muted-foreground">
+    <div className="border-t px-3 py-1.5 flex items-center justify-between gap-3 shrink-0">
+      <span className="text-[11px] text-muted-foreground tabular-nums">
         {((page - 1) * PAGE_SIZE) + 1}–{Math.min(page * PAGE_SIZE, total)} de {total.toLocaleString("es-AR")}
       </span>
       {totalPages > 1 && (
         <div className="flex items-center gap-1">
-          <Button variant="ghost" size="icon" className="h-7 w-7" disabled={page === 1} onClick={() => setPage(p => p - 1)} aria-label="Anterior">
+          <Button variant="ghost" size="icon" className="h-8 w-8" disabled={page === 1} onClick={() => setPage(p => p - 1)} aria-label="Página anterior">
             <ChevronLeft className="h-4 w-4" />
           </Button>
-          <span className="text-xs text-muted-foreground tabular-nums px-1">{page} / {totalPages}</span>
-          <Button variant="ghost" size="icon" className="h-7 w-7" disabled={page === totalPages} onClick={() => setPage(p => p + 1)} aria-label="Siguiente">
+          <span className="text-[11px] text-muted-foreground tabular-nums px-1">{page} / {totalPages}</span>
+          <Button variant="ghost" size="icon" className="h-8 w-8" disabled={page === totalPages} onClick={() => setPage(p => p + 1)} aria-label="Página siguiente">
             <ChevronRight className="h-4 w-4" />
           </Button>
         </div>
@@ -201,82 +233,21 @@ export default function AdminConversationsPage() {
 
   return (
     <>
-      <div className="h-full flex flex-col w-full p-4 sm:p-6 gap-4 min-h-0">
+      <PageShell>
+        {/* Cabecera estándar de la app (igual que Temas reconocidos, Documentos…):
+            PageHeader con título + descripción + estado en vivo, y Filtros como
+            acción. Las tabs de estado y la búsqueda van debajo, en el marco. */}
         <PageHeader
-          className="shrink-0"
+          eyebrow="Operación"
           title="Conversaciones"
-          description="Historial de conversaciones del asistente y de la atención humana."
-          actions={
-            (waitingCount > 0 || attendingCount > 0) ? (
-              <div className="hidden sm:flex items-center gap-2">
-                {waitingCount > 0 && (
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-warning/10 text-warning border border-warning/20 px-2.5 h-7 text-xs font-medium">
-                    <span className="w-1.5 h-1.5 rounded-full bg-warning animate-pulse" />
-                    {waitingCount} en espera
-                  </span>
-                )}
-                {attendingCount > 0 && (
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-success/10 text-success border border-success/20 px-2.5 h-7 text-xs font-medium">
-                    <span className="w-1.5 h-1.5 rounded-full bg-success" />
-                    {attendingCount} en atención
-                  </span>
-                )}
-              </div>
-            ) : undefined
+          badge={
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/50 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+              <span className="h-1.5 w-1.5 rounded-full bg-success animate-pulse motion-reduce:animate-none" />
+              En vivo
+            </span>
           }
-        />
-
-        {/* ── Toolbar: tabs + search + filtros ──────────────────────────────── */}
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between shrink-0">
-          {/* Status tabs — segmented control */}
-          <div role="tablist" aria-label="Filtrar por estado" className="inline-flex items-center gap-1 p-1 bg-muted rounded-lg overflow-x-auto">
-            {STATUS_TABS.map(tab => {
-              const Icon = tab.icon;
-              const isActive = status === tab.key;
-              return (
-                <button
-                  key={tab.key}
-                  role="tab"
-                  aria-selected={isActive}
-                  onClick={() => { setStatus(tab.key); setPage(1); }}
-                  className={cn(
-                    "inline-flex items-center gap-1.5 h-8 px-3 rounded-md text-xs sm:text-sm font-medium whitespace-nowrap transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                    isActive
-                      ? "bg-background text-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  {tab.dot
-                    ? <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", tab.dot)} />
-                    : <Icon className="h-3.5 w-3.5 shrink-0" />}
-                  {tab.label}
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Search + filter toggle */}
-          <div className="flex items-center gap-2">
-            <div className="relative flex-1 lg:flex-none lg:w-64">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-              <Input
-                type="text"
-                aria-label="Buscar conversaciones"
-                placeholder="Buscar por nombre, email, DNI…"
-                value={search}
-                onChange={e => handleSearch(e.target.value)}
-                className="pl-8 h-9"
-              />
-              {search && (
-                <button
-                  aria-label="Limpiar búsqueda"
-                  onClick={() => { handleSearch(""); setDebouncedSearch(""); }}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded text-muted-foreground hover:text-foreground"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              )}
-            </div>
+          description="Todas las conversaciones del asistente y la atención humana, en tiempo real."
+          actions={
             <Button
               variant={showFilters || hasActiveFilters ? "default" : "outline"}
               size="sm"
@@ -286,11 +257,67 @@ export default function AdminConversationsPage() {
               <SlidersHorizontal className="h-3.5 w-3.5" />
               <span className="hidden sm:inline">Filtros</span>
               {activeFilterCount > 0 && (
-                <span className="ml-0.5 bg-primary-foreground text-primary rounded-full text-[10px] font-bold w-4 h-4 flex items-center justify-center">
+                <span className="ml-0.5 bg-background/20 text-primary-foreground rounded-full text-[10px] font-bold min-w-[18px] h-[18px] px-1 inline-flex items-center justify-center">
                   {activeFilterCount}
                 </span>
               )}
             </Button>
+          }
+        />
+
+        {/* Tabs de estado + búsqueda en la MISMA fila (gana espacio vertical).
+            Tabs a la izquierda con los conteos en vivo en sus triggers; búsqueda
+            a la derecha. En mobile se apilan. */}
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <Tabs
+            value={status}
+            onValueChange={(v) => { setStatus(v as StatusFilter); setPage(1); }}
+            className="min-w-0"
+          >
+            <TabsList className="max-w-full overflow-x-auto">
+              {STATUS_TABS.map(tab => {
+                const Icon = tab.icon;
+                return (
+                  <TabsTrigger key={tab.key} value={tab.key} className="gap-1.5">
+                    {tab.dot
+                      ? <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", tab.dot)} />
+                      : <Icon className="h-3.5 w-3.5 shrink-0" />}
+                    {tab.label}
+                    {tab.key === "handoff_requested" && waitingCount > 0 && (
+                      <span className="ml-0.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold tabular-nums bg-warning/15 text-warning">
+                        {waitingCount}
+                      </span>
+                    )}
+                    {tab.key === "human_attending" && attendingCount > 0 && (
+                      <span className="ml-0.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold tabular-nums bg-success/15 text-success">
+                        {attendingCount}
+                      </span>
+                    )}
+                  </TabsTrigger>
+                );
+              })}
+            </TabsList>
+          </Tabs>
+
+          <div className="relative sm:ml-auto sm:w-64 shrink-0">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+            <Input
+              type="text"
+              aria-label="Buscar conversaciones"
+              placeholder="Buscar por nombre, email, DNI…"
+              value={search}
+              onChange={e => handleSearch(e.target.value)}
+              className="pl-8 h-9"
+            />
+            {search && (
+              <button
+                aria-label="Limpiar búsqueda"
+                onClick={() => { handleSearch(""); setDebouncedSearch(""); }}
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded text-muted-foreground hover:text-foreground"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
           </div>
         </div>
 
@@ -323,13 +350,13 @@ export default function AdminConversationsPage() {
                   <Input
                     type="date" aria-label="Desde" value={dateFrom} max={dateTo || undefined}
                     onChange={e => setDateFrom(e.target.value)}
-                    className="h-9 w-auto px-2 text-sm"
+                    className="h-9 w-36 px-2 text-sm"
                   />
-                  <span className="text-xs text-muted-foreground">a</span>
+                  <span className="text-xs text-muted-foreground" aria-hidden>→</span>
                   <Input
                     type="date" aria-label="Hasta" value={dateTo} min={dateFrom || undefined}
                     onChange={e => setDateTo(e.target.value)}
-                    className="h-9 w-auto px-2 text-sm"
+                    className="h-9 w-36 px-2 text-sm"
                   />
                 </div>
               </div>
@@ -359,7 +386,7 @@ export default function AdminConversationsPage() {
             {sectorName && <FilterChip label={sectorName} onClear={() => setSectorId("")} />}
             {(dateFrom || dateTo) && (
               <FilterChip
-                label={`${dateFrom || "…"} → ${dateTo || "…"}`}
+                label={`${dateFrom ? fmtChipDate(dateFrom) : "…"} → ${dateTo ? fmtChipDate(dateTo) : "…"}`}
                 onClear={() => { setDateFrom(""); setDateTo(""); }}
               />
             )}
@@ -367,23 +394,20 @@ export default function AdminConversationsPage() {
         )}
 
         {/* ── Inbox split: lista + conversación ─────────────────────────────── */}
-        <div className="grid gap-4 lg:grid-cols-[minmax(340px,400px)_1fr] xl:grid-cols-[minmax(380px,440px)_1fr] flex-1 min-h-0">
+        {/* Altura completa dentro del marco PageShell (flujo space-y, no h-full):
+            mismo recurso que la pestaña Sugeridos de Temas reconocidos. El calc
+            descuenta cabecera + tabs + búsqueda; ajustable si hace falta. */}
+        <div className="grid gap-4 lg:grid-cols-[minmax(340px,400px)_1fr] xl:grid-cols-[minmax(380px,440px)_1fr] lg:h-[calc(100dvh-14rem)] lg:min-h-[460px]">
           {/* Lista (scroll propio) */}
-          <Card className="overflow-hidden flex flex-col h-full min-h-0">
-            <div className="flex items-center justify-between px-3 py-2 border-b bg-muted/40 shrink-0">
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                {total > 0 ? `${total.toLocaleString("es-AR")} conversaciones` : "Conversaciones"}
-              </span>
-              {historyQuery.isFetching && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
-            </div>
-            <div className="flex-1 overflow-y-auto min-h-0">
+          <Card className="overflow-hidden rounded-lg flex flex-col h-full min-h-0">
+            <div className="flex-1 overflow-y-auto scrollbar-slim min-h-0 py-1 [scrollbar-gutter:stable]">
               {listBody}
             </div>
             {pagination}
           </Card>
 
           {/* Conversación (desktop inline) */}
-          <Card className="hidden lg:flex flex-col overflow-hidden h-full min-h-0">
+          <Card className="hidden lg:flex flex-col overflow-hidden rounded-lg h-full min-h-0">
             {selectedId ? (
               <ConvDetail
                 detail={detailQuery.data ?? null}
@@ -398,37 +422,26 @@ export default function AdminConversationsPage() {
             )}
           </Card>
         </div>
-      </div>
+      </PageShell>
 
-      {/* ── Detail overlay (solo mobile/tablet) ─────────────────────────────── */}
-      <div
-        className={cn(
-          "lg:hidden fixed inset-0 bg-black/30 z-40 transition-opacity duration-300",
-          panelOpen ? "opacity-100" : "opacity-0 pointer-events-none",
-        )}
-        onClick={closeDetail}
-        aria-hidden
-      />
-      <div
-        role="dialog"
-        aria-label="Detalle de conversación"
-        className={cn(
-          "lg:hidden fixed right-0 top-0 h-full z-50 w-full sm:w-[480px]",
-          "bg-card border-l shadow-2xl flex flex-col",
-          "transition-transform duration-300 ease-out",
-          panelOpen ? "translate-x-0" : "translate-x-full",
-        )}
-      >
-        {selectedId && (
-          <ConvDetail
-            detail={detailQuery.data ?? null}
-            loading={detailQuery.isLoading}
-            isError={detailQuery.isError}
-            onRetry={() => qc.invalidateQueries({ queryKey: ["conversation-detail", selectedId] })}
-            onClose={closeDetail}
-          />
-        )}
-      </div>
+      {/* ── Detail Sheet (solo mobile/tablet) ───────────────────────────────── */}
+      {/* Radix Dialog aporta focus-trap, aria-modal, scroll-lock y devuelve el
+          foco a la fila que lo abrió al cerrar — todo lo que el overlay manual
+          no hacía. Solo abre en mobile: en desktop el detalle es inline. */}
+      <Sheet open={panelOpen && isMobile} onOpenChange={(o) => { if (!o) closeDetail(); }}>
+        <SheetContent side="right" hideClose aria-describedby={undefined} className="w-full sm:max-w-xl p-0">
+          <SheetTitle className="sr-only">Detalle de conversación</SheetTitle>
+          {selectedId && (
+            <ConvDetail
+              detail={detailQuery.data ?? null}
+              loading={detailQuery.isLoading}
+              isError={detailQuery.isError}
+              onRetry={() => qc.invalidateQueries({ queryKey: ["conversation-detail", selectedId] })}
+              onClose={closeDetail}
+            />
+          )}
+        </SheetContent>
+      </Sheet>
     </>
   );
 }
@@ -450,22 +463,21 @@ function ConvRow({ conv, selected, onClick }: {
   return (
     <button
       onClick={onClick}
+      aria-current={selected ? "true" : undefined}
       className={cn(
-        "w-full text-left px-3.5 py-3 block transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-        selected
-          ? "bg-action/[0.07] border-l-2 border-action pl-[calc(0.875rem-2px)]"
-          : "hover:bg-muted/50 border-l-2 border-transparent pl-[calc(0.875rem-2px)]",
+        "w-full text-left px-3.5 py-3 block transition-colors focus-visible:outline-none focus-visible:bg-muted/60",
+        selected ? "bg-action/[0.07]" : "hover:bg-muted/50",
       )}
     >
       {/* línea 1: nombre + tiempo */}
       <div className="flex items-center gap-2">
         <span className="flex items-center gap-1.5 min-w-0 flex-1">
-          {conv.is_test && <span className="shrink-0 text-[9px] font-bold bg-violet-100 text-violet-700 rounded px-1 py-0.5 uppercase tracking-wide">TEST</span>}
+          {conv.is_test && <span aria-label="Conversación de prueba" className="shrink-0 text-[10px] font-bold bg-primary/10 text-primary rounded px-1 py-0.5 uppercase tracking-wide">TEST</span>}
           <span className="text-sm font-semibold truncate">
             {name ?? <span className="font-normal text-muted-foreground italic">Anónimo</span>}
           </span>
         </span>
-        <span className="text-[11px] text-muted-foreground tabular-nums shrink-0 whitespace-nowrap" title={dateTitle}>{dateStr}</span>
+        <span className="text-[11px] text-muted-foreground tabular-nums shrink-0 whitespace-nowrap" title={dateTitle ?? "Fecha no disponible"}>{dateStr}</span>
       </div>
 
       {/* línea 2: sub info */}
@@ -477,8 +489,8 @@ function ConvRow({ conv, selected, onClick }: {
         <span className="text-[11px] text-muted-foreground truncate min-w-0">
           {conv.sector_nombre || "Sin sector"}
         </span>
-        <span className="text-[11px] text-muted-foreground tabular-nums shrink-0 inline-flex items-center gap-1 ml-auto">
-          <MessageSquare className="h-3 w-3 opacity-50" />{conv.message_count ?? "—"}
+        <span className="text-[11px] text-muted-foreground tabular-nums shrink-0 inline-flex items-center gap-1 ml-auto" title="Mensajes en la conversación">
+          <MessageSquare className="h-3 w-3 opacity-50" />{conv.message_count ?? 0}
         </span>
       </div>
     </button>
@@ -493,9 +505,9 @@ function EmptyDetail() {
       <div className="w-16 h-16 rounded-2xl bg-action/10 text-action flex items-center justify-center mb-4">
         <InboxIcon className="h-7 w-7" />
       </div>
-      <p className="text-[15px] font-semibold text-foreground">Elegí una conversación</p>
+      <p className="text-base font-semibold text-foreground">Elegí una conversación</p>
       <p className="text-sm mt-1 max-w-xs leading-relaxed">
-        Seleccioná una conversación de la lista para ver el detalle, los datos del afiliado y todos los mensajes.
+        Seleccioná una conversación de la lista para ver el detalle y todos los mensajes.
       </p>
     </div>
   );
@@ -512,15 +524,18 @@ function ConvDetail({ detail, loading, isError, onRetry, onClose, inline }: {
   inline?: boolean;
 }) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [detail?.messages?.length]);
+  // Solo al abrir una conversación distinta — no en cada refetch. En un
+  // historial de lectura, saltar al fondo cada 5s mientras el admin lee el
+  // inicio es hostil.
+  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "auto" }); }, [detail?.id]);
 
   return (
     <div className="flex flex-col h-full min-h-0">
       {/* Header */}
-      <div className="shrink-0 px-4 py-3 border-b flex items-center gap-3 bg-card">
+      <div className="shrink-0 px-4 h-12 border-b flex items-center gap-3 bg-card">
         <button
           onClick={onClose}
-          className="flex items-center justify-center w-8 h-8 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="flex items-center justify-center w-8 h-8 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           aria-label={inline ? "Cerrar detalle" : "Volver"}
           title={inline ? "Cerrar detalle" : "Volver"}
         >
@@ -528,40 +543,20 @@ function ConvDetail({ detail, loading, isError, onRetry, onClose, inline }: {
         </button>
 
         {loading || !detail ? (
-          <div className="flex-1 space-y-1.5">
-            <Skeleton className="h-4 w-36" />
-            <Skeleton className="h-3 w-52" />
-          </div>
+          <Skeleton className="h-4 w-44 flex-1" />
         ) : (
           <>
-            <div className="flex-1 min-w-0">
-              <p className="font-semibold text-sm truncate">
-                {detail.afiliado_nombre || (detail.afiliado_ip ? `IP ${detail.afiliado_ip}` : "Anónimo")}
-              </p>
-              <p className="text-xs text-muted-foreground truncate">
-                {[detail.sector_nombre, detail.afiliado_email, detail.afiliado_dni && `DNI ${detail.afiliado_dni}`].filter(Boolean).join(" · ") || "—"}
-              </p>
-            </div>
+            <p className="flex-1 min-w-0 font-semibold text-sm truncate">
+              {detail.afiliado_nombre || (detail.afiliado_ip ? `IP ${detail.afiliado_ip}` : "Anónimo")}
+            </p>
             <StatusBadge status={detail.status} />
           </>
         )}
       </div>
 
-      {/* Meta — chips */}
-      {detail && !loading && (
-        <div className="shrink-0 px-4 py-2.5 border-b bg-muted/30 flex flex-wrap gap-x-4 gap-y-1.5 text-[11px]">
-          {detail.sector_nombre && <MetaChip icon={Building2} value={detail.sector_nombre} />}
-          {detail.operator_name && <MetaChip icon={UserCheck} value={detail.operator_name} />}
-          {detail.afiliado_email && <MetaChip icon={Mail} value={detail.afiliado_email} />}
-          {detail.afiliado_dni && <MetaChip icon={Fingerprint} value={`DNI ${detail.afiliado_dni}`} />}
-          {detail.created_at && <MetaChip icon={Clock} value={fmtDateFull(detail.created_at)} />}
-          <MetaChip icon={MessageSquare} value={`${detail.messages?.length ?? 0} mensajes`} />
-        </div>
-      )}
-
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto bg-muted/20 min-h-0">
-        <div className={cn("p-4 space-y-3", inline && "max-w-3xl mx-auto w-full")}>
+      <div className="flex-1 overflow-y-auto scrollbar-slim bg-muted/20 min-h-0">
+        <div className={cn("p-4 space-y-3", inline && "max-w-5xl mx-auto w-full")}>
           {loading ? (
             <div className="space-y-3">
               <Skeleton className="h-12 w-2/3 rounded-2xl" />
@@ -600,15 +595,6 @@ function ConvDetail({ detail, loading, isError, onRetry, onClose, inline }: {
 
 // ── Small components ──────────────────────────────────────────────────────────
 
-function MetaChip({ icon: Icon, value }: { icon: React.ElementType; value: string }) {
-  return (
-    <span className="inline-flex items-center gap-1.5 text-muted-foreground min-w-0">
-      <Icon className="h-3.5 w-3.5 shrink-0 opacity-70" />
-      <span className="text-foreground truncate">{value}</span>
-    </span>
-  );
-}
-
 function FilterChip({ label, onClear }: { label: string; onClear: () => void }) {
   return (
     <span className="inline-flex items-center gap-1 text-[11px] bg-muted text-foreground rounded-md pl-2 pr-1 py-1">
@@ -620,14 +606,19 @@ function FilterChip({ label, onClear }: { label: string; onClear: () => void }) 
   );
 }
 
+// Espeja exactamente el layout de ConvRow (sin avatar, 3 líneas) para no
+// generar layout shift al pasar de skeleton a contenido real.
 function RowSkeleton() {
   return (
-    <div className="flex items-center gap-3 px-3 py-3">
-      <Skeleton className="h-10 w-10 rounded-full shrink-0" />
-      <div className="flex-1 space-y-1.5">
-        <Skeleton className="h-3.5 w-40" />
-        <Skeleton className="h-3 w-24" />
-        <Skeleton className="h-3 w-32" />
+    <div className="px-3.5 py-3">
+      <div className="flex items-center gap-2">
+        <Skeleton className="h-3.5 w-36 flex-1" />
+        <Skeleton className="h-3 w-10 shrink-0" />
+      </div>
+      <Skeleton className="h-3 w-28 mt-1.5" />
+      <div className="flex items-center gap-2 mt-2">
+        <Skeleton className="h-4 w-16 rounded-full" />
+        <Skeleton className="h-3 w-20" />
       </div>
     </div>
   );
@@ -645,6 +636,15 @@ function fmtDate(iso: string): string {
   if (d.getFullYear() === now.getFullYear())
     return d.toLocaleDateString("es-AR", { day: "numeric", month: "short" });
   return d.toLocaleDateString("es-AR", { day: "numeric", month: "short", year: "2-digit" });
+}
+
+// Las fechas de los inputs son "YYYY-MM-DD" (sin hora). Parsear con new Date()
+// las toma como UTC-medianoche → en es-AR (-3) muestra el día anterior. El
+// mediodía fijo evita ese corrimiento.
+function fmtChipDate(ymd: string): string {
+  const d = new Date(`${ymd}T12:00:00`);
+  if (isNaN(d.getTime())) return ymd;
+  return d.toLocaleDateString("es-AR", { day: "numeric", month: "short" });
 }
 
 function fmtDateFull(iso: string): string {

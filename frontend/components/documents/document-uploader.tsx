@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useDropzone } from "react-dropzone";
 import { Upload, File, AlertCircle, Loader2, X, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -48,8 +48,18 @@ const MAX_SIZE_MB = 200;
 
 // ── DocumentUploader ──────────────────────────────────────────────────────────
 
-export function DocumentUploader({ onUploaded }: { onUploaded?: () => void }) {
+export function DocumentUploader({ onUploaded, onDone }: { onUploaded?: () => void; onDone?: () => void }) {
   const [items, setItems] = useState<UploadItem[]>([]);
+
+  // Cuando la lista queda vacía después de haber tenido subidas (todas OK — los
+  // duplicados/errores permanecen visibles), avisamos para que el contenedor
+  // (p. ej. el modal de carga) se cierre solo. El estado posterior del documento
+  // ("en cola → procesando → listo") lo muestra la tabla, no hace falta acá.
+  const hadItems = useRef(false);
+  useEffect(() => {
+    if (items.length > 0) { hadItems.current = true; return; }
+    if (hadItems.current) { hadItems.current = false; onDone?.(); }
+  }, [items, onDone]);
 
   const update = (file: File, patch: Partial<UploadItem>) =>
     setItems((prev) => prev.map((i) => (i.file === file ? { ...i, ...patch } : i)));
@@ -200,7 +210,7 @@ function UploadRow({ item, onDismiss }: { item: UploadItem; onDismiss: () => voi
         "rounded-lg border p-3 space-y-2 transition-colors",
         isFailed    && "border-destructive/40 bg-destructive/5",
         isDuplicate && "border-warning/20 bg-warning/10",
-        isUploading && "border-primary/30 bg-primary/5",
+        isUploading && "border-action/30 bg-action/5",
       )}
     >
       <div className="flex items-center gap-3">
@@ -209,7 +219,7 @@ function UploadRow({ item, onDismiss }: { item: UploadItem; onDismiss: () => voi
           <p className="text-sm font-medium truncate">{item.file.name}</p>
           <p className="text-xs text-muted-foreground">{sizeMB} MB</p>
         </div>
-        {isUploading && <Loader2 className="h-4 w-4 animate-spin text-primary shrink-0" />}
+        {isUploading && <Loader2 className="h-4 w-4 animate-spin text-action shrink-0" />}
         {isDuplicate && (
           <>
             <Info className="h-4 w-4 text-warning shrink-0" />
@@ -240,7 +250,7 @@ function UploadRow({ item, onDismiss }: { item: UploadItem; onDismiss: () => voi
         <div className="space-y-1">
           <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
             <div
-              className="h-full bg-primary rounded-full transition-all duration-200"
+              className="h-full bg-action-gradient rounded-full transition-all duration-200"
               style={{ width: `${item.uploadPct}%` }}
             />
           </div>

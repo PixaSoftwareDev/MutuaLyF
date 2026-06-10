@@ -1022,7 +1022,53 @@ export const api = {
       };
     },
   },
+
+  // ── Canales de atención (widget / WhatsApp) ────────────────────────────────
+  channels: {
+    get: async (): Promise<ChannelsState> => {
+      const { data } = await apiClient.get<ChannelsState>("/admin/channels");
+      return data;
+    },
+    toggleWidget: async (enabled: boolean): Promise<void> => {
+      await apiClient.put("/admin/channels/widget", { enabled });
+    },
+    saveWhatsApp: async (payload: {
+      phone_number_id: string;
+      waba_id?: string | null;
+      access_token: string;
+      app_secret?: string | null;
+    }): Promise<{ status: string; verify_token: string; webhook_url: string }> => {
+      const { data } = await apiClient.put("/admin/channels/whatsapp", payload);
+      return data;
+    },
+    testWhatsApp: async (): Promise<{ status: string; display_phone: string | null; verified_name: string | null }> => {
+      const { data } = await apiClient.post("/admin/channels/whatsapp/test");
+      return data;
+    },
+    toggleWhatsApp: async (enabled: boolean): Promise<void> => {
+      await apiClient.put("/admin/channels/whatsapp/toggle", { enabled });
+    },
+    deleteWhatsApp: async (): Promise<void> => {
+      await apiClient.delete("/admin/channels/whatsapp");
+    },
+  },
 };
+
+export interface ChannelsState {
+  widget: { enabled: boolean; has_token: boolean };
+  whatsapp: null | {
+    configured: boolean;
+    enabled: boolean;
+    status: "pending" | "active" | "error" | "disabled" | string;
+    phone_number_id: string;
+    waba_id: string | null;
+    display_phone: string | null;
+    verify_token: string;
+    has_app_secret: boolean;
+    last_verified_at: string | null;
+  };
+  webhook_url: string;
+}
 
 interface PromptTemplate {
   id: string; nombre: string; descripcion: string | null; categoria: string;

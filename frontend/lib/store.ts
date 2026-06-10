@@ -134,11 +134,22 @@ interface UIState {
   closeMobileSidebar: () => void;
 }
 
-export const useUIStore = create<UIState>()((set) => ({
-  sidebarOpen: true,
-  mobileSidebarOpen: false,
-  toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
-  setSidebarOpen: (v) => set({ sidebarOpen: v }),
-  openMobileSidebar: () => set({ mobileSidebarOpen: true }),
-  closeMobileSidebar: () => set({ mobileSidebarOpen: false }),
-}));
+export const useUIStore = create<UIState>()(
+  persist(
+    (set) => ({
+      sidebarOpen: true,
+      mobileSidebarOpen: false,
+      toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
+      setSidebarOpen: (v) => set({ sidebarOpen: v }),
+      openMobileSidebar: () => set({ mobileSidebarOpen: true }),
+      closeMobileSidebar: () => set({ mobileSidebarOpen: false }),
+    }),
+    {
+      name: "ia_ui",
+      storage: createJSONStorage(() => localStorage),
+      // Solo persistimos el colapso del sidebar — el drawer mobile siempre
+      // debe arrancar cerrado, sin importar cómo quedó la sesión anterior.
+      partialize: (s) => ({ sidebarOpen: s.sidebarOpen }),
+    },
+  ),
+);
