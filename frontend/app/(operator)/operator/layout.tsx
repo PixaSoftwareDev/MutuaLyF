@@ -23,7 +23,11 @@ export default function OperatorLayout({ children }: { children: React.ReactNode
   return (
     <div className="flex flex-col h-screen overflow-hidden bg-background">
       <OperatorTopbar />
-      <main className="flex-1 overflow-hidden">{children}</main>
+      {/* overflow-y-auto (no hidden): la bandeja ocupa h-full y scrollea
+          adentro (acá no desborda), pero las páginas de flujo normal
+          (Mi cuenta, Historial) necesitan el scroll del main — con hidden
+          quedaban cortadas sin scroll en mobile. */}
+      <main className="flex-1 overflow-y-auto">{children}</main>
     </div>
   );
 }
