@@ -41,13 +41,13 @@ function SettingsContent() {
         <TabsContent value="asistente" className="mt-6">
           <GeneralSettings />
         </TabsContent>
-        <TabsContent value="apariencia" className="mt-6 max-w-3xl">
+        <TabsContent value="apariencia" className="mt-6">
           <AppearanceSettings />
         </TabsContent>
-        <TabsContent value="canales" className="mt-6 max-w-3xl">
+        <TabsContent value="canales" className="mt-6">
           <ChannelsSettings />
         </TabsContent>
-        <TabsContent value="derivacion" className="mt-6 max-w-3xl">
+        <TabsContent value="derivacion" className="mt-6">
           <HandoffSettings />
         </TabsContent>
       </Tabs>

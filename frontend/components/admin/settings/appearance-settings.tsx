@@ -121,7 +121,9 @@ export function AppearanceSettings() {
   const aaLarge      = ratio >= 3.0;
 
   return (
-    <div className="space-y-6">
+    <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px] xl:items-start">
+      {/* ── Columna izquierda: formulario ── */}
+      <div className="space-y-6">
       {/* ── Organización ── */}
       <Card className="rounded-2xl">
         <CardHeader className="pb-3">
@@ -264,22 +266,6 @@ export function AppearanceSettings() {
             )}
           </div>
 
-          {/* Réplica sobre lienzo suave — refleja nombre, saludo y color */}
-          <div className="rounded-xl bg-muted/30 border border-border/50 px-4 py-7 sm:py-9">
-            <div className="mx-auto max-w-[330px]">
-              <ChatPreview
-                botName={botName.trim() || DEFAULT_BOT_NAME}
-                primaryColor={previewColor}
-                logoUrl={null}
-                conversation={[
-                  { from: "bot", text: greetingMessage.trim() || DEFAULT_GREETING },
-                  { from: "user", text: "Hola, tengo una consulta" },
-                ]}
-                typing
-              />
-            </div>
-          </div>
-
           <div className="flex items-center justify-between gap-4">
             <p className="text-[11px] text-muted-foreground">
               Es la misma vista que el widget y “Probar chat”.
@@ -294,6 +280,35 @@ export function AppearanceSettings() {
           </div>
         </CardContent>
       </Card>
+      </div>
+
+      {/* ── Columna derecha: réplica en vivo (refleja nombre, saludo y color) ── */}
+      <div className="xl:sticky xl:top-6">
+        <Card className="rounded-2xl">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Vista previa</CardTitle>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Se actualiza al instante con tus cambios.
+            </p>
+          </CardHeader>
+          <CardContent>
+            <div className="rounded-xl bg-muted/30 border border-border/50 px-4 py-7 sm:py-9">
+              <div className="mx-auto max-w-[330px]">
+                <ChatPreview
+                  botName={botName.trim() || DEFAULT_BOT_NAME}
+                  primaryColor={previewColor}
+                  logoUrl={null}
+                  conversation={[
+                    { from: "bot", text: greetingMessage.trim() || DEFAULT_GREETING },
+                    { from: "user", text: "Hola, tengo una consulta" },
+                  ]}
+                  typing
+                />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }

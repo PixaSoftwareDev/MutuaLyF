@@ -79,8 +79,8 @@ export function ChannelsSettings() {
 
   if (isLoading) {
     return (
-      <div className="space-y-6">
-        <Skeleton className="h-56 rounded-2xl" />
+      <div className="grid gap-6 xl:grid-cols-2 xl:items-start">
+        <Skeleton className="h-72 rounded-2xl" />
         <Skeleton className="h-72 rounded-2xl" />
       </div>
     );
@@ -95,7 +95,7 @@ export function ChannelsSettings() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="grid gap-6 xl:grid-cols-2 xl:items-start">
       <WidgetCard channels={channels} onChanged={refresh} />
       <WhatsAppCard channels={channels} onChanged={refresh} />
     </div>

@@ -104,8 +104,17 @@ export function HandoffSettings() {
     </div>
   );
 
+  const previewConversation = [
+    { from: "user" as const, text: "No encuentro lo que busco…" },
+    { from: "bot" as const, note: "Oferta del bot",         text: messages["handoff_offer"] || "" },
+    { from: "bot" as const, note: "Confirmando derivación", text: messages["handoff_confirmed"] || "" },
+    { from: "bot" as const, note: "Espera prolongada",      text: messages["operator_inactive_alert"] || "" },
+  ];
+
   return (
-    <div className="space-y-6">
+    <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px] xl:items-start">
+      {/* ── Columna izquierda: configuración ── */}
+      <div className="space-y-6">
       {/* Reglas de activación */}
       <Card className="rounded-2xl">
         <CardHeader className="pb-3">
@@ -175,7 +184,7 @@ export function HandoffSettings() {
                 Lo que ve el usuario en cada momento del pase a un operador.
               </p>
             </div>
-            <Button variant="outline" size="sm" className="shrink-0" onClick={() => setShowPreview(true)}>
+            <Button variant="outline" size="sm" className="shrink-0 xl:hidden" onClick={() => setShowPreview(true)}>
               <Eye className="h-4 w-4 mr-1.5" />
               Vista previa
             </Button>
@@ -199,8 +208,8 @@ export function HandoffSettings() {
         </CardContent>
       </Card>
 
-      {/* Vista previa centrada, a demanda — el flujo completo de derivación
-          con los mensajes del form, aunque no estén guardados */}
+      {/* Vista previa a demanda (pantallas chicas) — el flujo completo de
+          derivación con los mensajes del form, aunque no estén guardados */}
       <PreviewDialog
         open={showPreview}
         onOpenChange={setShowPreview}
@@ -210,12 +219,7 @@ export function HandoffSettings() {
           botName={botConfig?.bot_name || DEFAULT_BOT_NAME}
           primaryColor={branding?.primary_color || "#4f46e5"}
           logoUrl={branding?.logo_url ?? null}
-          conversation={[
-            { from: "user", text: "No encuentro lo que busco…" },
-            { from: "bot", note: "Oferta del bot",         text: messages["handoff_offer"] || "" },
-            { from: "bot", note: "Confirmando derivación", text: messages["handoff_confirmed"] || "" },
-            { from: "bot", note: "Espera prolongada",      text: messages["operator_inactive_alert"] || "" },
-          ]}
+          conversation={previewConversation}
         />
       </PreviewDialog>
 
@@ -227,6 +231,31 @@ export function HandoffSettings() {
           Guardar cambios
         </Button>
       </div>
+      </div>
+
+      {/* ── Columna derecha: réplica del flujo, fija (pantallas grandes) ── */}
+      <aside className="hidden xl:block xl:sticky xl:top-6">
+        <Card className="rounded-2xl">
+          <CardHeader className="pb-3">
+            <h2 className="font-semibold text-base tracking-tight">Vista previa</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              El flujo que ve el usuario al derivarse a un operador. Se actualiza con tus cambios.
+            </p>
+          </CardHeader>
+          <CardContent>
+            <div className="rounded-xl bg-muted/30 border border-border/50 px-4 py-7">
+              <div className="mx-auto max-w-[330px]">
+                <ChatPreview
+                  botName={botConfig?.bot_name || DEFAULT_BOT_NAME}
+                  primaryColor={branding?.primary_color || "#4f46e5"}
+                  logoUrl={branding?.logo_url ?? null}
+                  conversation={previewConversation}
+                />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </aside>
     </div>
   );
 }
