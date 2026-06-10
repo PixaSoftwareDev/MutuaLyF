@@ -184,10 +184,10 @@ export default function TenantDetailPage() {
           <ZoneHeader label="Estado y acciones" />
 
           {/* ── Identity ─────────────────────────────────────────────── */}
-          <div className="rounded-xl border bg-card shadow-sm px-5 py-4">
+          <div className="rounded-2xl border bg-card shadow px-5 py-4">
             <div className="flex items-start gap-4 flex-wrap">
-              <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
-                <span className="text-lg font-bold text-primary uppercase">{t.name[0]}</span>
+              <div className="w-12 h-12 rounded-xl bg-action-gradient-soft flex items-center justify-center shrink-0">
+                <span className="text-lg font-bold text-action uppercase">{t.name[0]}</span>
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
@@ -648,6 +648,7 @@ function TopBar({ onBack, onRefresh, label, loading }: { onBack: () => void; onR
 function ZoneHeader({ label }: { label: string }) {
   return (
     <div className="flex items-center gap-3">
+      <span className="h-2 w-2 rounded-full bg-action-gradient shrink-0" aria-hidden />
       <h2 className="text-base font-bold tracking-tight text-foreground shrink-0">{label}</h2>
       <Separator className="flex-1" />
     </div>
@@ -656,8 +657,10 @@ function ZoneHeader({ label }: { label: string }) {
 
 function SectionTitle({ icon: Icon, label, sublabel }: { icon: any; label: string; sublabel?: string }) {
   return (
-    <div className="flex items-center gap-2 pt-2">
-      <Icon className="h-4 w-4 text-muted-foreground shrink-0" />
+    <div className="flex items-center gap-2.5 pt-2">
+      <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-action-gradient-soft shrink-0">
+        <Icon className="h-4 w-4 text-action" />
+      </span>
       <span className="text-sm font-semibold">{label}</span>
       {sublabel && <span className="text-xs text-muted-foreground">{sublabel}</span>}
     </div>
@@ -666,7 +669,7 @@ function SectionTitle({ icon: Icon, label, sublabel }: { icon: any; label: strin
 
 function KPI({ label, value, color, sublabel }: { label: string; value: string; color: string; sublabel?: string }) {
   return (
-    <div className="rounded-lg border bg-card px-4 py-3">
+    <div className="rounded-xl border bg-card px-4 py-3 shadow-sm">
       <p className={cn("text-xl font-bold tabular-nums leading-none", color)}>{value}</p>
       <p className="text-xs text-muted-foreground mt-1.5 leading-tight">{label}</p>
       {sublabel && <p className="text-[11px] text-muted-foreground/70">{sublabel}</p>}
@@ -689,7 +692,7 @@ function QuotaBar({ label, used, limit, pct }: { label: string; used: number; li
   const warn   = !unlimited && (pct ?? 0) >= 70;
 
   return (
-    <div className="rounded-lg border bg-card px-4 py-3">
+    <div className="rounded-xl border bg-card px-4 py-3 shadow-sm">
       <div className="flex items-center justify-between mb-2">
         <span className="text-xs font-medium text-muted-foreground">{label}</span>
         {unlimited

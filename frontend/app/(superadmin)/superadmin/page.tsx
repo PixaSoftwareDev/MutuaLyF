@@ -7,7 +7,7 @@ import {
   Shield, Plus, Loader2, RefreshCw, Building2, AlertTriangle,
   ChevronRight, TrendingUp, CheckCircle2, Database, Server,
   Zap, Activity, Cpu, HardDrive, Wifi, AlertCircle, Bot,
-  BarChart3, FileStack,
+  BarChart3, FileStack, Search,
 } from "lucide-react";
 import { api, apiClient } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -19,7 +19,9 @@ import { Separator } from "@/components/ui/separator";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { EmptyState } from "@/components/ui/empty-state";
-import { PageHeader } from "@/components/layout/page-header";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { PageShell } from "@/components/layout/page-shell";
+import { PageHeader, CountChip } from "@/components/layout/page-header";
 import { toast } from "@/components/ui/toast";
 import { cn, toSlug } from "@/lib/utils";
 
@@ -80,10 +82,11 @@ export default function SuperAdminPage() {
     queryKey: ["platform-health"], queryFn: api.tenants.platformHealth,
     refetchInterval: 60_000, staleTime: 30_000,
   });
+  // Siempre habilitado (no solo en la tab Sistema): alimenta el KPI de error
+  // rate, el strip de salud y el punto de alerta en el trigger de la tab.
   const { data: system, isLoading: sysLoading } = useQuery({
     queryKey: ["platform-system"], queryFn: api.tenants.platformSystem,
     refetchInterval: 30_000, staleTime: 15_000,
-    enabled: tab === "sistema",
   });
 
   const filtered = tenants.filter(t =>
@@ -96,56 +99,47 @@ export default function SuperAdminPage() {
   const hasAnomalies = (health?.anomalies?.length ?? 0) > 0;
 
   return (
-    <div className="h-full flex flex-col overflow-hidden bg-muted/20">
-
-      {/* ── Top bar ───────────────────────────────────────────────────────── */}
-      <div className="shrink-0 bg-background border-b px-4 sm:px-6">
-        <div className="max-w-[1400px] mx-auto pt-4 sm:pt-6">
-          <PageHeader
-            title="Plataforma"
-            description="Organizaciones, uso y salud de la infraestructura"
-            actions={
-              <>
-                <Button variant="ghost" size="icon" onClick={inv} className="h-9 w-9" title="Actualizar">
-                  <RefreshCw className="h-4 w-4" />
+    <>
+      <PageShell>
+        {/* Cabecera estándar del back-office — misma identidad que el admin */}
+        <PageHeader
+          eyebrow="Plataforma"
+          title="Resumen"
+          badge={health
+            ? <CountChip>{health.active_tenants} {health.active_tenants === 1 ? "activa" : "activas"}</CountChip>
+            : undefined}
+          description="Organizaciones, uso y salud de la infraestructura."
+          actions={
+            <>
+              <Button variant="ghost" size="icon" onClick={inv} className="h-9 w-9" title="Actualizar">
+                <RefreshCw className="h-4 w-4" />
+              </Button>
+              {tab === "orgs" && (
+                <Button size="sm" onClick={() => setShowCreate(true)} className="h-9 gap-1.5 group">
+                  <Plus className="h-3.5 w-3.5 transition-transform group-hover:rotate-90" />
+                  <span className="hidden sm:inline">Nueva organización</span>
                 </Button>
-                {tab === "orgs" && (
-                  <Button size="sm" onClick={() => setShowCreate(true)} className="h-9 gap-1.5">
-                    <Plus className="h-3.5 w-3.5" />
-                    <span className="hidden sm:inline">Nueva org.</span>
-                  </Button>
-                )}
-              </>
-            }
-          />
-        </div>
-
-        {/* Tabs */}
-        <div className="max-w-[1400px] mx-auto flex gap-0 -mb-px mt-4">
-          {([
-            { id: "orgs",    label: "Organizaciones", icon: Building2 },
-            { id: "sistema", label: "Sistema",         icon: Activity  },
-          ] as { id: Tab; label: string; icon: any }[]).map(t => (
-            <button
-              key={t.id}
-              onClick={() => setTab(t.id)}
-              className={cn(
-                "flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors",
-                tab === t.id
-                  ? "border-primary text-primary"
-                  : "border-transparent text-muted-foreground hover:text-foreground"
               )}
-            >
-              <t.icon className="h-3.5 w-3.5" />
-              {t.label}
-            </button>
-          ))}
-        </div>
-      </div>
+            </>
+          }
+        />
 
-      {/* ── Scrollable body ───────────────────────────────────────────────── */}
-      <div className="flex-1 overflow-y-auto">
-        <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-4 space-y-4">
+        {/* Tabs estándar (mismo componente que Configuración / Conversaciones) */}
+        <Tabs value={tab} onValueChange={v => setTab(v as Tab)}>
+          <TabsList>
+            <TabsTrigger value="orgs" className="gap-1.5">
+              <Building2 className="h-3.5 w-3.5" /> Organizaciones
+            </TabsTrigger>
+            <TabsTrigger value="sistema" className="gap-1.5">
+              <Activity className="h-3.5 w-3.5" /> Sistema
+              {system && system.backend.error_rate_5m > 0.01 && (
+                <span className="h-1.5 w-1.5 rounded-full bg-destructive animate-pulse motion-reduce:animate-none" />
+              )}
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+
+        <div className="space-y-4">
 
           {/* ── KPIs de cabecera ──────────────────────────────────────── */}
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-3">
@@ -180,7 +174,7 @@ export default function SuperAdminPage() {
 
           {/* ── Health strip (always visible) ─────────────────────────── */}
           <div className={cn(
-            "rounded-lg border px-4 py-2.5 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-sm",
+            "rounded-xl border px-4 py-2.5 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-sm",
             hasAnomalies
               ? "bg-warning/10 border-warning/20"
               : "bg-success/10 border-success/20"
@@ -229,14 +223,17 @@ export default function SuperAdminPage() {
 
           {/* ══ TAB: ORGANIZACIONES ══════════════════════════════════════ */}
           {tab === "orgs" && (
-            <>
+            <div className="space-y-4 animate-fade-in">
               <div className="flex items-center gap-3">
-                <Input
-                  placeholder="Buscar por nombre, ID o email..."
-                  value={search}
-                  onChange={e => setSearch(e.target.value)}
-                  className="h-9 text-sm max-w-sm"
-                />
+                <div className="relative max-w-sm flex-1">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                  <Input
+                    placeholder="Buscar por nombre, ID o email…"
+                    value={search}
+                    onChange={e => setSearch(e.target.value)}
+                    className="h-9 text-sm pl-8"
+                  />
+                </div>
                 <span className="text-xs text-muted-foreground shrink-0 tabular-nums">
                   {filtered.length}{search ? ` de ${tenants.length}` : " organizaciones"}
                 </span>
@@ -244,7 +241,7 @@ export default function SuperAdminPage() {
 
               {isLoading ? (
                 <div className="space-y-2">
-                  {[1,2,3].map(i => <Skeleton key={i} className="h-16 w-full rounded-xl" />)}
+                  {[1,2,3].map(i => <Skeleton key={i} className="h-[72px] w-full rounded-2xl" />)}
                 </div>
               ) : filtered.length === 0 ? (
                 <EmptyState
@@ -253,7 +250,7 @@ export default function SuperAdminPage() {
                   description={search ? undefined : "Creá la primera organización para empezar."}
                 />
               ) : (
-                <div className="space-y-2 pb-6">
+                <div className="space-y-2 pb-6 stagger-children">
                   {filtered.map(t => (
                     <TenantRowCard
                       key={t.id}
@@ -264,19 +261,21 @@ export default function SuperAdminPage() {
                   ))}
                 </div>
               )}
-            </>
+            </div>
           )}
 
           {/* ══ TAB: SISTEMA ═════════════════════════════════════════════ */}
           {tab === "sistema" && (
-            <SystemTab system={system} loading={sysLoading} />
+            <div className="animate-fade-in">
+              <SystemTab system={system} loading={sysLoading} />
+            </div>
           )}
 
         </div>
-      </div>
+      </PageShell>
 
       <CreateTenantModal open={showCreate} onClose={() => setShowCreate(false)} onCreated={inv} />
-    </div>
+    </>
   );
 }
 
@@ -532,7 +531,7 @@ function HeaderKpi({ label, value, tone = "neutral", loading }: {
   return (
     <div
       className={cn(
-        "relative bg-card border border-border rounded-md pl-4 pr-4 py-3 shadow-[0_1px_0_rgba(0,0,0,0.02)] before:content-[''] before:absolute before:left-0 before:top-0 before:bottom-0 before:w-1 before:rounded-l-md",
+        "relative bg-card border border-border rounded-xl pl-4 pr-4 py-3 shadow-sm overflow-hidden before:content-[''] before:absolute before:left-0 before:top-0 before:bottom-0 before:w-1",
         accent
       )}
     >
@@ -554,9 +553,11 @@ function Section({ icon: Icon, label, sublabel, children }: {
   icon: any; label: string; sublabel?: string; children: React.ReactNode;
 }) {
   return (
-    <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
-      <div className="flex items-center gap-2 px-4 py-3 border-b bg-muted/30">
-        <Icon className="h-4 w-4 text-muted-foreground shrink-0" />
+    <div className="rounded-2xl border bg-card shadow overflow-hidden">
+      <div className="flex items-center gap-2.5 px-4 py-3 border-b bg-muted/30">
+        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-action-gradient-soft shrink-0">
+          <Icon className="h-4 w-4 text-action" />
+        </span>
         <span className="text-sm font-semibold">{label}</span>
         {sublabel && <span className="text-xs text-muted-foreground">{sublabel}</span>}
       </div>
@@ -585,14 +586,25 @@ function TenantRowCard({ tenant: t, anomaly, onClick }: {
     ? new Date(t.created_at).toLocaleDateString("es-AR", { day: "2-digit", month: "short", year: "numeric" })
     : "—";
 
+  // Consumo del mes vs cuota del plan — lo que el operador necesita de un
+  // vistazo para detectar tenants cerca del límite sin entrar al detalle.
+  const used  = t.usage_30d?.queries ?? 0;
+  const limit = t.limits?.queries_month ?? 0;
+  const pct   = limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : null;
+  const quotaTone =
+    pct === null ? "bg-muted-foreground/40" :
+    pct >= 90    ? "bg-destructive" :
+    pct >= 70    ? "bg-warning" :
+                   "bg-success";
+
   return (
     <button
       onClick={onClick}
-      className="w-full rounded-xl border bg-card shadow-sm hover:shadow-md hover:border-primary/30 transition-all text-left group"
+      className="w-full rounded-2xl border bg-card shadow text-left group card-interactive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <div className="flex items-center gap-3 px-4 py-3.5">
-        <div className="shrink-0 w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center">
-          <span className="text-sm font-bold text-primary uppercase">{t.name[0]}</span>
+        <div className="shrink-0 w-10 h-10 rounded-xl bg-action-gradient-soft flex items-center justify-center">
+          <span className="text-sm font-bold text-action uppercase">{t.name[0]}</span>
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
@@ -603,10 +615,23 @@ function TenantRowCard({ tenant: t, anomaly, onClick }: {
           <p className="text-xs text-muted-foreground truncate mt-0.5">{t.admin_email} · desde {created}</p>
         </div>
         <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-          <span className={cn("text-xs font-medium px-2 py-0.5 rounded-full hidden md:inline", PLAN_COLORS[t.plan] || "bg-muted")}>{t.plan}</span>
+          <span className={cn("text-xs font-medium px-2 py-0.5 rounded-full hidden md:inline capitalize", PLAN_COLORS[t.plan] || "bg-muted")}>{t.plan}</span>
           <Badge variant={STATUS_VARIANT[t.status] ?? "secondary"} className="text-xs capitalize hidden sm:flex">{t.status}</Badge>
-          <span className="text-xs text-muted-foreground tabular-nums hidden md:inline">{fmtNum(t.usage_30d?.queries ?? 0)} q/30d</span>
-          <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-primary transition-colors" />
+
+          {/* Cuota mensual de consultas — barra con umbral de color */}
+          <div className="hidden lg:flex flex-col items-end gap-1 w-40">
+            <span className="text-[11px] text-muted-foreground tabular-nums leading-none">
+              {fmtNum(used)}{limit > 0 ? ` / ${fmtNum(limit)}` : ""} consultas 30d
+            </span>
+            <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+              <div
+                className={cn("h-full rounded-full transition-all", quotaTone)}
+                style={{ width: `${pct ?? (used > 0 ? 100 : 0)}%` }}
+              />
+            </div>
+          </div>
+
+          <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-action transition-colors" />
         </div>
       </div>
     </button>
