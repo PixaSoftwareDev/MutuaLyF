@@ -178,7 +178,7 @@ export default function AdminConversationsPage() {
   // ── List body (shared) ──────────────────────────────────────────────────────
 
   const listBody = historyQuery.isLoading ? (
-    <div className="divide-y">
+    <div className="space-y-1.5 p-2">
       {Array.from({ length: 12 }).map((_, i) => <RowSkeleton key={i} />)}
     </div>
   ) : historyQuery.isError ? (
@@ -198,7 +198,7 @@ export default function AdminConversationsPage() {
       </p>
     </div>
   ) : (
-    <div className="divide-y">
+    <div className="space-y-1.5 p-2">
       {items.map(conv => (
         <ConvRow
           key={conv.id}
@@ -465,8 +465,8 @@ function ConvRow({ conv, selected, onClick }: {
       onClick={onClick}
       aria-current={selected ? "true" : undefined}
       className={cn(
-        "w-full text-left px-3.5 py-3 block transition-colors focus-visible:outline-none focus-visible:bg-muted/60",
-        selected ? "bg-action/[0.07]" : "hover:bg-muted/50",
+        "w-full text-left px-3.5 py-3 block rounded-xl shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        selected ? "bg-action/[0.07] ring-1 ring-action/30" : "bg-card hover:bg-muted/50",
       )}
     >
       {/* línea 1: nombre + tiempo */}
@@ -610,7 +610,7 @@ function FilterChip({ label, onClear }: { label: string; onClear: () => void }) 
 // generar layout shift al pasar de skeleton a contenido real.
 function RowSkeleton() {
   return (
-    <div className="px-3.5 py-3">
+    <div className="px-3.5 py-3 rounded-xl bg-card shadow-sm">
       <div className="flex items-center gap-2">
         <Skeleton className="h-3.5 w-36 flex-1" />
         <Skeleton className="h-3 w-10 shrink-0" />

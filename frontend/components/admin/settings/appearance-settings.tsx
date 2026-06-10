@@ -1,23 +1,19 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Check, Pipette } from "lucide-react";
+import { Loader2, Check, Pipette, Bot, SendHorizontal, Pencil } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import { contrastRatio, pickReadableTextColor } from "@/lib/use-tenant-branding";
-import {
-  ChatPreview,
-  DEFAULT_BOT_NAME, DEFAULT_GREETING,
-} from "@/components/admin/settings/chat-preview";
+import { DEFAULT_BOT_NAME, DEFAULT_GREETING } from "@/components/admin/settings/chat-preview";
 
 const DEFAULT_COLOR = "#99323D";
 const PALETTE_PRESETS = [
@@ -64,7 +60,7 @@ export function AppearanceSettings() {
   const identityDirty =
     botConfig != null &&
     (botName.trim() !== (botConfig.bot_name ?? "") || greetingMessage !== (botConfig.greeting_message ?? ""));
-  const chatDirty = colorDirty || identityDirty;
+  const anyDirty = nameDirty || colorDirty || identityDirty;
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ["admin-branding"] });
@@ -72,20 +68,10 @@ export function AppearanceSettings() {
     qc.invalidateQueries({ queryKey: ["bot-config", tenantId] });
   };
 
-  const saveNameM = useMutation({
-    mutationFn: () => api.branding.update({
-      display_name: displayName.trim() || branding!.display_name,
-    }),
-    onSuccess: () => { invalidate(); toast({ title: "Nombre actualizado", variant: "success" }); },
-    onError: (err: any) => {
-      const detail = err?.response?.data?.detail ?? "Error al guardar";
-      toast({ title: detail, variant: "destructive" });
-    },
-  });
-
-  // Un solo Guardar para toda la card del chat: identidad (bot config) y
-  // color (branding) van a endpoints distintos — se disparan solo los dirty.
-  const saveChatM = useMutation({
+  // Un solo Guardar para todo el panel. Identidad (bot config) y branding
+  // (nombre de la organización + color) van a endpoints distintos; el branding
+  // se manda en un solo PATCH. Solo se disparan los que cambiaron.
+  const saveM = useMutation({
     mutationFn: async () => {
       if (identityDirty) {
         await api.tenants.updateBotConfig(tenantId!, {
@@ -93,24 +79,20 @@ export function AppearanceSettings() {
           greeting_message: greetingMessage || null,
         });
       }
-      if (colorDirty) {
-        await api.branding.update({ primary_color: cssColorToHex(primary) || primary });
-      }
+      const brandingPatch: { display_name?: string; primary_color?: string } = {};
+      if (nameDirty)  brandingPatch.display_name  = displayName.trim() || branding!.display_name;
+      if (colorDirty) brandingPatch.primary_color = cssColorToHex(primary) || primary;
+      if (Object.keys(brandingPatch).length) await api.branding.update(brandingPatch);
     },
-    onSuccess: () => { invalidate(); toast({ title: "Chat actualizado", variant: "success" }); },
+    onSuccess: () => { invalidate(); toast({ title: "Cambios guardados", variant: "success" }); },
     onError: (err: any) => {
       const detail = err?.response?.data?.detail ?? "Error al guardar";
-      toast({ title: detail, variant: "destructive" });
+      toast({ title: typeof detail === "string" ? detail : "Error al guardar", variant: "destructive" });
     },
   });
 
   if (isLoading || !branding) {
-    return (
-      <div className="space-y-6">
-        <Skeleton className="h-44 rounded-2xl" />
-        <Skeleton className="h-[640px] rounded-2xl" />
-      </div>
-    );
+    return <Skeleton className="h-[640px] rounded-2xl" />;
   }
 
   // Lo elegido (aunque no esté guardado) se refleja en vivo en la réplica.
@@ -121,20 +103,19 @@ export function AppearanceSettings() {
   const aaLarge      = ratio >= 3.0;
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px] xl:items-start">
-      {/* ── Columna izquierda: formulario ── */}
-      <div className="space-y-6">
-      {/* ── Organización ── */}
-      <Card className="rounded-2xl">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Organización</CardTitle>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            El nombre visible para tus usuarios y operadores.
-          </p>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-1.5 max-w-md">
-            <Label htmlFor="display_name">Nombre visible</Label>
+    <Card className="rounded-2xl overflow-hidden">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base">Tu asistente</CardTitle>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          Editá el nombre, el saludo y el color directamente sobre el chat. Es la misma vista que verán tus clientes en la web y el widget.
+        </p>
+      </CardHeader>
+
+      <CardContent className="space-y-6">
+        {/* Organización + Color — fila que aprovecha el ancho */}
+        <div className="grid gap-5 lg:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label htmlFor="display_name">Nombre de la organización</Label>
             <Input
               id="display_name"
               value={displayName}
@@ -142,58 +123,11 @@ export function AppearanceSettings() {
               maxLength={200}
               placeholder="Ej. Mutualyf S.A."
             />
-          </div>
-          <div className="flex justify-end">
-            <Button
-              onClick={() => saveNameM.mutate()}
-              disabled={!nameDirty || !displayName.trim() || saveNameM.isPending}
-            >
-              {saveNameM.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
-              Guardar cambios
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* ── Chat de cara al cliente: identidad + color + réplica en vivo ── */}
-      <Card className="rounded-2xl">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Chat de cara al cliente</CardTitle>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            El nombre, el saludo y el color con los que el asistente recibe a tus clientes en el chat y el widget.
-            Todo se refleja al instante en la réplica.
-          </p>
-        </CardHeader>
-        <CardContent className="space-y-5">
-
-          {/* Identidad del asistente */}
-          <div className="grid gap-4 sm:grid-cols-[280px,minmax(0,1fr)]">
-            <div className="space-y-1.5">
-              <Label htmlFor="bot-name">Nombre del asistente</Label>
-              <Input
-                id="bot-name"
-                value={botName}
-                onChange={e => setBotName(e.target.value)}
-                maxLength={80}
-                placeholder={DEFAULT_BOT_NAME}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="bot-greeting">Mensaje de saludo</Label>
-              <Textarea
-                id="bot-greeting"
-                value={greetingMessage}
-                onChange={e => setGreetingMessage(e.target.value)}
-                placeholder={DEFAULT_GREETING}
-                rows={2}
-                className="text-sm resize-none"
-              />
-            </div>
+            <p className="text-[11px] text-muted-foreground">El nombre visible para tus usuarios y operadores.</p>
           </div>
 
-          {/* Color: paleta · gotero + hex · contraste a la derecha */}
           <div className="space-y-1.5">
-            <Label>Color</Label>
+            <Label>Color del chat</Label>
             <div className="flex flex-wrap items-center gap-2 pt-0.5">
               {PALETTE_PRESETS.map(p => {
                 const selected = previewColor.toLowerCase() === p.toLowerCase();
@@ -246,7 +180,7 @@ export function AppearanceSettings() {
               />
 
               <span className={cn(
-                "ml-auto inline-flex items-center gap-1.5 text-[11px] font-medium",
+                "inline-flex items-center gap-1.5 text-[11px] font-medium",
                 aaNormal ? "text-success" : aaLarge ? "text-warning" : "text-destructive",
               )}>
                 <span className={cn(
@@ -258,58 +192,163 @@ export function AppearanceSettings() {
               </span>
             </div>
             {!aaNormal && (
-              <p className="text-xs text-muted-foreground pt-1">
+              <p className="text-[11px] text-muted-foreground pt-1">
                 {aaLarge
                   ? "Este color sirve solo para texto grande. El texto chico del chat puede leerse mal — probá un tono más oscuro o más claro."
                   : "Este color no contrasta bien ni con texto blanco ni oscuro. El chat puede quedar ilegible — elegí otro tono."}
               </p>
             )}
           </div>
+        </div>
 
-          <div className="flex items-center justify-between gap-4">
-            <p className="text-[11px] text-muted-foreground">
-              Es la misma vista que el widget y “Probar chat”.
-            </p>
-            <Button
-              onClick={() => saveChatM.mutate()}
-              disabled={!chatDirty || saveChatM.isPending}
-            >
-              {saveChatM.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
-              Guardar cambios
-            </Button>
+        {/* Lienzo con el chat editable in-situ */}
+        <div className="rounded-2xl bg-muted/30 border border-border/50 px-4 py-8 sm:py-10">
+          <div className="mx-auto max-w-[360px]">
+            <EditableChat
+              botName={botName}
+              onBotName={setBotName}
+              greeting={greetingMessage}
+              onGreeting={setGreetingMessage}
+              primaryColor={previewColor}
+            />
           </div>
-        </CardContent>
-      </Card>
+          <p className="text-center text-[11px] text-muted-foreground mt-4 inline-flex w-full items-center justify-center gap-1.5">
+            <Pencil className="h-3 w-3" />
+            Tocá el nombre o el saludo para editarlos.
+          </p>
+        </div>
+
+        {/* Footer: aviso de cambios + guardar */}
+        <div className="flex items-center justify-between gap-4">
+          <p className="text-[11px] text-muted-foreground inline-flex items-center gap-1.5">
+            {anyDirty && <span className="h-1.5 w-1.5 rounded-full bg-warning" />}
+            {anyDirty ? "Tenés cambios sin guardar." : "Todo guardado."}
+          </p>
+          <Button onClick={() => saveM.mutate()} disabled={!anyDirty || saveM.isPending}>
+            {saveM.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+            Guardar cambios
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ── Chat editable in-situ ─────────────────────────────────────────────────────
+
+/**
+ * Réplica del chat del cliente, pero con el nombre (en el header) y el saludo
+ * (en la primera burbuja) editables directamente sobre la pieza. El resto
+ * (burbuja del usuario, "escribiendo", input) es decorativo para dar contexto.
+ */
+function EditableChat({
+  botName, onBotName, greeting, onGreeting, primaryColor,
+}: {
+  botName: string;
+  onBotName: (v: string) => void;
+  greeting: string;
+  onGreeting: (v: string) => void;
+  primaryColor: string;
+}) {
+  const headerText = pickReadableTextColor(primaryColor);
+
+  return (
+    <div className="rounded-2xl border bg-card shadow-md overflow-hidden">
+      {/* Header con el branding del tenant — nombre editable */}
+      <div className="flex items-center gap-2.5 px-4 py-3" style={{ backgroundColor: primaryColor, color: headerText }}>
+        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-white/20 shrink-0">
+          <Bot className="h-4 w-4" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="group relative flex items-center gap-1">
+            <input
+              value={botName}
+              onChange={e => onBotName(e.target.value)}
+              placeholder={DEFAULT_BOT_NAME}
+              maxLength={80}
+              aria-label="Nombre del asistente"
+              spellCheck={false}
+              className="w-full min-w-0 bg-transparent text-sm font-semibold leading-tight outline-none rounded -mx-1 px-1 py-0.5 transition-colors hover:bg-white/10 focus:bg-white/15 placeholder:opacity-60"
+              style={{ color: headerText }}
+            />
+            <Pencil className="h-3 w-3 shrink-0 opacity-0 transition-opacity group-hover:opacity-60 pointer-events-none" style={{ color: headerText }} />
+          </div>
+          <p className="text-[10px] leading-tight px-0.5" style={{ color: headerText, opacity: 0.75 }}>
+            ● En línea
+          </p>
+        </div>
       </div>
 
-      {/* ── Columna derecha: réplica en vivo (refleja nombre, saludo y color) ── */}
-      <div className="xl:sticky xl:top-6">
-        <Card className="rounded-2xl">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">Vista previa</CardTitle>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Se actualiza al instante con tus cambios.
-            </p>
-          </CardHeader>
-          <CardContent>
-            <div className="rounded-xl bg-muted/30 border border-border/50 px-4 py-7 sm:py-9">
-              <div className="mx-auto max-w-[330px]">
-                <ChatPreview
-                  botName={botName.trim() || DEFAULT_BOT_NAME}
-                  primaryColor={previewColor}
-                  logoUrl={null}
-                  conversation={[
-                    { from: "bot", text: greetingMessage.trim() || DEFAULT_GREETING },
-                    { from: "user", text: "Hola, tengo una consulta" },
-                  ]}
-                  typing
-                />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+      {/* Conversación de muestra — saludo editable */}
+      <div className="bg-muted/30 px-3.5 py-4 space-y-3">
+        <div className="group relative max-w-[88%]">
+          <AutoTextarea
+            value={greeting}
+            onChange={onGreeting}
+            placeholder={DEFAULT_GREETING}
+            className="w-full rounded-2xl rounded-tl-md border bg-card px-3.5 py-2.5 pr-7 text-[13px] leading-relaxed shadow-xs resize-none outline-none transition-colors hover:border-action/40 focus:border-action/60 focus:ring-2 focus:ring-action/30"
+          />
+          <Pencil className="absolute top-2.5 right-2.5 h-3 w-3 text-muted-foreground/60 opacity-0 transition-opacity group-hover:opacity-100 pointer-events-none" />
+        </div>
+
+        <div
+          className="ml-auto max-w-[75%] w-fit rounded-2xl rounded-tr-md px-3.5 py-2.5 text-[13px] leading-relaxed shadow-xs"
+          style={{ backgroundColor: primaryColor, color: headerText }}
+        >
+          Hola, tengo una consulta
+        </div>
+
+        <div className="w-fit rounded-2xl rounded-tl-md border bg-card px-3.5 py-3 shadow-xs flex items-center gap-1">
+          {[0, 1, 2].map(i => (
+            <span
+              key={i}
+              className="h-1.5 w-1.5 rounded-full bg-muted-foreground/40 animate-pulse"
+              style={{ animationDelay: `${i * 200}ms` }}
+            />
+          ))}
+        </div>
+      </div>
+
+      {/* Input decorativo */}
+      <div className="border-t bg-card px-3.5 py-3">
+        <div className="flex items-center gap-2 rounded-full border bg-muted/40 px-4 py-2">
+          <span className="flex-1 text-[13px] text-muted-foreground/60 truncate">Hacé tu consulta…</span>
+          <SendHorizontal className="h-4 w-4 shrink-0" style={{ color: primaryColor }} />
+        </div>
       </div>
     </div>
+  );
+}
+
+/** Textarea de una línea que crece con el contenido (sin scroll interno). */
+function AutoTextarea({
+  value, onChange, placeholder, className,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder: string;
+  className?: string;
+}) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [value]);
+
+  return (
+    <textarea
+      ref={ref}
+      rows={1}
+      value={value}
+      onChange={e => onChange(e.target.value)}
+      placeholder={placeholder}
+      maxLength={500}
+      aria-label="Mensaje de saludo"
+      className={className}
+    />
   );
 }
 
