@@ -38,16 +38,16 @@ function SettingsContent() {
           <TabsTrigger value="derivacion">Derivación a humano</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="asistente" className="mt-6">
+        <TabsContent value="asistente" className="mt-6 animate-fade-in">
           <GeneralSettings />
         </TabsContent>
-        <TabsContent value="apariencia" className="mt-6">
+        <TabsContent value="apariencia" className="mt-6 animate-fade-in">
           <AppearanceSettings />
         </TabsContent>
-        <TabsContent value="canales" className="mt-6">
+        <TabsContent value="canales" className="mt-6 animate-fade-in">
           <ChannelsSettings />
         </TabsContent>
-        <TabsContent value="derivacion" className="mt-6">
+        <TabsContent value="derivacion" className="mt-6 animate-fade-in">
           <HandoffSettings />
         </TabsContent>
       </Tabs>

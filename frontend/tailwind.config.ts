@@ -119,11 +119,26 @@ const config: Config = {
           "40%":  { transform: "translateX(0%)    scaleX(0.4)" },
           "100%": { transform: "translateX(100%)  scaleX(0.6)" },
         },
+        // Entrada de contenido — sutil, profesional (no landing). El "up" suma
+        // un leve desplazamiento de 8px que se lee como premium sin demorar.
+        "fade-in": {
+          from: { opacity: "0" },
+          to:   { opacity: "1" },
+        },
+        "fade-in-up": {
+          from: { opacity: "0", transform: "translateY(8px)" },
+          to:   { opacity: "1", transform: "translateY(0)" },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
         "progress-indeterminate": "progress-indeterminate 1.4s ease-in-out infinite",
+        // `backwards` mantiene el estado inicial (opacity 0) durante el delay
+        // del stagger → sin flash. Y al terminar NO persiste el transform, así
+        // los hover:-translate-y de las cards siguen funcionando.
+        "fade-in": "fade-in 0.24s ease-out backwards",
+        "fade-in-up": "fade-in-up 0.3s cubic-bezier(0.16, 1, 0.3, 1) backwards",
       },
     },
   },

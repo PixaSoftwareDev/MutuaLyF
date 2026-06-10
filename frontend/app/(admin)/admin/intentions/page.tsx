@@ -157,16 +157,17 @@ export default function IntentionsPage() {
             <Button
               variant="outline"
               size="sm"
+              className="group"
               onClick={() => clusterMutation.mutate()}
               disabled={clusterMutation.isPending}
             >
               {clusterMutation.isPending
                 ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
-                : <Play className="h-4 w-4 mr-1.5" />}
+                : <Play className="h-4 w-4 mr-1.5 transition-transform group-hover:translate-x-0.5" />}
               Detectar temas nuevos
             </Button>
-            <Button size="sm" onClick={() => setShowCreate(true)}>
-              <Plus className="h-4 w-4 mr-1" />
+            <Button size="sm" className="group" onClick={() => setShowCreate(true)}>
+              <Plus className="h-4 w-4 mr-1 transition-transform group-hover:rotate-90" />
               Nuevo tema
             </Button>
             {/* Overflow al EXTREMO (convención). Acciones avanzadas/raras: hoy
@@ -250,7 +251,7 @@ export default function IntentionsPage() {
                 description="Creá un tema con 'Nuevo tema' (arriba) o aprobá los que el bot detectó en las pestañas Sugeridos y Pendientes."
               />
             ) : (
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 stagger-children">
                 {active.map((intent) => (
                   <IntentionCard
                     key={intent.id}

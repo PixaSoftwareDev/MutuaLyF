@@ -82,15 +82,17 @@ export function PreviewDialog({
  * pantalla. La conversación es configurable por tab.
  */
 export function ChatPreview({
-  botName, primaryColor, logoUrl, conversation, typing = false,
+  botName, primaryColor, logoUrl, conversation, typing = false, textColor,
 }: {
   botName: string;
   primaryColor: string;
   logoUrl: string | null;
   conversation: PreviewBubble[];
   typing?: boolean;
+  /** Color de la letra sobre el primary. Por defecto, legible automático. */
+  textColor?: string;
 }) {
-  const headerText = pickReadableTextColor(primaryColor);
+  const headerText = textColor || pickReadableTextColor(primaryColor);
   const resolvedLogo = fullLogoUrl(logoUrl);
 
   return (

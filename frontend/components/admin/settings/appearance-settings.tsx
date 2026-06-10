@@ -2,24 +2,27 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Check, Pipette, Bot, SendHorizontal, Pencil } from "lucide-react";
+import { Loader2, Check, Pipette, Bot, SendHorizontal, Pencil, Wand2, Palette } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import { contrastRatio, pickReadableTextColor } from "@/lib/use-tenant-branding";
 import { DEFAULT_BOT_NAME, DEFAULT_GREETING } from "@/components/admin/settings/chat-preview";
+import { SectionHeader } from "@/components/admin/settings/section-header";
 
 const DEFAULT_COLOR = "#99323D";
 const PALETTE_PRESETS = [
   "#99323D", "#1d4ed8", "#0ea5e9", "#10b981",
   "#f97316", "#a855f7", "#475569", "#0f172a",
 ];
+// Color de la letra sobre el fondo: blanco o un casi-negro. El resto, custom.
+const TEXT_PRESETS = ["#ffffff", "#0f172a"];
 
 export function AppearanceSettings() {
   const qc = useQueryClient();
@@ -37,17 +40,47 @@ export function AppearanceSettings() {
     staleTime: 60_000,
   });
 
-  // ── Form state (espeja backend, editado local) ────────────────────────────
-  const [displayName, setDisplayName]         = useState("");
-  const [primary, setPrimary]                 = useState(DEFAULT_COLOR);
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ["admin-branding"] });
+    qc.invalidateQueries({ queryKey: ["tenant-branding"] });
+    qc.invalidateQueries({ queryKey: ["bot-config", tenantId] });
+  };
+
+  if (isLoading || !branding) {
+    return (
+      <div className="space-y-6">
+        <Skeleton className="h-32 rounded-2xl" />
+        <Skeleton className="h-[620px] rounded-2xl" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <AssistantCard branding={branding} botConfig={botConfig} tenantId={tenantId} onSaved={invalidate} />
+    </div>
+  );
+}
+
+// ── Card: Identidad y apariencia (nombre org + editor WYSIWYG + colores) ──────
+
+function AssistantCard({
+  branding, botConfig, tenantId, onSaved,
+}: { branding: any; botConfig: any; tenantId: string | null; onSaved: () => void }) {
+  const [displayName, setDisplayName]         = useState(branding.display_name);
+  const [primary, setPrimary]                 = useState(branding.primary_color || DEFAULT_COLOR);
   const [botName, setBotName]                 = useState("");
   const [greetingMessage, setGreetingMessage] = useState("");
+  // Color de la letra: 'auto' = legibilidad automática; 'custom' = elegido.
+  const [textMode, setTextMode]   = useState<"auto" | "custom">(branding.secondary_color ? "custom" : "auto");
+  const [textColor, setTextColor] = useState(branding.secondary_color || "#ffffff");
 
   useEffect(() => {
-    if (!branding) return;
     setDisplayName(branding.display_name);
     setPrimary(branding.primary_color || DEFAULT_COLOR);
-  }, [branding]);
+    setTextMode(branding.secondary_color ? "custom" : "auto");
+    setTextColor(branding.secondary_color || "#ffffff");
+  }, [branding.display_name, branding.primary_color, branding.secondary_color]);
 
   useEffect(() => {
     if (!botConfig) return;
@@ -55,22 +88,26 @@ export function AppearanceSettings() {
     setGreetingMessage(botConfig.greeting_message ?? "");
   }, [botConfig]);
 
-  const nameDirty     = !!branding && displayName.trim() !== branding.display_name;
-  const colorDirty    = !!branding && primary !== (branding.primary_color || DEFAULT_COLOR);
+  const previewColor = cssColorToHex(primary) || branding.primary_color || DEFAULT_COLOR;
+  // Color de letra efectivo: el elegido (custom) o el legible automático.
+  const effectiveText = textMode === "custom"
+    ? (cssColorToHex(textColor) || pickReadableTextColor(previewColor))
+    : pickReadableTextColor(previewColor);
+  // Lo que se persiste en secondary_color: el hex en custom, null en auto.
+  const desiredSecondary = textMode === "custom" ? effectiveText : null;
+
+  const ratio    = contrastRatio(previewColor, effectiveText);
+  const aaNormal = ratio >= 4.5;
+  const aaLarge  = ratio >= 3.0;
+
+  const nameDirty = displayName.trim().length > 0 && displayName.trim() !== branding.display_name;
   const identityDirty =
     botConfig != null &&
     (botName.trim() !== (botConfig.bot_name ?? "") || greetingMessage !== (botConfig.greeting_message ?? ""));
-  const anyDirty = nameDirty || colorDirty || identityDirty;
+  const colorDirty = previewColor.toLowerCase() !== (branding.primary_color || DEFAULT_COLOR).toLowerCase();
+  const textDirty  = (desiredSecondary?.toLowerCase() ?? null) !== ((branding.secondary_color as string | null)?.toLowerCase() ?? null);
+  const anyDirty = nameDirty || identityDirty || colorDirty || textDirty;
 
-  const invalidate = () => {
-    qc.invalidateQueries({ queryKey: ["admin-branding"] });
-    qc.invalidateQueries({ queryKey: ["tenant-branding"] });
-    qc.invalidateQueries({ queryKey: ["bot-config", tenantId] });
-  };
-
-  // Un solo Guardar para todo el panel. Identidad (bot config) y branding
-  // (nombre de la organización + color) van a endpoints distintos; el branding
-  // se manda en un solo PATCH. Solo se disparan los que cambiaron.
   const saveM = useMutation({
     mutationFn: async () => {
       if (identityDirty) {
@@ -79,147 +116,120 @@ export function AppearanceSettings() {
           greeting_message: greetingMessage || null,
         });
       }
-      const brandingPatch: { display_name?: string; primary_color?: string } = {};
-      if (nameDirty)  brandingPatch.display_name  = displayName.trim() || branding!.display_name;
-      if (colorDirty) brandingPatch.primary_color = cssColorToHex(primary) || primary;
-      if (Object.keys(brandingPatch).length) await api.branding.update(brandingPatch);
+      const patch: { primary_color?: string; secondary_color?: string; display_name?: string } = {};
+      if (nameDirty)  patch.display_name = displayName.trim();
+      if (colorDirty) patch.primary_color = previewColor;
+      // El backend trata "" como null (limpia secondary_color en modo auto).
+      if (textDirty)  patch.secondary_color = desiredSecondary ?? "";
+      if (Object.keys(patch).length) await api.branding.update(patch);
     },
-    onSuccess: () => { invalidate(); toast({ title: "Cambios guardados", variant: "success" }); },
+    onSuccess: () => { onSaved(); toast({ title: "Cambios guardados", variant: "success" }); },
     onError: (err: any) => {
       const detail = err?.response?.data?.detail ?? "Error al guardar";
       toast({ title: typeof detail === "string" ? detail : "Error al guardar", variant: "destructive" });
     },
   });
 
-  if (isLoading || !branding) {
-    return <Skeleton className="h-[640px] rounded-2xl" />;
-  }
-
-  // Lo elegido (aunque no esté guardado) se refleja en vivo en la réplica.
-  const previewColor = cssColorToHex(primary) || branding.primary_color || DEFAULT_COLOR;
-  const previewText  = pickReadableTextColor(previewColor);
-  const ratio        = contrastRatio(previewColor, previewText);
-  const aaNormal     = ratio >= 4.5;
-  const aaLarge      = ratio >= 3.0;
-
   return (
     <Card className="rounded-2xl overflow-hidden">
-      <CardHeader className="pb-3">
-        <CardTitle className="text-base">Tu asistente</CardTitle>
-        <p className="text-xs text-muted-foreground mt-0.5">
-          Editá el nombre, el saludo y el color directamente sobre el chat. Es la misma vista que verán tus clientes en la web y el widget.
-        </p>
+      <CardHeader className="pb-4">
+        <SectionHeader
+          icon={Palette}
+          title="Identidad y apariencia"
+          description="El nombre de tu organización y el aspecto del asistente que ven tus usuarios."
+        />
       </CardHeader>
 
-      <CardContent className="space-y-6">
-        {/* Organización + Color — fila que aprovecha el ancho */}
-        <div className="grid gap-5 lg:grid-cols-2">
-          <div className="space-y-1.5">
-            <Label htmlFor="display_name">Nombre de la organización</Label>
-            <Input
-              id="display_name"
-              value={displayName}
-              onChange={e => setDisplayName(e.target.value)}
-              maxLength={200}
-              placeholder="Ej. Mutualyf S.A."
-            />
-            <p className="text-[11px] text-muted-foreground">El nombre visible para tus usuarios y operadores.</p>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label>Color del chat</Label>
-            <div className="flex flex-wrap items-center gap-2 pt-0.5">
-              {PALETTE_PRESETS.map(p => {
-                const selected = previewColor.toLowerCase() === p.toLowerCase();
-                return (
-                  <button
-                    key={p}
-                    type="button"
-                    onClick={() => setPrimary(p)}
-                    aria-label={`Color ${p}`}
-                    aria-pressed={selected}
-                    className={cn(
-                      "flex h-8 w-8 items-center justify-center rounded-full shadow-xs transition-all hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-                      selected ? "ring-2 ring-foreground/35 ring-offset-2" : "hover:shadow-sm",
-                    )}
-                    style={{ background: p }}
-                  >
-                    {selected && <Check className="h-3.5 w-3.5" style={{ color: pickReadableTextColor(p) }} />}
-                  </button>
-                );
-              })}
-
-              <span className="mx-1 h-6 w-px bg-border" aria-hidden />
-
-              <label
-                className="relative flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border border-dashed border-border bg-background transition-colors hover:border-action/50 hover:text-action text-muted-foreground"
-                title="Elegir un color personalizado"
-              >
-                <Pipette className="h-3.5 w-3.5" />
-                <input
-                  type="color"
-                  value={cssColorToHex(primary) || "#ffffff"}
-                  onChange={e => setPrimary(e.target.value)}
-                  className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
-                  aria-label="Color personalizado"
-                />
-              </label>
-
-              <input
-                type="text"
-                value={primary}
-                onChange={e => setPrimary(e.target.value)}
-                onBlur={e => { const hex = cssColorToHex(e.target.value); if (hex) setPrimary(hex); }}
-                placeholder="#RRGGBB"
-                aria-label="Color en hexadecimal"
-                className={cn(
-                  "h-8 w-24 rounded-md border bg-background px-2.5 text-xs font-mono uppercase text-muted-foreground",
-                  "focus:outline-none focus:ring-1 focus:ring-primary focus:text-foreground",
-                  cssColorToHex(primary) ? "border-input" : "border-destructive",
-                )}
-              />
-
-              <span className={cn(
-                "inline-flex items-center gap-1.5 text-[11px] font-medium",
-                aaNormal ? "text-success" : aaLarge ? "text-warning" : "text-destructive",
-              )}>
-                <span className={cn(
-                  "h-1.5 w-1.5 rounded-full",
-                  aaNormal ? "bg-success" : aaLarge ? "bg-warning" : "bg-destructive",
-                )} />
-                {aaNormal ? "Legible" : aaLarge ? "Contraste justo" : "Contraste insuficiente"}
-                <span className="font-mono font-normal opacity-70">{ratio.toFixed(1)}:1</span>
-              </span>
-            </div>
-            {!aaNormal && (
-              <p className="text-[11px] text-muted-foreground pt-1">
-                {aaLarge
-                  ? "Este color sirve solo para texto grande. El texto chico del chat puede leerse mal — probá un tono más oscuro o más claro."
-                  : "Este color no contrasta bien ni con texto blanco ni oscuro. El chat puede quedar ilegible — elegí otro tono."}
-              </p>
-            )}
-          </div>
+      <CardContent className="space-y-4">
+        {/* Nombre de la organización */}
+        <div className="space-y-1.5 sm:max-w-md">
+          <Label htmlFor="display_name">Nombre de la organización</Label>
+          <Input
+            id="display_name"
+            value={displayName}
+            onChange={e => setDisplayName(e.target.value)}
+            maxLength={200}
+            placeholder="Ej. Mutualyf S.A."
+          />
+          <p className="text-[11px] text-muted-foreground">El nombre visible para tus usuarios y operadores.</p>
         </div>
 
-        {/* Lienzo con el chat editable in-situ */}
-        <div className="rounded-2xl bg-muted/30 border border-border/50 px-4 py-8 sm:py-10">
-          <div className="mx-auto max-w-[360px]">
+        <div className="h-px bg-border" aria-hidden />
+
+        {/* ── Preview protagonista: el chat es la pieza central ── */}
+        <div className="rounded-2xl border bg-action-gradient-soft px-4 py-6">
+          <div className="mx-auto max-w-[410px]">
             <EditableChat
               botName={botName}
               onBotName={setBotName}
               greeting={greetingMessage}
               onGreeting={setGreetingMessage}
               primaryColor={previewColor}
+              textColor={effectiveText}
             />
           </div>
-          <p className="text-center text-[11px] text-muted-foreground mt-4 inline-flex w-full items-center justify-center gap-1.5">
-            <Pencil className="h-3 w-3" />
-            Tocá el nombre o el saludo para editarlos.
-          </p>
+        </div>
+
+        {/* ── Toolbar de controles: fondo + letra, compacta bajo el preview ── */}
+        <div className="rounded-xl border bg-muted/20 p-4">
+          <div className="grid gap-5 md:grid-cols-[minmax(0,auto)_1px_minmax(0,1fr)] md:gap-6">
+            {/* Color de fondo */}
+            <div className="space-y-2.5">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Color de fondo</p>
+              <ColorField presets={PALETTE_PRESETS} value={previewColor} raw={primary} onChange={setPrimary} />
+            </div>
+
+            <div className="hidden bg-border md:block" aria-hidden />
+
+            {/* Color de la letra */}
+            <div className="space-y-2.5">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Color de la letra</p>
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="inline-flex rounded-lg border bg-background p-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setTextMode("auto")}
+                    className={cn(
+                      "inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+                      textMode === "auto" ? "bg-action-gradient text-white shadow-sm" : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    <Wand2 className="h-3 w-3" /> Automático
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTextMode("custom")}
+                    className={cn(
+                      "rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+                      textMode === "custom" ? "bg-action-gradient text-white shadow-sm" : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    Personalizado
+                  </button>
+                </div>
+                {textMode === "auto" && <ContrastPreview color={previewColor} text={effectiveText} aaNormal={aaNormal} aaLarge={aaLarge} note />}
+              </div>
+
+              {textMode === "custom" && (
+                <div className="flex flex-wrap items-center gap-3">
+                  <ColorField presets={TEXT_PRESETS} value={effectiveText} raw={textColor} onChange={setTextColor} />
+                  <ContrastPreview color={previewColor} text={effectiveText} aaNormal={aaNormal} aaLarge={aaLarge} />
+                </div>
+              )}
+
+              {!aaNormal && (
+                <p className="text-[11px] text-muted-foreground">
+                  {aaLarge
+                    ? "Sirve solo para texto grande; el texto chico del chat puede leerse mal."
+                    : "El texto puede quedar ilegible — probá otra combinación o el modo automático."}
+                </p>
+              )}
+            </div>
+          </div>
         </div>
 
         {/* Footer: aviso de cambios + guardar */}
-        <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center justify-between gap-4 border-t pt-4">
           <p className="text-[11px] text-muted-foreground inline-flex items-center gap-1.5">
             {anyDirty && <span className="h-1.5 w-1.5 rounded-full bg-warning" />}
             {anyDirty ? "Tenés cambios sin guardar." : "Todo guardado."}
@@ -234,33 +244,123 @@ export function AppearanceSettings() {
   );
 }
 
+// ── Preview de combinación (Aa) + contraste ───────────────────────────────────
+
+function ContrastPreview({
+  color, text, aaNormal, aaLarge, note = false,
+}: {
+  color: string; text: string; aaNormal: boolean; aaLarge: boolean; note?: boolean;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-2.5">
+      {/* Muestra real de cómo se ve la letra sobre el fondo */}
+      <span
+        className="inline-flex h-8 items-center rounded-lg border px-3 text-sm font-semibold shadow-xs"
+        style={{ backgroundColor: color, color: text }}
+        aria-hidden
+      >
+        Aa
+      </span>
+      <span className={cn(
+        "inline-flex items-center gap-1.5 text-xs font-medium",
+        aaNormal ? "text-success" : aaLarge ? "text-warning" : "text-destructive",
+      )}>
+        <span className={cn(
+          "h-1.5 w-1.5 rounded-full",
+          aaNormal ? "bg-success" : aaLarge ? "bg-warning" : "bg-destructive",
+        )} />
+        {aaNormal ? "Se lee bien" : aaLarge ? "Puede costar leerse" : "Difícil de leer"}
+      </span>
+      {note && <span className="text-[11px] text-muted-foreground">Color elegido automáticamente</span>}
+    </div>
+  );
+}
+
+// ── Selector de color reutilizable (presets + gotero + hex) ───────────────────
+
+function ColorField({
+  presets, value, raw, onChange,
+}: { presets: string[]; value: string; raw: string; onChange: (v: string) => void }) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {presets.map(p => {
+        const selected = value.toLowerCase() === p.toLowerCase();
+        return (
+          <button
+            key={p}
+            type="button"
+            onClick={() => onChange(p)}
+            aria-label={`Color ${p}`}
+            aria-pressed={selected}
+            className={cn(
+              "flex h-8 w-8 items-center justify-center rounded-full border shadow-xs transition-all hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+              selected ? "ring-2 ring-foreground/35 ring-offset-2" : "hover:shadow-sm",
+            )}
+            style={{ background: p }}
+          >
+            {selected && <Check className="h-3.5 w-3.5" style={{ color: pickReadableTextColor(p) }} />}
+          </button>
+        );
+      })}
+
+      <span className="mx-1 h-6 w-px bg-border" aria-hidden />
+
+      <label
+        className="relative flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border border-dashed border-border bg-background transition-colors hover:border-action/50 hover:text-action text-muted-foreground"
+        title="Elegir un color personalizado"
+      >
+        <Pipette className="h-3.5 w-3.5" />
+        <input
+          type="color"
+          value={cssColorToHex(raw) || "#ffffff"}
+          onChange={e => onChange(e.target.value)}
+          className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+          aria-label="Color personalizado"
+        />
+      </label>
+
+      <input
+        type="text"
+        value={raw}
+        onChange={e => onChange(e.target.value)}
+        onBlur={e => { const hex = cssColorToHex(e.target.value); if (hex) onChange(hex); }}
+        placeholder="#RRGGBB"
+        aria-label="Color en hexadecimal"
+        className={cn(
+          "h-8 w-24 rounded-md border bg-background px-2.5 text-xs font-mono uppercase text-muted-foreground",
+          "focus:outline-none focus:ring-1 focus:ring-primary focus:text-foreground",
+          cssColorToHex(raw) ? "border-input" : "border-destructive",
+        )}
+      />
+    </div>
+  );
+}
+
 // ── Chat editable in-situ ─────────────────────────────────────────────────────
 
 /**
- * Réplica del chat del cliente, pero con el nombre (en el header) y el saludo
- * (en la primera burbuja) editables directamente sobre la pieza. El resto
- * (burbuja del usuario, "escribiendo", input) es decorativo para dar contexto.
+ * Réplica del chat del cliente, con el nombre (header) y el saludo (primera
+ * burbuja) editables directamente sobre la pieza. El resto es decorativo.
  */
 function EditableChat({
-  botName, onBotName, greeting, onGreeting, primaryColor,
+  botName, onBotName, greeting, onGreeting, primaryColor, textColor,
 }: {
   botName: string;
   onBotName: (v: string) => void;
   greeting: string;
   onGreeting: (v: string) => void;
   primaryColor: string;
+  textColor: string;
 }) {
-  const headerText = pickReadableTextColor(primaryColor);
-
   return (
     <div className="rounded-2xl border bg-card shadow-md overflow-hidden">
-      {/* Header con el branding del tenant — nombre editable */}
-      <div className="flex items-center gap-2.5 px-4 py-3" style={{ backgroundColor: primaryColor, color: headerText }}>
-        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-white/20 shrink-0">
-          <Bot className="h-4 w-4" />
+      {/* Header — nombre editable */}
+      <div className="flex items-center gap-3 px-4 py-4" style={{ backgroundColor: primaryColor, color: textColor }}>
+        <span className="flex h-10 w-10 items-center justify-center rounded-full bg-white/20 shrink-0">
+          <Bot className="h-5 w-5" />
         </span>
         <div className="min-w-0 flex-1">
-          <div className="group relative flex items-center gap-1">
+          <div className="group relative">
             <input
               value={botName}
               onChange={e => onBotName(e.target.value)}
@@ -268,32 +368,40 @@ function EditableChat({
               maxLength={80}
               aria-label="Nombre del asistente"
               spellCheck={false}
-              className="w-full min-w-0 bg-transparent text-sm font-semibold leading-tight outline-none rounded -mx-1 px-1 py-0.5 transition-colors hover:bg-white/10 focus:bg-white/15 placeholder:opacity-60"
-              style={{ color: headerText }}
+              className="w-full min-w-0 cursor-text rounded-lg border px-2.5 py-1.5 pr-7 text-sm font-semibold leading-tight outline-none transition-all placeholder:opacity-60"
+              style={{ color: textColor, backgroundColor: `${textColor}22`, borderColor: `${textColor}40` }}
             />
-            <Pencil className="h-3 w-3 shrink-0 opacity-0 transition-opacity group-hover:opacity-60 pointer-events-none" style={{ color: headerText }} />
+            <Pencil className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 opacity-70 transition-opacity group-hover:opacity-100" style={{ color: textColor }} />
+            {/* Ring de hover en el color del texto (contrasta con el fondo elegido) */}
+            <span
+              className="pointer-events-none absolute inset-0 rounded-lg opacity-0 transition-opacity group-hover:opacity-100"
+              style={{ boxShadow: `0 0 0 1.5px ${textColor}66` }}
+              aria-hidden
+            />
           </div>
-          <p className="text-[10px] leading-tight px-0.5" style={{ color: headerText, opacity: 0.75 }}>
+          <p className="text-[11px] leading-tight px-0.5 mt-1.5" style={{ color: textColor, opacity: 0.75 }}>
             ● En línea
           </p>
         </div>
       </div>
 
       {/* Conversación de muestra — saludo editable */}
-      <div className="bg-muted/30 px-3.5 py-4 space-y-3">
-        <div className="group relative max-w-[88%]">
+      <div className="bg-muted/30 px-3.5 py-5 space-y-3">
+        <div className="group relative">
           <AutoTextarea
             value={greeting}
             onChange={onGreeting}
             placeholder={DEFAULT_GREETING}
-            className="w-full rounded-2xl rounded-tl-md border bg-card px-3.5 py-2.5 pr-7 text-[13px] leading-relaxed shadow-xs resize-none outline-none transition-colors hover:border-action/40 focus:border-action/60 focus:ring-2 focus:ring-action/30"
+            className="block w-full min-h-[4.5rem] cursor-text rounded-2xl rounded-tl-md border border-dashed border-action/40 bg-card px-4 py-3 pr-9 text-sm leading-relaxed shadow-xs resize-none overflow-hidden outline-none transition-all hover:border-action hover:shadow-sm focus:border-action focus:ring-2 focus:ring-action/30"
           />
-          <Pencil className="absolute top-2.5 right-2.5 h-3 w-3 text-muted-foreground/60 opacity-0 transition-opacity group-hover:opacity-100 pointer-events-none" />
+          <span className="absolute top-2 right-2 flex h-5 w-5 items-center justify-center rounded-md bg-action/10 text-action transition-colors group-hover:bg-action/20 pointer-events-none">
+            <Pencil className="h-3 w-3" />
+          </span>
         </div>
 
         <div
           className="ml-auto max-w-[75%] w-fit rounded-2xl rounded-tr-md px-3.5 py-2.5 text-[13px] leading-relaxed shadow-xs"
-          style={{ backgroundColor: primaryColor, color: headerText }}
+          style={{ backgroundColor: primaryColor, color: textColor }}
         >
           Hola, tengo una consulta
         </div>
@@ -335,8 +443,17 @@ function AutoTextarea({
     const el = ref.current;
     if (!el) return;
     el.style.height = "auto";
-    el.style.height = `${el.scrollHeight}px`;
-  }, [value]);
+    // Cuando está vacío, medir contra el placeholder: así el saludo por defecto
+    // (que ocupa varias líneas) no queda cortado a una sola línea.
+    if (!value) {
+      const prev = el.value;
+      el.value = placeholder;
+      el.style.height = `${el.scrollHeight}px`;
+      el.value = prev;
+    } else {
+      el.style.height = `${el.scrollHeight}px`;
+    }
+  }, [value, placeholder]);
 
   return (
     <textarea

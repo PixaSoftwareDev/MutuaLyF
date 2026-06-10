@@ -151,13 +151,11 @@ export function applyBrandingVars(branding: Pick<TenantBranding, "primary_color"
   // que DEBE ser una tupla HSL ("H S% L%"), nunca un hex. Setear un hex acá
   // generaba `hsl(#0f172a)` (inválido) → el browser descartaba la regla y el
   // texto heredaba negro sobre el fondo de marca (bug: letra negra sobre rojo).
-  const fgHsl = hexToHslTuple(pickReadableTextColor(primary));
+  // `secondary_color` = "color de la letra" elegido por el cliente en
+  // Apariencia (texto/íconos sobre el primary). Si no eligió, se calcula
+  // automáticamente para máxima legibilidad. Debe ser tupla HSL, no hex.
+  const fgHsl = hexToHslTuple(branding.secondary_color || "") || hexToHslTuple(pickReadableTextColor(primary));
   if (fgHsl) root.style.setProperty("--brand-foreground", fgHsl);
-
-  if (branding.secondary_color) {
-    const secHsl = hexToHslTuple(branding.secondary_color);
-    if (secHsl) root.style.setProperty("--brand-secondary", secHsl);
-  }
 }
 
 /**

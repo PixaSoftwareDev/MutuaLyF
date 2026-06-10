@@ -198,7 +198,7 @@ export default function AdminConversationsPage() {
       </p>
     </div>
   ) : (
-    <div className="space-y-1.5 p-2">
+    <div className="space-y-1.5 p-2 stagger-children">
       {items.map(conv => (
         <ConvRow
           key={conv.id}
@@ -400,7 +400,7 @@ export default function AdminConversationsPage() {
         <div className="grid gap-4 lg:grid-cols-[minmax(340px,400px)_1fr] xl:grid-cols-[minmax(380px,440px)_1fr] lg:h-[calc(100dvh-14rem)] lg:min-h-[460px]">
           {/* Lista (scroll propio) */}
           <Card className="overflow-hidden rounded-lg flex flex-col h-full min-h-0">
-            <div className="flex-1 overflow-y-auto scrollbar-slim min-h-0 py-1 [scrollbar-gutter:stable]">
+            <div className="flex-1 overflow-y-auto scrollbar-slim min-h-0 [scrollbar-gutter:stable]">
               {listBody}
             </div>
             {pagination}
@@ -465,8 +465,8 @@ function ConvRow({ conv, selected, onClick }: {
       onClick={onClick}
       aria-current={selected ? "true" : undefined}
       className={cn(
-        "w-full text-left px-3.5 py-3 block rounded-xl shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-        selected ? "bg-action/[0.07] ring-1 ring-action/30" : "bg-card hover:bg-muted/50",
+        "w-full text-left px-3.5 py-3 block rounded-xl transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        selected ? "bg-action/[0.07] ring-1 ring-action/30" : "hover:bg-muted/50",
       )}
     >
       {/* línea 1: nombre + tiempo */}
@@ -610,7 +610,7 @@ function FilterChip({ label, onClear }: { label: string; onClear: () => void }) 
 // generar layout shift al pasar de skeleton a contenido real.
 function RowSkeleton() {
   return (
-    <div className="px-3.5 py-3 rounded-xl bg-card shadow-sm">
+    <div className="px-3.5 py-3 rounded-xl">
       <div className="flex items-center gap-2">
         <Skeleton className="h-3.5 w-36 flex-1" />
         <Skeleton className="h-3 w-10 shrink-0" />

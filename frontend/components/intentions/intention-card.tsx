@@ -123,8 +123,8 @@ export function IntentionCard({
     <>
       <Card
         className={[
-          "shadow-sm transition-all duration-200",
-          !isPending && "cursor-pointer hover:shadow-md hover:-translate-y-0.5",
+          "shadow-sm",
+          !isPending && "cursor-pointer card-interactive",
           isPending ? "border-warning/20 bg-warning/5" : "",
           !isActive && !isPending ? "opacity-60" : "",
         ].filter(Boolean).join(" ")}

@@ -2,20 +2,15 @@
 
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Loader2, Save, Eye } from "lucide-react";
+import { Loader2, Save, Workflow, Repeat, Timer, MessagesSquare } from "lucide-react";
 import { api } from "@/lib/api";
-import { useAuthStore } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Separator } from "@/components/ui/separator";
 import { toast } from "@/components/ui/toast";
-import {
-  ChatPreview, PreviewDialog,
-  DEFAULT_BOT_NAME,
-} from "@/components/admin/settings/chat-preview";
+import { SectionHeader } from "@/components/admin/settings/section-header";
 
 // Tres mensajes que cubren los tres momentos del flujo:
 //   1. Bot detecta que conviene derivar (insuficiente N veces) -> handoff_offer
@@ -25,7 +20,7 @@ const MESSAGE_KEYS: Array<{ key: string; label: string; hint: string }> = [
   {
     key: "handoff_offer",
     label: "Oferta del bot",
-    hint: "Texto del cartel amarillo. Aparece cuando el bot no encuentra la respuesta tras N intentos seguidos (N se configura arriba).",
+    hint: "Texto del cartel amarillo. Aparece cuando el bot no encuentra la respuesta tras los intentos configurados arriba.",
   },
   {
     key: "handoff_confirmed",
@@ -40,24 +35,9 @@ const MESSAGE_KEYS: Array<{ key: string; label: string; hint: string }> = [
 ];
 
 export function HandoffSettings() {
-  const { tenantId } = useAuthStore();
-
   const { data: config, isLoading } = useQuery({
     queryKey: ["handoff-config"],
     queryFn: api.handoffConfig.get,
-  });
-
-  // Branding + identidad del bot solo para la vista previa.
-  const { data: branding } = useQuery({
-    queryKey: ["admin-branding"],
-    queryFn: () => api.branding.getAdmin(),
-    staleTime: 60_000,
-  });
-  const { data: botConfig } = useQuery({
-    queryKey: ["bot-config", tenantId],
-    queryFn: () => api.tenants.getBotConfig(tenantId!),
-    enabled: !!tenantId,
-    staleTime: 60_000,
   });
 
   const [timeout, setTimeout_]   = useState(15);
@@ -66,7 +46,6 @@ export function HandoffSettings() {
   const [contactInfo, setContactInfo] = useState("");
   const [messages, setMessages]   = useState<Record<string, string>>({});
   const [dirty, setDirty]         = useState(false);
-  const [showPreview, setShowPreview] = useState(false);
 
   useEffect(() => {
     if (!config) return;
@@ -104,158 +83,135 @@ export function HandoffSettings() {
     </div>
   );
 
-  const previewConversation = [
-    { from: "user" as const, text: "No encuentro lo que busco…" },
-    { from: "bot" as const, note: "Oferta del bot",         text: messages["handoff_offer"] || "" },
-    { from: "bot" as const, note: "Confirmando derivación", text: messages["handoff_confirmed"] || "" },
-    { from: "bot" as const, note: "Espera prolongada",      text: messages["operator_inactive_alert"] || "" },
-  ];
-
   return (
-    <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px] xl:items-start">
-      {/* ── Columna izquierda: configuración ── */}
-      <div className="space-y-6">
-      {/* Reglas de activación */}
+    <div className="space-y-6">
+      {/* ── Reglas de activación ── */}
       <Card className="rounded-2xl">
-        <CardHeader className="pb-3">
-          <h2 className="font-semibold text-base tracking-tight">Cuándo derivar</h2>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            Las condiciones que activan el pase de la conversación a un operador humano.
-          </p>
+        <CardHeader className="pb-4">
+          <SectionHeader
+            icon={Workflow}
+            title="Cuándo derivar"
+            description="Las condiciones que activan el pase de la conversación a un operador humano."
+          />
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex flex-wrap items-center gap-3">
-            <Label className="text-sm whitespace-nowrap">Tras</Label>
-            <Input
-              type="number" min={2} max={10}
-              value={threshold}
-              onChange={e => { setThreshold(Number(e.target.value)); setDirty(true); }}
-              className="w-20"
-            />
-            <span className="text-sm text-muted-foreground">respuestas insuficientes consecutivas del bot</span>
-          </div>
-          <Separator />
-          <div className="flex flex-wrap items-center gap-3">
-            <Label className="text-sm whitespace-nowrap">Tras</Label>
-            <Input
-              type="number" min={1} max={120}
-              value={timeout}
-              onChange={e => { setTimeout_(Number(e.target.value)); setDirty(true); }}
-              className="w-20"
-            />
-            <span className="text-sm text-muted-foreground">minutos sin atención del operador → avisar al usuario</span>
-          </div>
-          <Separator />
-          <div className="space-y-1.5">
-            <Label className="text-sm">Horario de atención</Label>
-            <Input
-              value={attentionHours}
-              onChange={e => { setAttentionHours(e.target.value); setDirty(true); }}
-              placeholder="Ej: Lunes a viernes de 7:30 a 18 hs"
-              className="max-w-md"
-            />
-            <p className="text-[11px] text-muted-foreground leading-snug">
-              Cuando no hay operadores conectados, el asistente no ofrece derivar y muestra este horario al afiliado. Dejalo vacío para no mostrar ningún horario.
-            </p>
-          </div>
-          <Separator />
-          <div className="space-y-1.5">
-            <Label className="text-sm">Datos de contacto</Label>
-            <Input
-              value={contactInfo}
-              onChange={e => { setContactInfo(e.target.value); setDirty(true); }}
-              placeholder="Ej: Tel. 0342 452 0074 · recepcion@organizacion.com"
-              className="max-w-md"
-            />
-            <p className="text-[11px] text-muted-foreground leading-snug">
-              Teléfono o email de contacto. Se muestra al afiliado en dos casos: cuando no hay operadores disponibles, y cuando el asistente no encuentra la respuesta en los documentos (en vez de arriesgar un dato inventado). Dejalo vacío para usar un mensaje genérico.
-            </p>
-          </div>
-        </CardContent>
-      </Card>
+        <CardContent className="space-y-5">
+          {/* Dos disparadores numéricos como bloques destacados */}
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="rounded-xl border bg-muted/30 p-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-action-gradient-soft">
+                  <Repeat className="h-4 w-4 text-action" />
+                </div>
+                <span className="text-sm font-medium">Intentos del bot</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <Input
+                  type="number" min={2} max={10}
+                  value={threshold}
+                  onChange={e => { setThreshold(Number(e.target.value)); setDirty(true); }}
+                  className="w-16 h-12 text-center text-xl font-semibold tabular-nums"
+                  aria-label="Cantidad de respuestas insuficientes antes de derivar"
+                />
+                <span className="text-xs text-muted-foreground leading-snug">
+                  respuestas insuficientes seguidas antes de ofrecer un operador
+                </span>
+              </div>
+            </div>
 
-      {/* Mensajes de transición — formato compacto: label + input lado a lado */}
-      <Card className="rounded-2xl">
-        <CardHeader className="pb-3">
-          <div className="flex items-start justify-between gap-4">
-            <div className="min-w-0">
-              <h2 className="font-semibold text-base tracking-tight">Mensajes durante la transición</h2>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Lo que ve el usuario en cada momento del pase a un operador.
+            <div className="rounded-xl border bg-muted/30 p-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-action-gradient-soft">
+                  <Timer className="h-4 w-4 text-action" />
+                </div>
+                <span className="text-sm font-medium">Espera en cola</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <Input
+                  type="number" min={1} max={120}
+                  value={timeout}
+                  onChange={e => { setTimeout_(Number(e.target.value)); setDirty(true); }}
+                  className="w-16 h-12 text-center text-xl font-semibold tabular-nums"
+                  aria-label="Minutos sin atención antes de avisar al usuario"
+                />
+                <span className="text-xs text-muted-foreground leading-snug">
+                  minutos sin que un operador atienda antes de avisar al usuario
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Horario + contacto, lado a lado con ícono en el label */}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label className="text-sm">Horario de atención</Label>
+              <Input
+                value={attentionHours}
+                onChange={e => { setAttentionHours(e.target.value); setDirty(true); }}
+                placeholder="Ej: Lunes a viernes de 7:30 a 18 hs"
+              />
+              <p className="text-[11px] text-muted-foreground leading-snug">
+                Sin operadores conectados, el asistente no ofrece derivar y muestra este horario. Vacío = no mostrar horario.
               </p>
             </div>
-            <Button variant="outline" size="sm" className="shrink-0 xl:hidden" onClick={() => setShowPreview(true)}>
-              <Eye className="h-4 w-4 mr-1.5" />
-              Vista previa
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {MESSAGE_KEYS.map(({ key, label, hint }) => (
-            <div key={key} className="grid grid-cols-1 sm:grid-cols-[220px,1fr] items-start gap-2 sm:gap-4">
-              <div className="sm:pt-2">
-                <Label className="text-xs text-foreground">{label}</Label>
-                <p className="text-[11px] text-muted-foreground mt-0.5 leading-snug">{hint}</p>
-              </div>
+            <div className="space-y-1.5">
+              <Label className="text-sm">Datos de contacto</Label>
               <Input
-                value={messages[key] || ""}
-                onChange={e => setMessage(key, e.target.value)}
-                placeholder="Mensaje por defecto del sistema"
-                className="h-9 text-sm"
+                value={contactInfo}
+                onChange={e => { setContactInfo(e.target.value); setDirty(true); }}
+                placeholder="Ej: Tel. 0342 452 0074 · recepcion@organizacion.com"
               />
+              <p className="text-[11px] text-muted-foreground leading-snug">
+                Se muestra cuando no hay operadores o cuando el asistente no encuentra la respuesta. Vacío = mensaje genérico.
+              </p>
             </div>
-          ))}
+          </div>
         </CardContent>
       </Card>
 
-      {/* Vista previa a demanda (pantallas chicas) — el flujo completo de
-          derivación con los mensajes del form, aunque no estén guardados */}
-      <PreviewDialog
-        open={showPreview}
-        onOpenChange={setShowPreview}
-        hint="El flujo que ve el usuario cuando el bot deriva la conversación a un operador."
-      >
-        <ChatPreview
-          botName={botConfig?.bot_name || DEFAULT_BOT_NAME}
-          primaryColor={branding?.primary_color || "#4f46e5"}
-          logoUrl={branding?.logo_url ?? null}
-          conversation={previewConversation}
-        />
-      </PreviewDialog>
+      {/* ── Mensajes de transición — timeline del flujo ── */}
+      <Card className="rounded-2xl">
+        <CardHeader className="pb-4">
+          <SectionHeader
+            icon={MessagesSquare}
+            title="Mensajes durante la transición"
+            description="Lo que ve el usuario en cada momento del pase a un operador, en orden."
+          />
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-0">
+            {MESSAGE_KEYS.map(({ key, label, hint }, i) => (
+              <div key={key} className="relative flex gap-4 pb-6 last:pb-0">
+                {/* Línea conectora del timeline */}
+                {i < MESSAGE_KEYS.length - 1 && (
+                  <span className="absolute left-[17px] top-10 bottom-1 w-px bg-border" aria-hidden />
+                )}
+                {/* Nodo numerado con gradient de marca */}
+                <div className="relative z-10 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-action-gradient text-action-foreground text-sm font-semibold shadow-sm">
+                  {i + 1}
+                </div>
+                <div className="flex-1 min-w-0 space-y-1.5 pt-1">
+                  <Label className="text-sm font-medium">{label}</Label>
+                  <Input
+                    value={messages[key] || ""}
+                    onChange={e => setMessage(key, e.target.value)}
+                    placeholder="Mensaje por defecto del sistema"
+                    className="h-9 text-sm"
+                  />
+                  <p className="text-[11px] text-muted-foreground leading-snug">{hint}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
 
-      {/* Guardar siempre visible (deshabilitado sin cambios) — mismo patrón que
-          el resto de la app; el botón que aparecía y desaparecía era janky. */}
+      {/* Guardar siempre visible (deshabilitado sin cambios) */}
       <div className="flex justify-end">
         <Button onClick={() => updateM.mutate()} disabled={!dirty || updateM.isPending}>
           {updateM.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
           Guardar cambios
         </Button>
       </div>
-      </div>
-
-      {/* ── Columna derecha: réplica del flujo, fija (pantallas grandes) ── */}
-      <aside className="hidden xl:block xl:sticky xl:top-6">
-        <Card className="rounded-2xl">
-          <CardHeader className="pb-3">
-            <h2 className="font-semibold text-base tracking-tight">Vista previa</h2>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              El flujo que ve el usuario al derivarse a un operador. Se actualiza con tus cambios.
-            </p>
-          </CardHeader>
-          <CardContent>
-            <div className="rounded-xl bg-muted/30 border border-border/50 px-4 py-7">
-              <div className="mx-auto max-w-[330px]">
-                <ChatPreview
-                  botName={botConfig?.bot_name || DEFAULT_BOT_NAME}
-                  primaryColor={branding?.primary_color || "#4f46e5"}
-                  logoUrl={branding?.logo_url ?? null}
-                  conversation={previewConversation}
-                />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </aside>
     </div>
   );
 }

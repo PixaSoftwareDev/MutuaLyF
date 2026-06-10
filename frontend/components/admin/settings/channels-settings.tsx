@@ -79,7 +79,7 @@ export function ChannelsSettings() {
 
   if (isLoading) {
     return (
-      <div className="grid gap-6 xl:grid-cols-2 xl:items-start">
+      <div className="space-y-6">
         <Skeleton className="h-72 rounded-2xl" />
         <Skeleton className="h-72 rounded-2xl" />
       </div>
@@ -95,7 +95,7 @@ export function ChannelsSettings() {
   }
 
   return (
-    <div className="grid gap-6 xl:grid-cols-2 xl:items-start">
+    <div className="space-y-6">
       <WidgetCard channels={channels} onChanged={refresh} />
       <WhatsAppCard channels={channels} onChanged={refresh} />
     </div>
@@ -184,11 +184,11 @@ function WidgetCard({ channels, onChanged }: { channels: ChannelsState; onChange
             variant={widgetToken ? "outline" : "default"}
             onClick={() => tokenM.mutate()}
             disabled={tokenM.isPending}
-            className="shrink-0"
+            className="shrink-0 group"
           >
             {tokenM.isPending
               ? <Loader2 className="h-4 w-4 animate-spin mr-1" />
-              : <RefreshCw className="h-4 w-4 mr-1" />}
+              : <RefreshCw className="h-4 w-4 mr-1 transition-transform duration-500 group-hover:rotate-180" />}
             {widgetToken || channels.widget.has_token ? "Regenerar token" : "Generar token"}
           </Button>
         </div>
