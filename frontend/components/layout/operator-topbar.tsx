@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import Image from "next/image";
+import { useQuery } from "@tanstack/react-query";
 import { LogOut, Inbox, History, MoreVertical, UserCircle } from "lucide-react";
 import { useAuthStore } from "@/lib/store";
 import { api } from "@/lib/api";
@@ -42,6 +43,22 @@ export function OperatorTopbar() {
   const pathname = usePathname();
   const { branding } = useTenantBranding();
   const brandLogoUrl = fullLogoUrl(branding.logo_url);
+
+  // Conversaciones en espera — badge en la tab Bandeja. Misma query key que el
+  // panel del operador: con la bandeja abierta comparten cache (cero requests
+  // extra, el panel pollea cada 6s); en Historial este poll más relajado
+  // mantiene el contador vivo, que es justo cuando el operador no está mirando
+  // la cola y necesita enterarse.
+  const { data: convsData } = useQuery({
+    queryKey: ["operator-conversations", "all", "operator"],
+    queryFn: () => api.operator.listConversations(),
+    staleTime: 5_000,
+    refetchInterval: 15_000,
+    refetchIntervalInBackground: false,
+  });
+  const waitingCount = (convsData?.sectors ?? [])
+    .flatMap((s: any) => s.conversations)
+    .filter((c: any) => c.status === "handoff_requested").length;
 
   const handleLogout = async () => {
     try { await api.auth.logout(); } catch { /* ignore */ }
@@ -87,8 +104,12 @@ export function OperatorTopbar() {
             <Link
               key={item.href}
               href={item.href}
-              aria-label={item.label}
-              title={item.label}
+              aria-label={item.href === "/operator" && waitingCount > 0
+                ? `${item.label} — ${waitingCount} en espera`
+                : item.label}
+              title={item.href === "/operator" && waitingCount > 0
+                ? `${item.label} — ${waitingCount} en espera`
+                : item.label}
               className={cn(
                 "flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-medium transition-colors",
                 active
@@ -98,6 +119,13 @@ export function OperatorTopbar() {
             >
               <Icon className={cn("h-4 w-4 sm:h-3.5 sm:w-3.5", active && "text-action")} />
               <span className="hidden sm:inline">{item.label}</span>
+              {/* Cola de espera — visible también desde Historial, que es
+                  cuando el operador no está mirando la bandeja. */}
+              {item.href === "/operator" && waitingCount > 0 && (
+                <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-warning/15 text-warning text-[10px] font-bold inline-flex items-center justify-center tabular-nums">
+                  {waitingCount > 9 ? "9+" : waitingCount}
+                </span>
+              )}
             </Link>
           );
         })}
