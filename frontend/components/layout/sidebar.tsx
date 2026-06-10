@@ -85,6 +85,13 @@ const navGroups: NavGroup[] = [
 
 export function Sidebar() {
   const pathname = usePathname();
+  // El item activo es el de href MÁS específico que matchea la ruta actual.
+  // Con prefijos anidados ("/superadmin" vs "/superadmin/prompts"), el simple
+  // startsWith dejaba "Resumen" encendido en todas las subrutas del superadmin.
+  const activeHref = navGroups
+    .flatMap(g => g.items)
+    .filter(i => pathname === i.href || pathname.startsWith(i.href + "/"))
+    .sort((a, b) => b.href.length - a.href.length)[0]?.href ?? null;
   const router = useRouter();
   const queryClient = useQueryClient();
   const { userEmail, userRole, tenantId, clearAuth } = useAuthStore();
@@ -336,7 +343,7 @@ export function Sidebar() {
 
                     {visibleItems.map((item) => {
                       const Icon = item.icon;
-                      const active = pathname === item.href || pathname.startsWith(item.href + "/");
+                      const active = item.href === activeHref;
                       const pendingCount = item.badgeKey === "duplicates-pending" ? duplicatesPending : 0;
                       const titleAttr = collapsed ? item.label : item.tooltip;
                       return (

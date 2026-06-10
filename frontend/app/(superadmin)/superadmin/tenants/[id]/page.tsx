@@ -8,8 +8,9 @@ import {
   PauseCircle, PlayCircle, Settings2, UserPlus, Building2,
   TrendingUp, FileText, Zap, Clock, Database, Shield,
   MessageSquare, Target, Activity, ChevronRight, Bot, X, Users, Eye, EyeOff,
-  AtSign, Star, Plus, Trash2,
+  AtSign, Star, Plus, Trash2, FileStack,
 } from "lucide-react";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api, apiClient } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -80,6 +81,7 @@ export default function TenantDetailPage() {
 
   const [showCreateAdmin, setShowCreateAdmin]   = useState(false);
   const [editPlan, setEditPlan]                 = useState(false);
+  const [detailTab, setDetailTab]               = useState<"general" | "actividad" | "recursos">("general");
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [editingUser, setEditingUser] = useState<{ id: string; email: string; name: string; role: string; is_active: boolean } | null>(null);
 
@@ -175,15 +177,9 @@ export default function TenantDetailPage() {
       <TopBar onBack={() => router.push("/superadmin")} onRefresh={inv} label={t.name} loading={false} />
 
       <div className="flex-1 overflow-y-auto">
-        <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-4 space-y-8 pb-10">
+        <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-4 space-y-4 pb-10">
 
-          {/* ═══════════════════════════════════════════════════════════
-              ZONA 1 · ESTADO Y ACCIONES
-          ═══════════════════════════════════════════════════════════ */}
-          <section className="space-y-4">
-          <ZoneHeader label="Estado y acciones" />
-
-          {/* ── Identity ─────────────────────────────────────────────── */}
+          {/* ── Identity — siempre visible, arriba de las tabs ─────────── */}
           <div className="rounded-2xl border bg-card shadow px-5 py-4">
             <div className="flex items-start gap-4 flex-wrap">
               <div className="w-12 h-12 rounded-xl bg-action-gradient-soft flex items-center justify-center shrink-0">
@@ -271,6 +267,24 @@ export default function TenantDetailPage() {
             </div>
           </div>
 
+          {/* ── Tabs — organizan el detalle en 3 vistas en vez de un scroll
+                 único con todo mezclado ──────────────────────────────────── */}
+          <Tabs value={detailTab} onValueChange={v => setDetailTab(v as typeof detailTab)}>
+            <TabsList>
+              <TabsTrigger value="general" className="gap-1.5">
+                <Users className="h-3.5 w-3.5" /> Equipo y bot
+              </TabsTrigger>
+              <TabsTrigger value="actividad" className="gap-1.5">
+                <Activity className="h-3.5 w-3.5" /> Actividad
+              </TabsTrigger>
+              <TabsTrigger value="recursos" className="gap-1.5">
+                <FileStack className="h-3.5 w-3.5" /> Recursos
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+
+          {detailTab === "general" && (
+          <section className="space-y-4 animate-fade-in">
           {/* ── Dominios de email (email-first login) ───────────────────── */}
           <EmailDomainsSection tenantId={tenantId} />
 
@@ -355,12 +369,10 @@ export default function TenantDetailPage() {
           </div>
 
           </section>
+          )}
 
-          {/* ═══════════════════════════════════════════════════════════
-              ZONA 2 · ACTIVIDAD
-          ═══════════════════════════════════════════════════════════ */}
-          <section className="space-y-4">
-          <ZoneHeader label="Actividad" />
+          {detailTab === "actividad" && (
+          <section className="space-y-4 animate-fade-in">
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-4 items-start">
 
@@ -466,12 +478,10 @@ export default function TenantDetailPage() {
 
           </div>{/* /grid Actividad */}
           </section>
+          )}
 
-          {/* ═══════════════════════════════════════════════════════════
-              ZONA 3 · RECURSOS
-          ═══════════════════════════════════════════════════════════ */}
-          <section className="space-y-4">
-          <ZoneHeader label="Recursos" />
+          {detailTab === "recursos" && (
+          <section className="space-y-4 animate-fade-in">
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-4 items-start">
 
@@ -562,6 +572,7 @@ export default function TenantDetailPage() {
 
           </div>{/* /grid Recursos */}
           </section>
+          )}
 
         </div>
       </div>
@@ -641,16 +652,6 @@ function TopBar({ onBack, onRefresh, label, loading }: { onBack: () => void; onR
           }
         />
       </div>
-    </div>
-  );
-}
-
-function ZoneHeader({ label }: { label: string }) {
-  return (
-    <div className="flex items-center gap-3">
-      <span className="h-2 w-2 rounded-full bg-action-gradient shrink-0" aria-hidden />
-      <h2 className="text-base font-bold tracking-tight text-foreground shrink-0">{label}</h2>
-      <Separator className="flex-1" />
     </div>
   );
 }

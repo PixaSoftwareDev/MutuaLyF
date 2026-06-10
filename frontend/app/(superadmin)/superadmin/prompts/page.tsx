@@ -307,7 +307,7 @@ export default function PromptsPage() {
                   <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                 </div>
               ) : detail && (
-                <div className="p-4 sm:p-6 max-w-2xl w-full space-y-6">
+                <div className="p-4 sm:p-6 lg:p-8 max-w-3xl w-full mx-auto space-y-6">
                   {/* Mobile back button */}
                   <button
                     onClick={() => setSelected(null)}
@@ -350,7 +350,7 @@ export default function PromptsPage() {
                       <CardDescription className="text-xs">{detail.contenido.length} caracteres</CardDescription>
                     </CardHeader>
                     <CardContent>
-                      <pre className="text-xs bg-muted rounded-md p-3 whitespace-pre-wrap break-words font-mono leading-relaxed max-h-64 overflow-y-auto">
+                      <pre className="text-xs bg-muted rounded-lg p-4 whitespace-pre-wrap break-words font-mono leading-relaxed max-h-96 overflow-y-auto">
                         {detail.contenido}
                       </pre>
                     </CardContent>
@@ -488,7 +488,7 @@ export default function PromptsPage() {
               {!selectedSystem ? (
                 <EmptyState icon={Cpu} title="Seleccioná un componente para ver su contenido" />
               ) : (
-                <div className="p-4 sm:p-6 max-w-2xl w-full space-y-5">
+                <div className="p-4 sm:p-6 lg:p-8 max-w-3xl w-full mx-auto space-y-5">
                   {/* Mobile back button */}
                   <button
                     onClick={() => setSelectedSystem(null)}
