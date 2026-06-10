@@ -807,7 +807,12 @@ export const api = {
     uploadAttachment: async (id: string, file: File) => {
       const fd = new FormData();
       fd.append("file", file);
-      const { data } = await apiClient.post(`/operator/conversations/${id}/attachment`, fd);
+      // multipart explícito: el default "application/json" del apiClient pisa el
+      // boundary del FormData y el backend recibe el form vacío (422 "file required").
+      // Mismo patrón que documents.upload y branding logo.
+      const { data } = await apiClient.post(`/operator/conversations/${id}/attachment`, fd, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
       return data as { message_id: string; attachment_name: string; attachment_mime: string };
     },
     /** Descarga el adjunto como blob (con el header de auth) y devuelve un object URL. */
