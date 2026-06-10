@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
+import { extractErrorMessage } from "@/lib/errors";
 import { DEFAULT_BOT_NAME } from "@/components/admin/settings/chat-preview";
 
 // ── Helpers de UI ─────────────────────────────────────────────────────────────
@@ -258,8 +259,7 @@ function WhatsAppCard({ channels, onChanged }: { channels: ChannelsState; onChan
       toast({ title: "Credenciales guardadas", description: "Configurá el webhook en Meta y probá la conexión.", variant: "success" });
     },
     onError: (err: any) => {
-      const detail = err?.response?.data?.detail ?? "Error al guardar";
-      toast({ title: typeof detail === "string" ? detail : "Error al guardar", variant: "destructive" });
+      toast({ title: extractErrorMessage(err, "No se pudieron guardar las credenciales."), variant: "destructive" });
     },
   });
 
@@ -275,8 +275,7 @@ function WhatsAppCard({ channels, onChanged }: { channels: ChannelsState; onChan
     },
     onError: (err: any) => {
       onChanged();
-      const detail = err?.response?.data?.detail ?? "La prueba falló";
-      toast({ title: typeof detail === "string" ? detail : "La prueba falló", variant: "destructive" });
+      toast({ title: extractErrorMessage(err, "La prueba de conexión falló."), variant: "destructive" });
     },
   });
 
@@ -287,8 +286,7 @@ function WhatsAppCard({ channels, onChanged }: { channels: ChannelsState; onChan
       toast({ title: wa?.enabled ? "WhatsApp pausado" : "WhatsApp activado", variant: "success" });
     },
     onError: (err: any) => {
-      const detail = err?.response?.data?.detail ?? "Error al cambiar el estado";
-      toast({ title: typeof detail === "string" ? detail : "Error", variant: "destructive" });
+      toast({ title: extractErrorMessage(err, "No se pudo cambiar el estado."), variant: "destructive" });
     },
   });
 

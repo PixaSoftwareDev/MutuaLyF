@@ -8,6 +8,7 @@ import {
   RotateCcw, MoreVertical, Paperclip, X,
 } from "lucide-react";
 import { api, type ConversationRow } from "@/lib/api";
+import { extractErrorMessage } from "@/lib/errors";
 import { renderWithLinks } from "@/lib/render-with-links";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -285,8 +286,7 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
       });
     },
     onError: (err: any) => {
-      const d = err?.response?.data?.detail || "No se pudo devolver al bot.";
-      toast({ title: "Error", description: typeof d === "string" ? d : "Intentá de nuevo.", variant: "destructive" });
+      toast({ title: "Error", description: extractErrorMessage(err, "No se pudo devolver al bot."), variant: "destructive" });
     },
   });
 
@@ -318,8 +318,7 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
     mutationFn: ({ id, file }: { id: string; file: File }) => api.operator.uploadAttachment(id, file),
     onSuccess: () => { inv(); toast({ title: "Archivo enviado", variant: "success" }); },
     onError:   (err: any) => {
-      const d = err?.response?.data?.detail;
-      toast({ title: "No se pudo enviar el archivo", description: typeof d === "string" ? d : "Intentá de nuevo.", variant: "destructive" });
+      toast({ title: "No se pudo enviar el archivo", description: extractErrorMessage(err, "Intentá de nuevo."), variant: "destructive" });
     },
   });
 
@@ -379,10 +378,9 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
       if (ctx?.prevReply !== undefined) setReplyText(ctx.prevReply);
       // Backend devuelve 409 con detail descriptivo cuando la conversación
       // está cerrada o el afiliado abandonó (>12h inactivo).
-      const detail = err?.response?.data?.detail || "Error al enviar el mensaje.";
       toast({
         title: "No se pudo enviar",
-        description: typeof detail === "string" ? detail : "Intentá de nuevo.",
+        description: extractErrorMessage(err, "No se pudo enviar el mensaje."),
         variant: "destructive",
       });
     },

@@ -214,7 +214,8 @@ async def create_tenant(
         if ("already exists" in err.lower() or "duplicate" in err.lower()) and "qdrant" not in err.lower() and "collection" not in err.lower():
             raise HTTPException(status_code=409, detail=f"Tenant '{payload.id}' ya existe")
         logger.error("tenant_create_failed id=%s error=%s", payload.id, exc)
-        raise HTTPException(status_code=500, detail=f"Provisioning failed: {err[:300]}")
+        # No filtrar el stack trace/infra al usuario — el detalle ya quedó en logs.
+        raise HTTPException(status_code=500, detail="No se pudo crear la organización. Revisá los datos e intentá de nuevo.")
 
 
 # ── Update tenant plan / status ───────────────────────────────────────────────

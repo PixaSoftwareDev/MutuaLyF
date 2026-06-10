@@ -9,6 +9,7 @@ import { api, type DocumentResponse, type ChunkResponse, type PendingChunkRespon
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/toast";
+import { extractErrorMessage } from "@/lib/errors";
 import { cn } from "@/lib/utils";
 
 // ── Config maps ───────────────────────────────────────────────────────────────
@@ -219,8 +220,7 @@ export function ChunkCard({ chunk, documentId }: { chunk: ChunkResponse; documen
       setEditing(false);
     },
     onError: (err: any) => {
-      const d = err?.response?.data?.detail || "No se pudo guardar.";
-      toast({ title: "Error al guardar", description: typeof d === "string" ? d : "Intentá de nuevo.", variant: "destructive" });
+      toast({ title: "Error al guardar", description: extractErrorMessage(err, "No se pudo guardar. Intentá de nuevo."), variant: "destructive" });
     },
   });
 

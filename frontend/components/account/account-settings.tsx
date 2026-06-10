@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Eye, EyeOff, User, Check } from "lucide-react";
 import { api } from "@/lib/api";
+import { extractErrorMessage } from "@/lib/errors";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -54,8 +55,7 @@ export function AccountSettings({ nameHint, emailHint, showSectors }: Props) {
       toast({ title: "Perfil actualizado", variant: "success" });
     },
     onError: (err: any) => {
-      const detail = err?.response?.data?.detail ?? "Error al guardar";
-      toast({ title: detail, variant: "destructive" });
+      toast({ title: extractErrorMessage(err, "No se pudo guardar."), variant: "destructive" });
     },
   });
 
@@ -77,8 +77,7 @@ export function AccountSettings({ nameHint, emailHint, showSectors }: Props) {
       toast({ title: "Contraseña actualizada", variant: "success" });
     },
     onError: (err: any) => {
-      const detail = err?.response?.data?.detail ?? "Error al cambiar la contraseña";
-      toast({ title: detail, variant: "destructive" });
+      toast({ title: extractErrorMessage(err, "No se pudo cambiar la contraseña."), variant: "destructive" });
     },
   });
 

@@ -361,7 +361,7 @@ async def get_conversation(
         if not conv:
             # 404 (no 403) a propósito: no revelamos que la conversación existe en
             # otro sector — un operador ajeno la ve igual que a una inexistente.
-            raise HTTPException(status_code=404, detail="Conversation not found")
+            raise HTTPException(status_code=404, detail="La conversación no existe o ya no está disponible.")
 
         msg_result = await session.execute(text("""
             SELECT id, sender_type, content, read_at, created_at,
@@ -497,7 +497,7 @@ async def reply(
         row = result.mappings().fetchone()
         if not row:
             # 404 también si la conversación es de otro sector (no revelar su existencia).
-            raise HTTPException(status_code=404, detail="Conversation not found")
+            raise HTTPException(status_code=404, detail="La conversación no existe o ya no está disponible.")
         if row["status"] == ConvStatus.CLOSED:
             raise HTTPException(
                 status_code=409,

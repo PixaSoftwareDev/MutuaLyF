@@ -5,6 +5,7 @@ import { useDropzone } from "react-dropzone";
 import { Upload, File, AlertCircle, Loader2, X, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
+import { extractErrorMessage } from "@/lib/errors";
 import { Button } from "@/components/ui/button";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -93,10 +94,7 @@ export function DocumentUploader({ onUploaded, onDone }: { onUploaded?: () => vo
         });
         return;
       }
-      const msg =
-        err?.response?.data?.detail ||
-        (typeof err?.message === "string" ? err.message : "Error al subir el archivo");
-      update(item.file, { phase: "failed", error: typeof msg === "string" ? msg : JSON.stringify(msg) });
+      update(item.file, { phase: "failed", error: extractErrorMessage(err, "No se pudo subir el archivo.") });
     }
   };
 

@@ -154,7 +154,7 @@ async def widget_upload_attachment(
             {"id": conversation_id, "sid": widget_session_id},
         )).mappings().fetchone()
     if not row:  # anti-IDOR: no existe o no es de este afiliado
-        raise HTTPException(status_code=404, detail="Conversation not found")
+        raise HTTPException(status_code=404, detail="No encontramos la conversación. Iniciá una nueva.")
     if row["status"] == ConvStatus.CLOSED:
         raise HTTPException(status_code=410, detail="La conversación fue cerrada. Iniciá una nueva.")
 
@@ -199,7 +199,7 @@ async def operator_upload_attachment(
             {"id": conversation_id, **scope_params},
         )).mappings().fetchone()
     if not row:  # 404 también si es de otro sector (no revelar existencia)
-        raise HTTPException(status_code=404, detail="Conversation not found")
+        raise HTTPException(status_code=404, detail="No encontramos la conversación. Iniciá una nueva.")
     if row["status"] == ConvStatus.CLOSED:
         raise HTTPException(status_code=409, detail="La conversación está cerrada.")
 

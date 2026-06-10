@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Download, Loader2 } from "lucide-react";
 import { useMutation } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { extractErrorMessage } from "@/lib/errors";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -60,10 +61,9 @@ export function ExportKbButton() {
       setOpen(false);
     },
     onError: (err: any) => {
-      const detail = err?.response?.data?.detail || "No se pudo exportar la KB.";
       toast({
         title: "Error al exportar",
-        description: typeof detail === "string" ? detail : "Intentá de nuevo.",
+        description: extractErrorMessage(err, "No se pudo exportar la KB."),
         variant: "destructive",
       });
     },

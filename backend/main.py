@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 
 import structlog
 from fastapi import FastAPI, Request, Response
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
@@ -126,6 +127,35 @@ async def _dbapi_error_handler(request: Request, exc: DBAPIError):
     log.error("db_error", path=str(request.url.path),
               sqlstate=(str(sqlstate) if sqlstate else None), error=str(exc))
     return JSONResponse(status_code=500, content={"detail": "Error interno del servidor."})
+
+
+# ── Validación de datos (422) → mensaje único en español ───────────────────────
+# Pydantic devuelve los errores como lista de objetos y EN INGLÉS ("field
+# required", "value is not a valid email"). Si el front los muestra crudos, el
+# usuario ve jerga/«[object Object]». Logueamos el detalle técnico para debug y
+# le damos al usuario un único mensaje claro.
+@app.exception_handler(RequestValidationError)
+async def _validation_error_handler(request: Request, exc: RequestValidationError):
+    structlog.get_logger(__name__).info(
+        "request_validation_error", path=str(request.url.path), errors=exc.errors())
+    return JSONResponse(
+        status_code=422,
+        content={"detail": "Revisá los datos enviados: hay un campo incompleto o con formato inválido."},
+    )
+
+
+# ── Red de seguridad: cualquier excepción no prevista → 500 amable ─────────────
+# Sin esto, una excepción no capturada filtra stack trace / "Internal Server
+# Error" en inglés al usuario. Se loguea completa (exc_info) para diagnóstico.
+# Las HTTPException tienen su propio handler y NO pasan por acá (mantienen su detail).
+@app.exception_handler(Exception)
+async def _unhandled_error_handler(request: Request, exc: Exception):
+    structlog.get_logger(__name__).error(
+        "unhandled_exception", path=str(request.url.path), error=str(exc), exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Ocurrió un error inesperado. Probá de nuevo en unos minutos."},
+    )
 
 
 # ── Prometheus metrics ────────────────────────────────────────────────────────

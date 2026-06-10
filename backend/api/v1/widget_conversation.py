@@ -187,7 +187,7 @@ async def send_message(
 
     # Anti-IDOR: si la conv no existe O no pertenece a este widget_session_id → 404.
     if not conv:
-        raise HTTPException(status_code=404, detail="Conversation not found")
+        raise HTTPException(status_code=404, detail="No encontramos la conversación. Iniciá una nueva.")
 
     conv_status = conv["status"]
     conv_sector_id = str(conv["sector_id"]) if conv["sector_id"] else None
@@ -413,7 +413,7 @@ async def poll_messages(
     """
     snapshot = await _read_conversation_snapshot(tenant_id, conversation_id, widget_session_id)
     if snapshot is None:
-        raise HTTPException(status_code=404, detail="Conversation not found")
+        raise HTTPException(status_code=404, detail="No encontramos la conversación. Iniciá una nueva.")
 
     # First poll (no anchor) → snapshot immediately.
     # Otherwise, if the latest message id differs from the anchor, the client
@@ -467,7 +467,7 @@ async def confirm_handoff(
             {"cid": conversation_id, "sid": widget_session_id},
         )
         if owner.fetchone() is None:
-            raise HTTPException(status_code=404, detail="Conversation not found")
+            raise HTTPException(status_code=404, detail="No encontramos la conversación. Iniciá una nueva.")
 
     # Persistir datos de identificación si vinieron en el body
     if body and (body.afiliado_nombre or body.afiliado_dni):
