@@ -13,6 +13,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { EmptyState } from "@/components/ui/empty-state";
 import { toast } from "@/components/ui/toast";
 import { Textarea } from "@/components/ui/textarea";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { PageShell } from "@/components/layout/page-shell";
+import { PageHeader, CountChip } from "@/components/layout/page-header";
 import { Bot, Plus, Pencil, Trash2, Users, Loader2, X, Save, Cpu, ChevronLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -191,44 +194,43 @@ export default function PromptsPage() {
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <div className="h-full flex flex-col overflow-hidden">
+    <PageShell>
+      {/* Cabecera estándar — misma identidad que el resto del back-office */}
+      <PageHeader
+        eyebrow="Plataforma"
+        title="Bots y prompts"
+        badge={allTemplates.length > 0
+          ? <CountChip>{allTemplates.length} {allTemplates.length === 1 ? "personalidad" : "personalidades"}</CountChip>
+          : undefined}
+        description="Las personalidades que los admins pueden activar y los prompts internos del motor."
+        actions={tab === "personalidades" ? (
+          <Button size="sm" className="h-9 gap-1.5 group" onClick={openCreate}>
+            <Plus className="h-3.5 w-3.5 transition-transform group-hover:rotate-90" />
+            <span className="hidden sm:inline">Nueva personalidad</span>
+          </Button>
+        ) : undefined}
+      />
 
-      {/* ── Tab bar ── */}
-      <div className="border-b px-4 flex gap-0 shrink-0">
-        <button
-          onClick={() => setTab("personalidades")}
-          className={cn(
-            "flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors",
-            tab === "personalidades"
-              ? "border-primary text-primary"
-              : "border-transparent text-muted-foreground hover:text-foreground"
-          )}
-        >
-          <Bot className="h-4 w-4" />
-          Personalidades
-          {allTemplates.length > 0 && (
-            <span className="ml-1 text-xs bg-muted px-1.5 py-0.5 rounded-full">{allTemplates.length}</span>
-          )}
-        </button>
-        <button
-          onClick={() => setTab("motor")}
-          className={cn(
-            "flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors",
-            tab === "motor"
-              ? "border-primary text-primary"
-              : "border-transparent text-muted-foreground hover:text-foreground"
-          )}
-        >
-          <Cpu className="h-4 w-4" />
-          Motor del sistema
-          {systemComponents.length > 0 && (
-            <span className="ml-1 text-xs bg-muted px-1.5 py-0.5 rounded-full">{systemComponents.length}</span>
-          )}
-        </button>
-      </div>
+      {/* Tabs estándar */}
+      <Tabs value={tab} onValueChange={v => setTab(v as typeof tab)}>
+        <TabsList>
+          <TabsTrigger value="personalidades" className="gap-1.5">
+            <Bot className="h-3.5 w-3.5" /> Personalidades
+            {allTemplates.length > 0 && (
+              <span className="ml-0.5 text-[10px] font-bold bg-muted px-1.5 py-0.5 rounded-full tabular-nums">{allTemplates.length}</span>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="motor" className="gap-1.5">
+            <Cpu className="h-3.5 w-3.5" /> Motor del sistema
+            {systemComponents.length > 0 && (
+              <span className="ml-0.5 text-[10px] font-bold bg-muted px-1.5 py-0.5 rounded-full tabular-nums">{systemComponents.length}</span>
+            )}
+          </TabsTrigger>
+        </TabsList>
+      </Tabs>
 
-      {/* ── Tab content ── */}
-      <div className="flex-1 flex overflow-hidden">
+      {/* ── Tab content — marco card con master-detail ── */}
+      <div className="rounded-2xl border bg-card shadow overflow-hidden flex animate-fade-in sm:h-[calc(100dvh-16rem)] sm:min-h-[480px]">
 
         {/* ═══════════════════════════════════════════════════════════
             TAB: PERSONALIDADES
@@ -241,13 +243,10 @@ export default function PromptsPage() {
               "w-full sm:w-72",
               selected ? "hidden sm:flex" : "flex"
             )}>
-              <div className="px-4 py-3 border-b flex items-center justify-between">
-                <p className="text-xs text-muted-foreground leading-snug max-w-[160px]">
+              <div className="px-4 py-3 border-b">
+                <p className="text-xs text-muted-foreground leading-snug">
                   Bots que los admins pueden activar para su organización
                 </p>
-                <Button size="sm" className="h-7 gap-1 shrink-0" onClick={openCreate}>
-                  <Plus className="h-3.5 w-3.5" /> Nuevo
-                </Button>
               </div>
 
               <div className="flex-1 overflow-y-auto divide-y">
@@ -262,7 +261,7 @@ export default function PromptsPage() {
                     onClick={() => setSelected(t as any)}
                     className={cn(
                       "w-full text-left px-4 py-3 hover:bg-muted/50 transition-colors",
-                      selected?.id === t.id && "bg-primary/5 border-l-2 border-primary"
+                      selected?.id === t.id && "bg-action/5 border-l-2 border-action"
                     )}
                   >
                     <div className="flex items-center justify-between gap-2">
@@ -463,7 +462,7 @@ export default function PromptsPage() {
                       onClick={() => { setSelectedSystem(s); setEditingSystem(false); }}
                       className={cn(
                         "w-full text-left px-4 py-3 hover:bg-muted/50 transition-colors",
-                        isSelected && "bg-primary/5 border-l-2 border-primary"
+                        isSelected && "bg-action/5 border-l-2 border-action"
                       )}
                     >
                       <div className="flex items-center gap-2">
@@ -683,6 +682,6 @@ export default function PromptsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </PageShell>
   );
 }

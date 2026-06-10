@@ -8,9 +8,9 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { EmptyState } from "@/components/ui/empty-state";
-import { ChevronLeft, ChevronRight, Loader2, AlertTriangle, FileSearch } from "lucide-react";
+import { ChevronLeft, ChevronRight, Loader2, AlertTriangle, FileSearch, Search } from "lucide-react";
 import { PageShell } from "@/components/layout/page-shell";
-import { PageHeader } from "@/components/layout/page-header";
+import { PageHeader, CountChip } from "@/components/layout/page-header";
 
 const ACTION_LABELS: Record<string, string> = {
   "":                          "Todas las acciones",
@@ -115,13 +115,12 @@ export default function GlobalAuditPage() {
   return (
     <PageShell>
       <PageHeader
+        eyebrow="Plataforma"
         title="Auditoría global"
-        description={
-          <>
-            Actividad de todas las organizaciones de la plataforma
-            {kpis.total > 0 && <> · <span className="font-medium text-foreground">{kpis.total}</span> eventos en total</>}
-          </>
-        }
+        badge={kpis.total > 0
+          ? <CountChip>{kpis.total.toLocaleString("es-AR")} eventos</CountChip>
+          : undefined}
+        description="Actividad de todas las organizaciones de la plataforma."
       />
 
       {/* KPIs */}
@@ -135,7 +134,7 @@ export default function GlobalAuditPage() {
 
       {/* Brute force banner */}
       {hasAlertsOnPage && (
-        <div className="rounded-md border border-destructive/20 bg-destructive/10 px-4 py-2.5 flex items-center gap-2 text-sm text-destructive">
+        <div className="rounded-xl border border-destructive/20 bg-destructive/10 px-4 py-2.5 flex items-center gap-2 text-sm text-destructive">
           <AlertTriangle className="h-4 w-4 shrink-0" />
           Hay intentos de fuerza bruta en esta página. Revisá las filas marcadas en rojo.
         </div>
@@ -144,12 +143,15 @@ export default function GlobalAuditPage() {
       {/* Filters */}
       <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
         <div className="flex flex-col gap-1 sm:max-w-sm w-full">
-          <Input
-            placeholder="Buscar por usuario, recurso, org o IP…"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            className="h-9"
-          />
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+            <Input
+              placeholder="Buscar por usuario, recurso, org o IP…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="h-9 pl-8"
+            />
+          </div>
           <p className="text-[11px] text-muted-foreground pl-0.5">
             Busca solo en la página actual. Usá los filtros de acción y organización para acotar el conjunto completo.
           </p>
@@ -184,7 +186,7 @@ export default function GlobalAuditPage() {
       </div>
 
       {/* Table */}
-      <div className="rounded-md border overflow-hidden">
+      <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
         {isLoading && (
           <div className="py-12 text-center text-muted-foreground">
             <Loader2 className="w-5 h-5 animate-spin inline" />
@@ -333,7 +335,7 @@ function Kpi({ label, value, tone = "neutral" }: { label: string; value: number;
                         "text-foreground";
   return (
     <div
-      className={`relative bg-card border border-border rounded-md pl-4 pr-4 py-3 shadow-[0_1px_0_rgba(0,0,0,0.02)] before:content-[''] before:absolute before:left-0 before:top-0 before:bottom-0 before:w-1 before:rounded-l-md ${accent}`}
+      className={`relative bg-card border border-border rounded-xl pl-4 pr-4 py-3 shadow-sm overflow-hidden before:content-[''] before:absolute before:left-0 before:top-0 before:bottom-0 before:w-1 ${accent}`}
     >
       <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
         {label}
