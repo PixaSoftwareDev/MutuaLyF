@@ -71,8 +71,23 @@ function LoginForm() {
       else if (role === "operator")    router.push("/operator");
       else                             router.push("/admin/documents");
     } catch (err: any) {
+      const status = err?.response?.status;
       const detail = err?.response?.data?.detail;
-      setError(typeof detail === "string" ? detail : "Credenciales incorrectas. Verificá email y contraseña.");
+      let msg: string;
+      if (status === 401) {
+        // Genérico a propósito: no revela si el email existe (anti-enumeración).
+        // No usamos el detail crudo del backend ("Invalid credentials", en inglés).
+        msg = "Email o contraseña incorrectos. Revisá los datos e intentá de nuevo.";
+      } else if (status === 429) {
+        // El backend manda el tiempo de espera ("…en N segundos"), en español.
+        msg = typeof detail === "string" ? detail : "Demasiados intentos. Esperá un momento y volvé a intentar.";
+      } else if (!err?.response) {
+        // Sin respuesta = el server no contestó (red caída, server abajo).
+        msg = "No pudimos conectar con el servidor. Revisá tu conexión e intentá de nuevo.";
+      } else {
+        msg = "No pudimos iniciar sesión. Probá de nuevo en unos minutos.";
+      }
+      setError(msg);
       setLoading(false);
     }
     // Sin finally: en el camino feliz navegamos a otra ruta y desmontamos, así

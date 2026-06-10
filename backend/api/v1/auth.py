@@ -272,7 +272,7 @@ async def login(
             ))
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid credentials",
+                detail="Email o contraseña incorrectos.",
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
@@ -347,7 +347,7 @@ async def login(
         ))
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid credentials",
+            detail="Email o contraseña incorrectos.",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
