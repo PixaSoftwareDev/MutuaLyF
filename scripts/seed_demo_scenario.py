@@ -31,58 +31,99 @@ TENANT = os.getenv("DEMO_TENANT", "nexo")
 CLEAN = os.getenv("DEMO_CLEAN", "") == "1"
 PREFIX = "demo_scenario_"
 
-# (nombre, dni, consulta inicial, minutos_en_cola)
-WAITING = [
-    ("Carolina Méndez",  "28456123", "Necesito ayuda con la facturación de mayo, hay un cargo que no reconozco", 0.5),
-    ("Jorge Palacios",   "20987456", "¿Me pueden dar el estado de mi reclamo? Es el número 4521", 1.7),
-    ("Marta Iglesias",   "16234789", "Hace una semana mandé los papeles para el alta y nadie me contestó", 3.5),
-    ("Raúl Domínguez",   "12678345", "Es urgente, necesito la autorización hoy porque viajo mañana", 7.0),
+# Volumen configurable: DEMO_WAITING=20 DEMO_ATTENDING=8 DEMO_CLOSED=15 ...
+N_WAITING   = int(os.getenv("DEMO_WAITING",   "12"))
+N_ATTENDING = int(os.getenv("DEMO_ATTENDING", "6"))
+N_BOT       = int(os.getenv("DEMO_BOT",       "4"))
+N_CLOSED    = int(os.getenv("DEMO_CLOSED",    "10"))
+
+# Pools para generar variedad (se ciclan y combinan)
+NOMBRES = [
+    "Carolina Méndez", "Jorge Palacios", "Marta Iglesias", "Raúl Domínguez",
+    "Lucía Ferrero", "Esteban Gutiérrez", "Andrea Sosa", "Pablo Quiroga",
+    "Verónica Aguirre", "Damián Cabrera", "Silvia Romero", "Federico Ponce",
+    "Gabriela Núñez", "Marcos Villalba", "Patricia Ledesma", "Hernán Bravo",
+    "Natalia Coronel", "Sergio Maldonado", "Rocío Benítez", "Claudio Vera",
+    "Florencia Ríos", "Oscar Giménez", "Mónica Herrera", "Diego Acosta",
 ]
 
-ATTENDING = [
-    # (nombre, dni, [(sender, contenido, leido)], minutos_desde_ultimo_msg)
-    ("Lucía Ferrero", "31245678", [
+CONSULTAS = [
+    "Necesito ayuda con la facturación de este mes, hay un cargo que no reconozco",
+    "¿Me pueden dar el estado de mi reclamo? Es el número 4521",
+    "Hace una semana mandé los papeles para el alta y nadie me contestó",
+    "Es urgente, necesito la autorización hoy porque viajo mañana",
+    "No puedo acceder al portal con mi usuario, ya probé restablecer la contraseña",
+    "Quiero dar de baja un servicio y no encuentro la opción",
+    "¿Cómo actualizo los datos de contacto de mi cuenta?",
+    "Me llegó una factura duplicada, ¿con quién lo veo?",
+    "Necesito hablar con alguien por un problema con mi último pago",
+    "¿Pueden confirmarme si recibieron la documentación que envié ayer?",
+    "Tengo una consulta sobre el plan corporativo para mi empresa",
+    "El sistema me rechaza el comprobante que estoy subiendo",
+]
+
+# Esperas distribuidas (minutos): mezcla de calma / ámbar / rojo en toda la cola
+WAIT_MINUTES = [0.4, 7.2, 2.8, 1.1, 5.5, 3.9, 0.8, 6.4, 4.7, 2.2, 8.5, 1.6]
+
+# Plantillas de diálogo (se ciclan para generar volumen)
+ATTENDING_TEMPLATES = [
+    [
         ("user",     "Hola, quería consultar por el plan corporativo", True),
-        ("operator", "¡Hola Lucía! Sí, contame qué necesitás saber", True),
+        ("operator", "¡Hola! Sí, contame qué necesitás saber", True),
         ("user",     "¿Qué incluye para equipos de menos de 10 personas?", False),
         ("user",     "Y si se puede facturar a nombre de la empresa", False),
-    ], 2),
-    ("Esteban Gutiérrez", "25890123", [
+    ],
+    [
         ("user",     "Buenas, no puedo acceder al portal con mi usuario", True),
-        ("operator", "Hola Esteban, ¿probaste restablecer la contraseña desde el login?", True),
+        ("operator", "Hola, ¿probaste restablecer la contraseña desde el login?", True),
         ("user",     "Sí, pero no me llega el correo", True),
         ("operator", "Revisá spam por las dudas — te reenvié el enlace recién", True),
-    ], 8),
+    ],
+    [
+        ("user",     "Necesito el detalle de mi última factura", True),
+        ("operator", "¡Hola! Ya te lo busco, dame un minuto", True),
+        ("user",     "Dale, gracias. ¿Me lo podés mandar por acá?", False),
+    ],
 ]
 
-BOT_ACTIVE = [
-    ("anon-1", [
+BOT_TEMPLATES = [
+    [
         ("user", "¿Cuál es el horario de atención?"),
         ("bot",  "Nuestro horario de atención es de lunes a viernes de 9 a 18 hs. ¿Puedo ayudarte con algo más?"),
         ("user", "¿Y atienden los sábados?"),
         ("bot",  "No, los sábados no hay atención. Podés dejarnos tu consulta y la respondemos el lunes a primera hora."),
-    ]),
-    ("anon-2", [
+    ],
+    [
         ("user", "¿Cómo doy de alta un nuevo servicio?"),
         ("bot",  "Para dar de alta un servicio necesitás completar el formulario de alta con tus datos y elegir el plan. ¿Querés que te indique los pasos?"),
-    ]),
+    ],
 ]
 
-CLOSED = [
-    ("Andrea Sosa", "27456890", [
+CLOSED_TEMPLATES = [
+    [
         ("user",     "Quería saber si recibieron mi pago de este mes"),
         ("bot",      "Voy a derivarte con un operador para verificar tu cuenta."),
         ("system",   "Listo, tu solicitud fue recibida. Un operador te atenderá en breve."),
-        ("operator", "Hola Andrea, sí — el pago figura acreditado desde el martes. ¡Quedate tranquila!"),
+        ("operator", "¡Hola! Sí — el pago figura acreditado desde el martes. ¡Quedate tranquila!"),
         ("user",     "¡Genial, muchas gracias!"),
         ("operator", "¡De nada! Cualquier cosa volvé a escribirnos."),
-    ]),
-    ("Pablo Quiroga", "33124567", [
+    ],
+    [
         ("user",     "¿Tienen oficina en Rosario?"),
         ("bot",      "Sí, la oficina de Rosario está en Córdoba 1452, atiende de 9 a 17 hs."),
         ("user",     "Perfecto, gracias"),
-    ]),
+    ],
+    [
+        ("user",     "Quiero cambiar el medio de pago de mi cuenta"),
+        ("system",   "Listo, tu solicitud fue recibida. Un operador te atenderá en breve."),
+        ("operator", "Hola, te paso los pasos para actualizar el medio de pago desde el portal."),
+        ("user",     "Listo, ya lo pude hacer. ¡Gracias!"),
+    ],
 ]
+
+
+def _dni(i: int) -> str:
+    return str(12_000_000 + (i * 837_241) % 30_000_000)[:8]
 
 
 async def main() -> None:
@@ -144,43 +185,54 @@ async def main() -> None:
 
         total = 0
 
-        # ── En espera: los 4 niveles de la cola ──────────────────────────────
-        for i, (nombre, dni, consulta, mins) in enumerate(WAITING):
-            cid = await new_conv(status="handoff_requested", nombre=nombre, dni=dni,
+        # ── En espera: cola con urgencias mezcladas ──────────────────────────
+        for i in range(N_WAITING):
+            nombre = NOMBRES[i % len(NOMBRES)]
+            consulta = CONSULTAS[i % len(CONSULTAS)]
+            mins = WAIT_MINUTES[i % len(WAIT_MINUTES)] + (i // len(WAIT_MINUTES)) * 0.3
+            cid = await new_conv(status="handoff_requested", nombre=nombre, dni=_dni(i),
                                  sec=sector(i), minutes_ago=mins, handoff_minutes=mins)
             await add_msg(cid, "user", consulta, mins + 2, read=False)
             await add_msg(cid, "bot", "Veo que tengo dificultades para resolver tu consulta. ¿Querés que te conecte con un operador?", mins + 1, offer=True)
             await add_msg(cid, "system", "Listo, tu solicitud fue recibida. Un operador te atenderá en breve.", mins, read=False)
             total += 1
 
-        # ── En atención ──────────────────────────────────────────────────────
-        for i, (nombre, dni, msgs, last_min) in enumerate(ATTENDING):
-            cid = await new_conv(status="human_attending", nombre=nombre, dni=dni, sec=sector(i),
-                                 minutes_ago=last_min, handoff_minutes=last_min + 10,
+        # ── En atención: la mitad con mensajes sin leer ("tu turno") ─────────
+        for i in range(N_ATTENDING):
+            nombre = NOMBRES[(i + N_WAITING) % len(NOMBRES)]
+            msgs = ATTENDING_TEMPLATES[i % len(ATTENDING_TEMPLATES)]
+            last_min = 2 + i * 3
+            all_read = i % 2 == 1   # alterna: pares con no-leídos, impares al día
+            cid = await new_conv(status="human_attending", nombre=nombre, dni=_dni(i + 50),
+                                 sec=sector(i), minutes_ago=last_min, handoff_minutes=last_min + 10,
                                  operator_id=(str(operador[0]) if operador else None))
             step = max(1, len(msgs))
             for j, (sender, contenido, leido) in enumerate(msgs):
-                await add_msg(cid, sender, contenido, last_min + (step - j), read=leido)
+                await add_msg(cid, sender, contenido, last_min + (step - j), read=(True if all_read else leido))
             total += 1
 
         # ── Bot activo ───────────────────────────────────────────────────────
-        for i, (tag, msgs) in enumerate(BOT_ACTIVE):
+        for i in range(N_BOT):
+            msgs = BOT_TEMPLATES[i % len(BOT_TEMPLATES)]
             cid = await new_conv(status="bot_active", ip=f"190.224.51.{10 + i}", sec=sector(i + 1), minutes_ago=3 + i * 4)
             for j, (sender, contenido) in enumerate(msgs):
                 await add_msg(cid, sender, contenido, 3 + i * 4 + (len(msgs) - j))
             total += 1
 
         # ── Cerradas ─────────────────────────────────────────────────────────
-        for i, (nombre, dni, msgs) in enumerate(CLOSED):
-            cid = await new_conv(status="closed", nombre=nombre, dni=dni, sec=sector(i),
-                                 minutes_ago=60 + i * 30, closed=True)
+        for i in range(N_CLOSED):
+            nombre = NOMBRES[(i + 7) % len(NOMBRES)]
+            msgs = CLOSED_TEMPLATES[i % len(CLOSED_TEMPLATES)]
+            cid = await new_conv(status="closed", nombre=nombre, dni=_dni(i + 100),
+                                 sec=sector(i), minutes_ago=60 + i * 25, closed=True)
             for j, m in enumerate(msgs):
                 sender, contenido = m[0], m[1]
-                await add_msg(cid, sender, contenido, 60 + i * 30 + (len(msgs) - j))
+                await add_msg(cid, sender, contenido, 60 + i * 25 + (len(msgs) - j))
             total += 1
 
-    print(f"[seed] {TENANT}: {total} conversaciones de demo creadas (prefijo {PREFIX})")
-    print("Cola en espera: 30s (calma) · ~1.7m (punto ámbar) · ~3.5m (fondo ámbar) · ~7m (rojo pulsante)")
+    print(f"[seed] {TENANT}: {total} conversaciones creadas "
+          f"(espera={N_WAITING}, atencion={N_ATTENDING}, bot={N_BOT}, cerradas={N_CLOSED})")
+    print("Esperas distribuidas entre 30s y ~8.5m → calma, ámbar y rojo conviviendo en la cola.")
 
 
 asyncio.run(main())
