@@ -909,8 +909,12 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
                 level === "urgent"   ? "text-warning"     :
                 "text-warning";
 
-              // Botón estable (la urgencia la lleva el fondo del banner, no el botón).
-              const buttonClass = "bg-primary hover:bg-primary/90 text-primary-foreground";
+              // Mismo criterio que el "Atender" de la lista: el CTA acompaña
+              // la urgencia (rojo fuerte / ámbar / acción normal).
+              const buttonClass =
+                level === "critical" ? "bg-destructive hover:bg-destructive/90 text-destructive-foreground" :
+                level === "urgent"   ? "bg-warning hover:bg-warning/90 text-warning-foreground" :
+                "bg-primary hover:bg-primary/90 text-primary-foreground";
 
               return (
                 <div className={cn("px-4 py-3 text-center", bannerBg)}>
