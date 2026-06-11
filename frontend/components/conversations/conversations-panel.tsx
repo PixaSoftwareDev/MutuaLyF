@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   MessageSquare, Loader2, Send, UserCheck, UserMinus, XCircle, User, Bot,
-  Info, ChevronDown, ChevronLeft, Search, Flame, ArrowRightLeft, Eye, Wifi, WifiOff,
+  Info, ChevronDown, ChevronLeft, Search, ArrowRightLeft, Eye, Wifi, WifiOff,
   RotateCcw, MoreVertical, Paperclip, X,
 } from "lucide-react";
 import { api, type ConversationRow } from "@/lib/api";
@@ -1044,10 +1044,14 @@ function ConvCard({ conv, now, selected, readOnly, onlineNames, onSelect, onAcce
     yourTurn                    ? "font-semibold text-attention"   :
     "text-muted-foreground";
 
-  // El botón "Atender" mantiene un color de acción ESTABLE (no cambia por
-  // urgencia): un botón que se vuelve rojo se lee como destructivo. La presión
-  // de tiempo ya la comunican el punto y el fondo de la tarjeta.
-  const acceptClass = "bg-primary hover:bg-primary/90";
+  // El botón "Atender" acompaña la urgencia: rojo fuerte en crítico, ámbar en
+  // urgente, acción normal en calma. En una cola, el color del CTA es la señal
+  // más directa de "esto primero" (decisión revisada: antes era estable para no
+  // leerse como destructivo, pero el label "Atender" + contexto lo desambigua).
+  const acceptClass =
+    urgencyLevel === "critical" ? "bg-destructive hover:bg-destructive/90 text-destructive-foreground" :
+    urgencyLevel === "urgent"   ? "bg-warning hover:bg-warning/90 text-warning-foreground" :
+    "bg-primary hover:bg-primary/90 text-primary-foreground";
 
   // Unread count only while operator is actively attending — for "en espera"
   // every message is unread by definition, so the badge adds no information.
@@ -1092,11 +1096,6 @@ function ConvCard({ conv, now, selected, readOnly, onlineNames, onSelect, onAcce
 
         <div className="shrink-0 flex flex-col items-end gap-1">
           <span className={cn("text-[11px] tabular-nums flex items-center gap-1", timeClass)}>
-            {/* Señal NO-cromática de urgencia: el ícono de llama refuerza el color
-                para operadores con daltonismo (el color solo no alcanza). */}
-            {(urgencyLevel === "urgent" || urgencyLevel === "critical") && (
-              <Flame className="h-3 w-3 shrink-0" aria-hidden />
-            )}
             {ageStr}
           </span>
 
@@ -1115,7 +1114,7 @@ function ConvCard({ conv, now, selected, readOnly, onlineNames, onSelect, onAcce
               onClick={e => { e.stopPropagation(); onAccept(); }}
               disabled={accepting}
               className={cn(
-                "inline-flex items-center gap-1 rounded-md text-primary-foreground text-[11px] font-medium px-2 h-6 transition-colors disabled:opacity-60",
+                "inline-flex items-center gap-1 rounded-md text-[11px] font-medium px-2 h-6 transition-colors disabled:opacity-60",
                 acceptClass,
               )}
             >
