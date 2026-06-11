@@ -274,7 +274,9 @@ export default function AdminConversationsPage() {
             onValueChange={(v) => { setStatus(v as StatusFilter); setPage(1); }}
             className="min-w-0"
           >
-            <TabsList className="max-w-full overflow-x-auto">
+            {/* Sin overflow-x-auto: el scrollbar dentro del alto fijo recortaba
+                las tabs en pantallas chicas. Ahora envuelven (flex-wrap del base). */}
+            <TabsList className="max-w-full justify-start">
               {STATUS_TABS.map(tab => {
                 const Icon = tab.icon;
                 return (

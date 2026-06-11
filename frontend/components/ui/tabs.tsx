@@ -12,7 +12,10 @@ const TabsList = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <TabsPrimitive.List
     ref={ref}
-    className={cn("inline-flex h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground", className)}
+    // min-h + flex-wrap (no h-10 fijo): cuando las tabs no entran en pantallas
+    // chicas envuelven a una segunda fila, en vez de desbordar la altura fija
+    // o forzar scrollbars que recortan el contenido.
+    className={cn("inline-flex min-h-10 h-auto flex-wrap items-center justify-center gap-y-1 rounded-md bg-muted p-1 text-muted-foreground", className)}
     {...props}
   />
 ));
