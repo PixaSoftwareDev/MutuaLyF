@@ -188,7 +188,12 @@
     "#ia-w-divider .tx{font-size:11px;color:" + SLATE_400 + ";white-space:nowrap;}",
 
     // Burbujas (igual que /chat)
-    ".ia-w-row{display:flex;gap:10px;align-items:flex-end;}",
+    // Entrada de mensajes: fade + 6px de deslizamiento. Como los mensajes se
+    // APPENDEAN (no se re-renderiza la lista), cada burbuja anima solo al
+    // insertarse — cero impacto en latencia (transform/opacity van al compositor).
+    ".ia-w-row{display:flex;gap:10px;align-items:flex-end;animation:ia-msg-in .22s cubic-bezier(.16,1,.3,1) backwards;}",
+    "@keyframes ia-msg-in{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:translateY(0);}}",
+    "@media (prefers-reduced-motion:reduce){.ia-w-row{animation:none;}}",
     ".ia-w-row.user{justify-content:flex-end;}",
     ".ia-w-row.center{justify-content:center;padding:2px 0;}",
     ".ia-w-bavatar{width:30px;height:30px;border-radius:11px;flex-shrink:0;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,.15);}",

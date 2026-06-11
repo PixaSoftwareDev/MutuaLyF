@@ -40,7 +40,7 @@ export default function ChatPage() {
 
 function BotBubble({ content }: { content: string }) {
   return (
-    <div className="flex gap-3 items-end group">
+    <div className="flex gap-3 items-end group animate-fade-in-up">
       <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-brand-light to-brand-dark flex items-center justify-center shrink-0 shadow-md shadow-black/20">
         <Bot className="h-4 w-4 text-brand-foreground" />
       </div>
@@ -55,7 +55,7 @@ function BotBubble({ content }: { content: string }) {
 
 function UserBubble({ content }: { content: string }) {
   return (
-    <div className="flex justify-end">
+    <div className="flex justify-end animate-fade-in-up">
       <div className="max-w-[78%] sm:max-w-[65%]">
         <div className="bg-gradient-to-br from-brand to-brand-dark text-brand-foreground rounded-2xl rounded-br-sm px-4 py-3 text-sm leading-relaxed shadow-md shadow-black/15">
           {renderWithLinks(content)}
@@ -123,7 +123,7 @@ function AttachmentMessage({ msg, url, headers, operatorName }: {
 
   if (fromUser) {
     return (
-      <div className="flex justify-end">
+      <div className="flex justify-end animate-fade-in-up">
         <div className="max-w-[78%] sm:max-w-[65%]">
           <div className="bg-gradient-to-br from-brand to-brand-dark text-brand-foreground rounded-2xl rounded-br-sm px-3 py-2.5 shadow-md shadow-black/15">
             {inner}
@@ -133,7 +133,7 @@ function AttachmentMessage({ msg, url, headers, operatorName }: {
     );
   }
   return (
-    <div className="flex gap-3 items-end">
+    <div className="flex gap-3 items-end animate-fade-in-up">
       <div className="w-8 h-8 rounded-xl bg-success flex items-center justify-center shrink-0 shadow-md shadow-black/10">
         <UserCheck className="h-4 w-4 text-success-foreground" />
       </div>
@@ -149,7 +149,7 @@ function AttachmentMessage({ msg, url, headers, operatorName }: {
 
 function OperatorBubble({ content, operatorName }: { content: string; operatorName?: string | null }) {
   return (
-    <div className="flex gap-3 items-end">
+    <div className="flex gap-3 items-end animate-fade-in-up">
       <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-emerald-400 to-teal-600 flex items-center justify-center shrink-0 shadow-md shadow-emerald-500/30">
         <UserCheck className="h-4 w-4 text-white" />
       </div>
@@ -165,7 +165,7 @@ function OperatorBubble({ content, operatorName }: { content: string; operatorNa
 
 function SystemBubble({ content }: { content: string }) {
   return (
-    <div className="flex justify-center py-1">
+    <div className="flex justify-center py-1 animate-fade-in-up">
       <span className="text-xs text-slate-400 bg-slate-100 rounded-full px-4 py-1.5">
         {renderWithLinks(content)}
       </span>
@@ -202,7 +202,7 @@ function HandoffOfferBubble({
   }
 
   return (
-    <div className="flex justify-center py-2">
+    <div className="flex justify-center py-2 animate-fade-in-up">
       <div className="max-w-[85%] bg-warning/10 border border-warning/20 rounded-2xl px-4 py-3 text-center space-y-3">
         <p className="text-sm text-warning">{renderWithLinks(content)}</p>
         {confirmed ? (
@@ -261,7 +261,7 @@ function HandoffOfferBubble({
 
 function TypingIndicator() {
   return (
-    <div className="flex gap-3 items-end">
+    <div className="flex gap-3 items-end animate-fade-in-up">
       <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-brand-light to-brand-dark flex items-center justify-center shrink-0 shadow-md shadow-black/20">
         <Bot className="h-4 w-4 text-brand-foreground" />
       </div>
