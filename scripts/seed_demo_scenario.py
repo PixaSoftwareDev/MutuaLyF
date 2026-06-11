@@ -138,18 +138,40 @@ async def main() -> None:
             print(f"[clean] {TENANT}: {r.rowcount} conversaciones de demo eliminadas")
             return
 
-        sectores = (await s.execute(
-            text("SELECT id, nombre FROM sectores WHERE is_active ORDER BY is_default DESC")
-        )).fetchall()
+        # Solo sectores CON operadores asignados: si sembramos en sectores sin
+        # operador, nadie los ve en su bandeja y parece que "falta volumen".
+        sectores = (await s.execute(text("""
+            SELECT DISTINCT se.id, se.nombre FROM sectores se
+            JOIN operador_sectores os ON os.sector_id = se.id
+            JOIN usuarios u ON u.id = os.operador_id AND u.is_active
+            WHERE se.is_active
+        """))).fetchall()
+        if not sectores:
+            sectores = (await s.execute(
+                text("SELECT id, nombre FROM sectores WHERE is_active ORDER BY is_default DESC")
+            )).fetchall()
         if not sectores:
             print(f"ERROR: el tenant {TENANT} no tiene sectores activos")
             return
-        operador = (await s.execute(
-            text("SELECT id FROM usuarios WHERE role = 'operator' AND is_active LIMIT 1")
-        )).fetchone()
+
+        # Operadores: DEMO_OPERATOR_EMAIL concentra las atendidas en uno; sin
+        # eso, se reparten entre todos (entres con quien entres, ves las tuyas).
+        op_email = os.getenv("DEMO_OPERATOR_EMAIL", "")
+        if op_email:
+            operadores = (await s.execute(
+                text("SELECT id, email FROM usuarios WHERE role = 'operator' AND is_active AND email = :e"),
+                {"e": op_email},
+            )).fetchall()
+        else:
+            operadores = (await s.execute(
+                text("SELECT id, email FROM usuarios WHERE role = 'operator' AND is_active ORDER BY email")
+            )).fetchall()
 
         def sector(i: int) -> str:
             return str(sectores[i % len(sectores)][0])
+
+        def operador_id(i: int) -> str | None:
+            return str(operadores[i % len(operadores)][0]) if operadores else None
 
         async def new_conv(*, status, nombre=None, dni=None, ip=None, sec, minutes_ago,
                            handoff_minutes=None, operator_id=None, closed=False):
@@ -205,7 +227,7 @@ async def main() -> None:
             all_read = i % 2 == 1   # alterna: pares con no-leídos, impares al día
             cid = await new_conv(status="human_attending", nombre=nombre, dni=_dni(i + 50),
                                  sec=sector(i), minutes_ago=last_min, handoff_minutes=last_min + 10,
-                                 operator_id=(str(operador[0]) if operador else None))
+                                 operator_id=operador_id(i))
             step = max(1, len(msgs))
             for j, (sender, contenido, leido) in enumerate(msgs):
                 await add_msg(cid, sender, contenido, last_min + (step - j), read=(True if all_read else leido))
@@ -232,6 +254,8 @@ async def main() -> None:
 
     print(f"[seed] {TENANT}: {total} conversaciones creadas "
           f"(espera={N_WAITING}, atencion={N_ATTENDING}, bot={N_BOT}, cerradas={N_CLOSED})")
+    print(f"Sectores usados (con operadores): {[str(x[1]) for x in sectores]}")
+    print(f"Atendidas repartidas entre: {[str(o[1]) for o in operadores] or 'sin operadores'}")
     print("Esperas distribuidas entre 30s y ~8.5m → calma, ámbar y rojo conviviendo en la cola.")
 
 
