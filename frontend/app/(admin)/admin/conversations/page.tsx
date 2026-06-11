@@ -584,13 +584,9 @@ function ConvDetail({ detail, loading, isError, onRetry, onClose, inline }: {
         </div>
       </div>
 
-      {/* Closed banner */}
-      {detail?.status === "closed" && (
-        <div className="shrink-0 px-4 py-2.5 border-t bg-muted/40 flex items-center gap-2 text-xs text-muted-foreground">
-          <XCircle className="h-3.5 w-3.5 shrink-0" />
-          <span>Conversación cerrada — solo lectura.</span>
-        </div>
-      )}
+      {/* Sin banner de "cerrada": esta vista es solo lectura SIEMPRE (no hay
+          composer) y el estado ya lo muestra el StatusBadge del header — la
+          franja solo le robaba altura a los mensajes. */}
     </div>
   );
 }
