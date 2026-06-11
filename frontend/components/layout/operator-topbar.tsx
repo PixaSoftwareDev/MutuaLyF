@@ -60,7 +60,7 @@ export function OperatorTopbar() {
     // Topbar CLARO, coherente con el login y el sidebar del admin. La marca de
     // la barra es Intellix (el producto); el tenant es contexto a la derecha.
     <header
-      className="relative h-16 text-slate-600 flex items-center px-3 sm:px-5 gap-3 shrink-0 border-b border-slate-200"
+      className="relative h-16 text-slate-600 flex items-center pr-3 sm:pr-5 gap-3 shrink-0 border-b border-slate-200"
       style={{
         // Superficie clara con tinte de marca leve y uniforme, igual que el
         // sidebar del admin.
@@ -79,34 +79,36 @@ export function OperatorTopbar() {
         }}
       />
 
-      {/* Brand Intellix — misma composición que el sidebar del admin:
-          isotipo + wordmark con los mismos assets y tamaños. */}
-      <Link href="/operator" className="flex items-center gap-2 min-w-0" aria-label="Intellix">
-        <Image
-          src="/brand/intellix-mark.png"
-          alt=""
-          width={1400}
-          height={1400}
-          priority
-          unoptimized
-          className="h-7 w-7 object-contain shrink-0"
-        />
-        <Image
-          src="/brand/intellix-wordmark.png"
-          alt=""
-          width={1518}
-          height={174}
-          priority
-          unoptimized
-          className="h-[14px] w-auto object-contain hidden min-[420px]:block"
-        />
-      </Link>
+      {/* Zona de marca: mismo ancho que la columna de la bandeja (w-80) con su
+          propio borde — la línea divisoria del contenido CONTINÚA en el topbar
+          y las tabs arrancan alineadas con el área de chat, no pegadas al logo. */}
+      <div className="flex items-center h-full px-3 sm:px-5 sm:w-80 shrink-0 min-w-0 sm:border-r sm:border-slate-200">
+        <Link href="/operator" className="flex items-center gap-2 min-w-0" aria-label="Intellix">
+          <Image
+            src="/brand/intellix-mark.png"
+            alt=""
+            width={1400}
+            height={1400}
+            priority
+            unoptimized
+            className="h-7 w-7 object-contain shrink-0"
+          />
+          <Image
+            src="/brand/intellix-wordmark.png"
+            alt=""
+            width={1518}
+            height={174}
+            priority
+            unoptimized
+            className="h-[14px] w-auto object-contain hidden min-[420px]:block"
+          />
+        </Link>
+      </div>
 
       {/* Nav tabs — visibles también en mobile (solo ícono): cambiar entre
           Bandeja e Historial es la acción más frecuente del operador y no
           debería requerir abrir el menú de tres puntos. */}
-      <nav className="flex items-center gap-1 ml-1 sm:ml-2">
-        <span className="hidden sm:block h-4 w-px bg-slate-200 mr-1" />
+      <nav className="flex items-center gap-1 sm:ml-1">
         {NAV_ITEMS.map(item => {
           const active = item.href === "/operator"
             ? pathname === "/operator"
