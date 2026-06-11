@@ -485,53 +485,34 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
         selectedId ? "hidden sm:flex" : "flex"
       )}>
 
-        {/* Title bar — solo en modo operador (admin lo identifica por el sidebar) */}
-        {!readOnly && (
-          <div className="h-16 px-4 flex items-center justify-between border-b shrink-0">
-            <h1 className="font-semibold text-sm flex items-center gap-2">
-              <MessageSquare className="h-4 w-4 text-primary" />
-              Panel Operador
-            </h1>
-            <div className="flex items-center gap-1.5" title={sseConnected ? "Tiempo real activo" : "Reconectando..."}>
-              {sseConnected
-                ? <Wifi    className="h-3.5 w-3.5 text-success" />
-                : <WifiOff className="h-3.5 w-3.5 text-muted-foreground animate-pulse motion-reduce:animate-none" />}
-              <span className="text-[11px] text-muted-foreground">{sseConnected ? "En vivo" : "Reconectando"}</span>
-            </div>
-          </div>
-        )}
-
-        {/* Filters + stats */}
+        {/* Filters. El título "Panel Operador" y los pills de conteo se
+            quitaron: el topbar ya identifica la vista y los headers de sección
+            ya traen los números — era el mismo dato tres veces. */}
         <div className="px-4 pt-3 pb-3 space-y-3">
-          {/* Stats pills */}
-          {!readOnly && (
-            <div className="flex gap-2">
-              <span className={cn(
-                "flex-1 text-center text-xs font-semibold rounded-md py-1.5",
-                waitingCount > 0 ? "bg-warning/10 text-warning" : "bg-muted text-muted-foreground"
-              )}>
-                {waitingCount} en espera
-              </span>
-              <span className={cn(
-                "flex-1 text-center text-xs font-semibold rounded-md py-1.5",
-                attendingCount > 0 ? "bg-success/10 text-success" : "bg-muted text-muted-foreground"
-              )}>
-                {attendingCount} en atención
-              </span>
+          {/* Search + estado de conexión en tiempo real */}
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+              <input
+                type="text"
+                aria-label="Buscar conversaciones"
+                placeholder="Buscar…"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                className="w-full h-8 pl-8 pr-3 rounded-md border border-input bg-background text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              />
             </div>
-          )}
-
-          {/* Search */}
-          <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-            <input
-              type="text"
-              aria-label="Buscar conversaciones"
-              placeholder="Buscar…"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              className="w-full h-8 pl-8 pr-3 rounded-md border border-input bg-background text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            />
+            {!readOnly && (
+              <div
+                className="flex items-center gap-1 shrink-0"
+                title={sseConnected ? "Tiempo real activo" : "Reconectando..."}
+              >
+                {sseConnected
+                  ? <Wifi    className="h-3.5 w-3.5 text-success" />
+                  : <WifiOff className="h-3.5 w-3.5 text-muted-foreground animate-pulse motion-reduce:animate-none" />}
+                <span className="text-[11px] text-muted-foreground hidden sm:inline">{sseConnected ? "En vivo" : "Reconectando"}</span>
+              </div>
+            )}
           </div>
 
           {/* Sector filter — dropdown */}
@@ -628,9 +609,14 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
       )}>
         {!selectedId ? (
           <div className="flex-1 flex items-center justify-center text-muted-foreground">
-            <div className="text-center space-y-2">
-              <MessageSquare className="h-10 w-10 mx-auto opacity-15" />
-              <p className="text-sm">Seleccioná una conversación</p>
+            <div className="text-center px-10">
+              <div className="w-16 h-16 rounded-2xl bg-action/10 text-action flex items-center justify-center mb-4 mx-auto">
+                <MessageSquare className="h-7 w-7" />
+              </div>
+              <p className="text-base font-semibold text-foreground">Elegí una conversación</p>
+              <p className="text-sm mt-1 max-w-xs leading-relaxed">
+                Seleccioná una conversación de la lista para ver los mensajes y atenderla.
+              </p>
             </div>
           </div>
         ) : detailLoading ? (
