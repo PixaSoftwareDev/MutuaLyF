@@ -99,7 +99,7 @@ CREATE TABLE IF NOT EXISTS sectores (
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 INSERT INTO sectores (nombre, descripcion, is_default) VALUES
-    ('Consultas Generales', 'Sector por defecto para consultas sin asignación específica', TRUE)
+    ('Consultas Generales', 'Consultas que no encajan en otro sector', TRUE)
 ON CONFLICT (nombre) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS operador_sectores (

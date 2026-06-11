@@ -12,6 +12,7 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { api, type SectorRow } from "@/lib/api";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -299,7 +300,13 @@ function SectorCard({
   defaultBusy: boolean;
 }) {
   return (
-    <div className="group flex flex-col rounded-2xl border bg-card p-5 shadow-sm transition-all duration-200 hover:shadow-md hover:-translate-y-0.5 hover:border-action/25">
+    <div className={cn(
+      "group flex flex-col rounded-2xl border bg-card p-5 shadow-sm transition-all duration-200 hover:shadow-md hover:-translate-y-0.5",
+      // El predeterminado se reconoce de un vistazo: encuadre con el acento de marca.
+      sector.is_default
+        ? "border-action/40 ring-1 ring-action/20"
+        : "hover:border-action/25",
+    )}>
       {/* Nombre al lado del tile (misma estructura que la card de Operadores) + menú */}
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-3 min-w-0">
@@ -329,7 +336,7 @@ function SectorCard({
             {!sector.is_default && (
               <DropdownMenuItem onSelect={onSetDefault} disabled={defaultBusy}>
                 <Star className="h-4 w-4 mr-2" />
-                Marcar como predeterminado
+                Hacer predeterminado
               </DropdownMenuItem>
             )}
             {!sector.is_default && (

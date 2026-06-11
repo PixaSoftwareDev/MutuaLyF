@@ -47,7 +47,7 @@ OPERATORS = [
 
 # ── Sectores ──────────────────────────────────────────────────────────────────
 SECTORES = [
-    ("Consultas Generales",  "Sector por defecto para consultas sin asignación específica"),
+    ("Consultas Generales",  "Consultas que no encajan en otro sector"),
     ("Atención al Afiliado", "Altas, bajas, modificaciones y reclamos de afiliados"),
     ("Facturación",          "Estados de cuenta, pagos, facturas y reintegros"),
     ("Prestaciones Médicas", "Autorizaciones, turnos, cartilla y cobertura"),
