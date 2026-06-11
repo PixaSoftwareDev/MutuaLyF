@@ -79,10 +79,10 @@ export function OperatorTopbar() {
         }}
       />
 
-      {/* Zona de marca: mismo ancho que la columna de la bandeja (w-80) con su
-          propio borde — la línea divisoria del contenido CONTINÚA en el topbar
-          y las tabs arrancan alineadas con el área de chat, no pegadas al logo. */}
-      <div className="flex items-center h-full px-3 sm:px-5 sm:w-80 shrink-0 min-w-0 sm:border-r sm:border-slate-200">
+      {/* Zona de marca: mismo ancho que la columna de la bandeja (w-80) — las
+          tabs arrancan alineadas con el área de chat. Marca centrada en su zona;
+          sin línea en el topbar (la divisoria la dibuja el contenido abajo). */}
+      <div className="flex items-center h-full px-3 sm:px-5 sm:w-80 shrink-0 min-w-0 sm:justify-center">
         <Link href="/operator" className="flex items-center gap-2 min-w-0" aria-label="Intellix">
           <Image
             src="/brand/intellix-mark.png"
