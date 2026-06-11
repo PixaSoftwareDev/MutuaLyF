@@ -185,22 +185,26 @@ function AssistantCard({
             <div className="space-y-2.5">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Color de la letra</p>
               <div className="flex flex-wrap items-center gap-3">
-                <div className="inline-flex rounded-lg border bg-background p-0.5">
+                {/* shrink-0 + nowrap: en contenedores angostos los labels se
+                    partían en dos líneas y el pill se deformaba. El preview de
+                    al lado baja de fila (flex-wrap del padre), el toggle no se
+                    comprime. */}
+                <div className="inline-flex shrink-0 rounded-lg border bg-background p-0.5">
                   <button
                     type="button"
                     onClick={() => setTextMode("auto")}
                     className={cn(
-                      "inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+                      "inline-flex items-center gap-1 whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
                       textMode === "auto" ? "bg-action-gradient text-white shadow-sm" : "text-muted-foreground hover:text-foreground",
                     )}
                   >
-                    <Wand2 className="h-3 w-3" /> Automático
+                    <Wand2 className="h-3 w-3 shrink-0" /> Automático
                   </button>
                   <button
                     type="button"
                     onClick={() => setTextMode("custom")}
                     className={cn(
-                      "rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+                      "whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
                       textMode === "custom" ? "bg-action-gradient text-white shadow-sm" : "text-muted-foreground hover:text-foreground",
                     )}
                   >
