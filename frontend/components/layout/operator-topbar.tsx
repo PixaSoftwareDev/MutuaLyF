@@ -8,7 +8,6 @@ import { LogOut, Inbox, History, MoreVertical, UserCircle } from "lucide-react";
 import { useAuthStore } from "@/lib/store";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { useTenantBranding } from "@/lib/use-tenant-branding";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -17,13 +16,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
-function fullLogoUrl(url: string | null): string | null {
-  if (!url) return null;
-  if (url.startsWith("http")) return url;
-  return `${API_URL}${url}`;
-}
 
 const NAV_ITEMS: Array<{ href: string; label: string; icon: typeof Inbox }> = [
   { href: "/operator",           label: "Bandeja",   icon: Inbox   },
@@ -41,8 +33,6 @@ export function OperatorTopbar() {
   const roleLabel = ROLE_LABEL[userRole ?? ""] ?? "Operador";
   const router = useRouter();
   const pathname = usePathname();
-  const { branding } = useTenantBranding();
-  const brandLogoUrl = fullLogoUrl(branding.logo_url);
 
   // Conversaciones en espera — badge en la tab Bandeja. Misma query key que el
   // panel del operador: con la bandeja abierta comparten cache (cero requests
@@ -155,26 +145,8 @@ export function OperatorTopbar() {
 
       <div className="flex-1" />
 
-      {/* Contexto del tenant — logo + organización en la que opera. */}
-      <div className="hidden md:flex items-center gap-2 min-w-0">
-        <div
-          className="relative w-7 h-7 flex items-center justify-center shrink-0 rounded-md overflow-hidden ring-1 ring-slate-200"
-          style={!brandLogoUrl ? { background: branding.primary_color } : undefined}
-        >
-          {brandLogoUrl ? (
-            <Image src={brandLogoUrl} alt={branding.display_name} width={28} height={28} className="w-full h-full object-contain" unoptimized />
-          ) : (
-            <span className="text-white font-bold text-[11px]">
-              {(branding.display_name.trim()[0] ?? "?").toUpperCase()}
-            </span>
-          )}
-        </div>
-        <span className="text-[13px] font-medium text-foreground truncate max-w-[160px]">{branding.display_name}</span>
-      </div>
-
-      <span className="hidden md:block h-5 w-px bg-slate-200" />
-
-      {/* Operator identity — rol como identidad principal, email como secundario. */}
+      {/* Operator identity — rol como identidad principal, email como secundario.
+          (El logo/nombre del tenant se quitó: el panel es identidad Intellix.) */}
       <div className="hidden sm:flex flex-col items-end leading-tight min-w-0">
         <span className="text-xs font-medium text-foreground truncate max-w-[220px]">{roleLabel}</span>
         {userEmail && (
