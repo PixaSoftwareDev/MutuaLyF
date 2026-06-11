@@ -35,7 +35,9 @@ export function FormSheet({
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className={cn("w-full sm:max-w-md p-0 gap-0", className)}>
-        <SheetHeader className="px-6 pt-6 pb-5 border-b border-border/70">
+        {/* Cascada sutil al abrir: header → cuerpo con 60ms de diferencia.
+            El panel se monta en cada apertura, así que anima cada vez. */}
+        <SheetHeader className="px-6 pt-6 pb-5 border-b border-border/70 animate-fade-in-up">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-action-gradient-soft">
               <Icon className="h-5 w-5 text-action" />
@@ -47,7 +49,7 @@ export function FormSheet({
           </div>
         </SheetHeader>
 
-        <div className="flex-1 overflow-y-auto px-6 py-6">{children}</div>
+        <div className="flex-1 overflow-y-auto px-6 py-6 animate-fade-in-up [animation-delay:60ms]">{children}</div>
 
         <SheetFooter className="gap-2 border-t border-border/70 bg-muted/30 px-6 py-4">
           {footer}

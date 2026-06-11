@@ -29,7 +29,10 @@ const SheetOverlay = React.forwardRef<
 SheetOverlay.displayName = SheetPrimitive.Overlay.displayName;
 
 const sheetVariants = cva(
-  "fixed z-50 gap-4 bg-card shadow-xl transition ease-in-out data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:duration-300 data-[state=open]:duration-300",
+  // Apertura con ease-out-quint (mismo easing que el colapso del sidebar):
+  // entra rápido y aterriza suave — el ease-in-out lineal se sentía mecánico.
+  // El cierre es más corto que la apertura (lo que se va, se va rápido).
+  "fixed z-50 gap-4 bg-card shadow-xl transition data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:duration-200 data-[state=open]:duration-400 data-[state=open]:ease-[cubic-bezier(0.22,1,0.36,1)] data-[state=closed]:ease-in",
   {
     variants: {
       side: {
