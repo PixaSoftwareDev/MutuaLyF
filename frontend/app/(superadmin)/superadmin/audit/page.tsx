@@ -144,21 +144,16 @@ export default function GlobalAuditPage() {
         </div>
       )}
 
-      {/* Filters */}
-      <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
-        <div className="flex flex-col gap-1 sm:max-w-sm w-full">
-          <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-            <Input
-              placeholder="Buscar por usuario, recurso, org o IP…"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              className="h-9 pl-8"
-            />
-          </div>
-          <p className="text-[11px] text-muted-foreground pl-0.5">
-            Busca solo en la página actual. Usá los filtros de acción y organización para acotar el conjunto completo.
-          </p>
+      {/* Filters — una sola fila; flex-wrap baja grupos enteros en anchos chicos */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative w-full sm:w-72">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+          <Input
+            placeholder="Buscar por usuario, recurso, org o IP…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="h-9 pl-8"
+          />
         </div>
         <Select
           value={action || "__all__"}
@@ -211,6 +206,9 @@ export default function GlobalAuditPage() {
           )}
         </div>
       </div>
+      <p className="text-[11px] text-muted-foreground -mt-2">
+        La búsqueda de texto mira solo la página actual; acción, organización y fechas filtran el conjunto completo.
+      </p>
 
       {/* Table */}
       <div className="rounded-xl border bg-card shadow-sm overflow-hidden">

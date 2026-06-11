@@ -164,59 +164,59 @@ export default function AuditPage() {
       {/* Lista de eventos */}
       <Card className="rounded-2xl">
         <CardHeader className="pb-3">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <CardTitle className="text-base">Eventos</CardTitle>
+          {/* Una sola fila de filtros: búsqueda + acción + fechas. flex-wrap
+              hace que en anchos chicos los grupos bajen enteros y prolijos. */}
+          <div className="flex flex-wrap items-center gap-2">
+            <CardTitle className="text-base mr-auto">Eventos</CardTitle>
 
-            <div className="flex items-center gap-2 sm:max-w-md w-full">
-              <div className="relative flex-1">
-                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Buscar usuario, recurso, IP…"
-                  value={search}
-                  onChange={e => setSearch(e.target.value)}
-                  className="pl-8 h-8 text-sm"
-                />
-              </div>
-              <Select
-                value={action || "all"}
-                onValueChange={v => { setAction(v === "all" ? "" : v); setPage(0); }}
-              >
-                <SelectTrigger className="h-8 w-auto shrink-0 text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {Object.entries(ACTION_LABELS).map(([val, label]) => (
-                    <SelectItem key={val || "all"} value={val || "all"} className="text-xs">
-                      {label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <div className="relative w-full sm:w-56">
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Buscar usuario, recurso, IP…"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                className="pl-8 h-8 text-sm"
+              />
             </div>
-          </div>
 
-          {/* Rango de fechas — filtra en el servidor (la búsqueda de texto solo
-              mira la página actual; esto acota el conjunto completo). */}
-          <div className="flex flex-wrap items-center gap-1.5 mt-2">
-            <Input
-              type="date" aria-label="Desde" value={dateFrom} max={dateTo || undefined}
-              onChange={e => { setDateFrom(e.target.value); setPage(0); }}
-              className="h-8 w-[8.5rem] px-2 text-xs"
-            />
-            <span className="text-xs text-muted-foreground" aria-hidden>→</span>
-            <Input
-              type="date" aria-label="Hasta" value={dateTo} min={dateFrom || undefined}
-              onChange={e => { setDateTo(e.target.value); setPage(0); }}
-              className="h-8 w-[8.5rem] px-2 text-xs"
-            />
-            {(dateFrom || dateTo) && (
-              <Button
-                variant="ghost" size="sm" className="h-8 px-2 text-xs text-muted-foreground"
-                onClick={() => { setDateFrom(""); setDateTo(""); setPage(0); }}
-              >
-                Limpiar
-              </Button>
-            )}
+            <Select
+              value={action || "all"}
+              onValueChange={v => { setAction(v === "all" ? "" : v); setPage(0); }}
+            >
+              <SelectTrigger className="h-8 w-auto shrink-0 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {Object.entries(ACTION_LABELS).map(([val, label]) => (
+                  <SelectItem key={val || "all"} value={val || "all"} className="text-xs">
+                    {label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {/* Rango de fechas — filtra en el servidor (acota el conjunto completo) */}
+            <div className="flex items-center gap-1.5">
+              <Input
+                type="date" aria-label="Desde" value={dateFrom} max={dateTo || undefined}
+                onChange={e => { setDateFrom(e.target.value); setPage(0); }}
+                className="h-8 w-[8.25rem] px-2 text-xs"
+              />
+              <span className="text-xs text-muted-foreground" aria-hidden>→</span>
+              <Input
+                type="date" aria-label="Hasta" value={dateTo} min={dateFrom || undefined}
+                onChange={e => { setDateTo(e.target.value); setPage(0); }}
+                className="h-8 w-[8.25rem] px-2 text-xs"
+              />
+              {(dateFrom || dateTo) && (
+                <Button
+                  variant="ghost" size="sm" className="h-8 px-2 text-xs text-muted-foreground"
+                  onClick={() => { setDateFrom(""); setDateTo(""); setPage(0); }}
+                >
+                  Limpiar
+                </Button>
+              )}
+            </div>
           </div>
           {search.trim() && (
             <p className="text-[11px] text-muted-foreground mt-1.5">
