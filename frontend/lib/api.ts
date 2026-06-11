@@ -970,23 +970,27 @@ export const api = {
   // (backend ENTITIES_DISABLED). Si la feature vuelve, está en el historial de git.
 
   audit: {
-    list: async (params?: { limit?: number; offset?: number; action?: string }) => {
+    list: async (params?: { limit?: number; offset?: number; action?: string; dateFrom?: string; dateTo?: string }) => {
       const q = new URLSearchParams();
-      if (params?.limit)  q.set("limit",  String(params.limit));
-      if (params?.offset) q.set("offset", String(params.offset));
-      if (params?.action) q.set("action", params.action);
+      if (params?.limit)    q.set("limit",     String(params.limit));
+      if (params?.offset)   q.set("offset",    String(params.offset));
+      if (params?.action)   q.set("action",    params.action);
+      if (params?.dateFrom) q.set("date_from", params.dateFrom);
+      if (params?.dateTo)   q.set("date_to",   params.dateTo);
       const { data } = await apiClient.get(`/audit?${q}`);
       return data as {
         total: number; offset: number; limit: number;
         events: AuditEvent[];
       };
     },
-    globalList: async (params?: { limit?: number; offset?: number; action?: string; tenant_filter?: string }) => {
+    globalList: async (params?: { limit?: number; offset?: number; action?: string; tenant_filter?: string; dateFrom?: string; dateTo?: string }) => {
       const q = new URLSearchParams();
       if (params?.limit)         q.set("limit",         String(params.limit));
       if (params?.offset)        q.set("offset",        String(params.offset));
       if (params?.action)        q.set("action",        params.action);
       if (params?.tenant_filter) q.set("tenant_filter", params.tenant_filter);
+      if (params?.dateFrom)      q.set("date_from",     params.dateFrom);
+      if (params?.dateTo)        q.set("date_to",       params.dateTo);
       const { data } = await apiClient.get(`/superadmin/audit?${q}`);
       return data as {
         total: number; offset: number; limit: number;

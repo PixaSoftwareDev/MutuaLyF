@@ -15,6 +15,8 @@ async def list_audit_events(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     action: str | None = None,
+    date_from: str | None = Query(None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    date_to: str | None = Query(None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
     tenant_id: str = Depends(get_tenant_id),
     _: CurrentUser = Depends(require_admin),
 ):
@@ -24,6 +26,13 @@ async def list_audit_events(
     if action:
         where += " AND action = :action"
         params["action"] = action
+    if date_from:
+        where += " AND created_at >= CAST(:date_from AS date)"
+        params["date_from"] = date_from
+    if date_to:
+        # < dia siguiente: incluye el dia "hasta" completo (created_at es timestamptz)
+        where += " AND created_at < CAST(:date_to AS date) + INTERVAL '1 day'"
+        params["date_to"] = date_to
 
     async with get_pg_session(tenant_id) as session:
         result = await session.execute(
@@ -68,6 +77,8 @@ async def global_audit_log(
     offset: int = Query(0, ge=0),
     action: str | None = None,
     tenant_filter: str | None = None,
+    date_from: str | None = Query(None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    date_to: str | None = Query(None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
     _: CurrentUser = Depends(require_super_admin),
 ):
     """Global audit log across all tenants — super_admin only."""
@@ -88,6 +99,12 @@ async def global_audit_log(
             if action:
                 where += " AND action = :action"
                 params["action"] = action
+            if date_from:
+                where += " AND created_at >= CAST(:date_from AS date)"
+                params["date_from"] = date_from
+            if date_to:
+                where += " AND created_at < CAST(:date_to AS date) + INTERVAL '1 day'"
+                params["date_to"] = date_to
             async with get_pg_session(tid) as session:
                 result = await session.execute(
                     text(

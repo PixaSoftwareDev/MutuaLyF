@@ -59,14 +59,18 @@ export default function GlobalAuditPage() {
   const [action, setAction]         = useState("");
   const [tenantFilter, setTenantFilter] = useState("");
   const [search, setSearch]         = useState("");
+  const [dateFrom, setDateFrom]     = useState("");
+  const [dateTo, setDateTo]         = useState("");
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["global-audit", page, action, tenantFilter],
+    queryKey: ["global-audit", page, action, tenantFilter, dateFrom, dateTo],
     queryFn: () => api.audit.globalList({
       limit: PAGE_SIZE,
       offset: page * PAGE_SIZE,
       action: action || undefined,
       tenant_filter: tenantFilter || undefined,
+      dateFrom: dateFrom || undefined,
+      dateTo: dateTo || undefined,
     }),
   });
 
@@ -183,6 +187,29 @@ export default function GlobalAuditPage() {
             </SelectContent>
           </Select>
         )}
+
+        {/* Rango de fechas — filtra en el servidor (no solo la página actual) */}
+        <div className="flex items-center gap-1.5">
+          <Input
+            type="date" aria-label="Desde" value={dateFrom} max={dateTo || undefined}
+            onChange={e => { setDateFrom(e.target.value); setPage(0); }}
+            className="h-9 w-[8.5rem] px-2 text-sm"
+          />
+          <span className="text-xs text-muted-foreground" aria-hidden>→</span>
+          <Input
+            type="date" aria-label="Hasta" value={dateTo} min={dateFrom || undefined}
+            onChange={e => { setDateTo(e.target.value); setPage(0); }}
+            className="h-9 w-[8.5rem] px-2 text-sm"
+          />
+          {(dateFrom || dateTo) && (
+            <Button
+              variant="ghost" size="sm" className="h-9 px-2 text-muted-foreground"
+              onClick={() => { setDateFrom(""); setDateTo(""); setPage(0); }}
+            >
+              Limpiar
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Table */}

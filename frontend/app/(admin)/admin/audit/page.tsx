@@ -112,11 +112,19 @@ export default function AuditPage() {
   const [page, setPage]     = useState(0);
   const [action, setAction] = useState("");
   const [search, setSearch] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo]     = useState("");
   const [expanded, setExpanded] = useState<string | null>(null);
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["audit", page, action],
-    queryFn: () => api.audit.list({ limit: PAGE_SIZE, offset: page * PAGE_SIZE, action: action || undefined }),
+    queryKey: ["audit", page, action, dateFrom, dateTo],
+    queryFn: () => api.audit.list({
+      limit: PAGE_SIZE,
+      offset: page * PAGE_SIZE,
+      action: action || undefined,
+      dateFrom: dateFrom || undefined,
+      dateTo: dateTo || undefined,
+    }),
   });
 
   const filteredEvents = useMemo(() => {
@@ -185,6 +193,30 @@ export default function AuditPage() {
                 </SelectContent>
               </Select>
             </div>
+          </div>
+
+          {/* Rango de fechas — filtra en el servidor (la búsqueda de texto solo
+              mira la página actual; esto acota el conjunto completo). */}
+          <div className="flex flex-wrap items-center gap-1.5 mt-2">
+            <Input
+              type="date" aria-label="Desde" value={dateFrom} max={dateTo || undefined}
+              onChange={e => { setDateFrom(e.target.value); setPage(0); }}
+              className="h-8 w-[8.5rem] px-2 text-xs"
+            />
+            <span className="text-xs text-muted-foreground" aria-hidden>→</span>
+            <Input
+              type="date" aria-label="Hasta" value={dateTo} min={dateFrom || undefined}
+              onChange={e => { setDateTo(e.target.value); setPage(0); }}
+              className="h-8 w-[8.5rem] px-2 text-xs"
+            />
+            {(dateFrom || dateTo) && (
+              <Button
+                variant="ghost" size="sm" className="h-8 px-2 text-xs text-muted-foreground"
+                onClick={() => { setDateFrom(""); setDateTo(""); setPage(0); }}
+              >
+                Limpiar
+              </Button>
+            )}
           </div>
           {search.trim() && (
             <p className="text-[11px] text-muted-foreground mt-1.5">
