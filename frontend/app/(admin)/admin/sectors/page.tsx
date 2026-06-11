@@ -336,7 +336,7 @@ function SectorCard({
             {!sector.is_default && (
               <DropdownMenuItem onSelect={onSetDefault} disabled={defaultBusy}>
                 <Star className="h-4 w-4 mr-2" />
-                Hacer predeterminado
+                Predeterminado
               </DropdownMenuItem>
             )}
             {!sector.is_default && (
