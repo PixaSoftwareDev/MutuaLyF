@@ -70,7 +70,7 @@ export function OperatorTopbar() {
     // Topbar CLARO, coherente con el login y el sidebar del admin. La marca de
     // la barra es Intellix (el producto); el tenant es contexto a la derecha.
     <header
-      className="relative h-14 text-slate-600 flex items-center px-3 sm:px-4 gap-3 shrink-0 border-b border-slate-200"
+      className="relative h-16 text-slate-600 flex items-center px-3 sm:px-5 gap-3 shrink-0 border-b border-slate-200"
       style={{
         // Superficie clara con tinte de marca leve y uniforme, igual que el
         // sidebar del admin.
@@ -133,7 +133,7 @@ export function OperatorTopbar() {
                 ? `${item.label} — ${waitingCount} en espera`
                 : item.label}
               className={cn(
-                "flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-medium transition-colors",
+                "flex items-center gap-1.5 px-2.5 sm:px-3.5 py-2 rounded-lg text-xs font-medium transition-colors",
                 active
                   ? "bg-action/[0.08] text-foreground font-semibold"
                   : "text-slate-600 hover:text-slate-900 hover:bg-slate-100",
