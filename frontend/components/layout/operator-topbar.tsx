@@ -136,7 +136,7 @@ export function OperatorTopbar() {
               {/* Cola de espera — visible también desde Historial, que es
                   cuando el operador no está mirando la bandeja. */}
               {item.href === "/operator" && waitingCount > 0 && (
-                <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-warning/15 text-warning text-[10px] font-bold inline-flex items-center justify-center tabular-nums">
+                <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-destructive text-destructive-foreground text-[10px] font-bold inline-flex items-center justify-center tabular-nums shadow-sm">
                   {waitingCount > 9 ? "9+" : waitingCount}
                 </span>
               )}
