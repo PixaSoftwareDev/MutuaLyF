@@ -170,19 +170,23 @@ function AssistantCard({
           </div>
         </div>
 
-        {/* ── Toolbar de controles: fondo + letra, compacta bajo el preview ── */}
+        {/* ── Toolbar de controles: fondo + letra, compacta bajo el preview ──
+            Dos columnas recién desde xl: en anchos intermedios (tablet o ventana
+            angosta con sidebar) las columnas quedaban más chicas que el toggle
+            Automático/Personalizado y desbordaba la card. Apiladas hasta tener
+            espacio real. */}
         <div className="rounded-xl border bg-muted/20 p-4">
-          <div className="grid gap-5 md:grid-cols-[minmax(0,auto)_1px_minmax(0,1fr)] md:gap-6">
+          <div className="grid gap-5 xl:grid-cols-[minmax(0,auto)_1px_minmax(0,1fr)] xl:gap-6">
             {/* Color de fondo */}
-            <div className="space-y-2.5">
+            <div className="space-y-2.5 min-w-0">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Color de fondo</p>
               <ColorField presets={PALETTE_PRESETS} value={previewColor} raw={primary} onChange={setPrimary} />
             </div>
 
-            <div className="hidden bg-border md:block" aria-hidden />
+            <div className="hidden bg-border xl:block" aria-hidden />
 
             {/* Color de la letra */}
-            <div className="space-y-2.5">
+            <div className="space-y-2.5 min-w-0">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Color de la letra</p>
               <div className="flex flex-wrap items-center gap-3">
                 {/* shrink-0 + nowrap: en contenedores angostos los labels se
