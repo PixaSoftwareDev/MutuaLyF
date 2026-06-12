@@ -6,7 +6,7 @@ All endpoints require role=super_admin except /widget-token (admin).
 import hashlib
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, EmailStr, Field, validator
 from sqlalchemy import text
 
