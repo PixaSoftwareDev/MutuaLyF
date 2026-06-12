@@ -106,13 +106,6 @@ export default function TenantDetailPage() {
     staleTime: 30_000,
   });
 
-  const { data: sys } = useQuery({
-    queryKey: ["platform-system"],
-    queryFn:  api.tenants.platformSystem,
-    refetchInterval: 60_000,
-    staleTime: 30_000,
-  });
-
   const { data: botsData } = useQuery({
     queryKey: ["tenant-bots", tenantId],
     queryFn: () => api.tenantBots.list(tenantId),
@@ -344,7 +337,7 @@ export default function TenantDetailPage() {
                       <TableCell>
                         <span className={cn(
                           "text-xs px-2 py-1 rounded-full font-medium",
-                          u.role === "admin"    ? "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300" :
+                          u.role === "admin"    ? "bg-action-gradient-soft text-action" :
                           u.role === "operator" ? "bg-info/10 text-info" :
                           "bg-muted text-muted-foreground"
                         )}>
@@ -395,13 +388,12 @@ export default function TenantDetailPage() {
           {/* ── Usage KPIs ───────────────────────────────────────────── */}
           <div className="space-y-2 lg:col-span-2">
           <SectionTitle icon={TrendingUp} label="Uso" />
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
-            <KPI label="Consultas hoy"   value={fmtNum(m.usage.queries_today)}  color="text-primary" />
-            <KPI label="Consultas 7d"    value={fmtNum(m.usage.queries_7d)}     color="text-primary" />
-            <KPI label="Consultas 30d"   value={fmtNum(m.usage.queries_30d)}    color="text-primary" />
-            <KPI label="Ingestas 30d"    value={fmtNum(m.usage.ingests_30d)}    color="text-violet-600" />
-            <KPI label="Tokens LLM 30d"  value={fmtNum(m.usage.llm_tokens_30d)} color="text-warning" sublabel="aprox." />
-            <KPI label="Consultas log."  value={fmtNum(m.performance.total_logged)} color="text-muted-foreground" sublabel="30d" />
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
+            <StatTile label="Consultas hoy"  value={fmtNum(m.usage.queries_today)} />
+            <StatTile label="Consultas 7d"   value={fmtNum(m.usage.queries_7d)} />
+            <StatTile label="Consultas 30d"  value={fmtNum(m.usage.queries_30d)} />
+            <StatTile label="Ingestas 30d"   value={fmtNum(m.usage.ingests_30d)} />
+            <StatTile label="Tokens LLM 30d" value={fmtNum(m.usage.llm_tokens_30d)} sublabel="aprox." />
           </div>
           </div>
 
@@ -409,10 +401,10 @@ export default function TenantDetailPage() {
           <div className="space-y-2 lg:col-span-2">
           <SectionTitle icon={Zap} label="Rendimiento" sublabel="últimos 30d, datos de consultas_log" />
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-            <KPI label="Latencia p50"    value={fmtMs(m.performance.latency_p50)}   color="text-success" />
-            <KPI label="Latencia p95"    value={fmtMs(m.performance.latency_p95)}   color={latencyColor(m.performance.latency_p95)} />
-            <KPI label="Cache hit rate"  value={fmtPct(m.performance.cache_hit_rate)} color="text-info" />
-            <KPI label="Conf. promedio"  value={m.performance.avg_confidence != null ? (m.performance.avg_confidence * 100).toFixed(0) + "%" : "—"} color="text-violet-600" />
+            <StatTile label="Latencia p50"   value={fmtMs(m.performance.latency_p50)}   tone={latencyTone(m.performance.latency_p50)} />
+            <StatTile label="Latencia p95"   value={fmtMs(m.performance.latency_p95)}   tone={latencyTone(m.performance.latency_p95)} />
+            <StatTile label="Cache hit rate" value={fmtPct(m.performance.cache_hit_rate)} />
+            <StatTile label="Conf. promedio" value={m.performance.avg_confidence != null ? (m.performance.avg_confidence * 100).toFixed(0) + "%" : "—"} />
           </div>
           </div>
 
@@ -506,10 +498,10 @@ export default function TenantDetailPage() {
           <SectionTitle icon={FileText} label="Documentos" />
           <div className="rounded-xl border bg-card shadow-sm divide-y">
             <div className="grid grid-cols-2 sm:grid-cols-4 divide-x">
-              <DocStat label="Total"      value={m.docs.total}                color="" />
-              <DocStat label="Listos"     value={m.docs.ready}               color="text-success" />
-              <DocStat label="Fallidos"   value={m.docs.failed}              color={m.docs.failed > 0 ? "text-destructive" : ""} />
-              <DocStat label="Procesando" value={m.docs.processing}          color="text-warning" />
+              <DocStat label="Total"      value={m.docs.total} />
+              <DocStat label="Listos"     value={m.docs.ready}      tone="success" />
+              <DocStat label="Fallidos"   value={m.docs.failed}     tone={m.docs.failed > 0 ? "danger" : "neutral"} />
+              <DocStat label="Procesando" value={m.docs.processing} tone={m.docs.processing > 0 ? "warn" : "neutral"} />
             </div>
             <div className="px-4 py-3 flex items-center gap-2 text-sm text-muted-foreground">
               <Database className="h-3.5 w-3.5 shrink-0" />
@@ -522,9 +514,9 @@ export default function TenantDetailPage() {
           <div className="space-y-2">
           <SectionTitle icon={CheckCircle2} label="Quality gate" sublabel="últimos 30d" />
           <div className="grid grid-cols-3 gap-2.5">
-            <KPI label="Aprobadas"  value={fmtNum(m.quality.passed)}  color="text-success" />
-            <KPI label="Pendientes" value={fmtNum(m.quality.pending)} color="text-warning" />
-            <KPI label="Saltadas"   value={fmtNum(m.quality.skipped)} color={m.quality.skipped > 0 ? "text-destructive" : "text-muted-foreground"} />
+            <StatTile label="Aprobadas"  value={fmtNum(m.quality.passed)}  tone="success" />
+            <StatTile label="Pendientes" value={fmtNum(m.quality.pending)} tone={m.quality.pending > 0 ? "warn" : "neutral"} />
+            <StatTile label="Saltadas"   value={fmtNum(m.quality.skipped)} tone={m.quality.skipped > 0 ? "danger" : "neutral"} />
           </div>
           </div>
 
@@ -546,45 +538,6 @@ export default function TenantDetailPage() {
             />
           </div>
           </div>
-
-          {/* ── Groq API (platform-wide, from Prometheus) ────────────── */}
-          {sys && (
-            <div className="space-y-2 lg:col-span-2">
-              <SectionTitle icon={Bot} label="Groq API" sublabel="plataforma completa · desde inicio del proceso" />
-              {sys.groq.total_calls === 0 ? (
-                <div className="rounded-lg border border-dashed px-4 py-3 text-sm text-muted-foreground">
-                  Sin llamadas a Groq registradas aún. Los contadores se resetean al reiniciar el backend.
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {sys.groq.by_model.map((gm: any) => (
-                    <div key={gm.model} className="rounded-lg border bg-card px-4 py-3">
-                      <div className="flex items-center justify-between flex-wrap gap-2">
-                        <code className="text-xs font-mono">{gm.model}</code>
-                        <div className="flex gap-2 text-xs text-muted-foreground">
-                          <span className="tabular-nums">{fmtNum(gm.total)} llamadas</span>
-                          {gm.errors > 0 && <span className="text-destructive font-medium">{gm.errors} errores</span>}
-                        </div>
-                      </div>
-                      <div className="mt-2 flex flex-wrap gap-1.5">
-                        {Object.entries(gm.calls as Record<string, number>).map(([status, count]) => (
-                          <span key={status} className={cn("text-xs px-2 py-0.5 rounded-full",
-                            status === "success"    ? "bg-success/10 text-success" :
-                            status === "error"      ? "bg-destructive/10 text-destructive" :
-                            status === "timeout"    ? "bg-warning/10 text-warning" :
-                            status === "rate_limit" ? "bg-warning/10 text-warning" :
-                            "bg-muted text-muted-foreground"
-                          )}>
-                            {status}: {count}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
 
           </div>{/* /grid Recursos */}
           </section>
@@ -808,21 +761,16 @@ function SectionTitle({ icon: Icon, label, sublabel }: { icon: any; label: strin
   );
 }
 
-function KPI({ label, value, color, sublabel }: { label: string; value: string; color: string; sublabel?: string }) {
+function DocStat({ label, value, tone = "neutral" }: { label: string; value: number; tone?: "neutral" | "success" | "warn" | "danger" }) {
+  const color =
+    tone === "success" ? "text-success" :
+    tone === "warn"    ? "text-warning" :
+    tone === "danger"  ? "text-destructive" :
+                         "text-foreground";
   return (
-    <div className="rounded-xl border bg-card px-4 py-3 shadow-sm">
-      <p className={cn("text-xl font-bold tabular-nums leading-none", color)}>{value}</p>
-      <p className="text-xs text-muted-foreground mt-1.5 leading-tight">{label}</p>
-      {sublabel && <p className="text-[11px] text-muted-foreground/70">{sublabel}</p>}
-    </div>
-  );
-}
-
-function DocStat({ label, value, color }: { label: string; value: number; color: string }) {
-  return (
-    <div className="px-4 py-3 text-center">
-      <p className={cn("text-xl font-bold tabular-nums leading-none", color || "text-foreground")}>{value}</p>
-      <p className="text-xs text-muted-foreground mt-1">{label}</p>
+    <div className="px-4 py-3">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground leading-tight">{label}</p>
+      <p className={cn("mt-1 text-lg font-semibold tabular-nums leading-none", color)}>{value}</p>
     </div>
   );
 }
@@ -837,7 +785,7 @@ function QuotaBar({ label, used, limit, pct }: { label: string; used: number; li
       <div className="flex items-center justify-between mb-2">
         <span className="text-xs font-medium text-muted-foreground">{label}</span>
         {unlimited
-          ? <span className="text-xs text-violet-600 font-medium">Ilimitado</span>
+          ? <span className="text-xs text-muted-foreground font-medium">Ilimitado</span>
           : <span className={cn("text-xs font-medium", danger ? "text-destructive" : warn ? "text-warning" : "text-muted-foreground")}>
               {pct != null ? pct.toFixed(1) + "%" : "—"}
             </span>
@@ -859,11 +807,11 @@ function QuotaBar({ label, used, limit, pct }: { label: string; used: number; li
   );
 }
 
-function latencyColor(ms: number | null | undefined): string {
-  if (ms == null) return "text-muted-foreground";
-  if (ms > 5000)  return "text-destructive";
-  if (ms > 3000)  return "text-warning";
-  return "text-success";
+function latencyTone(ms: number | null | undefined): "neutral" | "success" | "warn" | "danger" {
+  if (ms == null) return "neutral";
+  if (ms > 5000)  return "danger";
+  if (ms > 3000)  return "warn";
+  return "success";
 }
 
 function LoadingState() {

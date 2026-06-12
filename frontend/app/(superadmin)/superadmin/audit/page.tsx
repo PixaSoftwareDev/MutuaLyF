@@ -88,16 +88,19 @@ export default function GlobalAuditPage() {
     const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
     const ts = todayStart.getTime();
 
-    let today = 0, last24 = 0, logins = 0, failed = 0, alerts = 0;
+    // Todas las señales acotadas a 24h — un número sin ventana temporal no
+    // dice nada ("Logins 160" ¿de cuándo?).
+    let today = 0, logins24 = 0, failed24 = 0, alerts24 = 0;
     for (const e of events) {
       const t = new Date(e.created_at).getTime();
       if (t >= ts) today++;
-      if (now - t <= dayMs) last24++;
-      if (e.action === "auth.login") logins++;
-      if (e.action === "auth.login_failed") failed++;
-      if (e.action === "auth.brute_force_alert") alerts++;
+      if (now - t <= dayMs) {
+        if (e.action === "auth.login") logins24++;
+        if (e.action === "auth.login_failed") failed24++;
+        if (e.action === "auth.brute_force_alert") alerts24++;
+      }
     }
-    return { today, last24, logins, failed, alerts, total: statsData?.total ?? 0 };
+    return { today, logins24, failed24, alerts24, total: statsData?.total ?? 0 };
   }, [statsData]);
 
   const filteredEvents = useMemo(() => {
@@ -128,19 +131,18 @@ export default function GlobalAuditPage() {
       />
 
       {/* KPIs */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 sm:gap-3">
-        <Kpi label="Hoy"             value={kpis.today} />
-        <Kpi label="Últimas 24h"     value={kpis.last24} />
-        <Kpi label="Logins"          value={kpis.logins} />
-        <Kpi label="Logins fallidos" value={kpis.failed} tone={kpis.failed > 0 ? "warn" : "neutral"} />
-        <Kpi label="Alertas"         value={kpis.alerts} tone={kpis.alerts > 0 ? "danger" : "neutral"} />
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
+        <Kpi label="Eventos hoy"          value={kpis.today} />
+        <Kpi label="Logins · 24h"         value={kpis.logins24} />
+        <Kpi label="Logins fallidos · 24h" value={kpis.failed24} tone={kpis.failed24 > 0 ? "warn" : "neutral"} />
+        <Kpi label="Fuerza bruta · 24h"   value={kpis.alerts24} tone={kpis.alerts24 > 0 ? "danger" : "neutral"} />
       </div>
 
       {/* Brute force banner */}
       {hasAlertsOnPage && (
         <div className="rounded-xl border border-destructive/20 bg-destructive/10 px-4 py-2.5 flex items-center gap-2 text-sm text-destructive">
           <AlertTriangle className="h-4 w-4 shrink-0" />
-          Hay intentos de fuerza bruta en esta página. Revisá las filas marcadas en rojo.
+          Se detectaron alertas de fuerza bruta en estos resultados — son las filas marcadas en rojo.
         </div>
       )}
 
