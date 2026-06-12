@@ -72,11 +72,14 @@ export function MobileNavBar() {
 
       {/* Contexto del tenant — logo + nombre, como en el pie del sidebar */}
       <div className="flex items-center gap-2 min-w-0">
+        {/* Sin logo → gradient de marca, no el primary_color del tenant: el
+            panel es identidad Intellix y el fallback (p.ej. super-admin sin
+            tenant) se veía rojo. */}
         <div
           className={cn(
             "relative w-6 h-6 flex items-center justify-center shrink-0 rounded-md overflow-hidden ring-1 ring-slate-200",
+            !logoUrl && "bg-action-gradient",
           )}
-          style={!logoUrl ? { background: branding.primary_color } : undefined}
         >
           {logoUrl ? (
             <Image

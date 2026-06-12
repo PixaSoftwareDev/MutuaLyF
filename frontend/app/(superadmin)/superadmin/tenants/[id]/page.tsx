@@ -514,7 +514,7 @@ export default function TenantDetailPage() {
           <div className="space-y-2">
           <SectionTitle icon={CheckCircle2} label="Quality gate" sublabel="últimos 30d" />
           <div className="grid grid-cols-3 gap-2.5">
-            <StatTile label="Aprobadas"  value={fmtNum(m.quality.passed)}  tone="success" />
+            <StatTile label="Aprobadas"  value={fmtNum(m.quality.passed)}  tone={m.quality.passed > 0 ? "success" : "neutral"} />
             <StatTile label="Pendientes" value={fmtNum(m.quality.pending)} tone={m.quality.pending > 0 ? "warn" : "neutral"} />
             <StatTile label="Saltadas"   value={fmtNum(m.quality.skipped)} tone={m.quality.skipped > 0 ? "danger" : "neutral"} />
           </div>
