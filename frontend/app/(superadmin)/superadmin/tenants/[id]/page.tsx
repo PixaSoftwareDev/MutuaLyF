@@ -597,18 +597,31 @@ export default function TenantDetailPage() {
 
       {showResetConfirm && (
         <Dialog open onOpenChange={v => !v && setShowResetConfirm(false)}>
-          <DialogContent className="w-full max-w-sm mx-4 sm:mx-auto">
+          <DialogContent className="w-full max-w-md mx-4 sm:mx-auto">
             <DialogHeader>
-              <DialogTitle className="flex items-center gap-2 text-destructive">
-                <AlertTriangle className="h-4 w-4" />
-                Resetear onboarding
-              </DialogTitle>
-              <p className="text-sm text-muted-foreground pt-1">
-                Esto va a borrar la configuración del bot y los sectores de{" "}
-                <span className="font-medium text-foreground">{t.name}</span>.
-                El tenant tendrá que volver a completar el asistente de configuración.
-              </p>
+              <div className="flex items-start gap-3 text-left">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-destructive/10">
+                  <AlertTriangle className="h-5 w-5 text-destructive" />
+                </div>
+                <div className="min-w-0 space-y-1.5 pt-0.5">
+                  <DialogTitle>Resetear onboarding</DialogTitle>
+                  <p className="text-sm text-muted-foreground">
+                    Esta acción borra de forma <span className="font-medium text-foreground">irreversible</span> en{" "}
+                    <span className="font-medium text-foreground">{t.name}</span>:
+                  </p>
+                </div>
+              </div>
             </DialogHeader>
+            <ul className="space-y-1.5 text-sm text-muted-foreground pl-1">
+              <li className="flex gap-2"><span className="text-destructive shrink-0">•</span> La configuración del bot (nombre, instrucciones, saludo)</li>
+              <li className="flex gap-2"><span className="text-destructive shrink-0">•</span> Todos los sectores y sus asignaciones de operadores</li>
+              <li className="flex gap-2"><span className="text-destructive shrink-0">•</span> <span><span className="font-medium text-foreground">Todas las conversaciones</span> con sus mensajes (el historial completo)</span></li>
+            </ul>
+            <p className="text-xs text-muted-foreground border-t pt-3">
+              Los documentos y los usuarios no se tocan. El tenant vuelve a empezar desde el asistente
+              de configuración. Antes de hacerlo en una organización con datos reales, verificá que el
+              backup diario esté al día (Sistema → Backups y disco).
+            </p>
             <DialogFooter className="flex-col sm:flex-row gap-2">
               <Button variant="outline" className="w-full sm:w-auto" onClick={() => setShowResetConfirm(false)}>
                 Cancelar
