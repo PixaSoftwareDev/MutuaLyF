@@ -1658,11 +1658,14 @@ async def get_platform_ops(
     for tid, tname in tenants_list:
         try:
             async with get_pg_session(tid) as session:
+                # OJO: el FILTER va pegado al agregado MIN(...) — afuera del
+                # paréntesis es un syntax error que el try de abajo tragaba y
+                # dejaba las colas siempre vacías.
                 row = (await session.execute(text("""
                     SELECT
                         COUNT(*) FILTER (WHERE status = 'handoff_requested') AS waiting,
                         EXTRACT(EPOCH FROM (NOW() - MIN(handoff_requested_at)
-                            ) FILTER (WHERE status = 'handoff_requested')) AS oldest_wait_s,
+                            FILTER (WHERE status = 'handoff_requested'))) AS oldest_wait_s,
                         COUNT(*) FILTER (WHERE status = 'human_attending') AS attending,
                         COUNT(*) FILTER (WHERE handoff_requested_at >= CURRENT_DATE) AS handoffs_today
                     FROM conversaciones
@@ -1819,7 +1822,7 @@ async def get_tenant_health(
                 SELECT
                     COUNT(*) FILTER (WHERE status = 'handoff_requested') AS waiting,
                     EXTRACT(EPOCH FROM (NOW() - MIN(handoff_requested_at)
-                        ) FILTER (WHERE status = 'handoff_requested')) AS oldest_wait_s,
+                        FILTER (WHERE status = 'handoff_requested'))) AS oldest_wait_s,
                     COUNT(*) FILTER (WHERE status = 'human_attending') AS attending,
                     COUNT(*) FILTER (WHERE handoff_requested_at >= CURRENT_DATE) AS handoffs_today
                 FROM conversaciones
