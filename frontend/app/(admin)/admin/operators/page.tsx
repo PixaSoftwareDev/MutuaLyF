@@ -42,6 +42,9 @@ export default function OperatorsPage() {
   const [name, setName]                   = useState("");
   const [email, setEmail]                 = useState("");
   const [password, setPassword]           = useState("");
+  // Invitación por email (default): el operador define su propia contraseña
+  // desde el enlace — además verifica que el email esté bien escrito.
+  const [inviteMode, setInviteMode]       = useState(true);
   const [createSectors, setCreateSectors] = useState<Set<string>>(new Set());
 
   const { data: operators = [], isLoading: loadingOps } = useQuery({
@@ -76,7 +79,11 @@ export default function OperatorsPage() {
 
   const createM = useMutation({
     mutationFn: async () => {
-      const { data } = await apiClient.post("/admin/operators", { name: name.trim(), email: email.trim(), password });
+      const { data } = await apiClient.post("/admin/operators", {
+        name: name.trim(),
+        email: email.trim(),
+        ...(inviteMode ? {} : { password }),
+      });
       const newId = data?.id;
       // Si el admin seleccionó sectores distintos al default-único, reasignamos.
       // (El backend ya asigna el default automáticamente al crear, así que un
@@ -88,11 +95,17 @@ export default function OperatorsPage() {
       }
       return data;
     },
-    onSuccess: () => {
+    onSuccess: (data: any) => {
       qc.invalidateQueries({ queryKey: ["operators"] });
-      toast({ title: "Operador creado", variant: "success" });
+      if (data?.invitation_sent === true) {
+        toast({ title: "Invitación enviada", description: `${data.email} va a recibir un email para definir su contraseña.`, variant: "success" });
+      } else if (data?.invitation_sent === false) {
+        toast({ title: "Operador creado, pero el email no salió", description: "Pedile que use «¿Olvidaste tu contraseña?» en el login, o editá el usuario para verificar el email.", variant: "destructive" });
+      } else {
+        toast({ title: "Operador creado", variant: "success" });
+      }
       setShowCreate(false);
-      setName(""); setEmail(""); setPassword("");
+      setName(""); setEmail(""); setPassword(""); setInviteMode(true);
     },
     onError: (err: any) => {
       const detail = err?.response?.data?.detail;
@@ -178,7 +191,7 @@ export default function OperatorsPage() {
               disabled={
                 !name.trim() ||
                 !email.trim() ||
-                password.length < 8 ||
+                (!inviteMode && password.length < 8) ||
                 createSectors.size === 0 ||
                 createM.isPending
               }
@@ -198,9 +211,42 @@ export default function OperatorsPage() {
             <Label htmlFor="op-email">Email</Label>
             <Input id="op-email" type="email" placeholder="maria@empresa.com" value={email} onChange={e => setEmail(e.target.value)} />
           </div>
+          {/* Credenciales: invitación por email (default) o contraseña manual */}
           <div className="space-y-2">
-            <Label htmlFor="op-password">Contraseña</Label>
-            <Input id="op-password" type="password" placeholder="Mínimo 8 caracteres" value={password} onChange={e => setPassword(e.target.value)} />
+            <Label>Acceso</Label>
+            <div className="space-y-1.5">
+              <label className="flex items-start gap-2.5 rounded-lg border p-3 cursor-pointer transition-colors has-[:checked]:border-action/40 has-[:checked]:bg-action/[0.04]">
+                <input
+                  type="radio" name="op-access" checked={inviteMode}
+                  onChange={() => setInviteMode(true)} className="mt-0.5"
+                />
+                <span className="text-sm">
+                  <span className="font-medium">Enviar invitación por email</span>
+                  <span className="block text-xs text-muted-foreground mt-0.5">
+                    Recibe un enlace para definir su propia contraseña (vence en 72 hs). Recomendado: verifica que el email sea correcto.
+                  </span>
+                </span>
+              </label>
+              <label className="flex items-start gap-2.5 rounded-lg border p-3 cursor-pointer transition-colors has-[:checked]:border-action/40 has-[:checked]:bg-action/[0.04]">
+                <input
+                  type="radio" name="op-access" checked={!inviteMode}
+                  onChange={() => setInviteMode(false)} className="mt-0.5"
+                />
+                <span className="text-sm flex-1">
+                  <span className="font-medium">Definir contraseña ahora</span>
+                  <span className="block text-xs text-muted-foreground mt-0.5">
+                    Vos se la comunicás al operador por otro medio.
+                  </span>
+                </span>
+              </label>
+            </div>
+            {!inviteMode && (
+              <Input
+                id="op-password" type="password" placeholder="Mínimo 8 caracteres"
+                value={password} onChange={e => setPassword(e.target.value)}
+                className="animate-fade-in"
+              />
+            )}
           </div>
 
           <div className="space-y-2 pt-1">

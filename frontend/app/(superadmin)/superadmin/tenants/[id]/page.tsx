@@ -994,15 +994,25 @@ function CreateAdminModal({ tenantId, tenantName, onClose, onCreated }: {
   tenantId: string; tenantName: string; onClose: () => void; onCreated: () => void;
 }) {
   const [form, setForm] = useState({ email: "", name: "", password: "" });
+  const [inviteMode, setInviteMode] = useState(true);
   const [error, setError] = useState("");
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm(f => ({ ...f, [k]: e.target.value }));
 
   const createM = useMutation({
-    mutationFn: () => api.tenants.createAdmin(tenantId, form),
-    onSuccess: () => {
+    mutationFn: () => api.tenants.createAdmin(tenantId, {
+      email: form.email, name: form.name,
+      ...(inviteMode ? {} : { password: form.password }),
+    }),
+    onSuccess: (data: any) => {
       onCreated(); onClose();
-      toast({ title: "Admin creado", description: `${form.email} puede iniciar sesión en '${tenantId}'.`, variant: "success" });
+      if (data?.invitation_sent === true) {
+        toast({ title: "Invitación enviada", description: `${form.email} va a recibir un email para definir su contraseña.`, variant: "success" });
+      } else if (data?.invitation_sent === false) {
+        toast({ title: "Admin creado, pero el email no salió", description: "Puede usar «¿Olvidaste tu contraseña?» en el login.", variant: "destructive" });
+      } else {
+        toast({ title: "Admin creado", description: `${form.email} puede iniciar sesión en '${tenantId}'.`, variant: "success" });
+      }
     },
     onError: (err: any) => {
       const msg = err?.response?.data?.detail ?? "Error al crear admin.";
@@ -1025,15 +1035,36 @@ function CreateAdminModal({ tenantId, tenantName, onClose, onCreated }: {
 
         <div className="space-y-3 py-1">
           {([
-            { key: "email",    label: "Email",      placeholder: "admin@empresa.com", type: "email" },
-            { key: "name",     label: "Nombre",     placeholder: "Nombre Apellido",   type: "text" },
-            { key: "password", label: "Contraseña", placeholder: "Mínimo 8 chars",   type: "password" },
+            { key: "email", label: "Email",  placeholder: "admin@empresa.com", type: "email" },
+            { key: "name",  label: "Nombre", placeholder: "Nombre Apellido",   type: "text" },
           ] as const).map(f => (
             <div key={f.key} className="space-y-1">
               <Label className="text-xs font-medium">{f.label}</Label>
               <Input type={f.type} placeholder={f.placeholder} value={(form as any)[f.key]} onChange={set(f.key)} className="h-9" />
             </div>
           ))}
+
+          {/* Acceso: invitación por email (default) o contraseña manual */}
+          <div className="space-y-1.5">
+            <Label className="text-xs font-medium">Acceso</Label>
+            <label className="flex items-start gap-2.5 rounded-lg border p-2.5 cursor-pointer transition-colors has-[:checked]:border-action/40 has-[:checked]:bg-action/[0.04]">
+              <input type="radio" name="adm-access" checked={inviteMode} onChange={() => setInviteMode(true)} className="mt-0.5" />
+              <span className="text-xs">
+                <span className="font-medium text-sm">Enviar invitación por email</span>
+                <span className="block text-muted-foreground mt-0.5">Define su contraseña desde el enlace (72 hs). Verifica el email.</span>
+              </span>
+            </label>
+            <label className="flex items-start gap-2.5 rounded-lg border p-2.5 cursor-pointer transition-colors has-[:checked]:border-action/40 has-[:checked]:bg-action/[0.04]">
+              <input type="radio" name="adm-access" checked={!inviteMode} onChange={() => setInviteMode(false)} className="mt-0.5" />
+              <span className="text-xs">
+                <span className="font-medium text-sm">Definir contraseña ahora</span>
+              </span>
+            </label>
+            {!inviteMode && (
+              <Input type="password" placeholder="Mínimo 8 caracteres" value={form.password} onChange={set("password")} className="h-9 animate-fade-in" />
+            )}
+          </div>
+
           {error && (
             <div className="rounded-md bg-destructive/10 border border-destructive/20 px-3 py-2">
               <p className="text-xs text-destructive">{error}</p>
@@ -1045,11 +1076,11 @@ function CreateAdminModal({ tenantId, tenantName, onClose, onCreated }: {
           <Button variant="outline" className="w-full sm:w-auto" onClick={onClose}>Cancelar</Button>
           <Button
             className="w-full sm:w-auto"
-            disabled={createM.isPending || !form.email || !form.password}
+            disabled={createM.isPending || !form.email || (!inviteMode && form.password.length < 8)}
             onClick={() => { setError(""); createM.mutate(); }}
           >
             {createM.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
-            Crear admin
+            {inviteMode ? "Crear e invitar" : "Crear admin"}
           </Button>
         </DialogFooter>
       </DialogContent>

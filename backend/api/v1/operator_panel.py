@@ -1159,7 +1159,10 @@ async def get_sector_operators(
 class CreateOperatorRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=120)
     email: EmailStr
-    password: str = Field(..., min_length=8, max_length=200)
+    # Sin password → se envía invitación por email para que el usuario defina
+    # la suya (verifica además que el email esté bien escrito). Con password →
+    # alta manual clásica (fallback si el correo del usuario tiene problemas).
+    password: str | None = Field(None, min_length=8, max_length=200)
 
 
 @router.post("/admin/operators", status_code=201)
@@ -1171,8 +1174,14 @@ async def create_operator(
 ):
     """Create a new operator in the tenant. Admins can only create in their own tenant."""
     _assert_tenant_access(current_user, tenant_id)
-    from core.security import hash_password
+    import secrets as _secrets
     import uuid
+    from core.security import hash_password
+
+    # Alta por invitación: la cuenta nace con una contraseña aleatoria que nadie
+    # conoce; el usuario define la suya desde el enlace del email.
+    invite = body.password is None
+    effective_password = body.password or _secrets.token_urlsafe(24)
 
     async with get_pg_session(tenant_id) as session:
         existing = await session.execute(
@@ -1190,7 +1199,7 @@ async def create_operator(
             "id": new_id,
             "email": body.email.lower().strip(),
             "name": body.name.strip(),
-            "pwd": hash_password(body.password),
+            "pwd": hash_password(effective_password),
         })
 
         # Asignar sector por defecto ("Consultas Generales" en el schema base).
@@ -1207,15 +1216,27 @@ async def create_operator(
         else:
             logger.warning("operator_created_no_default_sector tenant=%s operator=%s", tenant_id, new_id)
 
-    logger.info("operator_created id=%s email=%s tenant=%s by=%s default_sector=%s",
-                new_id, body.email, tenant_id, current_user.user_id, default_sector_id)
+    # Invitación DESPUÉS del commit del alta: si el email falla, la cuenta queda
+    # creada igual (el admin puede reintentar con "olvidé mi contraseña").
+    invitation_sent = False
+    if invite:
+        from services.invitations import send_account_invitation
+        invitation_sent = await send_account_invitation(
+            tenant_id, new_id, body.email.lower().strip(), body.name.strip())
+
+    logger.info("operator_created id=%s email=%s tenant=%s by=%s default_sector=%s invited=%s",
+                new_id, body.email, tenant_id, current_user.user_id, default_sector_id, invitation_sent)
     from core.audit import record as audit, fire_and_log
     fire_and_log(audit(
         tenant_id=tenant_id, actor_id=current_user.user_id, actor_email=current_user.email,
         actor_role=current_user.role.value, action="user.created",
-        resource=new_id, detail={"email": body.email.lower().strip(), "name": body.name.strip()}, request=request,
+        resource=new_id,
+        detail={"email": body.email.lower().strip(), "name": body.name.strip(),
+                "invitation_sent": invitation_sent if invite else None},
+        request=request,
     ))
-    return {"id": new_id, "email": body.email.lower().strip(), "name": body.name.strip(), "role": "operator", "is_active": True}
+    return {"id": new_id, "email": body.email.lower().strip(), "name": body.name.strip(),
+            "role": "operator", "is_active": True, "invitation_sent": invitation_sent if invite else None}
 
 
 @router.delete("/admin/operators/{operator_id}", status_code=204)

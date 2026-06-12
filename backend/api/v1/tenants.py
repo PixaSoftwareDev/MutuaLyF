@@ -1207,7 +1207,9 @@ async def update_tenant_user(
 class AdminCreate(BaseModel):
     email: EmailStr
     name: str = Field(..., min_length=1, max_length=120)
-    password: str = Field(..., min_length=8, max_length=200)
+    # Sin password → invitación por email (el usuario define la suya). Con
+    # password → alta manual clásica.
+    password: str | None = Field(None, min_length=8, max_length=200)
 
 
 @router.post("/{tenant_id}/admin", status_code=201)
@@ -1217,8 +1219,12 @@ async def create_tenant_admin(
     current_user: CurrentUser = Depends(require_super_admin),
 ):
     """Create (or replace) the admin user for a tenant. Super-admin only."""
+    import secrets as _secrets
     import uuid
     from core.security import hash_password
+
+    invite = body.password is None
+    effective_password = body.password or _secrets.token_urlsafe(24)
 
     async with get_pg_session(tenant_id) as session:
         existing = await session.execute(
@@ -1236,11 +1242,19 @@ async def create_tenant_admin(
             "id": new_id,
             "email": body.email.lower().strip(),
             "name": body.name.strip(),
-            "pwd": hash_password(body.password),
+            "pwd": hash_password(effective_password),
         })
 
-    logger.info("tenant_admin_created tenant=%s email=%s by=%s", tenant_id, body.email, current_user.user_id)
-    return {"id": new_id, "email": body.email.lower().strip(), "name": body.name.strip(), "role": "admin", "tenant_id": tenant_id}
+    invitation_sent = False
+    if invite:
+        from services.invitations import send_account_invitation
+        invitation_sent = await send_account_invitation(
+            tenant_id, new_id, body.email.lower().strip(), body.name.strip())
+
+    logger.info("tenant_admin_created tenant=%s email=%s by=%s invited=%s",
+                tenant_id, body.email, current_user.user_id, invitation_sent)
+    return {"id": new_id, "email": body.email.lower().strip(), "name": body.name.strip(),
+            "role": "admin", "tenant_id": tenant_id, "invitation_sent": invitation_sent if invite else None}
 
 
 # ── Platform health summary ───────────────────────────────────────────────────

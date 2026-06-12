@@ -14,6 +14,9 @@ function ResetInner() {
   const params = useSearchParams();
   const router = useRouter();
   const token  = params.get("token") || "";
+  // welcome=1: vino de un email de invitación (cuenta recién creada) — misma
+  // mecánica de token, textos de bienvenida en vez de "restablecer".
+  const welcome = params.get("welcome") === "1";
 
   const [pwd, setPwd]       = useState("");
   const [pwd2, setPwd2]     = useState("");
@@ -54,7 +57,9 @@ function ResetInner() {
   if (done) return (
     <div className="text-center space-y-3">
       <CheckCircle2 className="h-12 w-12 text-success mx-auto" />
-      <h1 className="text-2xl lg:text-[26px] font-semibold tracking-tight text-slate-900">¡Contraseña actualizada!</h1>
+      <h1 className="text-2xl lg:text-[26px] font-semibold tracking-tight text-slate-900">
+        {welcome ? "¡Cuenta lista!" : "¡Contraseña actualizada!"}
+      </h1>
       <p className="text-[14px] lg:text-[15px] text-slate-500">Te llevamos al inicio de sesión…</p>
     </div>
   );
@@ -62,8 +67,14 @@ function ResetInner() {
   return (
     <>
       <div className="text-center space-y-2 mb-7 lg:mb-8">
-        <h1 className="text-2xl lg:text-[26px] font-semibold tracking-tight text-slate-900">Nueva contraseña</h1>
-        <p className="text-[14px] lg:text-[15px] text-slate-500 leading-relaxed">Elegí una contraseña nueva para tu cuenta.</p>
+        <h1 className="text-2xl lg:text-[26px] font-semibold tracking-tight text-slate-900">
+          {welcome ? "¡Bienvenido!" : "Nueva contraseña"}
+        </h1>
+        <p className="text-[14px] lg:text-[15px] text-slate-500 leading-relaxed">
+          {welcome
+            ? "Definí la contraseña de tu cuenta para empezar a usar la plataforma."
+            : "Elegí una contraseña nueva para tu cuenta."}
+        </p>
       </div>
       <form onSubmit={submit} className="space-y-4 lg:space-y-5 xl:space-y-6" noValidate>
         <div className="space-y-1.5">
@@ -105,7 +116,7 @@ function ResetInner() {
           style={brandBtnStyle}
           disabled={loading}
         >
-          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Guardar contraseña"}
+          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : (welcome ? "Definir contraseña" : "Guardar contraseña")}
         </Button>
       </form>
     </>

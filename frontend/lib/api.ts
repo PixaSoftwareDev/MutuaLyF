@@ -743,7 +743,7 @@ export const api = {
       const { data } = await apiClient.patch(`/tenants/${tenantId}/users/${userId}`, payload);
       return data;
     },
-    createAdmin: async (tenantId: string, payload: { email: string; name: string; password: string }) => {
+    createAdmin: async (tenantId: string, payload: { email: string; name: string; password?: string }) => {
       const { data } = await apiClient.post(`/tenants/${tenantId}/admin`, payload);
       return data;
     },
