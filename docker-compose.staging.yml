@@ -58,6 +58,9 @@ services:
       # Uploads y branding PROPIOS de staging (no mezcla archivos con prod).
       - staging_uploads:/tmp/ia_ingest
       - staging_branding:/uploads
+      # Solo lectura: monitor de backups en el panel super-admin (mismo
+      # repositorio que prod — el backup es global de la plataforma).
+      - mutualyf_pgbackrest_data:/backups:ro
     networks:
       - mutualyf_internal
     healthcheck:
@@ -117,6 +120,9 @@ networks:
 volumes:
   # Volumen de modelos de prod, reusado para no duplicar el cache de HF en disco.
   mutualyf_models_data:
+    external: true
+  # Repositorio de backups de prod (read-only en el backend de staging).
+  mutualyf_pgbackrest_data:
     external: true
   staging_uploads:
   staging_branding:

@@ -159,6 +159,9 @@ services:
       - models_data:/root/.cache/huggingface
       - uploads_data:/tmp/ia_ingest
       - branding_data:/uploads
+      # Solo lectura: el panel del super-admin muestra el estado del ultimo
+      # backup (pg_dump diario/semanal) sin poder tocar los archivos.
+      - pgbackrest_data:/backups:ro
     depends_on:
       postgres:
         condition: service_healthy

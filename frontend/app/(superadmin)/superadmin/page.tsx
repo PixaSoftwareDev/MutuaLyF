@@ -334,6 +334,21 @@ function SystemTab({ system, loading }: { system: any; loading: boolean }) {
         ))}
       </div>
 
+      {/* ── Backups y disco — para enterarse ANTES del imprevisto ── */}
+      <Section icon={HardDrive} label="Backups y disco" sublabel="pg_dump diario 03:00 UTC · semanal los domingos · retención 7d/4sem">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+          <BackupStat label="Backup diario"  b={system.backups?.daily} />
+          <BackupStat label="Backup semanal" b={system.backups?.weekly} />
+          <DiskStat storage={system.storage} />
+        </div>
+        {system.backups == null && (
+          <p className="mt-2.5 text-xs text-warning flex items-center gap-1.5">
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+            Sin acceso al repositorio de backups — verificá que el volumen esté montado en el backend.
+          </p>
+        )}
+      </Section>
+
       {/* ── Detalle granular — segundo nivel ── */}
       <div className="flex items-center gap-2 pt-1">
         <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Métricas detalladas</span>
@@ -562,6 +577,71 @@ function Section({ icon: Icon, label, sublabel, children }: {
         {sublabel && <span className="text-xs text-muted-foreground">{sublabel}</span>}
       </div>
       <div className="p-4">{children}</div>
+    </div>
+  );
+}
+
+// ── Backups y disco ───────────────────────────────────────────────────────────
+
+function relAge(hours: number): string {
+  if (hours < 1)  return `hace ${Math.max(1, Math.round(hours * 60))}m`;
+  if (hours < 48) return `hace ${Math.round(hours)}h`;
+  return `hace ${Math.round(hours / 24)}d`;
+}
+
+function BackupStat({ label, b }: {
+  label: string;
+  b?: { filename: string; size_bytes: number; age_hours: number; healthy: boolean; count: number } | null;
+}) {
+  return (
+    <div className="rounded-lg border bg-background px-3 py-2.5">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      {!b ? (
+        <p className="mt-1 text-sm font-semibold text-muted-foreground">Sin datos</p>
+      ) : (
+        <>
+          <p className={cn("mt-1 text-sm font-bold flex items-center gap-1.5", b.healthy ? "text-success" : "text-destructive")}>
+            <span className={cn("h-1.5 w-1.5 rounded-full", b.healthy ? "bg-success" : "bg-destructive")} />
+            {b.healthy ? "OK" : "Vencido"}
+            <span className="font-medium text-muted-foreground">· {relAge(b.age_hours)}</span>
+          </p>
+          <p className="text-[11px] text-muted-foreground mt-0.5 tabular-nums">
+            {fmtBytes(b.size_bytes)} · {b.count} guardados
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
+function DiskStat({ storage }: {
+  storage?: { total_bytes: number | null; used_bytes: number | null; free_bytes: number | null; used_pct: number | null };
+}) {
+  const pct = storage?.used_pct ?? null;
+  const tone =
+    pct === null ? "bg-muted-foreground/40" :
+    pct >= 85    ? "bg-destructive" :
+    pct >= 70    ? "bg-warning" :
+                   "bg-success";
+  return (
+    <div className="rounded-lg border bg-background px-3 py-2.5">
+      <p className="text-xs text-muted-foreground">Disco del servidor</p>
+      {pct === null || !storage?.total_bytes ? (
+        <p className="mt-1 text-sm font-semibold text-muted-foreground">Sin datos</p>
+      ) : (
+        <>
+          <p className="mt-1 text-sm font-bold tabular-nums">
+            {pct.toFixed(0)}% usado
+            <span className="font-medium text-muted-foreground"> · {fmtBytes(storage.free_bytes ?? 0)} libres</span>
+          </p>
+          <div className="mt-1.5 h-1.5 rounded-full bg-muted overflow-hidden">
+            <div className={cn("h-full rounded-full", tone)} style={{ width: `${Math.min(pct, 100)}%` }} />
+          </div>
+          <p className="text-[11px] text-muted-foreground mt-1 tabular-nums">
+            {fmtBytes(storage.used_bytes ?? 0)} de {fmtBytes(storage.total_bytes)}
+          </p>
+        </>
+      )}
     </div>
   );
 }

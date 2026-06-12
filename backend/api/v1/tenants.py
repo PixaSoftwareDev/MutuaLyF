@@ -1492,13 +1492,70 @@ async def get_tenant_metrics(
 
 # ── Platform system metrics (Prometheus) ─────────────────────────────────────
 
+def _disk_status() -> dict:
+    """Uso de disco del filesystem raíz (refleja el disco del host)."""
+    import shutil
+    try:
+        du = shutil.disk_usage("/")
+        return {
+            "total_bytes": du.total,
+            "used_bytes": du.used,
+            "free_bytes": du.free,
+            "used_pct": round(du.used / du.total * 100, 1) if du.total else None,
+        }
+    except Exception:
+        return {"total_bytes": None, "used_bytes": None, "free_bytes": None, "used_pct": None}
+
+
+def _backups_status() -> dict | None:
+    """Estado del último backup diario y semanal (pg_dump al volumen /backups).
+
+    El volumen se monta read-only en el backend. Umbrales de salud: el diario
+    corre a las 03:00 UTC → >26h sin backup = vencido; el semanal corre los
+    domingos → >8 días = vencido. None si el volumen no está montado.
+    """
+    import os
+    base = os.getenv("BACKUPS_DIR", "/backups")
+    if not os.path.isdir(base):
+        return None
+
+    def _latest(kind: str, max_age_hours: float) -> dict | None:
+        d = os.path.join(base, kind)
+        try:
+            dumps = [os.path.join(d, f) for f in os.listdir(d) if f.endswith(".dump")]
+        except OSError:
+            return None
+        if not dumps:
+            return None
+        latest = max(dumps, key=os.path.getmtime)
+        st = os.stat(latest)
+        age_h = (time.time() - st.st_mtime) / 3600
+        return {
+            "filename": os.path.basename(latest),
+            "completed_at": int(st.st_mtime),
+            "size_bytes": st.st_size,
+            "age_hours": round(age_h, 1),
+            "healthy": age_h <= max_age_hours,
+            "count": len(dumps),
+        }
+
+    return {
+        "daily": _latest("daily", 26),
+        "weekly": _latest("weekly", 8 * 24),
+    }
+
+
 @router.get("/platform/system")
 async def get_platform_system(
     current_user: CurrentUser = Depends(require_super_admin),
 ):
     """Infrastructure health from Prometheus: PostgreSQL, Redis, HTTP, Groq, application counters."""
     now = int(time.time())
-    return await get_system_metrics(now)
+    data = await get_system_metrics(now)
+    # Backups y disco no salen de Prometheus: se leen del filesystem.
+    data["storage"] = _disk_status()
+    data["backups"] = _backups_status()
+    return data
 
 
 # ── Platform-wide traffic (super_admin only) ──────────────────────────────────
