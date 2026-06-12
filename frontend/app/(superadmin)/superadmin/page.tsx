@@ -1,896 +1,271 @@
 "use client";
 
-import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import {
-  Shield, Plus, Loader2, RefreshCw, Building2, AlertTriangle,
-  ChevronRight, TrendingUp, CheckCircle2, Database, Server,
-  Zap, Activity, Cpu, HardDrive, Wifi, AlertCircle, Bot,
-  BarChart3, FileStack, Search,
+  Building2, Activity, BellRing, Bug, CheckCircle2, AlertTriangle,
+  Headset, ChevronRight, Coins, HardDrive, Database, Server, Zap, Bot,
 } from "lucide-react";
-import { api, apiClient } from "@/lib/api";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Separator } from "@/components/ui/separator";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { EmptyState } from "@/components/ui/empty-state";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { api } from "@/lib/api";
 import { PageShell } from "@/components/layout/page-shell";
 import { PageHeader, CountChip } from "@/components/layout/page-header";
-import { toast } from "@/components/ui/toast";
-import { cn, toSlug } from "@/lib/utils";
+import { Skeleton } from "@/components/ui/skeleton";
+import { fmtNum, HeaderKpi, Section, BackupStat, DiskStat } from "@/components/superadmin/shared";
+import { cn } from "@/lib/utils";
 
-// ── Types ─────────────────────────────────────────────────────────────────────
-interface TenantRow {
-  id: string; name: string; plan: string; status: string;
-  admin_email: string; created_at: string;
-  limits: { users: number; documents: number; queries_month: number };
-  usage_30d: { queries: number; ingests: number };
-}
+/**
+ * Inicio del super-admin: el centro de operaciones. Una sola pantalla que
+ * responde "¿está todo bien AHORA?" — servicios, alertas, errores, colas de
+ * atención y consumo — sin ir a Grafana, logs ni el email de alertas.
+ */
+export default function PlatformHomePage() {
+  const router = useRouter();
 
-const PLAN_COLORS: Record<string, string> = {
-  starter:      "bg-muted text-muted-foreground",
-  professional: "bg-info/10 text-info",
-  enterprise:   "bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300",
-};
-const STATUS_VARIANT: Record<string, "default" | "secondary" | "destructive"> = {
-  active: "default", onboarding: "secondary", suspended: "destructive",
-};
-
-const tenantsApi = {
-  list:   () => apiClient.get("/tenants").then(r => r.data as TenantRow[]),
-  create: (p: any) => apiClient.post("/tenants", p).then(r => r.data),
-};
-
-function fmtNum(n: number): string {
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
-  if (n >= 1_000)     return (n / 1_000).toFixed(1) + "K";
-  return String(n);
-}
-function fmtBytes(b: number): string {
-  if (b >= 1_073_741_824) return (b / 1_073_741_824).toFixed(1) + " GB";
-  if (b >= 1_048_576)     return (b / 1_048_576).toFixed(1) + " MB";
-  if (b >= 1_024)         return (b / 1_024).toFixed(1) + " KB";
-  return b + " B";
-}
-
-type Tab = "orgs" | "sistema";
-
-// ── Page ──────────────────────────────────────────────────────────────────────
-export default function SuperAdminPage() {
-  const router      = useRouter();
-  const qc          = useQueryClient();
-  const [tab, setTab]           = useState<Tab>("orgs");
-  const [showCreate, setShowCreate] = useState(false);
-  const [search, setSearch]         = useState("");
-
-  const inv = () => {
-    qc.invalidateQueries({ queryKey: ["tenants"] });
-    qc.invalidateQueries({ queryKey: ["platform-health"] });
-    qc.invalidateQueries({ queryKey: ["platform-system"] });
-  };
-
-  const { data: tenants = [], isLoading } = useQuery({
-    queryKey: ["tenants"], queryFn: tenantsApi.list, refetchInterval: 30_000,
-  });
   const { data: health } = useQuery({
     queryKey: ["platform-health"], queryFn: api.tenants.platformHealth,
     refetchInterval: 60_000, staleTime: 30_000,
   });
-  // Siempre habilitado (no solo en la tab Sistema): alimenta el KPI de error
-  // rate, el strip de salud y el punto de alerta en el trigger de la tab.
-  const { data: system, isLoading: sysLoading } = useQuery({
+  const { data: system } = useQuery({
     queryKey: ["platform-system"], queryFn: api.tenants.platformSystem,
     refetchInterval: 30_000, staleTime: 15_000,
   });
+  const { data: alertsData } = useQuery({
+    queryKey: ["platform-alerts"], queryFn: api.tenants.platformAlerts,
+    refetchInterval: 30_000, staleTime: 15_000,
+  });
+  const { data: errorsData } = useQuery({
+    queryKey: ["platform-errors-mini"], queryFn: () => api.tenants.platformErrors(8),
+    refetchInterval: 30_000, staleTime: 15_000,
+  });
+  const { data: ops } = useQuery({
+    queryKey: ["platform-ops"], queryFn: api.tenants.platformOps,
+    refetchInterval: 20_000, staleTime: 10_000,
+  });
+  const { data: traffic } = useQuery({
+    queryKey: ["platform-traffic"], queryFn: api.tenants.platformTraffic,
+    staleTime: 5 * 60_000,
+  });
 
-  const filtered = tenants.filter(t =>
-    !search ||
-    t.name.toLowerCase().includes(search.toLowerCase()) ||
-    t.id.toLowerCase().includes(search.toLowerCase()) ||
-    t.admin_email.toLowerCase().includes(search.toLowerCase())
-  );
+  const alerts = alertsData?.alerts ?? [];
+  const recentErrors = (errorsData?.errors ?? []).filter(e => e.level === "ERROR");
+  const queues = ops?.queues ?? [];
+  const worstWait = Math.max(0, ...queues.map(q => q.oldest_wait_min));
+  const totalWaiting = queues.reduce((s, q) => s + q.waiting, 0);
 
-  const hasAnomalies = (health?.anomalies?.length ?? 0) > 0;
+  const servicesUp = system
+    ? [system.postgres.up, system.redis.up, system.backend.up].every(Boolean)
+    : null;
+
+  // Veredicto global del semáforo: alerta activa > servicio caído > backup
+  // vencido > colas críticas > todo bien.
+  const globalStatus: { tone: "ok" | "warn" | "down"; label: string } =
+    system && !servicesUp                  ? { tone: "down", label: "Servicio caído" } :
+    alerts.some(a => a.severity === "critical") ? { tone: "down", label: "Alerta crítica activa" } :
+    alerts.length > 0                      ? { tone: "warn", label: "Alertas activas" } :
+    system?.backups?.daily && !system.backups.daily.healthy ? { tone: "warn", label: "Backup vencido" } :
+    worstWait > 5                          ? { tone: "warn", label: "Afiliados esperando hace rato" } :
+    { tone: "ok", label: "Todo en orden" };
+
+  const tokensPerTenant = (traffic?.per_tenant ?? [])
+    .filter(t => t.tokens_30d > 0)
+    .sort((a, b) => b.tokens_30d - a.tokens_30d);
 
   return (
-    <>
-      <PageShell>
-        {/* Cabecera estándar del back-office — misma identidad que el admin */}
-        <PageHeader
-          eyebrow="Plataforma"
-          title="Resumen"
-          badge={health
-            ? <CountChip>{health.active_tenants} {health.active_tenants === 1 ? "activa" : "activas"}</CountChip>
-            : undefined}
-          description="Organizaciones, uso y salud de la infraestructura."
-          actions={
-            <>
-              <Button variant="ghost" size="icon" onClick={inv} className="h-9 w-9" title="Actualizar">
-                <RefreshCw className="h-4 w-4" />
-              </Button>
-              {tab === "orgs" && (
-                <Button size="sm" onClick={() => setShowCreate(true)} className="h-9 gap-1.5 group">
-                  <Plus className="h-3.5 w-3.5 transition-transform group-hover:rotate-90" />
-                  <span className="hidden sm:inline">Nueva organización</span>
-                </Button>
-              )}
-            </>
-          }
-        />
-
-        {/* Tabs estándar (mismo componente que Configuración / Conversaciones) */}
-        <Tabs value={tab} onValueChange={v => setTab(v as Tab)}>
-          <TabsList>
-            <TabsTrigger value="orgs" className="gap-1.5">
-              <Building2 className="h-3.5 w-3.5" /> Organizaciones
-            </TabsTrigger>
-            <TabsTrigger value="sistema" className="gap-1.5">
-              <Activity className="h-3.5 w-3.5" /> Sistema
-              {system && system.backend.error_rate_5m > 0.01 && (
-                <span className="h-1.5 w-1.5 rounded-full bg-destructive animate-pulse motion-reduce:animate-none" />
-              )}
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
-
-        <div className="space-y-4">
-
-          {/* ── KPIs de cabecera ──────────────────────────────────────── */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-3">
-            <HeaderKpi
-              label="Organizaciones"
-              value={health ? health.total_tenants : tenants.length}
-              loading={!health && isLoading}
-            />
-            <HeaderKpi
-              label="Activas"
-              value={health?.active_tenants ?? 0}
-              tone="success"
-              loading={!health}
-            />
-            <HeaderKpi
-              label="Consultas hoy"
-              value={health?.queries_today ?? 0}
-              loading={!health}
-            />
-            <HeaderKpi
-              label="En cuota"
-              value={health?.anomalies?.length ?? 0}
-              tone={(health?.anomalies?.length ?? 0) > 0 ? "warn" : "neutral"}
-              loading={!health}
-            />
-            <HeaderKpi
-              label="Error rate"
-              value={system ? (system.backend.error_rate_5m * 100).toFixed(1) + "%" : "—"}
-              tone={system && system.backend.error_rate_5m > 0.01 ? "danger" : "neutral"}
-            />
-          </div>
-
-          {/* ── Health strip (always visible) ─────────────────────────── */}
-          <div className={cn(
-            "rounded-xl border px-4 py-2.5 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-sm",
-            hasAnomalies
-              ? "bg-warning/10 border-warning/20"
-              : "bg-success/10 border-success/20"
+    <PageShell>
+      <PageHeader
+        eyebrow="Plataforma"
+        title="Inicio"
+        badge={
+          <span className={cn(
+            "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12px] font-semibold",
+            globalStatus.tone === "ok"   ? "border-success/30 bg-success/10 text-success" :
+            globalStatus.tone === "warn" ? "border-warning/30 bg-warning/10 text-warning" :
+                                           "border-destructive/30 bg-destructive/10 text-destructive",
           )}>
-            {health ? (
-              <>
-                <span className="flex items-center gap-1.5 font-medium">
-                  {hasAnomalies
-                    ? <AlertTriangle className="h-4 w-4 text-warning" />
-                    : <CheckCircle2 className="h-4 w-4 text-success" />}
-                  {health.active_tenants} / {health.total_tenants} activas
-                </span>
-                <span className="flex items-center gap-1.5 text-muted-foreground">
-                  <TrendingUp className="h-3.5 w-3.5" />
-                  {fmtNum(health.queries_today)} consultas hoy
-                </span>
-                {system && (
-                  <>
-                    <span className={cn("flex items-center gap-1 text-xs", system.postgres.up ? "text-success" : "text-destructive")}>
-                      <Database className="h-3 w-3" /> PG {system.postgres.up ? "OK" : "DOWN"}
-                    </span>
-                    <span className={cn("flex items-center gap-1 text-xs", system.redis.up ? "text-success" : "text-destructive")}>
-                      <Zap className="h-3 w-3" /> Redis {system.redis.up ? "OK" : "DOWN"}
-                    </span>
-                    {system.backend.error_rate_5m > 0.01 && (
-                      <span className="text-xs text-destructive flex items-center gap-1">
-                        <AlertCircle className="h-3 w-3" /> {(system.backend.error_rate_5m * 100).toFixed(1)}% errores HTTP
-                      </span>
-                    )}
-                  </>
-                )}
-                {health.anomalies.map(a => (
-                  <span
-                    key={a.tenant_id}
-                    className="inline-flex items-center gap-1 text-xs text-warning bg-warning/10 px-2 py-0.5 rounded-full cursor-pointer hover:bg-warning/20 transition-colors"
-                    onClick={() => { setTab("orgs"); router.push(`/superadmin/tenants/${a.tenant_id}`); }}
-                  >
-                    <AlertTriangle className="h-3 w-3" /> {a.tenant_name} {a.pct}% cuota
-                  </span>
-                ))}
-              </>
-            ) : (
-              <Skeleton className="h-4 w-64" />
-            )}
-          </div>
-
-          {/* ══ TAB: ORGANIZACIONES ══════════════════════════════════════ */}
-          {tab === "orgs" && (
-            <div className="space-y-4 animate-fade-in">
-              <div className="flex items-center gap-3">
-                <div className="relative max-w-sm flex-1">
-                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-                  <Input
-                    placeholder="Buscar por nombre, ID o email…"
-                    value={search}
-                    onChange={e => setSearch(e.target.value)}
-                    className="h-9 text-sm pl-8"
-                  />
-                </div>
-                <span className="text-xs text-muted-foreground shrink-0 tabular-nums">
-                  {filtered.length}{search ? ` de ${tenants.length}` : " organizaciones"}
-                </span>
-              </div>
-
-              {isLoading ? (
-                <div className="space-y-2">
-                  {[1,2,3].map(i => <Skeleton key={i} className="h-[72px] w-full rounded-2xl" />)}
-                </div>
-              ) : filtered.length === 0 ? (
-                <EmptyState
-                  icon={Building2}
-                  title={search ? "Sin resultados" : "No hay organizaciones"}
-                  description={search ? undefined : "Creá la primera organización para empezar."}
-                />
-              ) : (
-                <div className="space-y-2 pb-6 stagger-children">
-                  {filtered.map(t => (
-                    <TenantRowCard
-                      key={t.id}
-                      tenant={t}
-                      anomaly={health?.anomalies.find(a => a.tenant_id === t.id)}
-                      onClick={() => router.push(`/superadmin/tenants/${t.id}`)}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* ══ TAB: SISTEMA ═════════════════════════════════════════════ */}
-          {tab === "sistema" && (
-            <div className="animate-fade-in">
-              <SystemTab system={system} loading={sysLoading} />
-            </div>
-          )}
-
-        </div>
-      </PageShell>
-
-      <CreateTenantModal open={showCreate} onClose={() => setShowCreate(false)} onCreated={inv} />
-    </>
-  );
-}
-
-// ── System tab ────────────────────────────────────────────────────────────────
-function SystemTab({ system, loading }: { system: any; loading: boolean }) {
-  if (loading) return (
-    <div className="space-y-4">
-      {[1,2,3,4].map(i => <Skeleton key={i} className="h-32 rounded-xl" />)}
-    </div>
-  );
-  if (!system) return null;
-
-  const services = [
-    { label: "PostgreSQL", up: system.postgres.up,  icon: Database },
-    { label: "Redis",      up: system.redis.up,     icon: Zap },
-    { label: "Backend",    up: system.backend.up,   icon: Server },
-    {
-      label: "Groq",
-      up: system.groq.total_calls === 0 ? true : (system.groq.by_model ?? []).every((m: any) => m.errors === 0 || m.errors < m.total),
-      icon: Bot,
-    },
-  ];
-
-  return (
-    <div className="space-y-5 pb-6">
-
-      {/* ── Estado de servicios — primer nivel, alto contraste ── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
-        {services.map(s => (
-          <div
-            key={s.label}
-            className={cn(
-              "flex items-center gap-3 rounded-xl border px-4 py-3.5 shadow-sm",
-              s.up
-                ? "bg-success/10 border-success/20"
-                : "bg-destructive/10 border-destructive/20"
-            )}
-          >
             <span className={cn(
-              "flex items-center justify-center h-9 w-9 rounded-lg shrink-0",
-              s.up ? "bg-success/15 text-success" : "bg-destructive/15 text-destructive"
-            )}>
-              <s.icon className="h-4 w-4" />
-            </span>
-            <div className="min-w-0">
-              <p className="text-sm font-semibold truncate">{s.label}</p>
-              <p className={cn(
-                "text-xs font-medium flex items-center gap-1",
-                s.up ? "text-success" : "text-destructive"
-              )}>
-                <span className={cn("h-1.5 w-1.5 rounded-full", s.up ? "bg-success" : "bg-destructive")} />
-                {s.up ? "Operativo" : "Caído"}
-              </p>
-            </div>
-          </div>
-        ))}
+              "h-1.5 w-1.5 rounded-full",
+              globalStatus.tone === "ok" ? "bg-success" : globalStatus.tone === "warn" ? "bg-warning" : "bg-destructive animate-pulse motion-reduce:animate-none",
+            )} />
+            {globalStatus.label}
+          </span>
+        }
+        description="El estado de la plataforma de un vistazo: servicios, alertas, atención y consumo."
+      />
+
+      {/* ── KPIs del día ── */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
+        <HeaderKpi label="Consultas hoy" value={health?.queries_today ?? 0} loading={!health} />
+        <HeaderKpi label="Derivaciones hoy" value={ops?.handoffs_today ?? 0} loading={!ops} />
+        <HeaderKpi
+          label="Esperando operador"
+          value={totalWaiting}
+          tone={worstWait > 5 ? "danger" : totalWaiting > 0 ? "warn" : "neutral"}
+          loading={!ops}
+        />
+        <HeaderKpi
+          label="Organizaciones activas"
+          value={health?.active_tenants ?? 0}
+          tone="success"
+          loading={!health}
+        />
       </div>
 
-      {/* ── Backups y disco — para enterarse ANTES del imprevisto ── */}
-      <Section icon={HardDrive} label="Backups y disco" sublabel="pg_dump diario 03:00 UTC · semanal los domingos · retención 7d/4sem">
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-          <BackupStat label="Backup diario"  b={system.backups?.daily} />
-          <BackupStat label="Backup semanal" b={system.backups?.weekly} />
-          <DiskStat storage={system.storage} />
-        </div>
-        {system.backups == null && (
-          <p className="mt-2.5 text-xs text-warning flex items-center gap-1.5">
-            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-            Sin acceso al repositorio de backups — verificá que el volumen esté montado en el backend.
-          </p>
-        )}
-      </Section>
+      <div className="grid gap-4 lg:grid-cols-2 items-start">
 
-      {/* ── Detalle granular — segundo nivel ── */}
-      <div className="flex items-center gap-2 pt-1">
-        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Métricas detalladas</span>
-        <Separator className="flex-1" />
-      </div>
-
-      {/* Application counters */}
-      <Section icon={BarChart3} label="Aplicación" sublabel="métricas acumuladas desde inicio">
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
-          <SysKPI label="Tenants activos"   value={String(system.app.active_tenants)} color="text-primary" />
-          <SysKPI label="Consultas totales" value={fmtNum(system.app.total_queries)} color="text-primary" />
-          <SysKPI label="Cache hits"        value={fmtNum(system.app.total_cache_hits)} color="text-info" />
-          <SysKPI label="Ingestas totales"  value={fmtNum(system.app.total_ingests)} color="text-violet-600" />
-          <SysKPI label="HTTP requests"     value={fmtNum(system.backend.total_requests)} color="text-muted-foreground" />
-        </div>
-        {Object.keys(system.app.quality).length > 0 && (
-          <div className="mt-2.5 flex flex-wrap gap-2 text-xs">
-            <span className="text-muted-foreground">Quality gate:</span>
-            {Object.entries(system.app.quality as Record<string, number>).map(([k, v]) => (
-              <span key={k} className={cn("px-2 py-0.5 rounded-full font-medium",
-                k === "passed"  ? "bg-success/10 text-success" :
-                k === "skipped" ? "bg-destructive/10 text-destructive" :
-                                  "bg-warning/10 text-warning"
-              )}>
-                {k}: {fmtNum(v)}
-              </span>
-            ))}
-          </div>
-        )}
-      </Section>
-
-      {/* Backend HTTP */}
-      <Section icon={Server} label="Backend API" sublabel="últimos 10 min">
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-          <SysKPI
-            label="Estado"
-            value={system.backend.up ? "OK" : "DOWN"}
-            color={system.backend.up ? "text-success" : "text-destructive"}
-          />
-          <SysKPI
-            label="Latencia p95"
-            value={system.backend.latency_p95_ms != null ? system.backend.latency_p95_ms.toFixed(0) + "ms" : "—"}
-            color={
-              system.backend.latency_p95_ms == null ? "text-muted-foreground" :
-              system.backend.latency_p95_ms > 2000 ? "text-destructive" :
-              system.backend.latency_p95_ms > 1000 ? "text-warning" : "text-success"
-            }
-          />
-          <SysKPI
-            label="Error rate 5m"
-            value={system.backend.error_rate_5m > 0 ? (system.backend.error_rate_5m * 100).toFixed(2) + "%" : "0%"}
-            color={system.backend.error_rate_5m > 0.01 ? "text-destructive" : "text-success"}
-          />
-        </div>
-      </Section>
-
-      {/* PostgreSQL */}
-      <Section icon={Database} label="PostgreSQL" sublabel={`${fmtBytes(system.postgres.db_size_bytes)} · plataforma`}>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-          <SysKPI
-            label="Estado"
-            value={system.postgres.up ? "OK" : "DOWN"}
-            color={system.postgres.up ? "text-success" : "text-destructive"}
-          />
-          <SysKPI label="Conexiones activas" value={String(system.postgres.connections)} color="text-foreground" />
-          <SysKPI
-            label="Cache hit rate"
-            value={system.postgres.cache_hit_rate != null ? (system.postgres.cache_hit_rate * 100).toFixed(1) + "%" : "—"}
-            color={
-              system.postgres.cache_hit_rate == null ? "text-muted-foreground" :
-              system.postgres.cache_hit_rate < 0.9 ? "text-warning" : "text-success"
-            }
-            sublabel="buffer pool"
-          />
-          <SysKPI
-            label="Deadlocks"
-            value={String(system.postgres.deadlocks_total)}
-            color={system.postgres.deadlocks_total > 0 ? "text-destructive" : "text-success"}
-            sublabel="acumulados"
-          />
-        </div>
-      </Section>
-
-      {/* Redis */}
-      <Section icon={Zap} label="Redis" sublabel="broker DB0 · cache DB1 · rate-limit DB2">
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
-          <SysKPI
-            label="Estado"
-            value={system.redis.up ? "OK" : "DOWN"}
-            color={system.redis.up ? "text-success" : "text-destructive"}
-          />
-          <SysKPI
-            label="Memoria usada"
-            value={fmtBytes(system.redis.memory_used_bytes)}
-            sublabel={system.redis.memory_max_bytes > 0 ? `/ ${fmtBytes(system.redis.memory_max_bytes)}` : "sin límite"}
-            color="text-foreground"
-          />
-          <SysKPI
-            label="Hit rate keyspace"
-            value={system.redis.keyspace_hit_rate != null ? (system.redis.keyspace_hit_rate * 100).toFixed(1) + "%" : "—"}
-            color={
-              system.redis.keyspace_hit_rate == null ? "text-muted-foreground" :
-              system.redis.keyspace_hit_rate < 0.3 ? "text-warning" : "text-success"
-            }
-          />
-          <SysKPI label="Clientes conectados" value={String(system.redis.connected_clients)} color="text-foreground" />
-          <SysKPI
-            label="Claves broker (DB0)"
-            value={String(system.redis.keys_by_db?.db0 ?? 0)}
-            sublabel="jobs pendientes"
-            color="text-foreground"
-          />
-          <SysKPI
-            label="Cache entries (DB1)"
-            value={String(system.redis.keys_by_db?.db1 ?? 0)}
-            color="text-foreground"
-          />
-          <SysKPI
-            label="Evictions"
-            value={String(system.redis.evicted_keys)}
-            color={system.redis.evicted_keys > 0 ? "text-destructive" : "text-success"}
-            sublabel={system.redis.evicted_keys > 0 ? "memoria insuficiente" : "OK"}
-          />
-          <SysKPI
-            label="Fragmentación"
-            value={system.redis.fragmentation_ratio.toFixed(2) + "x"}
-            color={
-              system.redis.fragmentation_ratio > 1.5 ? "text-warning" :
-              system.redis.fragmentation_ratio < 0.7 ? "text-warning" : "text-success"
-            }
-            sublabel={system.redis.slowlog_length > 0 ? `slowlog: ${system.redis.slowlog_length}` : undefined}
-          />
-        </div>
-      </Section>
-
-      {/* Groq */}
-      <Section icon={Bot} label="Groq API" sublabel="llamadas acumuladas desde inicio del proceso">
-        {system.groq.total_calls === 0 ? (
-          <p className="text-sm text-muted-foreground py-2">Sin llamadas registradas aún. Los contadores se resetean al reiniciar el backend.</p>
-        ) : (
-          <div className="space-y-2">
-            {system.groq.by_model.map((m: any) => (
-              <div key={m.model} className="rounded-lg border bg-muted/30 px-4 py-3">
-                <div className="flex items-center justify-between flex-wrap gap-2">
-                  <code className="text-xs font-mono text-foreground">{m.model}</code>
-                  <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                    <span className="tabular-nums">{fmtNum(m.total)} llamadas</span>
-                    {m.errors > 0 && (
-                      <span className="text-destructive font-medium">{m.errors} errores</span>
+        {/* ── Atención al afiliado — el peor escenario primero ── */}
+        <Section icon={Headset} label="Atención en vivo" sublabel="colas de espera por organización">
+          {!ops ? (
+            <Skeleton className="h-16 rounded-lg" />
+          ) : queues.length === 0 ? (
+            <p className="text-sm text-success flex items-center gap-2 font-medium py-1">
+              <CheckCircle2 className="h-4 w-4 shrink-0" /> Sin conversaciones en espera ni en atención.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {queues.map(q => {
+                const critical = q.oldest_wait_min > 5;
+                const warn = q.oldest_wait_min > 2;
+                return (
+                  <button
+                    key={q.tenant_id}
+                    onClick={() => router.push(`/superadmin/tenants/${q.tenant_id}`)}
+                    className={cn(
+                      "w-full rounded-lg border px-3.5 py-2.5 flex items-center gap-3 text-left transition-colors",
+                      critical ? "bg-destructive/10 border-destructive/20 hover:bg-destructive/15" :
+                      warn     ? "bg-warning/10 border-warning/20 hover:bg-warning/15" :
+                                 "bg-muted/30 hover:bg-muted/50",
                     )}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold truncate">{q.tenant_name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {q.waiting > 0
+                          ? <>{q.waiting} esperando · la más antigua hace <span className={cn("font-semibold", critical ? "text-destructive" : warn ? "text-warning" : "")}>{q.oldest_wait_min < 1 ? "<1" : Math.round(q.oldest_wait_min)} min</span></>
+                          : "Sin cola"}
+                        {q.attending > 0 && <> · {q.attending} en atención</>}
+                      </p>
+                    </div>
+                    <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </Section>
+
+        {/* ── Alertas activas ── */}
+        <Section icon={BellRing} label="Alertas" sublabel="Alertmanager en vivo">
+          {!alertsData ? (
+            <Skeleton className="h-16 rounded-lg" />
+          ) : !alertsData.available ? (
+            <p className="text-sm text-muted-foreground flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-warning shrink-0" /> No se pudo consultar Alertmanager.
+            </p>
+          ) : alerts.length === 0 ? (
+            <p className="text-sm text-success flex items-center gap-2 font-medium py-1">
+              <CheckCircle2 className="h-4 w-4 shrink-0" /> Sin alertas activas.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {alerts.slice(0, 4).map((a, i) => (
+                <div key={i} className={cn(
+                  "rounded-lg border px-3.5 py-2.5 flex items-start gap-2.5",
+                  a.severity === "critical" ? "bg-destructive/10 border-destructive/20" : "bg-warning/10 border-warning/20",
+                )}>
+                  <AlertTriangle className={cn("h-4 w-4 mt-0.5 shrink-0", a.severity === "critical" ? "text-destructive" : "text-warning")} />
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold">{a.name}</p>
+                    {a.summary && <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{a.summary}</p>}
                   </div>
                 </div>
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  {Object.entries(m.calls as Record<string, number>).map(([status, count]) => (
-                    <span key={status} className={cn("text-xs px-2 py-0.5 rounded-full",
-                      status === "success"    ? "bg-success/10 text-success" :
-                      status === "error"      ? "bg-destructive/10 text-destructive" :
-                      status === "timeout"    ? "bg-warning/10 text-warning" :
-                      status === "rate_limit" ? "bg-warning/10 text-warning" :
-                      "bg-muted text-muted-foreground"
-                    )}>
-                      {status}: {count}
-                    </span>
-                  ))}
+              ))}
+              <Link href="/superadmin/monitoring" className="block text-xs text-action hover:underline pt-1">
+                Ver todas en Monitoreo →
+              </Link>
+            </div>
+          )}
+        </Section>
+
+        {/* ── Errores recientes (solo ERROR) ── */}
+        <Section icon={Bug} label="Errores recientes" sublabel="del backend, en vivo">
+          {!errorsData ? (
+            <Skeleton className="h-16 rounded-lg" />
+          ) : recentErrors.length === 0 ? (
+            <p className="text-sm text-success flex items-center gap-2 font-medium py-1">
+              <CheckCircle2 className="h-4 w-4 shrink-0" /> Sin errores recientes.
+            </p>
+          ) : (
+            <div className="space-y-1.5">
+              {recentErrors.slice(0, 5).map((e, i) => (
+                <div key={i} className="rounded-lg border bg-muted/30 px-3 py-2 text-xs">
+                  <p className="font-mono break-all line-clamp-2 leading-relaxed">{e.message}</p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5 tabular-nums">
+                    {new Date(e.ts * 1000).toLocaleTimeString("es-AR")} · {e.logger}
+                  </p>
                 </div>
+              ))}
+              <Link href="/superadmin/monitoring" className="block text-xs text-action hover:underline pt-1">
+                Ver el detalle en Monitoreo →
+              </Link>
+            </div>
+          )}
+        </Section>
+
+        {/* ── Salud compacta: servicios + backup + disco ── */}
+        <Section icon={Activity} label="Infraestructura" sublabel="resumen — el detalle vive en Monitoreo">
+          {!system ? (
+            <Skeleton className="h-16 rounded-lg" />
+          ) : (
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs">
+                {[
+                  { label: "PostgreSQL", up: system.postgres.up, icon: Database },
+                  { label: "Redis", up: system.redis.up, icon: Zap },
+                  { label: "Backend", up: system.backend.up, icon: Server },
+                  { label: "Groq", up: system.groq.total_calls === 0 ? true : (system.groq.by_model ?? []).every((m: any) => m.errors === 0 || m.errors < m.total), icon: Bot },
+                ].map(s => (
+                  <span key={s.label} className={cn("flex items-center gap-1.5 font-medium", s.up ? "text-success" : "text-destructive")}>
+                    <s.icon className="h-3.5 w-3.5" /> {s.label} {s.up ? "OK" : "CAÍDO"}
+                  </span>
+                ))}
               </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                <BackupStat label="Backup diario" b={system.backups?.daily} />
+                <BackupStat label="Backup semanal" b={system.backups?.weekly} />
+                <DiskStat storage={system.storage} />
+              </div>
+              <Link href="/superadmin/monitoring" className="block text-xs text-action hover:underline">
+                Métricas completas en Monitoreo →
+              </Link>
+            </div>
+          )}
+        </Section>
+
+      </div>
+
+      {/* ── Consumo LLM 30 días por organización (base de facturación) ── */}
+      <Section icon={Coins} label="Consumo LLM — 30 días" sublabel="tokens por organización (usage_events) — base para facturación">
+        {!traffic ? (
+          <Skeleton className="h-16 rounded-lg" />
+        ) : tokensPerTenant.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-1">Sin consumo registrado en los últimos 30 días.</p>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+            {tokensPerTenant.map(t => (
+              <button
+                key={t.id}
+                onClick={() => router.push(`/superadmin/tenants/${t.id}`)}
+                className="rounded-lg border bg-background px-3.5 py-2.5 text-left hover:bg-muted/40 transition-colors"
+              >
+                <p className="text-sm font-semibold truncate">{t.name}</p>
+                <p className="text-lg font-bold tabular-nums leading-tight">{fmtNum(t.tokens_30d)} <span className="text-xs font-medium text-muted-foreground">tokens</span></p>
+                <p className="text-[11px] text-muted-foreground tabular-nums">{fmtNum(t.queries_30d)} consultas · {fmtNum(t.ingests_30d)} ingestas</p>
+              </button>
             ))}
           </div>
         )}
       </Section>
-
-    </div>
-  );
-}
-
-// ── Shared sub-components ──────────────────────────────────────────────────────
-
-// KPI de cabecera — mismo look que el Kpi de audit (acento lateral, número 2xl)
-function HeaderKpi({ label, value, tone = "neutral", loading }: {
-  label: string;
-  value: string | number;
-  tone?: "neutral" | "success" | "warn" | "danger";
-  loading?: boolean;
-}) {
-  const accent =
-    tone === "danger"  ? "before:bg-destructive" :
-    tone === "warn"    ? "before:bg-warning" :
-    tone === "success" ? "before:bg-success" :
-                         "before:bg-primary";
-  const numColor =
-    tone === "danger"  ? "text-destructive" :
-    tone === "warn"    ? "text-warning" :
-    tone === "success" ? "text-success" :
-                         "text-foreground";
-  return (
-    <div
-      className={cn(
-        "relative bg-card border border-border rounded-xl pl-4 pr-4 py-3 shadow-sm overflow-hidden before:content-[''] before:absolute before:left-0 before:top-0 before:bottom-0 before:w-1",
-        accent
-      )}
-    >
-      <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-        {label}
-      </div>
-      {loading ? (
-        <Skeleton className="h-7 w-16 mt-1.5" />
-      ) : (
-        <div className={cn("mt-1 text-2xl font-semibold tabular-nums leading-none", numColor)}>
-          {typeof value === "number" ? value.toLocaleString("es-AR") : value}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function Section({ icon: Icon, label, sublabel, children }: {
-  icon: any; label: string; sublabel?: string; children: React.ReactNode;
-}) {
-  return (
-    <div className="rounded-2xl border bg-card shadow overflow-hidden">
-      <div className="flex items-center gap-2.5 px-4 py-3 border-b bg-muted/30">
-        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-action-gradient-soft shrink-0">
-          <Icon className="h-4 w-4 text-action" />
-        </span>
-        <span className="text-sm font-semibold">{label}</span>
-        {sublabel && <span className="text-xs text-muted-foreground">{sublabel}</span>}
-      </div>
-      <div className="p-4">{children}</div>
-    </div>
-  );
-}
-
-// ── Backups y disco ───────────────────────────────────────────────────────────
-
-function relAge(hours: number): string {
-  if (hours < 1)  return `hace ${Math.max(1, Math.round(hours * 60))}m`;
-  if (hours < 48) return `hace ${Math.round(hours)}h`;
-  return `hace ${Math.round(hours / 24)}d`;
-}
-
-function BackupStat({ label, b }: {
-  label: string;
-  b?: { filename: string; size_bytes: number; age_hours: number; healthy: boolean; count: number } | null;
-}) {
-  return (
-    <div className="rounded-lg border bg-background px-3 py-2.5">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      {!b ? (
-        <p className="mt-1 text-sm font-semibold text-muted-foreground">Sin datos</p>
-      ) : (
-        <>
-          <p className={cn("mt-1 text-sm font-bold flex items-center gap-1.5", b.healthy ? "text-success" : "text-destructive")}>
-            <span className={cn("h-1.5 w-1.5 rounded-full", b.healthy ? "bg-success" : "bg-destructive")} />
-            {b.healthy ? "OK" : "Vencido"}
-            <span className="font-medium text-muted-foreground">· {relAge(b.age_hours)}</span>
-          </p>
-          <p className="text-[11px] text-muted-foreground mt-0.5 tabular-nums">
-            {fmtBytes(b.size_bytes)} · {b.count} guardados
-          </p>
-        </>
-      )}
-    </div>
-  );
-}
-
-function DiskStat({ storage }: {
-  storage?: { total_bytes: number | null; used_bytes: number | null; free_bytes: number | null; used_pct: number | null };
-}) {
-  const pct = storage?.used_pct ?? null;
-  const tone =
-    pct === null ? "bg-muted-foreground/40" :
-    pct >= 85    ? "bg-destructive" :
-    pct >= 70    ? "bg-warning" :
-                   "bg-success";
-  return (
-    <div className="rounded-lg border bg-background px-3 py-2.5">
-      <p className="text-xs text-muted-foreground">Disco del servidor</p>
-      {pct === null || !storage?.total_bytes ? (
-        <p className="mt-1 text-sm font-semibold text-muted-foreground">Sin datos</p>
-      ) : (
-        <>
-          <p className="mt-1 text-sm font-bold tabular-nums">
-            {pct.toFixed(0)}% usado
-            <span className="font-medium text-muted-foreground"> · {fmtBytes(storage.free_bytes ?? 0)} libres</span>
-          </p>
-          <div className="mt-1.5 h-1.5 rounded-full bg-muted overflow-hidden">
-            <div className={cn("h-full rounded-full", tone)} style={{ width: `${Math.min(pct, 100)}%` }} />
-          </div>
-          <p className="text-[11px] text-muted-foreground mt-1 tabular-nums">
-            {fmtBytes(storage.used_bytes ?? 0)} de {fmtBytes(storage.total_bytes)}
-          </p>
-        </>
-      )}
-    </div>
-  );
-}
-
-function SysKPI({ label, value, color, sublabel }: { label: string; value: string; color: string; sublabel?: string }) {
-  return (
-    <div className="rounded-lg border bg-background px-3 py-2.5">
-      <p className={cn("text-lg font-bold tabular-nums leading-none", color)}>{value}</p>
-      <p className="text-xs text-muted-foreground mt-1.5 leading-tight">{label}</p>
-      {sublabel && <p className="text-[11px] text-muted-foreground/70 mt-0.5">{sublabel}</p>}
-    </div>
-  );
-}
-
-// ── Tenant row card ───────────────────────────────────────────────────────────
-function TenantRowCard({ tenant: t, anomaly, onClick }: {
-  tenant: TenantRow;
-  anomaly?: { pct: number; detail: string };
-  onClick: () => void;
-}) {
-  const created = t.created_at
-    ? new Date(t.created_at).toLocaleDateString("es-AR", { day: "2-digit", month: "short", year: "numeric" })
-    : "—";
-
-  // Consumo del mes vs cuota del plan — lo que el operador necesita de un
-  // vistazo para detectar tenants cerca del límite sin entrar al detalle.
-  const used  = t.usage_30d?.queries ?? 0;
-  const limit = t.limits?.queries_month ?? 0;
-  const pct   = limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : null;
-  const quotaTone =
-    pct === null ? "bg-muted-foreground/40" :
-    pct >= 90    ? "bg-destructive" :
-    pct >= 70    ? "bg-warning" :
-                   "bg-success";
-
-  return (
-    <button
-      onClick={onClick}
-      className="w-full rounded-2xl border bg-card shadow text-left group card-interactive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-    >
-      <div className="flex items-center gap-3 px-4 py-3.5">
-        <div className="shrink-0 w-10 h-10 rounded-xl bg-action-gradient-soft flex items-center justify-center">
-          <span className="text-sm font-bold text-action uppercase">{t.name[0]}</span>
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-medium text-sm">{t.name}</span>
-            <code className="text-xs text-muted-foreground font-mono bg-muted px-1.5 py-0.5 rounded hidden sm:inline">{t.id}</code>
-            {anomaly && <span className="inline-flex items-center gap-1 text-xs text-warning font-medium"><AlertTriangle className="h-3 w-3" /> {anomaly.pct}% cuota</span>}
-          </div>
-          <p className="text-xs text-muted-foreground truncate mt-0.5">{t.admin_email} · desde {created}</p>
-        </div>
-        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-          <span className={cn("text-xs font-medium px-2 py-0.5 rounded-full hidden md:inline capitalize", PLAN_COLORS[t.plan] || "bg-muted")}>{t.plan}</span>
-          <Badge variant={STATUS_VARIANT[t.status] ?? "secondary"} className="text-xs capitalize hidden sm:flex">{t.status}</Badge>
-
-          {/* Cuota mensual de consultas — barra con umbral de color */}
-          <div className="hidden lg:flex flex-col items-end gap-1 w-40">
-            <span className="text-[11px] text-muted-foreground tabular-nums leading-none">
-              {fmtNum(used)}{limit > 0 ? ` / ${fmtNum(limit)}` : ""} consultas 30d
-            </span>
-            <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
-              <div
-                className={cn("h-full rounded-full transition-all", quotaTone)}
-                style={{ width: `${pct ?? (used > 0 ? 100 : 0)}%` }}
-              />
-            </div>
-          </div>
-
-          <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-action transition-colors" />
-        </div>
-      </div>
-    </button>
-  );
-}
-
-// ── Modal crear tenant ────────────────────────────────────────────────────────
-const EMPTY_FORM = { id: "", name: "", plan: "starter", admin_email: "", admin_name: "", admin_password: "", personality_id: "" };
-
-
-function CreateTenantModal({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: () => void }) {
-  const [form, setForm] = useState(EMPTY_FORM);
-  const [slugLocked, setSlugLocked] = useState(false);
-  const [error, setError] = useState("");
-
-  const handleClose = () => { onClose(); setForm(EMPTY_FORM); setSlugLocked(false); setError(""); };
-
-  const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const name = e.target.value;
-    setForm(f => ({ ...f, name, ...(!slugLocked && { id: toSlug(name) }) }));
-  };
-
-  const handleSlugChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setSlugLocked(true);
-    setForm(f => ({ ...f, id: e.target.value }));
-  };
-
-  const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
-    setForm(f => ({ ...f, [k]: e.target.value }));
-
-  const { data: personalities = [], isLoading: loadingP } = useQuery({
-    queryKey: ["prompt-templates"],
-    queryFn: api.promptTemplates.list,
-    enabled: open,
-    staleTime: 60_000,
-  });
-
-  const createM = useMutation({
-    mutationFn: () => tenantsApi.create(form),
-    onSuccess: () => {
-      onCreated(); handleClose();
-      toast({ title: "Organización creada", description: `'${form.id}' provisionada correctamente.`, variant: "success" });
-    },
-    onError: (err: any) => {
-      const msg = err?.response?.data?.detail ?? "Error al crear.";
-      setError(typeof msg === "string" ? msg : JSON.stringify(msg));
-    },
-  });
-
-  const PLAN_ORDER: Record<string, number> = { starter: 0, professional: 1, enterprise: 2 };
-  const availablePersonalities = personalities.filter(
-    (p: any) => PLAN_ORDER[p.plan_minimo] <= PLAN_ORDER[form.plan]
-  );
-
-  const canSubmit = !createM.isPending && form.id && form.name && form.admin_email && form.admin_password && form.personality_id;
-
-  const selectedPersonality = availablePersonalities.find((x: any) => x.id === form.personality_id);
-
-  return (
-    <Dialog open={open} onOpenChange={v => !v && handleClose()}>
-      <DialogContent className="flex flex-col p-0 gap-0 w-[calc(100%-2rem)] sm:w-full sm:max-w-lg">
-
-        {/* Header */}
-        <DialogHeader className="shrink-0 px-5 pt-5 pb-4 border-b">
-          <DialogTitle className="flex items-center gap-2 text-base">
-            <Building2 className="h-4 w-4 text-primary" />Nueva organización
-          </DialogTitle>
-        </DialogHeader>
-
-        {/* Scrollable body */}
-        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 py-4 space-y-4">
-
-          {/* Nombre + slug */}
-          <div className="space-y-1.5">
-            <Label className="text-xs font-medium">Nombre de la organización</Label>
-            <Input placeholder="Mi Empresa S.A." value={form.name} onChange={handleNameChange} className="h-9" />
-            {form.id && (
-              <div className="flex items-center gap-1.5">
-                <span className="text-[11px] text-muted-foreground shrink-0">ID:</span>
-                <input
-                  value={form.id}
-                  onChange={handleSlugChange}
-                  className="text-[11px] font-mono text-muted-foreground bg-muted/50 border border-transparent hover:border-border focus:border-ring focus:outline-none rounded px-1.5 py-0.5 flex-1 min-w-0"
-                />
-              </div>
-            )}
-          </div>
-
-          {/* Admin — 2 cols en sm+ */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label className="text-xs font-medium">Email del admin</Label>
-              <Input type="email" placeholder="admin@mi-empresa.com" value={form.admin_email} onChange={set("admin_email")} className="h-9" />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs font-medium">Nombre del admin</Label>
-              <Input type="text" placeholder="Nombre Apellido" value={form.admin_name} onChange={set("admin_name")} className="h-9" />
-            </div>
-          </div>
-
-          {/* Contraseña + Plan — 2 cols en sm+ */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label className="text-xs font-medium">Contraseña inicial</Label>
-              <Input type="password" placeholder="Mínimo 8 caracteres" value={form.admin_password} onChange={set("admin_password")} className="h-9" />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs font-medium">Plan</Label>
-              <Select
-                value={form.plan}
-                onValueChange={v => setForm(f => ({ ...f, plan: v, personality_id: "" }))}
-              >
-                <SelectTrigger className="h-9 text-sm">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="starter">Starter</SelectItem>
-                  <SelectItem value="professional">Professional</SelectItem>
-                  <SelectItem value="enterprise">Enterprise</SelectItem>
-                </SelectContent>
-              </Select>
-              <p className="text-[11px] text-muted-foreground leading-tight">
-                {form.plan === "starter" && "5 usuarios · 500 docs · 5K consultas/mes"}
-                {form.plan === "professional" && "50 usuarios · 10K docs · 100K consultas/mes"}
-                {form.plan === "enterprise" && "Sin límites"}
-              </p>
-            </div>
-          </div>
-
-          {/* Personalidad */}
-          <div className="space-y-1.5">
-            <Label className="text-xs font-medium flex items-center gap-1">
-              <Bot className="h-3.5 w-3.5 text-primary" />
-              Personalidad del bot <span className="text-destructive ml-0.5">*</span>
-            </Label>
-            {loadingP ? (
-              <div className="h-9 border rounded-md flex items-center px-3 gap-2 text-sm text-muted-foreground">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Cargando…
-              </div>
-            ) : availablePersonalities.length === 0 ? (
-              <div className="h-9 border rounded-md flex items-center px-3 text-sm text-muted-foreground bg-muted/40">
-                No hay personalidades para este plan
-              </div>
-            ) : (
-              <Select
-                value={form.personality_id || undefined}
-                onValueChange={v => setForm(f => ({ ...f, personality_id: v }))}
-              >
-                <SelectTrigger className="h-9 text-sm">
-                  <SelectValue placeholder="Elegir personalidad…" />
-                </SelectTrigger>
-                <SelectContent>
-                  {availablePersonalities.map((p: any) => (
-                    <SelectItem key={p.id} value={p.id}>{p.nombre}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-            {selectedPersonality?.descripcion && (
-              <p className="text-[11px] text-muted-foreground leading-snug pl-0.5">{selectedPersonality.descripcion}</p>
-            )}
-          </div>
-
-          {error && (
-            <div className="rounded-md bg-destructive/10 border border-destructive/20 px-3 py-2">
-              <p className="text-xs text-destructive">{error}</p>
-            </div>
-          )}
-        </div>
-
-        {/* Footer pegado abajo */}
-        <DialogFooter className="shrink-0 px-5 py-4 border-t flex-col sm:flex-row gap-2">
-          <Button variant="outline" className="w-full sm:w-auto" onClick={handleClose}>Cancelar</Button>
-          <Button className="w-full sm:w-auto" disabled={!canSubmit} onClick={() => { setError(""); createM.mutate(); }}>
-            {createM.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
-            Crear organización
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    </PageShell>
   );
 }

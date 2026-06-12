@@ -720,6 +720,31 @@ export const api = {
         groq: { by_model: Array<{ model: string; calls: Record<string, number>; total: number; errors: number }>; total_calls: number };
         app: { active_tenants: number; total_queries: number; total_cache_hits: number; total_ingests: number; quality: Record<string, number> };
         sparklines: { http_req_rate: Array<{ t: number; v: number }>; query_rate: Array<{ t: number; v: number }> };
+        storage: { total_bytes: number | null; used_bytes: number | null; free_bytes: number | null; used_pct: number | null };
+        backups: {
+          daily: { filename: string; completed_at: number; size_bytes: number; age_hours: number; healthy: boolean; count: number } | null;
+          weekly: { filename: string; completed_at: number; size_bytes: number; age_hours: number; healthy: boolean; count: number } | null;
+        } | null;
+      };
+    },
+    platformAlerts: async () => {
+      const { data } = await apiClient.get("/tenants/platform/alerts");
+      return data as {
+        available: boolean;
+        alerts: Array<{ name: string; severity: string; summary: string; since: string | null }>;
+      };
+    },
+    platformErrors: async (limit = 50) => {
+      const { data } = await apiClient.get(`/tenants/platform/errors?limit=${limit}`);
+      return data as {
+        errors: Array<{ ts: number; level: string; logger: string; message: string }>;
+      };
+    },
+    platformOps: async () => {
+      const { data } = await apiClient.get("/tenants/platform/ops");
+      return data as {
+        queues: Array<{ tenant_id: string; tenant_name: string; waiting: number; attending: number; oldest_wait_min: number }>;
+        handoffs_today: number;
       };
     },
     metrics: async (tenantId: string) => {

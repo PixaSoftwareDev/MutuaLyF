@@ -160,7 +160,7 @@ export default function TenantDetailPage() {
   if (isLoading) return <LoadingState />;
   if (error || !m) return (
     <div className="h-full flex flex-col overflow-hidden">
-      <TopBar onBack={() => router.push("/superadmin")} onRefresh={inv} label="—" loading={false} />
+      <TopBar onBack={() => router.push("/superadmin/orgs")} onRefresh={inv} label="—" loading={false} />
       <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
         No se pudo cargar la información del tenant.
       </div>
@@ -174,7 +174,7 @@ export default function TenantDetailPage() {
 
   return (
     <div className="h-full flex flex-col overflow-hidden bg-muted/20">
-      <TopBar onBack={() => router.push("/superadmin")} onRefresh={inv} label={t.name} loading={false} />
+      <TopBar onBack={() => router.push("/superadmin/orgs")} onRefresh={inv} label={t.name} loading={false} />
 
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-4 space-y-4 pb-10">
@@ -653,7 +653,7 @@ function TopBar({ onBack, onRefresh, label, loading }: { onBack: () => void; onR
           className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors mb-2"
         >
           <ArrowLeft className="h-3.5 w-3.5" />
-          Plataforma
+          Organizaciones
         </button>
         <PageHeader
           title={label}

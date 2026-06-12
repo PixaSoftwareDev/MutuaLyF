@@ -30,6 +30,9 @@ type NavItem = {
   superAdminOnly?: boolean;
   badgeKey?: string;
   tooltip?: string;
+  /** Rutas adicionales que "pertenecen" a este item para marcarlo activo
+      (ej. el detalle de tenant pertenece a Organizaciones). */
+  matchPrefixes?: string[];
 };
 
 type NavGroup = {
@@ -73,11 +76,16 @@ const navGroups: NavGroup[] = [
   {
     label: "Plataforma",
     items: [
-      { href: "/superadmin",         label: "Resumen",        icon: Shield,        superAdminOnly: true,
-        tooltip: "Administración cross-tenant: organizaciones, planes y cuotas." },
-      { href: "/superadmin/prompts", label: "Bots / Prompts", icon: Bot,           superAdminOnly: true,
+      { href: "/superadmin",            label: "Inicio",         icon: Shield,        superAdminOnly: true,
+        tooltip: "Centro de operaciones: estado, alertas, colas y consumo de un vistazo." },
+      { href: "/superadmin/orgs",       label: "Organizaciones", icon: Building2,     superAdminOnly: true,
+        matchPrefixes: ["/superadmin/orgs", "/superadmin/tenants"],
+        tooltip: "Los clientes de la plataforma: planes, cuotas y detalle por organización." },
+      { href: "/superadmin/monitoring", label: "Monitoreo",      icon: Network,       superAdminOnly: true,
+        tooltip: "Infraestructura, alertas, errores recientes y backups." },
+      { href: "/superadmin/prompts",    label: "Bots / Prompts", icon: Bot,           superAdminOnly: true,
         tooltip: "Creá y asignás templates de prompt a los tenants." },
-      { href: "/superadmin/audit",   label: "Auditoría",      icon: ClipboardList, superAdminOnly: true,
+      { href: "/superadmin/audit",      label: "Auditoría",      icon: ClipboardList, superAdminOnly: true,
         tooltip: "Registro de actividad de todas las organizaciones." },
     ],
   },
@@ -85,13 +93,15 @@ const navGroups: NavGroup[] = [
 
 export function Sidebar() {
   const pathname = usePathname();
-  // El item activo es el de href MÁS específico que matchea la ruta actual.
-  // Con prefijos anidados ("/superadmin" vs "/superadmin/prompts"), el simple
-  // startsWith dejaba "Resumen" encendido en todas las subrutas del superadmin.
+  // El item activo es el de prefijo MÁS específico que matchea la ruta actual
+  // (href propio o matchPrefixes — ej. el detalle de tenant pertenece a
+  // Organizaciones). Con prefijos anidados, el startsWith simple dejaba
+  // "Inicio" encendido en todas las subrutas del superadmin.
   const activeHref = navGroups
     .flatMap(g => g.items)
-    .filter(i => pathname === i.href || pathname.startsWith(i.href + "/"))
-    .sort((a, b) => b.href.length - a.href.length)[0]?.href ?? null;
+    .flatMap(i => (i.matchPrefixes ?? [i.href]).map(p => ({ href: i.href, prefix: p })))
+    .filter(m => pathname === m.prefix || pathname.startsWith(m.prefix + "/"))
+    .sort((a, b) => b.prefix.length - a.prefix.length)[0]?.href ?? null;
   const router = useRouter();
   const queryClient = useQueryClient();
   const { userEmail, userRole, tenantId, clearAuth } = useAuthStore();
@@ -135,6 +145,9 @@ export function Sidebar() {
     "/admin/sectors":       () => queryClient.prefetchQuery({ queryKey: ["sectors"],     queryFn: api.sectors.list,     staleTime: 30_000 }),
     "/admin/operators":     () => queryClient.prefetchQuery({ queryKey: ["operators"],   queryFn: () => apiClient.get("/admin/operators").then(r => r.data), staleTime: 30_000 }),
     "/admin/settings":      () => tenantId && queryClient.prefetchQuery({ queryKey: ["bot-config", tenantId], queryFn: () => api.tenants.getBotConfig(tenantId), staleTime: 60_000 }),
+    "/superadmin":            () => queryClient.prefetchQuery({ queryKey: ["platform-health"], queryFn: api.tenants.platformHealth, staleTime: 30_000 }),
+    "/superadmin/orgs":       () => queryClient.prefetchQuery({ queryKey: ["tenants"], queryFn: () => apiClient.get("/tenants").then(r => r.data), staleTime: 30_000 }),
+    "/superadmin/monitoring": () => queryClient.prefetchQuery({ queryKey: ["platform-system"], queryFn: api.tenants.platformSystem, staleTime: 15_000 }),
   };
 
   const { data: duplicatesStats } = useQuery({

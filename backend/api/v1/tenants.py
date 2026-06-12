@@ -1575,6 +1575,95 @@ async def get_platform_system(
     return _json_safe(data)
 
 
+@router.get("/platform/alerts")
+async def get_platform_alerts(
+    current_user: CurrentUser = Depends(require_super_admin),
+):
+    """Alertas ACTIVAS de Alertmanager (las mismas que llegan por email), en el panel."""
+    import os
+    import httpx
+    base = os.getenv("ALERTMANAGER_URL", "http://alertmanager:9093")
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            r = await client.get(f"{base}/api/v2/alerts", params={"active": "true", "silenced": "false"})
+            r.raise_for_status()
+            alerts = r.json()
+    except Exception as exc:
+        logger.warning("alertmanager_unreachable error=%s", exc)
+        return {"available": False, "alerts": []}
+
+    return {
+        "available": True,
+        "alerts": [
+            {
+                "name": a.get("labels", {}).get("alertname", "alerta"),
+                "severity": a.get("labels", {}).get("severity", "warning"),
+                "summary": a.get("annotations", {}).get("summary")
+                    or a.get("annotations", {}).get("description") or "",
+                "since": a.get("startsAt"),
+            }
+            for a in alerts
+        ],
+    }
+
+
+@router.get("/platform/errors")
+async def get_platform_errors(
+    limit: int = Query(50, ge=1, le=200),
+    current_user: CurrentUser = Depends(require_super_admin),
+):
+    """Errores/warnings recientes del backend (buffer en Redis, ver core/error_buffer)."""
+    import asyncio as _aio
+    from core.error_buffer import get_recent_errors
+    errors = await _aio.to_thread(get_recent_errors, limit)
+    return {"errors": errors}
+
+
+@router.get("/platform/ops")
+async def get_platform_ops(
+    current_user: CurrentUser = Depends(require_super_admin),
+):
+    """Señales operativas de negocio: colas de espera por tenant y derivaciones de hoy.
+
+    El peor escenario en producción es un afiliado esperando sin que nadie lo
+    vea — esta vista lo hace imposible de ignorar desde el Inicio.
+    """
+    async with get_pg_session(None) as session:
+        result = await session.execute(
+            text("SELECT id, name FROM tenants WHERE status = 'active' ORDER BY id"))
+        tenants_list = [(r[0], r[1]) for r in result.fetchall()]
+
+    queues = []
+    handoffs_today_total = 0
+    for tid, tname in tenants_list:
+        try:
+            async with get_pg_session(tid) as session:
+                row = (await session.execute(text("""
+                    SELECT
+                        COUNT(*) FILTER (WHERE status = 'handoff_requested') AS waiting,
+                        EXTRACT(EPOCH FROM (NOW() - MIN(handoff_requested_at)
+                            ) FILTER (WHERE status = 'handoff_requested')) AS oldest_wait_s,
+                        COUNT(*) FILTER (WHERE status = 'human_attending') AS attending,
+                        COUNT(*) FILTER (WHERE handoff_requested_at >= CURRENT_DATE) AS handoffs_today
+                    FROM conversaciones
+                """))).mappings().fetchone()
+            waiting = int(row["waiting"] or 0)
+            handoffs_today_total += int(row["handoffs_today"] or 0)
+            if waiting > 0 or int(row["attending"] or 0) > 0:
+                queues.append({
+                    "tenant_id": tid,
+                    "tenant_name": tname,
+                    "waiting": waiting,
+                    "attending": int(row["attending"] or 0),
+                    "oldest_wait_min": round((row["oldest_wait_s"] or 0) / 60, 1) if waiting else 0,
+                })
+        except Exception:
+            continue  # schema a medio provisionar
+
+    queues.sort(key=lambda q: (-q["waiting"], -q["oldest_wait_min"]))
+    return {"queues": queues, "handoffs_today": handoffs_today_total}
+
+
 # ── Platform-wide traffic (super_admin only) ──────────────────────────────────
 
 @router.get("/platform/traffic")

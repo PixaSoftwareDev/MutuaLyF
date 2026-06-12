@@ -24,6 +24,10 @@ from api.v1 import auth, query, ingest, intentions, tenants, widget_conversation
 configure_logging(settings.log_level, settings.is_production)
 logger = structlog.get_logger(__name__)
 
+# Buffer de errores recientes para el panel super-admin (best-effort, ver módulo).
+from core.error_buffer import attach_error_buffer
+attach_error_buffer()
+
 
 # ── Lifespan ──────────────────────────────────────────────────────────────────
 
