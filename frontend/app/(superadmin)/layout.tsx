@@ -24,7 +24,10 @@ export default function SuperAdminLayout({ children }: { children: React.ReactNo
       <Sidebar />
       <div className="flex flex-col flex-1 overflow-hidden min-w-0">
         <MobileNavBar />
-        <main className="flex-1 overflow-hidden">{children}</main>
+        {/* overflow-y-auto: las páginas de flujo normal (Inicio, Organizaciones,
+            Monitoreo, Auditoría) scrollean acá; las de scroll interno (detalle
+            de tenant) ocupan h-full y no desbordan. */}
+        <main className="flex-1 overflow-y-auto">{children}</main>
       </div>
     </div>
   );
