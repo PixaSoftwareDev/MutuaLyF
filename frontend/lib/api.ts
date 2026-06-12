@@ -737,7 +737,7 @@ export const api = {
     platformErrors: async (limit = 50) => {
       const { data } = await apiClient.get(`/tenants/platform/errors?limit=${limit}`);
       return data as {
-        errors: Array<{ ts: number; level: string; logger: string; message: string }>;
+        errors: Array<{ ts: number; level: string; logger: string; message: string; detail?: string; count?: number }>;
       };
     },
     platformOps: async () => {

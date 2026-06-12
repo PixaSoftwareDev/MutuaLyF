@@ -11,7 +11,7 @@ import { api } from "@/lib/api";
 import { PageShell } from "@/components/layout/page-shell";
 import { PageHeader, CountChip } from "@/components/layout/page-header";
 import { Skeleton } from "@/components/ui/skeleton";
-import { fmtNum, HeaderKpi, Section, BackupStat, DiskStat } from "@/components/superadmin/shared";
+import { fmtNum, HeaderKpi, Section, BackupStat, DiskStat, ErrorRow } from "@/components/superadmin/shared";
 import { cn } from "@/lib/utils";
 
 /**
@@ -197,14 +197,9 @@ export default function PlatformHomePage() {
             </p>
           ) : (
             <div className="space-y-1.5">
-              {recentErrors.slice(0, 5).map((e, i) => (
-                <div key={i} className="rounded-lg border bg-muted/30 px-3 py-2 text-xs">
-                  <p className="font-mono break-all line-clamp-2 leading-relaxed">{e.message}</p>
-                  <p className="text-[10px] text-muted-foreground mt-0.5 tabular-nums">
-                    {new Date(e.ts * 1000).toLocaleTimeString("es-AR")} · {e.logger}
-                  </p>
-                </div>
-              ))}
+              <div className="rounded-lg border divide-y">
+                {recentErrors.slice(0, 5).map((e, i) => <ErrorRow key={i} e={e} />)}
+              </div>
               <Link href="/superadmin/monitoring" className="block text-xs text-action hover:underline pt-1">
                 Ver el detalle en Monitoreo →
               </Link>
@@ -256,11 +251,11 @@ export default function PlatformHomePage() {
               <button
                 key={t.id}
                 onClick={() => router.push(`/superadmin/tenants/${t.id}`)}
-                className="rounded-lg border bg-background px-3.5 py-2.5 text-left hover:bg-muted/40 transition-colors"
+                className="rounded-lg bg-muted/50 px-3.5 py-3 text-left hover:bg-muted transition-colors"
               >
-                <p className="text-sm font-semibold truncate">{t.name}</p>
-                <p className="text-lg font-bold tabular-nums leading-tight">{fmtNum(t.tokens_30d)} <span className="text-xs font-medium text-muted-foreground">tokens</span></p>
-                <p className="text-[11px] text-muted-foreground tabular-nums">{fmtNum(t.queries_30d)} consultas · {fmtNum(t.ingests_30d)} ingestas</p>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground leading-tight truncate">{t.name}</p>
+                <p className="mt-1 text-lg font-semibold tabular-nums leading-none">{fmtNum(t.tokens_30d)} <span className="text-sm font-medium text-muted-foreground">tokens</span></p>
+                <p className="text-[11px] text-muted-foreground/80 mt-1 tabular-nums">{fmtNum(t.queries_30d)} consultas · {fmtNum(t.ingests_30d)} ingestas</p>
               </button>
             ))}
           </div>

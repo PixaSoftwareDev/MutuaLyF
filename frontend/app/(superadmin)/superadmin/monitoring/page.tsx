@@ -9,19 +9,28 @@ import {
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Separator } from "@/components/ui/separator";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { PageShell } from "@/components/layout/page-shell";
 import { PageHeader, CountChip } from "@/components/layout/page-header";
 import {
-  fmtNum, fmtBytes, Section, SysKPI, BackupStat, DiskStat,
+  fmtNum, fmtBytes, Section, StatTile, BackupStat, DiskStat, ErrorRow,
 } from "@/components/superadmin/shared";
 import { cn } from "@/lib/utils";
 
-function fmtTs(ts: number): string {
-  return new Date(ts * 1000).toLocaleString("es-AR", {
-    day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit",
-  });
+/** Subgrupo dentro de "Métricas detalladas": encabezado liviano + tiles. */
+function MetricGroup({ icon: Icon, label, sublabel, children }: {
+  icon: any; label: string; sublabel?: string; children: React.ReactNode;
+}) {
+  return (
+    <div className="px-4 py-4">
+      <div className="flex items-baseline gap-2 mb-3">
+        <Icon className="h-4 w-4 text-muted-foreground self-center shrink-0" />
+        <span className="text-sm font-semibold">{label}</span>
+        {sublabel && <span className="text-xs text-muted-foreground truncate">{sublabel}</span>}
+      </div>
+      {children}
+    </div>
+  );
 }
 
 export default function MonitoringPage() {
@@ -86,25 +95,25 @@ export default function MonitoringPage() {
       ) : !system ? null : (
       <div className="space-y-5 pb-6 animate-fade-in">
 
-        {/* ── Servicios — primer nivel ── */}
+        {/* ── Servicios — neutro cuando está bien, rojo solo cuando falla ── */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
           {services.map(s => (
             <div
               key={s.label}
               className={cn(
                 "flex items-center gap-3 rounded-xl border px-4 py-3.5 shadow-sm",
-                s.up ? "bg-success/10 border-success/20" : "bg-destructive/10 border-destructive/20"
+                s.up ? "bg-card" : "bg-destructive/10 border-destructive/20"
               )}
             >
               <span className={cn(
                 "flex items-center justify-center h-9 w-9 rounded-lg shrink-0",
-                s.up ? "bg-success/15 text-success" : "bg-destructive/15 text-destructive"
+                s.up ? "bg-muted text-muted-foreground" : "bg-destructive/15 text-destructive"
               )}>
                 <s.icon className="h-4 w-4" />
               </span>
               <div className="min-w-0">
                 <p className="text-sm font-semibold truncate">{s.label}</p>
-                <p className={cn("text-xs font-medium flex items-center gap-1", s.up ? "text-success" : "text-destructive")}>
+                <p className={cn("text-xs font-medium flex items-center gap-1.5", s.up ? "text-success" : "text-destructive")}>
                   <span className={cn("h-1.5 w-1.5 rounded-full", s.up ? "bg-success" : "bg-destructive")} />
                   {s.up ? "Operativo" : "Caído"}
                 </p>
@@ -153,7 +162,7 @@ export default function MonitoringPage() {
         <Section icon={Bug} label="Errores recientes" sublabel="warnings y errores del backend — sin salir del panel">
           <div className="flex items-center justify-between gap-3 mb-3">
             <p className="text-xs text-muted-foreground">
-              Últimos {errors.length} registros{levelFilter ? ` de nivel ${levelFilter}` : ""}.
+              Repeticiones agrupadas — ×N indica cuántas veces ocurrió.
             </p>
             <Select value={levelFilter || "all"} onValueChange={v => setLevelFilter(v === "all" ? "" : v)}>
               <SelectTrigger className="h-8 w-auto min-w-[130px] text-xs">
@@ -172,22 +181,7 @@ export default function MonitoringPage() {
             </p>
           ) : (
             <div className="rounded-lg border divide-y max-h-[420px] overflow-y-auto scrollbar-slim">
-              {errors.map((e, i) => (
-                <div key={i} className="px-3 py-2 flex items-start gap-2.5 text-xs">
-                  <span className={cn(
-                    "shrink-0 mt-0.5 rounded px-1.5 py-0.5 text-[10px] font-bold",
-                    e.level === "ERROR" ? "bg-destructive/10 text-destructive" : "bg-warning/10 text-warning"
-                  )}>
-                    {e.level === "ERROR" ? "ERROR" : "WARN"}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="font-mono break-all leading-relaxed">{e.message}</p>
-                    <p className="text-[10px] text-muted-foreground mt-0.5 tabular-nums">
-                      {fmtTs(e.ts)} · {e.logger}
-                    </p>
-                  </div>
-                </div>
-              ))}
+              {errors.map((e, i) => <ErrorRow key={i} e={e} />)}
             </div>
           )}
         </Section>
@@ -207,156 +201,133 @@ export default function MonitoringPage() {
           )}
         </Section>
 
-        {/* ── Detalle granular ── */}
-        <div className="flex items-center gap-2 pt-1">
-          <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Métricas detalladas</span>
-          <Separator className="flex-1" />
-        </div>
+        {/* ── Métricas detalladas — un solo bloque, grupos separados ── */}
+        <Section icon={BarChart3} label="Métricas detalladas" sublabel="aplicación, API, bases y LLM">
+          <div className="-m-4 divide-y">
 
-        <Section icon={BarChart3} label="Aplicación" sublabel="métricas acumuladas desde inicio">
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
-            <SysKPI label="Tenants activos"   value={String(system.app.active_tenants)} color="text-primary" />
-            <SysKPI label="Consultas totales" value={fmtNum(system.app.total_queries)} color="text-primary" />
-            <SysKPI label="Cache hits"        value={fmtNum(system.app.total_cache_hits)} color="text-info" />
-            <SysKPI label="Ingestas totales"  value={fmtNum(system.app.total_ingests)} color="text-violet-600" />
-            <SysKPI label="HTTP requests"     value={fmtNum(system.backend.total_requests)} color="text-muted-foreground" />
-          </div>
-        </Section>
+            <MetricGroup icon={BarChart3} label="Aplicación" sublabel="acumulado desde inicio">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
+                <StatTile label="Tenants activos"   value={String(system.app.active_tenants)} />
+                <StatTile label="Consultas totales" value={fmtNum(system.app.total_queries)} />
+                <StatTile label="Cache hits"        value={fmtNum(system.app.total_cache_hits)} />
+                <StatTile label="Ingestas totales"  value={fmtNum(system.app.total_ingests)} />
+                <StatTile label="HTTP requests"     value={fmtNum(system.backend.total_requests)} />
+              </div>
+            </MetricGroup>
 
-        <Section icon={Server} label="Backend API" sublabel="últimos 10 min">
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-            <SysKPI
-              label="Estado"
-              value={system.backend.up ? "OK" : "DOWN"}
-              color={system.backend.up ? "text-success" : "text-destructive"}
-            />
-            <SysKPI
-              label="Latencia p95"
-              value={system.backend.latency_p95_ms != null ? system.backend.latency_p95_ms.toFixed(0) + "ms" : "—"}
-              color={
-                system.backend.latency_p95_ms == null ? "text-muted-foreground" :
-                system.backend.latency_p95_ms > 2000 ? "text-destructive" :
-                system.backend.latency_p95_ms > 1000 ? "text-warning" : "text-success"
-              }
-            />
-            <SysKPI
-              label="Error rate 5m"
-              value={system.backend.error_rate_5m > 0 ? (system.backend.error_rate_5m * 100).toFixed(2) + "%" : "0%"}
-              color={system.backend.error_rate_5m > 0.01 ? "text-destructive" : "text-success"}
-            />
-          </div>
-        </Section>
+            <MetricGroup icon={Server} label="Backend API" sublabel="últimos 10 min">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                <StatTile
+                  label="Latencia p95"
+                  value={system.backend.latency_p95_ms != null ? system.backend.latency_p95_ms.toFixed(0) + "ms" : "—"}
+                  tone={
+                    system.backend.latency_p95_ms == null ? "neutral" :
+                    system.backend.latency_p95_ms > 2000 ? "danger" :
+                    system.backend.latency_p95_ms > 1000 ? "warn" : "success"
+                  }
+                />
+                <StatTile
+                  label="Error rate 5m"
+                  value={system.backend.error_rate_5m > 0 ? (system.backend.error_rate_5m * 100).toFixed(2) + "%" : "0%"}
+                  tone={system.backend.error_rate_5m > 0.01 ? "danger" : "success"}
+                />
+                <StatTile label="HTTP requests" value={fmtNum(system.backend.total_requests)} sublabel="acumulado" />
+              </div>
+            </MetricGroup>
 
-        <Section icon={Database} label="PostgreSQL" sublabel={`${fmtBytes(system.postgres.db_size_bytes)} · plataforma`}>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-            <SysKPI
-              label="Estado"
-              value={system.postgres.up ? "OK" : "DOWN"}
-              color={system.postgres.up ? "text-success" : "text-destructive"}
-            />
-            <SysKPI label="Conexiones activas" value={String(system.postgres.connections)} color="text-foreground" />
-            <SysKPI
-              label="Cache hit rate"
-              value={system.postgres.cache_hit_rate != null ? (system.postgres.cache_hit_rate * 100).toFixed(1) + "%" : "—"}
-              color={
-                system.postgres.cache_hit_rate == null ? "text-muted-foreground" :
-                system.postgres.cache_hit_rate < 0.9 ? "text-warning" : "text-success"
-              }
-              sublabel="buffer pool"
-            />
-            <SysKPI
-              label="Deadlocks"
-              value={String(system.postgres.deadlocks_total)}
-              color={system.postgres.deadlocks_total > 0 ? "text-destructive" : "text-success"}
-              sublabel="acumulados"
-            />
-          </div>
-        </Section>
+            <MetricGroup icon={Database} label="PostgreSQL" sublabel={`${fmtBytes(system.postgres.db_size_bytes)} · plataforma`}>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                <StatTile label="Conexiones activas" value={String(system.postgres.connections)} />
+                <StatTile
+                  label="Cache hit rate"
+                  value={system.postgres.cache_hit_rate != null ? (system.postgres.cache_hit_rate * 100).toFixed(1) + "%" : "—"}
+                  tone={
+                    system.postgres.cache_hit_rate == null ? "neutral" :
+                    system.postgres.cache_hit_rate < 0.9 ? "warn" : "success"
+                  }
+                  sublabel="buffer pool"
+                />
+                <StatTile
+                  label="Deadlocks"
+                  value={String(system.postgres.deadlocks_total)}
+                  tone={system.postgres.deadlocks_total > 0 ? "danger" : "success"}
+                  sublabel="acumulados"
+                />
+              </div>
+            </MetricGroup>
 
-        <Section icon={Zap} label="Redis" sublabel="broker DB0 · cache DB1 · rate-limit DB2">
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
-            <SysKPI
-              label="Estado"
-              value={system.redis.up ? "OK" : "DOWN"}
-              color={system.redis.up ? "text-success" : "text-destructive"}
-            />
-            <SysKPI
-              label="Memoria usada"
-              value={fmtBytes(system.redis.memory_used_bytes)}
-              sublabel={system.redis.memory_max_bytes > 0 ? `/ ${fmtBytes(system.redis.memory_max_bytes)}` : "sin límite"}
-              color="text-foreground"
-            />
-            <SysKPI
-              label="Hit rate keyspace"
-              value={system.redis.keyspace_hit_rate != null ? (system.redis.keyspace_hit_rate * 100).toFixed(1) + "%" : "—"}
-              color={
-                system.redis.keyspace_hit_rate == null ? "text-muted-foreground" :
-                system.redis.keyspace_hit_rate < 0.3 ? "text-warning" : "text-success"
-              }
-            />
-            <SysKPI label="Clientes conectados" value={String(system.redis.connected_clients)} color="text-foreground" />
-            <SysKPI
-              label="Claves broker (DB0)"
-              value={String(system.redis.keys_by_db?.db0 ?? 0)}
-              sublabel="jobs pendientes"
-              color="text-foreground"
-            />
-            <SysKPI
-              label="Cache entries (DB1)"
-              value={String(system.redis.keys_by_db?.db1 ?? 0)}
-              color="text-foreground"
-            />
-            <SysKPI
-              label="Evictions"
-              value={String(system.redis.evicted_keys)}
-              color={system.redis.evicted_keys > 0 ? "text-destructive" : "text-success"}
-              sublabel={system.redis.evicted_keys > 0 ? "memoria insuficiente" : "OK"}
-            />
-            <SysKPI
-              label="Fragmentación"
-              value={system.redis.fragmentation_ratio.toFixed(2) + "x"}
-              color={
-                system.redis.fragmentation_ratio > 1.5 ? "text-warning" :
-                system.redis.fragmentation_ratio < 0.7 ? "text-warning" : "text-success"
-              }
-              sublabel={system.redis.slowlog_length > 0 ? `slowlog: ${system.redis.slowlog_length}` : undefined}
-            />
-          </div>
-        </Section>
+            <MetricGroup icon={Zap} label="Redis" sublabel="broker DB0 · cache DB1 · rate-limit DB2">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
+                <StatTile
+                  label="Memoria usada"
+                  value={fmtBytes(system.redis.memory_used_bytes)}
+                  sublabel={system.redis.memory_max_bytes > 0 ? `de ${fmtBytes(system.redis.memory_max_bytes)}` : "sin límite"}
+                />
+                <StatTile
+                  label="Hit rate keyspace"
+                  value={system.redis.keyspace_hit_rate != null ? (system.redis.keyspace_hit_rate * 100).toFixed(1) + "%" : "—"}
+                  tone={
+                    system.redis.keyspace_hit_rate == null ? "neutral" :
+                    system.redis.keyspace_hit_rate < 0.3 ? "warn" : "success"
+                  }
+                />
+                <StatTile label="Clientes conectados" value={String(system.redis.connected_clients)} />
+                <StatTile label="Claves broker (DB0)" value={String(system.redis.keys_by_db?.db0 ?? 0)} sublabel="jobs pendientes" />
+                <StatTile label="Cache entries (DB1)" value={String(system.redis.keys_by_db?.db1 ?? 0)} />
+                <StatTile
+                  label="Evictions"
+                  value={String(system.redis.evicted_keys)}
+                  tone={system.redis.evicted_keys > 0 ? "danger" : "success"}
+                  sublabel={system.redis.evicted_keys > 0 ? "memoria insuficiente" : "OK"}
+                />
+                <StatTile
+                  label="Fragmentación"
+                  value={system.redis.fragmentation_ratio.toFixed(2) + "x"}
+                  tone={
+                    system.redis.fragmentation_ratio > 1.5 ? "warn" :
+                    system.redis.fragmentation_ratio < 0.7 ? "warn" : "success"
+                  }
+                  sublabel={system.redis.slowlog_length > 0 ? `slowlog: ${system.redis.slowlog_length}` : undefined}
+                />
+              </div>
+            </MetricGroup>
 
-        <Section icon={Bot} label="Groq API" sublabel="llamadas acumuladas desde inicio del proceso">
-          {system.groq.total_calls === 0 ? (
-            <p className="text-sm text-muted-foreground py-2">Sin llamadas registradas aún. Los contadores se resetean al reiniciar el backend.</p>
-          ) : (
-            <div className="space-y-2">
-              {system.groq.by_model.map((m: any) => (
-                <div key={m.model} className="rounded-lg border bg-muted/30 px-4 py-3">
-                  <div className="flex items-center justify-between flex-wrap gap-2">
-                    <code className="text-xs font-mono text-foreground">{m.model}</code>
-                    <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                      <span className="tabular-nums">{fmtNum(m.total)} llamadas</span>
-                      {m.errors > 0 && (
-                        <span className="text-destructive font-medium">{m.errors} errores</span>
-                      )}
+            <MetricGroup icon={Bot} label="Groq API" sublabel="llamadas acumuladas desde inicio del proceso">
+              {system.groq.total_calls === 0 ? (
+                <p className="text-sm text-muted-foreground">Sin llamadas registradas aún. Los contadores se resetean al reiniciar el backend.</p>
+              ) : (
+                <div className="space-y-2">
+                  {system.groq.by_model.map((m: any) => (
+                    <div key={m.model} className="rounded-lg bg-muted/50 px-4 py-3">
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <code className="text-xs font-mono text-foreground">{m.model}</code>
+                        <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                          <span className="tabular-nums">{fmtNum(m.total)} llamadas</span>
+                          {m.errors > 0 && (
+                            <span className="text-destructive font-medium">{m.errors} errores</span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {Object.entries(m.calls as Record<string, number>).map(([status, count]) => (
+                          <span key={status} className={cn("text-xs px-2 py-0.5 rounded-full",
+                            status === "success"    ? "bg-success/10 text-success" :
+                            status === "error"      ? "bg-destructive/10 text-destructive" :
+                            status === "timeout"    ? "bg-warning/10 text-warning" :
+                            status === "rate_limit" ? "bg-warning/10 text-warning" :
+                            "bg-muted text-muted-foreground"
+                          )}>
+                            {status}: {count}
+                          </span>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {Object.entries(m.calls as Record<string, number>).map(([status, count]) => (
-                      <span key={status} className={cn("text-xs px-2 py-0.5 rounded-full",
-                        status === "success"    ? "bg-success/10 text-success" :
-                        status === "error"      ? "bg-destructive/10 text-destructive" :
-                        status === "timeout"    ? "bg-warning/10 text-warning" :
-                        status === "rate_limit" ? "bg-warning/10 text-warning" :
-                        "bg-muted text-muted-foreground"
-                      )}>
-                        {status}: {count}
-                      </span>
-                    ))}
-                  </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          )}
+              )}
+            </MetricGroup>
+
+          </div>
         </Section>
 
       </div>

@@ -12,6 +12,7 @@ Diseño:
   - Compartido entre workers de uvicorn (todos escriben a la misma key).
 """
 
+import ast
 import json
 import logging
 import time
@@ -42,6 +43,35 @@ def _client():
         return None
 
 
+def _split_message(raw: str) -> tuple[str, str]:
+    """Separa (título, detalle) de un mensaje de log.
+
+    structlog (vía ProcessorFormatter) entrega el event-dict como repr de
+    Python — ilegible en el panel. Acá extraemos 'event' como título y
+    armamos un detalle compacto con los campos útiles.
+    """
+    raw = raw.strip()
+    if raw.startswith("{'") or raw.startswith('{"'):
+        try:
+            data = ast.literal_eval(raw)
+            if isinstance(data, dict):
+                title = str(data.get("event") or "error")
+                parts = []
+                for key in ("path", "tenant", "tenant_id", "error", "detail", "exception"):
+                    val = data.get(key)
+                    if val:
+                        parts.append(f"{key}={val}")
+                return title[:200], " · ".join(parts)[:600]
+        except Exception:
+            pass
+    # Mensajes planos tipo "jwt_decode_failed error=...": primer token = título.
+    if " " in raw:
+        head, rest = raw.split(" ", 1)
+        if "=" in rest and " " not in head:
+            return head[:200], rest[:600]
+    return raw[:200], ""
+
+
 class RedisErrorBufferHandler(logging.Handler):
     """Guarda WARNING+ en Redis para el panel. Nunca lanza."""
 
@@ -54,11 +84,13 @@ class RedisErrorBufferHandler(logging.Handler):
             client = _client()
             if client is None:
                 return
+            title, detail = _split_message(self.format(record)[:2000])
             entry = json.dumps({
                 "ts": int(record.created),
                 "level": record.levelname,
                 "logger": record.name,
-                "message": self.format(record)[:1000],
+                "message": title,
+                "detail": detail,
             }, ensure_ascii=False)
             pipe = client.pipeline()
             pipe.lpush(_KEY, entry)
@@ -83,13 +115,17 @@ def attach_error_buffer() -> None:
 
 
 def get_recent_errors(limit: int = 100, level: str | None = None) -> list[dict]:
-    """Lee los errores recientes (más nuevos primero). Sync — llamar via to_thread."""
+    """Lee los errores recientes (más nuevos primero). Sync — llamar via to_thread.
+
+    Agrupa repeticiones del mismo (level, message) en una sola entrada con
+    `count` — un warning que se dispara 40 veces ocupa una línea, no 40.
+    """
     client = _client()
     if client is None:
         return []
     try:
         raw = client.lrange(_KEY, 0, _MAX - 1)
-        out = []
+        grouped: dict[tuple[str, str], dict] = {}
         for item in raw:
             try:
                 e = json.loads(item)
@@ -97,9 +133,19 @@ def get_recent_errors(limit: int = 100, level: str | None = None) -> list[dict]:
                 continue
             if level and e.get("level") != level:
                 continue
-            out.append(e)
-            if len(out) >= limit:
-                break
-        return out
+            # Entradas viejas (pre-formato) traen el mensaje crudo: normalizar.
+            if "detail" not in e:
+                title, detail = _split_message(str(e.get("message", "")))
+                e["message"], e["detail"] = title, detail
+            key = (e.get("level", ""), e.get("message", ""))
+            if key in grouped:
+                grouped[key]["count"] += 1
+                # La lista viene de más nuevo a más viejo: el primero ya tiene
+                # el ts/detalle más reciente — solo sumamos.
+            else:
+                e["count"] = 1
+                grouped[key] = e
+        out = sorted(grouped.values(), key=lambda e: e.get("ts", 0), reverse=True)
+        return out[:limit]
     except Exception:
         return []

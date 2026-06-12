@@ -11,7 +11,6 @@ import { api, apiClient } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -33,10 +32,13 @@ interface TenantRow {
 const PLAN_COLORS: Record<string, string> = {
   starter:      "bg-muted text-muted-foreground",
   professional: "bg-info/10 text-info",
-  enterprise:   "bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300",
+  enterprise:   "bg-action-gradient-soft text-action",
 };
-const STATUS_VARIANT: Record<string, "default" | "secondary" | "destructive"> = {
-  active: "default", onboarding: "secondary", suspended: "destructive",
+// Estado en español, pill suave — el color queda reservado para estados.
+const STATUS_PILL: Record<string, { label: string; cls: string }> = {
+  active:     { label: "Activa",     cls: "bg-success/10 text-success" },
+  onboarding: { label: "Onboarding", cls: "bg-info/10 text-info" },
+  suspended:  { label: "Suspendida", cls: "bg-destructive/10 text-destructive" },
 };
 
 const tenantsApi = {
@@ -214,7 +216,12 @@ function TenantRowCard({ tenant: t, anomaly, onClick }: {
         </div>
         <div className="flex items-center gap-2 sm:gap-3 shrink-0">
           <span className={cn("text-xs font-medium px-2 py-0.5 rounded-full hidden md:inline capitalize", PLAN_COLORS[t.plan] || "bg-muted")}>{t.plan}</span>
-          <Badge variant={STATUS_VARIANT[t.status] ?? "secondary"} className="text-xs capitalize hidden sm:flex">{t.status}</Badge>
+          <span className={cn(
+            "text-xs font-medium px-2 py-0.5 rounded-full hidden sm:inline",
+            (STATUS_PILL[t.status] ?? { cls: "bg-muted text-muted-foreground" }).cls
+          )}>
+            {(STATUS_PILL[t.status] ?? { label: t.status }).label}
+          </span>
 
           {/* Cuota mensual de consultas — barra con umbral de color */}
           <div className="hidden lg:flex flex-col items-end gap-1 w-40">
