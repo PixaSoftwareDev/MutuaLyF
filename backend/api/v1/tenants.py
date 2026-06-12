@@ -1545,6 +1545,23 @@ def _backups_status() -> dict | None:
     }
 
 
+def _json_safe(o):
+    """Reemplaza NaN/inf por None recursivamente.
+
+    Prometheus devuelve NaN cuando una ventana no tiene datos (p.ej. p95 de
+    latencia recién reiniciado el backend) y la serialización JSON estricta
+    explota con 500 → la tab Sistema quedaba vacía.
+    """
+    import math
+    if isinstance(o, dict):
+        return {k: _json_safe(v) for k, v in o.items()}
+    if isinstance(o, list):
+        return [_json_safe(v) for v in o]
+    if isinstance(o, float) and not math.isfinite(o):
+        return None
+    return o
+
+
 @router.get("/platform/system")
 async def get_platform_system(
     current_user: CurrentUser = Depends(require_super_admin),
@@ -1555,7 +1572,7 @@ async def get_platform_system(
     # Backups y disco no salen de Prometheus: se leen del filesystem.
     data["storage"] = _disk_status()
     data["backups"] = _backups_status()
-    return data
+    return _json_safe(data)
 
 
 # ── Platform-wide traffic (super_admin only) ──────────────────────────────────
