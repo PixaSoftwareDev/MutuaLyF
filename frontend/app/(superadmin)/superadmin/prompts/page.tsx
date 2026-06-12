@@ -657,15 +657,19 @@ export default function PromptsPage() {
       <Dialog open={!!deleteTarget} onOpenChange={v => !v && setDeleteTarget(null)}>
         <DialogContent className="w-full max-w-sm mx-4 sm:mx-auto">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-destructive">
-              <Trash2 className="h-4 w-4" />
-              Eliminar personalidad
-            </DialogTitle>
-            <p className="text-sm text-muted-foreground pt-1">
-              ¿Seguro que querés eliminar{" "}
-              <span className="font-medium text-foreground">{deleteTarget?.nombre}</span>?
-              Esta acción no se puede deshacer.
-            </p>
+            <div className="flex items-start gap-3 text-left">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-destructive/10">
+                <Trash2 className="h-5 w-5 text-destructive" />
+              </div>
+              <div className="min-w-0 space-y-1.5 pt-0.5">
+                <DialogTitle>Eliminar personalidad</DialogTitle>
+                <p className="text-sm text-muted-foreground">
+                  ¿Seguro que querés eliminar{" "}
+                  <span className="font-medium text-foreground">{deleteTarget?.nombre}</span>?
+                  Esta acción no se puede deshacer.
+                </p>
+              </div>
+            </div>
           </DialogHeader>
           <DialogFooter className="flex-col sm:flex-row gap-2">
             <Button variant="outline" className="w-full sm:w-auto" onClick={() => setDeleteTarget(null)}>

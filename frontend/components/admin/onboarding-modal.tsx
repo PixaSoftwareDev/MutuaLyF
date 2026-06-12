@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Loader2, CheckCircle2, AlertCircle,
-  Upload, FileText, X, HelpCircle,
+  Upload, FileText, X, HelpCircle, Bot,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -308,10 +308,10 @@ export function OnboardingModal() {
   // ── Done screen ──
   if (done) {
     return (
-      <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
-        <div className="bg-background border rounded-lg shadow-lg max-w-md w-full p-8 text-center space-y-4">
-          <div className="w-14 h-14 rounded-full bg-success/10 flex items-center justify-center mx-auto">
-            <CheckCircle2 className="h-7 w-7 text-success" />
+      <div className="fixed inset-0 z-50 bg-slate-900/35 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
+        <div className="bg-background border rounded-2xl shadow-xl max-w-md w-full p-8 text-center space-y-4 animate-fade-in-up">
+          <div className="w-16 h-16 rounded-2xl bg-success/10 flex items-center justify-center mx-auto">
+            <CheckCircle2 className="h-8 w-8 text-success" />
           </div>
           <h2 className="text-lg font-semibold tracking-tight">¡Tu asistente está listo!</h2>
           <p className="text-sm text-muted-foreground">
@@ -327,15 +327,35 @@ export function OnboardingModal() {
 
   // ── Render ──
   return (
-    <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
-      <div className="bg-background border rounded-lg shadow-lg w-full max-w-xl overflow-hidden my-8">
+    <div className="fixed inset-0 z-50 bg-slate-900/35 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto animate-fade-in">
+      <div className="bg-background border rounded-2xl shadow-xl w-full max-w-xl overflow-hidden my-8 animate-fade-in-up">
 
-        {/* Header */}
-        <div className="px-6 pt-6 pb-5 border-b bg-muted/30">
-          <h2 className="text-lg font-semibold leading-none tracking-tight">
-            Configuración inicial del asistente
-          </h2>
-          <div className="mt-4 space-y-2">
+        {/* Header — identidad de marca (tile gradient) + progreso */}
+        <div className="relative px-6 pt-6 pb-5 border-b bg-muted/30 overflow-hidden">
+          {/* Mesh sutil de marca, mismo lenguaje que el login y el sidebar */}
+          <div
+            aria-hidden
+            className="absolute inset-0 pointer-events-none"
+            style={{
+              backgroundImage:
+                "radial-gradient(circle at 0% 0%, #4FC3F71f 0%, transparent 60%)," +
+                "radial-gradient(circle at 100% 0%, #7A2DFF18 0%, transparent 55%)",
+            }}
+          />
+          <div className="relative flex items-center gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-action-gradient-soft">
+              <Bot className="h-5 w-5 text-action" />
+            </div>
+            <div className="min-w-0">
+              <h2 className="text-lg font-semibold leading-none tracking-tight">
+                Configuración inicial del asistente
+              </h2>
+              <p className="text-xs text-muted-foreground mt-1">
+                En unos minutos tu bot va a estar respondiendo con la voz de tu organización.
+              </p>
+            </div>
+          </div>
+          <div className="relative mt-4 space-y-2">
             <div className="flex items-baseline justify-between gap-3">
               <p className="text-sm font-medium text-foreground">{STEPS[step]}</p>
               <span className="text-[11px] text-muted-foreground tabular-nums">
@@ -347,8 +367,8 @@ export function OnboardingModal() {
                 <div
                   key={i}
                   className={cn(
-                    "h-1 flex-1 rounded-full transition-colors",
-                    i < step ? "bg-primary" : i === step ? "bg-primary/60" : "bg-border"
+                    "h-1 flex-1 rounded-full transition-all duration-300",
+                    i < step ? "bg-action-gradient" : i === step ? "bg-action/50" : "bg-border"
                   )}
                 />
               ))}
@@ -356,8 +376,8 @@ export function OnboardingModal() {
           </div>
         </div>
 
-        {/* Body */}
-        <div className="px-6 py-5 space-y-4 min-h-[300px] max-h-[70vh] overflow-y-auto">
+        {/* Body — key={step}: cada paso entra con un fade sutil */}
+        <div key={step} className="px-6 py-5 space-y-4 min-h-[300px] max-h-[70vh] overflow-y-auto animate-fade-in">
 
           {/* ── Step 0: Identidad ── */}
           {step === 0 && (
@@ -384,8 +404,8 @@ export function OnboardingModal() {
                       className={cn(
                         "px-3 py-1.5 rounded-md border text-xs font-medium transition-colors",
                         orgType === t
-                          ? "border-primary bg-primary/10 text-primary"
-                          : "border-border hover:border-primary/40"
+                          ? "border-action bg-action/10 text-action"
+                          : "border-border hover:border-action/40"
                       )}
                     >{t}</button>
                   ))}
@@ -409,11 +429,11 @@ export function OnboardingModal() {
                       className={cn(
                         "flex flex-col gap-1.5 rounded-lg border p-3 text-left transition-colors",
                         tone === t.key
-                          ? "border-primary bg-primary/5 ring-1 ring-primary"
-                          : "border-border hover:border-primary/40"
+                          ? "border-action bg-action/5 ring-1 ring-action"
+                          : "border-border hover:border-action/40"
                       )}
                     >
-                      <span className={cn("text-xs font-semibold", tone === t.key ? "text-primary" : "")}>
+                      <span className={cn("text-xs font-semibold", tone === t.key ? "text-action" : "")}>
                         {t.label}
                       </span>
                       <span className="text-[10px] text-muted-foreground leading-tight italic">
@@ -439,7 +459,7 @@ export function OnboardingModal() {
           {/* ── Step 1: Documentos ── */}
           {step === 1 && (
             <>
-              <div className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3">
+              <div className="rounded-lg border border-action/20 bg-action/5 px-4 py-3">
                 <p className="text-sm font-medium text-foreground">Este es el paso más importante</p>
                 <p className="text-xs text-muted-foreground mt-1">
                   El bot va a basar sus respuestas en tus documentos. La IA también los va a leer para entender mejor tu organización.
@@ -459,7 +479,7 @@ export function OnboardingModal() {
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
-                    className="w-full border-2 border-dashed border-border rounded-lg py-6 px-3 flex flex-col items-center gap-2 hover:border-primary/50 hover:bg-primary/5 transition-colors text-sm text-muted-foreground"
+                    className="w-full border-2 border-dashed border-border rounded-lg py-6 px-3 flex flex-col items-center gap-2 hover:border-action/50 hover:bg-action/5 transition-colors text-sm text-muted-foreground"
                   >
                     <Upload className="h-5 w-5" />
                     Clickeá para seleccionar archivos
@@ -584,11 +604,11 @@ export function OnboardingModal() {
                           className={cn(
                             "flex flex-col gap-0.5 rounded-lg border p-2.5 text-left transition-colors",
                             fallback === f.key
-                              ? "border-primary bg-primary/5 ring-1 ring-primary"
-                              : "border-border hover:border-primary/40"
+                              ? "border-action bg-action/5 ring-1 ring-action"
+                              : "border-border hover:border-action/40"
                           )}
                         >
-                          <span className={cn("text-xs font-semibold", fallback === f.key ? "text-primary" : "")}>
+                          <span className={cn("text-xs font-semibold", fallback === f.key ? "text-action" : "")}>
                             {f.label}
                           </span>
                           <span className="text-[10px] text-muted-foreground leading-tight">
@@ -628,8 +648,8 @@ export function OnboardingModal() {
               {/* Followup pregunta (si la IA decidió hacerla) */}
               {followupQuestion && !followupM.isPending && !generateM.isPending && (
                 <div className="space-y-3">
-                  <div className="rounded-lg border border-primary/20 bg-primary/5 px-3.5 py-3">
-                    <span className="text-[10px] text-primary font-medium flex items-center gap-1 mb-1">
+                  <div className="rounded-lg border border-action/20 bg-action/5 px-3.5 py-3">
+                    <span className="text-[10px] text-action font-medium flex items-center gap-1 mb-1">
                       <HelpCircle className="h-3 w-3" /> Una pregunta extra
                     </span>
                     <p className="text-sm text-foreground">{followupQuestion}</p>
@@ -736,8 +756,8 @@ export function OnboardingModal() {
                       <span className="font-semibold text-muted-foreground shrink-0">Vos:</span>
                       <span>{lastTest.q}</span>
                     </div>
-                    <div className="flex items-start gap-2 bg-primary/5 rounded-md px-2 py-1.5 border border-primary/10">
-                      <span className="font-semibold text-primary shrink-0">Bot:</span>
+                    <div className="flex items-start gap-2 bg-action/5 rounded-md px-2 py-1.5 border border-action/10">
+                      <span className="font-semibold text-action shrink-0">Bot:</span>
                       <span className="text-foreground leading-relaxed">{lastTest.a}</span>
                     </div>
                   </div>

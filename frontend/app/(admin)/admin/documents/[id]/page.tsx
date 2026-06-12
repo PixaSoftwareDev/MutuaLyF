@@ -255,13 +255,17 @@ export default function DocumentDetailPage() {
       <Dialog open={showDelete} onOpenChange={setShowDelete}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-warning" />
-              Eliminar documento
-            </DialogTitle>
-            <DialogDescription className="pt-2">
-              Vas a eliminar <span className="font-medium text-foreground">{doc.title}</span> y todos sus fragmentos. Esta acción no se puede deshacer.
-            </DialogDescription>
+            <div className="flex items-start gap-3 text-left">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-destructive/10">
+                <AlertTriangle className="h-5 w-5 text-destructive" />
+              </div>
+              <div className="min-w-0 space-y-1.5 pt-0.5">
+                <DialogTitle>Eliminar documento</DialogTitle>
+                <DialogDescription>
+                  Vas a eliminar <span className="font-medium text-foreground">{doc.title}</span> y todos sus fragmentos. Esta acción no se puede deshacer.
+                </DialogDescription>
+              </div>
+            </div>
           </DialogHeader>
           <DialogFooter className="mt-2">
             <Button variant="outline" onClick={() => setShowDelete(false)} disabled={deleting}>Cancelar</Button>
