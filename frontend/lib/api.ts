@@ -724,6 +724,7 @@ export const api = {
         backups: {
           daily: { filename: string; completed_at: number; size_bytes: number; age_hours: number; healthy: boolean; count: number } | null;
           weekly: { filename: string; completed_at: number; size_bytes: number; age_hours: number; healthy: boolean; count: number } | null;
+          daily_history?: Array<{ filename: string; completed_at: number; size_bytes: number }>;
         } | null;
       };
     },
@@ -738,6 +739,22 @@ export const api = {
       const { data } = await apiClient.get(`/tenants/platform/errors?limit=${limit}`);
       return data as {
         errors: Array<{ ts: number; level: string; logger: string; message: string; detail?: string; count?: number }>;
+      };
+    },
+    tenantHealth: async (tenantId: string) => {
+      const { data } = await apiClient.get(`/tenants/${tenantId}/health`);
+      return data as {
+        activity: {
+          last_query_at: string | null; last_ingest_at: string | null;
+          queries_7d: number; ingests_7d: number; tokens_7d: number;
+          queries_by_day: Array<{ day: string; queries: number }>;
+        };
+        ops: { waiting: number; attending: number; oldest_wait_min: number; handoffs_today: number };
+        errors: Array<{ ts: number; level: string; logger: string; message: string; detail?: string; count?: number; tenant?: string | null }>;
+        storage: {
+          documents: number | null; schema_bytes: number;
+          minio_bytes: number | null; minio_objects: number | null;
+        };
       };
     },
     platformOps: async () => {

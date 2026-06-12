@@ -1539,9 +1539,29 @@ def _backups_status() -> dict | None:
             "count": len(dumps),
         }
 
+    def _history(kind: str, max_items: int = 7) -> list[dict]:
+        """Los últimos N dumps (más nuevo primero) — para ver de un vistazo que
+        toda la semana corrió, y detectar un backup sospechosamente chico."""
+        d = os.path.join(base, kind)
+        try:
+            dumps = [os.path.join(d, f) for f in os.listdir(d) if f.endswith(".dump")]
+        except OSError:
+            return []
+        dumps.sort(key=os.path.getmtime, reverse=True)
+        out = []
+        for p in dumps[:max_items]:
+            st = os.stat(p)
+            out.append({
+                "filename": os.path.basename(p),
+                "completed_at": int(st.st_mtime),
+                "size_bytes": st.st_size,
+            })
+        return out
+
     return {
         "daily": _latest("daily", 26),
         "weekly": _latest("weekly", 8 * 24),
+        "daily_history": _history("daily"),
     }
 
 
@@ -1725,3 +1745,119 @@ async def get_platform_traffic(
             for r in per_tenant_rows
         ],
     }
+
+
+# ── Salud por organización (super_admin) ─────────────────────────────────────
+
+def _tenant_minio_usage(tenant_id: str) -> dict:
+    """Huella en MinIO de un tenant (docs + adjuntos). Sync — llamar via to_thread."""
+    from core.database import get_minio_client
+    total, count = 0, 0
+    try:
+        client = get_minio_client()
+        for obj in client.list_objects(settings.minio_bucket, prefix=f"{tenant_id}/", recursive=True):
+            total += obj.size or 0
+            count += 1
+            if count >= 50_000:  # tope de cordura
+                break
+        return {"bytes": total, "objects": count}
+    except Exception as exc:
+        logger.warning("tenant_minio_usage_failed tenant=%s error=%s", tenant_id, exc)
+        return {"bytes": None, "objects": None}
+
+
+@router.get("/{tenant_id}/health")
+async def get_tenant_health(
+    tenant_id: str,
+    current_user: CurrentUser = Depends(require_super_admin),
+):
+    """Salud de UNA organización: actividad del bot, colas, errores propios y
+    huella de almacenamiento. Lo que es de la plataforma (backups, memoria,
+    servicios) NO está acá — vive en /platform/system."""
+    import asyncio as _aio
+    from core.error_buffer import get_recent_errors
+
+    async with get_pg_session(None) as session:
+        exists = (await session.execute(
+            text("SELECT 1 FROM tenants WHERE id = :id"), {"id": tenant_id})).scalar()
+        if not exists:
+            raise HTTPException(status_code=404, detail="Organización no encontrada.")
+
+        activity = (await session.execute(text("""
+            SELECT
+                MAX(created_at) FILTER (WHERE event_type = 'query')   AS last_query_at,
+                MAX(created_at) FILTER (WHERE event_type = 'ingest')  AS last_ingest_at,
+                COALESCE(SUM(value) FILTER (WHERE event_type = 'query'
+                    AND created_at >= NOW() - INTERVAL '7 days'), 0)  AS queries_7d,
+                COALESCE(SUM(value) FILTER (WHERE event_type = 'ingest'
+                    AND created_at >= NOW() - INTERVAL '7 days'), 0)  AS ingests_7d,
+                COALESCE(SUM(value) FILTER (WHERE event_type = 'llm_tokens'
+                    AND created_at >= NOW() - INTERVAL '7 days'), 0)  AS tokens_7d
+            FROM usage_events WHERE tenant_id = :id
+        """), {"id": tenant_id})).mappings().fetchone()
+
+        by_day = (await session.execute(text("""
+            SELECT DATE(created_at) AS day, COALESCE(SUM(value), 0) AS queries
+            FROM usage_events
+            WHERE tenant_id = :id AND event_type = 'query'
+              AND created_at >= NOW() - INTERVAL '7 days'
+            GROUP BY DATE(created_at) ORDER BY day
+        """), {"id": tenant_id})).mappings().all()
+
+        schema_bytes = (await session.execute(text("""
+            SELECT COALESCE(SUM(pg_total_relation_size(c.oid)), 0)
+            FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = :schema
+        """), {"schema": f"tenant_{tenant_id}"})).scalar()
+
+    # Colas y derivaciones de hoy — mismo criterio que /platform/ops.
+    ops = {"waiting": 0, "attending": 0, "oldest_wait_min": 0, "handoffs_today": 0}
+    docs_count = None
+    try:
+        async with get_pg_session(tenant_id) as session:
+            row = (await session.execute(text("""
+                SELECT
+                    COUNT(*) FILTER (WHERE status = 'handoff_requested') AS waiting,
+                    EXTRACT(EPOCH FROM (NOW() - MIN(handoff_requested_at)
+                        ) FILTER (WHERE status = 'handoff_requested')) AS oldest_wait_s,
+                    COUNT(*) FILTER (WHERE status = 'human_attending') AS attending,
+                    COUNT(*) FILTER (WHERE handoff_requested_at >= CURRENT_DATE) AS handoffs_today
+                FROM conversaciones
+            """))).mappings().fetchone()
+            waiting = int(row["waiting"] or 0)
+            ops = {
+                "waiting": waiting,
+                "attending": int(row["attending"] or 0),
+                "oldest_wait_min": round((row["oldest_wait_s"] or 0) / 60, 1) if waiting else 0,
+                "handoffs_today": int(row["handoffs_today"] or 0),
+            }
+            docs_count = (await session.execute(
+                text("SELECT COUNT(*) FROM documentos"))).scalar()
+    except Exception:
+        pass  # schema a medio provisionar — devolvemos lo que haya
+
+    errors, minio = await _aio.gather(
+        _aio.to_thread(get_recent_errors, 30, None, tenant_id),
+        _aio.to_thread(_tenant_minio_usage, tenant_id),
+    )
+
+    return _json_safe({
+        "activity": {
+            "last_query_at":  activity["last_query_at"].isoformat() if activity["last_query_at"] else None,
+            "last_ingest_at": activity["last_ingest_at"].isoformat() if activity["last_ingest_at"] else None,
+            "queries_7d": int(activity["queries_7d"]),
+            "ingests_7d": int(activity["ingests_7d"]),
+            "tokens_7d":  int(activity["tokens_7d"]),
+            "queries_by_day": [
+                {"day": r["day"].isoformat(), "queries": int(r["queries"])} for r in by_day
+            ],
+        },
+        "ops": ops,
+        "errors": errors,
+        "storage": {
+            "documents": int(docs_count) if docs_count is not None else None,
+            "schema_bytes": int(schema_bytes or 0),
+            "minio_bytes": minio["bytes"],
+            "minio_objects": minio["objects"],
+        },
+    })

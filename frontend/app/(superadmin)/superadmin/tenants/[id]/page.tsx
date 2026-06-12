@@ -8,7 +8,7 @@ import {
   PauseCircle, PlayCircle, Settings2, UserPlus, Building2,
   TrendingUp, FileText, Zap, Clock, Database, Shield,
   MessageSquare, Target, Activity, ChevronRight, Bot, X, Users, Eye, EyeOff,
-  AtSign, Star, Plus, Trash2, FileStack,
+  AtSign, Star, Plus, Trash2, FileStack, HeartPulse, Headset, Bug, HardDrive,
 } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api, apiClient } from "@/lib/api";
@@ -22,8 +22,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/layout/page-header";
+import { StatTile, ErrorRow } from "@/components/superadmin/shared";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
+import Link from "next/link";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function fmtNum(n: number): string {
@@ -81,7 +83,7 @@ export default function TenantDetailPage() {
 
   const [showCreateAdmin, setShowCreateAdmin]   = useState(false);
   const [editPlan, setEditPlan]                 = useState(false);
-  const [detailTab, setDetailTab]               = useState<"general" | "actividad" | "recursos">("general");
+  const [detailTab, setDetailTab]               = useState<"general" | "actividad" | "recursos" | "salud">("general");
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [editingUser, setEditingUser] = useState<{ id: string; email: string; name: string; role: string; is_active: boolean } | null>(null);
 
@@ -123,6 +125,14 @@ export default function TenantDetailPage() {
     queryKey: ["prompt-templates"],
     queryFn: api.promptTemplates.list,
     staleTime: 60_000,
+  });
+
+  const { data: healthData, isLoading: healthLoading } = useQuery({
+    queryKey: ["tenant-health", tenantId],
+    queryFn: () => api.tenants.tenantHealth(tenantId),
+    enabled: detailTab === "salud",
+    refetchInterval: detailTab === "salud" ? 30_000 : false,
+    staleTime: 15_000,
   });
 
   const activateBotM = useMutation({
@@ -282,6 +292,9 @@ export default function TenantDetailPage() {
               </TabsTrigger>
               <TabsTrigger value="recursos" className="gap-1.5">
                 <FileStack className="h-3.5 w-3.5" /> Recursos
+              </TabsTrigger>
+              <TabsTrigger value="salud" className="gap-1.5">
+                <HeartPulse className="h-3.5 w-3.5" /> Salud
               </TabsTrigger>
             </TabsList>
           </Tabs>
@@ -574,6 +587,117 @@ export default function TenantDetailPage() {
           )}
 
           </div>{/* /grid Recursos */}
+          </section>
+          )}
+
+          {detailTab === "salud" && (
+          <section className="space-y-4 animate-fade-in">
+
+          {healthLoading || !healthData ? (
+            <div className="space-y-2">
+              {[1,2,3].map(i => <Skeleton key={i} className="h-24 w-full rounded-xl" />)}
+            </div>
+          ) : (
+          <>
+          {/* ── Actividad del bot ─────────────────────────────────────── */}
+          <div className="space-y-2">
+            <SectionTitle icon={Activity} label="Actividad del bot" sublabel="¿viene funcionando?" />
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
+              <StatTile
+                label="Última consulta"
+                value={healthData.activity.last_query_at ? relTime(healthData.activity.last_query_at) : "nunca"}
+                tone={healthData.activity.last_query_at ? "neutral" : "warn"}
+              />
+              <StatTile label="Consultas 7d" value={fmtNum(healthData.activity.queries_7d)} />
+              <StatTile label="Ingestas 7d" value={fmtNum(healthData.activity.ingests_7d)} />
+              <StatTile label="Tokens LLM 7d" value={fmtNum(healthData.activity.tokens_7d)} />
+              <StatTile
+                label="Última ingesta"
+                value={healthData.activity.last_ingest_at ? relTime(healthData.activity.last_ingest_at) : "nunca"}
+              />
+            </div>
+            {healthData.activity.queries_by_day.length > 1 && (
+              <div className="rounded-lg border bg-card px-4 py-3">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2">
+                  Consultas por día — últimos 7 días
+                </p>
+                <div className="flex items-end gap-1.5 h-16">
+                  {healthData.activity.queries_by_day.map(d => {
+                    const max = Math.max(...healthData.activity.queries_by_day.map(x => x.queries), 1);
+                    return (
+                      <div key={d.day} className="flex-1 flex flex-col items-center gap-1 min-w-0">
+                        <span className="text-[10px] text-muted-foreground tabular-nums">{d.queries}</span>
+                        <div
+                          className="w-full rounded-sm bg-action-gradient opacity-80"
+                          style={{ height: `${Math.max(6, (d.queries / max) * 100)}%` }}
+                        />
+                        <span className="text-[9px] text-muted-foreground/70 tabular-nums">
+                          {new Date(d.day + "T00:00:00").toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit" })}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* ── Atención ahora ────────────────────────────────────────── */}
+          <div className="space-y-2">
+            <SectionTitle icon={Headset} label="Atención ahora" sublabel="en vivo" />
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+              <StatTile
+                label="Esperando operador"
+                value={String(healthData.ops.waiting)}
+                tone={healthData.ops.oldest_wait_min > 5 ? "danger" : healthData.ops.waiting > 0 ? "warn" : "neutral"}
+              />
+              <StatTile label="En atención" value={String(healthData.ops.attending)} />
+              <StatTile
+                label="Espera más antigua"
+                value={healthData.ops.waiting > 0 ? `${healthData.ops.oldest_wait_min < 1 ? "<1" : Math.round(healthData.ops.oldest_wait_min)} min` : "—"}
+                tone={healthData.ops.oldest_wait_min > 5 ? "danger" : healthData.ops.oldest_wait_min > 2 ? "warn" : "neutral"}
+              />
+              <StatTile label="Derivaciones hoy" value={String(healthData.ops.handoffs_today)} />
+            </div>
+          </div>
+
+          {/* ── Errores de esta organización ──────────────────────────── */}
+          <div className="space-y-2">
+            <SectionTitle icon={Bug} label="Errores de esta organización" sublabel="del buffer del backend, últimos 7 días" />
+            {healthData.errors.length === 0 ? (
+              <p className="text-sm text-success flex items-center gap-2 font-medium">
+                <CheckCircle2 className="h-4 w-4 shrink-0" /> Sin errores registrados para esta organización.
+              </p>
+            ) : (
+              <div className="rounded-lg border divide-y max-h-[320px] overflow-y-auto scrollbar-slim">
+                {healthData.errors.map((e, i) => <ErrorRow key={i} e={e} />)}
+              </div>
+            )}
+          </div>
+
+          {/* ── Huella de almacenamiento ──────────────────────────────── */}
+          <div className="space-y-2">
+            <SectionTitle icon={HardDrive} label="Almacenamiento" sublabel="lo que esta organización ocupa en el servidor" />
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+              <StatTile
+                label="Documentos"
+                value={healthData.storage.documents != null ? fmtNum(healthData.storage.documents) : "—"}
+              />
+              <StatTile label="Datos en PostgreSQL" value={fmtBytes(healthData.storage.schema_bytes)} sublabel="schema propio" />
+              <StatTile
+                label="Archivos"
+                value={healthData.storage.minio_bytes != null ? fmtBytes(healthData.storage.minio_bytes) : "—"}
+                sublabel={healthData.storage.minio_objects != null ? `${fmtNum(healthData.storage.minio_objects)} objetos (docs + adjuntos)` : undefined}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Los backups, la memoria y el estado de los servicios son de la plataforma completa — los ves en{" "}
+              <Link href="/superadmin/monitoring" className="text-action hover:underline">Monitoreo</Link>.
+            </p>
+          </div>
+          </>
+          )}
+
           </section>
           )}
 

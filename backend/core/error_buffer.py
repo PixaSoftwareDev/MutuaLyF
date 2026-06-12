@@ -43,12 +43,13 @@ def _client():
         return None
 
 
-def _split_message(raw: str) -> tuple[str, str]:
-    """Separa (título, detalle) de un mensaje de log.
+def _split_message(raw: str) -> tuple[str, str, str | None]:
+    """Separa (título, detalle, tenant) de un mensaje de log.
 
     structlog (vía ProcessorFormatter) entrega el event-dict como repr de
-    Python — ilegible en el panel. Acá extraemos 'event' como título y
-    armamos un detalle compacto con los campos útiles.
+    Python — ilegible en el panel. Acá extraemos 'event' como título, armamos
+    un detalle compacto con los campos útiles y rescatamos el tenant si el
+    evento lo trae (permite la vista de salud por organización).
     """
     raw = raw.strip()
     if raw.startswith("{'") or raw.startswith('{"'):
@@ -56,20 +57,26 @@ def _split_message(raw: str) -> tuple[str, str]:
             data = ast.literal_eval(raw)
             if isinstance(data, dict):
                 title = str(data.get("event") or "error")
+                tenant = data.get("tenant") or data.get("tenant_id")
                 parts = []
                 for key in ("path", "tenant", "tenant_id", "error", "detail", "exception"):
                     val = data.get(key)
                     if val:
                         parts.append(f"{key}={val}")
-                return title[:200], " · ".join(parts)[:600]
+                return title[:200], " · ".join(parts)[:600], (str(tenant) if tenant else None)
         except Exception:
             pass
     # Mensajes planos tipo "jwt_decode_failed error=...": primer token = título.
+    tenant = None
+    for tok in raw.split():
+        if tok.startswith("tenant=") or tok.startswith("tenant_id="):
+            tenant = tok.split("=", 1)[1].strip(",")
+            break
     if " " in raw:
         head, rest = raw.split(" ", 1)
         if "=" in rest and " " not in head:
-            return head[:200], rest[:600]
-    return raw[:200], ""
+            return head[:200], rest[:600], tenant
+    return raw[:200], "", tenant
 
 
 class RedisErrorBufferHandler(logging.Handler):
@@ -84,13 +91,14 @@ class RedisErrorBufferHandler(logging.Handler):
             client = _client()
             if client is None:
                 return
-            title, detail = _split_message(self.format(record)[:2000])
+            title, detail, tenant = _split_message(self.format(record)[:2000])
             entry = json.dumps({
                 "ts": int(record.created),
                 "level": record.levelname,
                 "logger": record.name,
                 "message": title,
                 "detail": detail,
+                "tenant": tenant,
             }, ensure_ascii=False)
             pipe = client.pipeline()
             pipe.lpush(_KEY, entry)
@@ -114,11 +122,13 @@ def attach_error_buffer() -> None:
     root.addHandler(h)
 
 
-def get_recent_errors(limit: int = 100, level: str | None = None) -> list[dict]:
+def get_recent_errors(limit: int = 100, level: str | None = None, tenant: str | None = None) -> list[dict]:
     """Lee los errores recientes (más nuevos primero). Sync — llamar via to_thread.
 
     Agrupa repeticiones del mismo (level, message) en una sola entrada con
     `count` — un warning que se dispara 40 veces ocupa una línea, no 40.
+    Con `tenant` devuelve solo los eventos de esa organización (los que no
+    traen tenant en el log quedan afuera del filtro).
     """
     client = _client()
     if client is None:
@@ -135,8 +145,10 @@ def get_recent_errors(limit: int = 100, level: str | None = None) -> list[dict]:
                 continue
             # Entradas viejas (pre-formato) traen el mensaje crudo: normalizar.
             if "detail" not in e:
-                title, detail = _split_message(str(e.get("message", "")))
-                e["message"], e["detail"] = title, detail
+                title, detail, ten = _split_message(str(e.get("message", "")))
+                e["message"], e["detail"], e["tenant"] = title, detail, ten
+            if tenant and e.get("tenant") != tenant:
+                continue
             key = (e.get("level", ""), e.get("message", ""))
             if key in grouped:
                 grouped[key]["count"] += 1

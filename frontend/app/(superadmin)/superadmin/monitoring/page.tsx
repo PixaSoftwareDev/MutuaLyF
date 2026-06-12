@@ -17,6 +17,40 @@ import {
 } from "@/components/superadmin/shared";
 import { cn } from "@/lib/utils";
 
+/** Historial de backups diarios: la semana entera de un vistazo. Un dump
+ *  notablemente más chico que la mediana se marca en ámbar (sospechoso). */
+function BackupHistory({ history }: {
+  history?: Array<{ filename: string; completed_at: number; size_bytes: number }>;
+}) {
+  if (!history || history.length === 0) return null;
+  const sizes = [...history.map(h => h.size_bytes)].sort((a, b) => a - b);
+  const median = sizes[Math.floor(sizes.length / 2)] || 0;
+  return (
+    <div className="mt-2.5">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-1.5">
+        Últimos diarios
+      </p>
+      <div className="rounded-lg border divide-y">
+        {history.map(h => {
+          const suspicious = median > 0 && h.size_bytes < median * 0.5;
+          return (
+            <div key={h.filename} className="flex items-center gap-2.5 px-3.5 py-2 text-xs">
+              <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", suspicious ? "bg-warning" : "bg-success")} />
+              <span className="tabular-nums text-foreground">
+                {new Date(h.completed_at * 1000).toLocaleString("es-AR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
+              </span>
+              <span className={cn("tabular-nums", suspicious ? "text-warning font-medium" : "text-muted-foreground")}>
+                {fmtBytes(h.size_bytes)}{suspicious ? " — más chico de lo normal" : ""}
+              </span>
+              <span className="text-muted-foreground/60 font-mono truncate ml-auto hidden sm:inline">{h.filename}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 /** Subgrupo dentro de "Métricas detalladas": encabezado liviano + tiles. */
 function MetricGroup({ icon: Icon, label, sublabel, children }: {
   icon: any; label: string; sublabel?: string; children: React.ReactNode;
@@ -193,6 +227,7 @@ export default function MonitoringPage() {
             <BackupStat label="Backup semanal" b={system.backups?.weekly} />
             <DiskStat storage={system.storage} />
           </div>
+          <BackupHistory history={system.backups?.daily_history} />
           {system.backups == null && (
             <p className="mt-2.5 text-xs text-warning flex items-center gap-1.5">
               <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
