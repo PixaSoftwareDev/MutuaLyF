@@ -13,7 +13,6 @@ import {
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api, apiClient } from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
 import { Label } from "@/components/ui/label";
@@ -64,13 +63,14 @@ function relTime(iso: string): string {
 const PLAN_COLORS: Record<string, string> = {
   starter:      "bg-muted text-muted-foreground",
   professional: "bg-info/10 text-info",
-  enterprise:   "bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300",
+  enterprise:   "bg-action-gradient-soft text-action",
 };
 
-const STATUS_VARIANT: Record<string, "default" | "secondary" | "destructive"> = {
-  active:    "default",
-  onboarding:"secondary",
-  suspended: "destructive",
+// Mismo lenguaje que la lista de Organizaciones: estado en español, pill suave.
+const STATUS_PILL: Record<string, { label: string; cls: string }> = {
+  active:     { label: "Activa",     cls: "bg-success/10 text-success" },
+  onboarding: { label: "Onboarding", cls: "bg-info/10 text-info" },
+  suspended:  { label: "Suspendida", cls: "bg-destructive/10 text-destructive" },
 };
 
 // ── Page ──────────────────────────────────────────────────────────────────────
@@ -196,12 +196,15 @@ export default function TenantDetailPage() {
                 </p>
               </div>
               <div className="flex items-center gap-2 flex-wrap">
-                <span className={cn("text-xs font-medium px-2.5 py-1 rounded-full", PLAN_COLORS[t.plan] || "bg-muted")}>
+                <span className={cn("text-xs font-medium px-2.5 py-1 rounded-full capitalize", PLAN_COLORS[t.plan] || "bg-muted")}>
                   {t.plan}
                 </span>
-                <Badge variant={STATUS_VARIANT[t.status] ?? "secondary"} className="capitalize">
-                  {t.status}
-                </Badge>
+                <span className={cn(
+                  "text-xs font-medium px-2.5 py-1 rounded-full",
+                  (STATUS_PILL[t.status] ?? { cls: "bg-muted text-muted-foreground" }).cls
+                )}>
+                  {(STATUS_PILL[t.status] ?? { label: t.status }).label}
+                </span>
               </div>
             </div>
 
