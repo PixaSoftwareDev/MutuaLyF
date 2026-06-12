@@ -3,22 +3,59 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import {
-  Building2, Activity, BellRing, Bug, CheckCircle2, AlertTriangle,
-  Headset, ChevronRight, Coins, HardDrive, Database, Server, Zap, Bot,
-} from "lucide-react";
+import { Activity, AlertTriangle, ChevronRight, Coins } from "lucide-react";
 import { api } from "@/lib/api";
 import { PageShell } from "@/components/layout/page-shell";
-import { PageHeader, CountChip } from "@/components/layout/page-header";
+import { PageHeader } from "@/components/layout/page-header";
 import { Skeleton } from "@/components/ui/skeleton";
-import { fmtNum, HeaderKpi, Section, BackupStat, DiskStat, ErrorRow } from "@/components/superadmin/shared";
+import { fmtNum, relAge, HeaderKpi, Section, ErrorRow } from "@/components/superadmin/shared";
 import { cn } from "@/lib/utils";
 
 /**
- * Inicio del super-admin: el centro de operaciones. Una sola pantalla que
- * responde "¿está todo bien AHORA?" — servicios, alertas, errores, colas de
- * atención y consumo — sin ir a Grafana, logs ni el email de alertas.
+ * Inicio del super-admin: el centro de operaciones. Responde "¿está todo bien
+ * AHORA?" con el patrón de status page: una fila por chequeo, resumen en una
+ * línea, y el detalle aparece SOLO cuando algo está mal. Sin cards vacías.
  */
+
+type Tone = "ok" | "warn" | "down";
+
+const DOT: Record<Tone, string> = {
+  ok:   "bg-success",
+  warn: "bg-warning",
+  down: "bg-destructive animate-pulse motion-reduce:animate-none",
+};
+
+/** Fila de chequeo estilo status page: punto, nombre, resumen, link. */
+function StatusRow({ tone, label, summary, href, children }: {
+  tone: Tone;
+  label: string;
+  summary: React.ReactNode;
+  href?: string;
+  children?: React.ReactNode;   // detalle inline — solo cuando hay problema
+}) {
+  const row = (
+    <div className="flex items-center gap-3 px-4 py-3">
+      <span className={cn("h-2 w-2 rounded-full shrink-0", DOT[tone])} />
+      <span className="text-sm font-medium w-28 sm:w-40 shrink-0">{label}</span>
+      <span className={cn(
+        "text-sm flex-1 min-w-0 truncate",
+        tone === "ok" ? "text-muted-foreground" : tone === "warn" ? "text-warning font-medium" : "text-destructive font-medium",
+      )}>
+        {summary}
+      </span>
+      {href && <ChevronRight className="h-4 w-4 text-muted-foreground/60 shrink-0" />}
+    </div>
+  );
+  return (
+    <div>
+      {href ? (
+        <Link href={href} className="block hover:bg-muted/40 transition-colors">{row}</Link>
+      ) : row}
+      {children && <div className="px-4 pb-3.5 pl-9">{children}</div>}
+    </div>
+  );
+}
+
 export default function PlatformHomePage() {
   const router = useRouter();
 
@@ -47,25 +84,67 @@ export default function PlatformHomePage() {
     staleTime: 5 * 60_000,
   });
 
+  const loading = !system || !alertsData || !errorsData || !ops;
+
   const alerts = alertsData?.alerts ?? [];
   const recentErrors = (errorsData?.errors ?? []).filter(e => e.level === "ERROR");
   const queues = ops?.queues ?? [];
   const worstWait = Math.max(0, ...queues.map(q => q.oldest_wait_min));
   const totalWaiting = queues.reduce((s, q) => s + q.waiting, 0);
+  const totalAttending = queues.reduce((s, q) => s + q.attending, 0);
 
-  const servicesUp = system
-    ? [system.postgres.up, system.redis.up, system.backend.up].every(Boolean)
-    : null;
+  // ── Chequeo 1: servicios ──
+  const services = system ? [
+    { label: "PostgreSQL", up: system.postgres.up },
+    { label: "Redis",      up: system.redis.up },
+    { label: "Backend",    up: system.backend.up },
+    { label: "Groq",       up: system.groq.total_calls === 0 ? true : (system.groq.by_model ?? []).every((m: any) => m.errors === 0 || m.errors < m.total) },
+  ] : [];
+  const downServices = services.filter(s => !s.up);
+  const svcTone: Tone = downServices.length > 0 ? "down" : "ok";
 
-  // Veredicto global del semáforo: alerta activa > servicio caído > backup
-  // vencido > colas críticas > todo bien.
-  const globalStatus: { tone: "ok" | "warn" | "down"; label: string } =
-    system && !servicesUp                  ? { tone: "down", label: "Servicio caído" } :
-    alerts.some(a => a.severity === "critical") ? { tone: "down", label: "Alerta crítica activa" } :
-    alerts.length > 0                      ? { tone: "warn", label: "Alertas activas" } :
-    system?.backups?.daily && !system.backups.daily.healthy ? { tone: "warn", label: "Backup vencido" } :
-    worstWait > 5                          ? { tone: "warn", label: "Afiliados esperando hace rato" } :
-    { tone: "ok", label: "Todo en orden" };
+  // ── Chequeo 2: alertas ──
+  const alertTone: Tone =
+    alerts.some(a => a.severity === "critical") ? "down" :
+    alerts.length > 0 ? "warn" : "ok";
+
+  // ── Chequeo 3: errores backend ──
+  const errTone: Tone = recentErrors.length > 0 ? "warn" : "ok";
+
+  // ── Chequeo 4: backups + disco ──
+  const daily  = system?.backups?.daily;
+  const weekly = system?.backups?.weekly;
+  const diskPct = system?.storage?.used_pct ?? null;
+  const backupTone: Tone =
+    (daily && !daily.healthy) || (diskPct != null && diskPct >= 85) ? "down" :
+    (weekly && !weekly.healthy) || (diskPct != null && diskPct >= 70) || system?.backups == null ? "warn" :
+    "ok";
+  const backupSummary = system?.backups == null
+    ? "Sin acceso al repositorio de backups"
+    : [
+        daily  ? `diario ${relAge(daily.age_hours)}${daily.healthy ? "" : " (vencido)"}` : "sin backup diario",
+        weekly ? `semanal ${relAge(weekly.age_hours)}` : "sin semanal",
+        diskPct != null ? `disco ${diskPct.toFixed(0)}% usado` : null,
+      ].filter(Boolean).join(" · ");
+
+  // ── Chequeo 5: atención en vivo ──
+  const opsTone: Tone = worstWait > 5 ? "down" : totalWaiting > 0 ? "warn" : "ok";
+  const opsSummary = totalWaiting === 0 && totalAttending === 0
+    ? "Sin afiliados esperando ni en atención"
+    : `${totalWaiting} esperando · ${totalAttending} en atención${worstWait > 0 ? ` · la espera más antigua: ${worstWait < 1 ? "<1" : Math.round(worstWait)} min` : ""}`;
+
+  // ── Veredicto global = el peor de los chequeos ──
+  const tones = [svcTone, alertTone, errTone, backupTone, opsTone];
+  const globalStatus: { tone: Tone; label: string } =
+    tones.includes("down")
+      ? { tone: "down",
+          label: svcTone === "down" ? "Servicio caído" :
+                 alertTone === "down" ? "Alerta crítica activa" :
+                 backupTone === "down" ? "Backup o disco en riesgo" :
+                 "Afiliados esperando hace rato" }
+      : tones.includes("warn")
+      ? { tone: "warn", label: "Requiere atención" }
+      : { tone: "ok", label: "Todo en orden" };
 
   const tokensPerTenant = (traffic?.per_tenant ?? [])
     .filter(t => t.tokens_30d > 0)
@@ -83,10 +162,7 @@ export default function PlatformHomePage() {
             globalStatus.tone === "warn" ? "border-warning/30 bg-warning/10 text-warning" :
                                            "border-destructive/30 bg-destructive/10 text-destructive",
           )}>
-            <span className={cn(
-              "h-1.5 w-1.5 rounded-full",
-              globalStatus.tone === "ok" ? "bg-success" : globalStatus.tone === "warn" ? "bg-warning" : "bg-destructive animate-pulse motion-reduce:animate-none",
-            )} />
+            <span className={cn("h-1.5 w-1.5 rounded-full", DOT[globalStatus.tone])} />
             {globalStatus.label}
           </span>
         }
@@ -106,141 +182,120 @@ export default function PlatformHomePage() {
         <HeaderKpi
           label="Organizaciones activas"
           value={health?.active_tenants ?? 0}
-          tone="success"
           loading={!health}
         />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2 items-start">
+      {/* ── Salud de la plataforma — una fila por chequeo, detalle solo si hay problema ── */}
+      <Section icon={Activity} label="Salud de la plataforma" sublabel="se actualiza solo cada 30 segundos">
+        {loading ? (
+          <div className="space-y-2">{[1,2,3,4,5].map(i => <Skeleton key={i} className="h-10 rounded-lg" />)}</div>
+        ) : (
+          <div className="-m-4 divide-y">
 
-        {/* ── Atención al afiliado — el peor escenario primero ── */}
-        <Section icon={Headset} label="Atención en vivo" sublabel="colas de espera por organización">
-          {!ops ? (
-            <Skeleton className="h-16 rounded-lg" />
-          ) : queues.length === 0 ? (
-            <p className="text-sm text-success flex items-center gap-2 font-medium py-1">
-              <CheckCircle2 className="h-4 w-4 shrink-0" /> Sin conversaciones en espera ni en atención.
-            </p>
-          ) : (
-            <div className="space-y-2">
-              {queues.map(q => {
-                const critical = q.oldest_wait_min > 5;
-                const warn = q.oldest_wait_min > 2;
-                return (
-                  <button
-                    key={q.tenant_id}
-                    onClick={() => router.push(`/superadmin/tenants/${q.tenant_id}`)}
-                    className={cn(
-                      "w-full rounded-lg border px-3.5 py-2.5 flex items-center gap-3 text-left transition-colors",
-                      critical ? "bg-destructive/10 border-destructive/20 hover:bg-destructive/15" :
-                      warn     ? "bg-warning/10 border-warning/20 hover:bg-warning/15" :
-                                 "bg-muted/30 hover:bg-muted/50",
-                    )}
-                  >
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-semibold truncate">{q.tenant_name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {q.waiting > 0
-                          ? <>{q.waiting} esperando · la más antigua hace <span className={cn("font-semibold", critical ? "text-destructive" : warn ? "text-warning" : "")}>{q.oldest_wait_min < 1 ? "<1" : Math.round(q.oldest_wait_min)} min</span></>
-                          : "Sin cola"}
-                        {q.attending > 0 && <> · {q.attending} en atención</>}
-                      </p>
+            <StatusRow
+              tone={svcTone}
+              label="Servicios"
+              summary={svcTone === "ok"
+                ? "PostgreSQL, Redis, Backend y Groq operativos"
+                : `Caído: ${downServices.map(s => s.label).join(", ")}`}
+              href="/superadmin/monitoring"
+            />
+
+            <StatusRow
+              tone={alertTone}
+              label="Alertas"
+              summary={!alertsData?.available
+                ? "No se pudo consultar Alertmanager"
+                : alerts.length === 0
+                ? "Sin alertas activas"
+                : `${alerts.length} ${alerts.length === 1 ? "alerta activa" : "alertas activas"}`}
+              href="/superadmin/monitoring"
+            >
+              {alerts.length > 0 && (
+                <div className="space-y-2">
+                  {alerts.slice(0, 4).map((a, i) => (
+                    <div key={i} className={cn(
+                      "rounded-lg border px-3.5 py-2.5 flex items-start gap-2.5",
+                      a.severity === "critical" ? "bg-destructive/10 border-destructive/20" : "bg-warning/10 border-warning/20",
+                    )}>
+                      <AlertTriangle className={cn("h-4 w-4 mt-0.5 shrink-0", a.severity === "critical" ? "text-destructive" : "text-warning")} />
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold">{a.name}</p>
+                        {a.summary && <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{a.summary}</p>}
+                      </div>
                     </div>
-                    <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </Section>
-
-        {/* ── Alertas activas ── */}
-        <Section icon={BellRing} label="Alertas" sublabel="Alertmanager en vivo">
-          {!alertsData ? (
-            <Skeleton className="h-16 rounded-lg" />
-          ) : !alertsData.available ? (
-            <p className="text-sm text-muted-foreground flex items-center gap-2">
-              <AlertTriangle className="h-4 w-4 text-warning shrink-0" /> No se pudo consultar Alertmanager.
-            </p>
-          ) : alerts.length === 0 ? (
-            <p className="text-sm text-success flex items-center gap-2 font-medium py-1">
-              <CheckCircle2 className="h-4 w-4 shrink-0" /> Sin alertas activas.
-            </p>
-          ) : (
-            <div className="space-y-2">
-              {alerts.slice(0, 4).map((a, i) => (
-                <div key={i} className={cn(
-                  "rounded-lg border px-3.5 py-2.5 flex items-start gap-2.5",
-                  a.severity === "critical" ? "bg-destructive/10 border-destructive/20" : "bg-warning/10 border-warning/20",
-                )}>
-                  <AlertTriangle className={cn("h-4 w-4 mt-0.5 shrink-0", a.severity === "critical" ? "text-destructive" : "text-warning")} />
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold">{a.name}</p>
-                    {a.summary && <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{a.summary}</p>}
-                  </div>
+                  ))}
                 </div>
-              ))}
-              <Link href="/superadmin/monitoring" className="block text-xs text-action hover:underline pt-1">
-                Ver todas en Monitoreo →
-              </Link>
-            </div>
-          )}
-        </Section>
+              )}
+            </StatusRow>
 
-        {/* ── Errores recientes (solo ERROR) ── */}
-        <Section icon={Bug} label="Errores recientes" sublabel="del backend, en vivo">
-          {!errorsData ? (
-            <Skeleton className="h-16 rounded-lg" />
-          ) : recentErrors.length === 0 ? (
-            <p className="text-sm text-success flex items-center gap-2 font-medium py-1">
-              <CheckCircle2 className="h-4 w-4 shrink-0" /> Sin errores recientes.
-            </p>
-          ) : (
-            <div className="space-y-1.5">
-              <div className="rounded-lg border divide-y">
-                {recentErrors.slice(0, 5).map((e, i) => <ErrorRow key={i} e={e} />)}
-              </div>
-              <Link href="/superadmin/monitoring" className="block text-xs text-action hover:underline pt-1">
-                Ver el detalle en Monitoreo →
-              </Link>
-            </div>
-          )}
-        </Section>
+            <StatusRow
+              tone={errTone}
+              label="Errores backend"
+              summary={recentErrors.length === 0
+                ? "Sin errores recientes"
+                : `${recentErrors.length} ${recentErrors.length === 1 ? "error distinto" : "errores distintos"} en el buffer`}
+              href="/superadmin/monitoring"
+            >
+              {recentErrors.length > 0 && (
+                <div className="rounded-lg border divide-y">
+                  {recentErrors.slice(0, 3).map((e, i) => <ErrorRow key={i} e={e} />)}
+                </div>
+              )}
+            </StatusRow>
 
-        {/* ── Salud compacta: servicios + backup + disco ── */}
-        <Section icon={Activity} label="Infraestructura" sublabel="resumen — el detalle vive en Monitoreo">
-          {!system ? (
-            <Skeleton className="h-16 rounded-lg" />
-          ) : (
-            <div className="space-y-3">
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs">
-                {[
-                  { label: "PostgreSQL", up: system.postgres.up, icon: Database },
-                  { label: "Redis", up: system.redis.up, icon: Zap },
-                  { label: "Backend", up: system.backend.up, icon: Server },
-                  { label: "Groq", up: system.groq.total_calls === 0 ? true : (system.groq.by_model ?? []).every((m: any) => m.errors === 0 || m.errors < m.total), icon: Bot },
-                ].map(s => (
-                  <span key={s.label} className={cn("flex items-center gap-1.5 font-medium", s.up ? "text-success" : "text-destructive")}>
-                    <s.icon className="h-3.5 w-3.5" /> {s.label} {s.up ? "OK" : "CAÍDO"}
-                  </span>
-                ))}
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                <BackupStat label="Backup diario" b={system.backups?.daily} />
-                <BackupStat label="Backup semanal" b={system.backups?.weekly} />
-                <DiskStat storage={system.storage} />
-              </div>
-              <Link href="/superadmin/monitoring" className="block text-xs text-action hover:underline">
-                Métricas completas en Monitoreo →
-              </Link>
-            </div>
-          )}
-        </Section>
+            <StatusRow
+              tone={backupTone}
+              label="Backups y disco"
+              summary={backupSummary}
+              href="/superadmin/monitoring"
+            />
 
-      </div>
+            <StatusRow
+              tone={opsTone}
+              label="Atención en vivo"
+              summary={opsSummary}
+            >
+              {queues.length > 0 && (
+                <div className="space-y-2">
+                  {queues.map(q => {
+                    const critical = q.oldest_wait_min > 5;
+                    const warn = q.oldest_wait_min > 2;
+                    return (
+                      <button
+                        key={q.tenant_id}
+                        onClick={() => router.push(`/superadmin/tenants/${q.tenant_id}`)}
+                        className={cn(
+                          "w-full rounded-lg border px-3.5 py-2.5 flex items-center gap-3 text-left transition-colors",
+                          critical ? "bg-destructive/10 border-destructive/20 hover:bg-destructive/15" :
+                          warn     ? "bg-warning/10 border-warning/20 hover:bg-warning/15" :
+                                     "bg-muted/30 hover:bg-muted/50",
+                        )}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-semibold truncate">{q.tenant_name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {q.waiting > 0
+                              ? <>{q.waiting} esperando · la más antigua hace <span className={cn("font-semibold", critical ? "text-destructive" : warn ? "text-warning" : "")}>{q.oldest_wait_min < 1 ? "<1" : Math.round(q.oldest_wait_min)} min</span></>
+                              : "Sin cola"}
+                            {q.attending > 0 && <> · {q.attending} en atención</>}
+                          </p>
+                        </div>
+                        <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </StatusRow>
+
+          </div>
+        )}
+      </Section>
 
       {/* ── Consumo LLM 30 días por organización (base de facturación) ── */}
-      <Section icon={Coins} label="Consumo LLM — 30 días" sublabel="tokens por organización (usage_events) — base para facturación">
+      <Section icon={Coins} label="Consumo LLM — 30 días" sublabel="tokens por organización — base para facturación">
         {!traffic ? (
           <Skeleton className="h-16 rounded-lg" />
         ) : tokensPerTenant.length === 0 ? (
