@@ -621,15 +621,15 @@ export default function TenantDetailPage() {
                 <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2">
                   Consultas por día — últimos 7 días
                 </p>
-                <div className="flex items-end gap-1.5 h-16">
+                <div className="flex items-end gap-1.5">
                   {healthData.activity.queries_by_day.map(d => {
                     const max = Math.max(...healthData.activity.queries_by_day.map(x => x.queries), 1);
                     return (
-                      <div key={d.day} className="flex-1 flex flex-col items-center gap-1 min-w-0">
+                      <div key={d.day} className="flex-1 flex flex-col items-center justify-end gap-1 min-w-0">
                         <span className="text-[10px] text-muted-foreground tabular-nums">{d.queries}</span>
                         <div
-                          className="w-full rounded-sm bg-action-gradient opacity-80"
-                          style={{ height: `${Math.max(6, (d.queries / max) * 100)}%` }}
+                          className="w-full max-w-[64px] rounded-sm bg-action-gradient opacity-80"
+                          style={{ height: `${Math.max(4, Math.round((d.queries / max) * 48))}px` }}
                         />
                         <span className="text-[9px] text-muted-foreground/70 tabular-nums">
                           {new Date(d.day + "T00:00:00").toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit" })}
