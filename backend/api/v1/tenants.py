@@ -276,7 +276,22 @@ async def reset_tenant_onboarding(
 
     async with get_pg_session(tenant_id) as session:
         await session.execute(text("DELETE FROM conversaciones"))
-        await session.execute(text("DELETE FROM sectores"))
+        # NO borrar el sector default: el DELETE total cascadea operador_sectores y deja
+        # a los operadores invisibles para el handoff. Borramos solo los no-default,
+        # garantizamos un default activo, y reasignamos los operadores a él.
+        await session.execute(text("DELETE FROM sectores WHERE is_default = FALSE"))
+        await session.execute(text("""
+            INSERT INTO sectores (nombre, descripcion, is_default, is_active)
+            VALUES ('Consultas Generales', 'Sector por defecto', TRUE, TRUE)
+            ON CONFLICT (nombre) DO UPDATE SET is_active = TRUE, is_default = TRUE
+        """))
+        await session.execute(text("""
+            INSERT INTO operador_sectores (operador_id, sector_id)
+            SELECT u.id, s.id FROM usuarios u
+            CROSS JOIN (SELECT id FROM sectores WHERE is_default = TRUE LIMIT 1) s
+            WHERE u.role = 'operator' AND u.is_active = TRUE
+            ON CONFLICT DO NOTHING
+        """))
 
     redis = get_redis_cache()
     try:

@@ -417,6 +417,12 @@ async def refresh_token(request: Request, response: Response):
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
+    # Un tenant suspendido debe cortar también el refresh, no solo el access token:
+    # sin esto, la cookie de refresh (válida 30 días) seguía emitiendo access tokens
+    # nuevos de un tenant ya suspendido.
+    from core.security import _assert_tenant_active
+    await _assert_tenant_active(tenant_id)
+
     role = Role(user.role) if user.role in Role._value2member_map_ else Role.OPERATOR
     access_token = create_access_token(user_id, tenant_id, role, email=user.email)
     return TokenResponse(access_token=access_token, expires_in=settings.jwt_expire_minutes * 60)
