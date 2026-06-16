@@ -1558,9 +1558,21 @@ def _backups_status() -> dict | None:
             })
         return out
 
+    daily = _latest("daily", 26)
+    weekly = _latest("weekly", 8 * 24)
+
+    # Los domingos el cron del diario no corre (corre Lun-Sáb 03:00 UTC); ese
+    # día el weekly de la madrugada cubre la ventana. Sin este ajuste, cada
+    # domingo el panel marca el diario como "Vencido" (~34h) pese a que el
+    # backup está sano. El diario se considera al día si hubo un dump completo
+    # de cualquier tipo en las últimas 26h.
+    if daily and not daily["healthy"] and weekly and weekly["age_hours"] <= 26:
+        daily["healthy"] = True
+        daily["covered_by_weekly"] = True
+
     return {
-        "daily": _latest("daily", 26),
-        "weekly": _latest("weekly", 8 * 24),
+        "daily": daily,
+        "weekly": weekly,
         "daily_history": _history("daily"),
     }
 
