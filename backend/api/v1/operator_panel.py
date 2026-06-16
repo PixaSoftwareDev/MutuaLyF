@@ -954,6 +954,7 @@ async def list_sectors(
             FROM sectores s
             LEFT JOIN operador_sectores os ON os.sector_id = s.id
             LEFT JOIN conversaciones c ON c.sector_id = s.id
+            WHERE s.is_active = TRUE
             GROUP BY s.id ORDER BY s.nombre
         """))
         return [dict(r) for r in result.mappings().all()]
@@ -967,13 +968,18 @@ async def set_default_sector(
 ):
     """Mark one sector as default (unsets all others atomically)."""
     async with get_pg_session(tenant_id) as session:
-        await session.execute(text("UPDATE sectores SET is_default = FALSE"))
-        result = await session.execute(
-            text("UPDATE sectores SET is_default = TRUE WHERE id = :id AND is_active = TRUE RETURNING id"),
+        # Validar ANTES de desmarcar para no dejar al tenant sin default si el id es inválido.
+        target = await session.execute(
+            text("SELECT 1 FROM sectores WHERE id = :id AND is_active = TRUE"),
             {"id": sector_id},
         )
-        if not result.fetchone():
+        if target.fetchone() is None:
             raise HTTPException(status_code=404, detail="Sector no encontrado o inactivo")
+        await session.execute(text("UPDATE sectores SET is_default = FALSE"))
+        await session.execute(
+            text("UPDATE sectores SET is_default = TRUE WHERE id = :id"),
+            {"id": sector_id},
+        )
         await session.commit()
     return {"id": sector_id, "is_default": True}
 
@@ -985,19 +991,36 @@ async def create_sector(
     tenant_id: str = Depends(get_tenant_id),
     current_user: CurrentUser = Depends(require_admin),
 ):
+    nombre = body.nombre.strip()
     async with get_pg_session(tenant_id) as session:
-        result = await session.execute(text("""
-            INSERT INTO sectores (nombre, descripcion) VALUES (:nombre, :desc)
-            RETURNING id, nombre
-        """), {"nombre": body.nombre, "desc": body.descripcion})
-        row = result.fetchone()
+        existing = await session.execute(
+            text("SELECT id, is_active FROM sectores WHERE nombre = :nombre"),
+            {"nombre": nombre},
+        )
+        ex = existing.mappings().fetchone()
+        if ex and ex["is_active"]:
+            raise HTTPException(status_code=409, detail="Ya existe un sector con ese nombre")
+        if ex:
+            # Reactivar un sector dado de baja (nombre es UNIQUE: no se puede re-insertar).
+            # Sin esto, recrear un sector borrado con el mismo nombre fallaba para siempre.
+            sector_id = str(ex["id"])
+            await session.execute(
+                text("UPDATE sectores SET descripcion = :desc, is_active = TRUE WHERE id = :id"),
+                {"id": sector_id, "desc": body.descripcion},
+            )
+        else:
+            result = await session.execute(text("""
+                INSERT INTO sectores (nombre, descripcion) VALUES (:nombre, :desc)
+                RETURNING id
+            """), {"nombre": nombre, "desc": body.descripcion})
+            sector_id = str(result.scalar_one())
     from core.audit import record as audit, fire_and_log
     fire_and_log(audit(
         tenant_id=tenant_id, actor_id=current_user.user_id, actor_email=current_user.email,
         actor_role=current_user.role.value, action="sector.created",
-        resource=str(row[0]), detail={"nombre": body.nombre}, request=request,
+        resource=sector_id, detail={"nombre": nombre}, request=request,
     ))
-    return {"id": str(row[0]), "nombre": row[1]}
+    return {"id": sector_id, "nombre": nombre}
 
 
 @router.patch("/admin/sectors/{sector_id}")
@@ -1007,10 +1030,22 @@ async def update_sector(
     tenant_id: str = Depends(get_tenant_id),
     current_user: CurrentUser = Depends(require_admin),
 ):
+    nombre = body.nombre.strip()
     async with get_pg_session(tenant_id) as session:
-        await session.execute(text("""
-            UPDATE sectores SET nombre = :nombre, descripcion = :desc WHERE id = :id
-        """), {"id": sector_id, "nombre": body.nombre, "desc": body.descripcion})
+        # Colisión con OTRO sector (activo o inactivo) con ese nombre → 409 claro
+        # en vez de un 500 por el UNIQUE.
+        clash = await session.execute(
+            text("SELECT 1 FROM sectores WHERE nombre = :nombre AND id <> :id"),
+            {"nombre": nombre, "id": sector_id},
+        )
+        if clash.fetchone():
+            raise HTTPException(status_code=409, detail="Ya existe un sector con ese nombre")
+        result = await session.execute(text("""
+            UPDATE sectores SET nombre = :nombre, descripcion = :desc
+            WHERE id = :id AND is_active = TRUE RETURNING id
+        """), {"id": sector_id, "nombre": nombre, "desc": body.descripcion})
+        if result.fetchone() is None:
+            raise HTTPException(status_code=404, detail="Sector no encontrado")
     return {"id": sector_id, "status": "updated"}
 
 

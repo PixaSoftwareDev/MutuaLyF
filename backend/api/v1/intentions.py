@@ -253,22 +253,39 @@ async def create_intention(
     """Manually create and activate a new intention with optional seed examples."""
     async with get_pg_session(tenant_id) as session:
         existing = await session.execute(
-            text("SELECT id FROM intenciones WHERE label = :label"),
+            text("SELECT id, is_active FROM intenciones WHERE label = :label"),
             {"label": body.label},
         )
-        if existing.fetchone():
-            raise HTTPException(status_code=409, detail="Intention with this label already exists")
+        ex = existing.mappings().fetchone()
+        if ex and ex["is_active"]:
+            raise HTTPException(status_code=409, detail="Ya existe una intención con ese label")
 
-        intention_id = str(uuid.uuid4())
-        await session.execute(text("""
-            INSERT INTO intenciones (id, label, description, example_count, is_active)
-            VALUES (:id, :label, :description, :example_count, TRUE)
-        """), {
-            "id": intention_id,
-            "label": body.label,
-            "description": body.description,
-            "example_count": len(body.examples),
-        })
+        if ex:
+            # Reactivar una intención dada de baja (label es UNIQUE). Como es una
+            # recreación manual, se resetea description/example_count y el contador de
+            # auto-aprendizaje (no heredar el cap 30% viejo).
+            intention_id = str(ex["id"])
+            await session.execute(text("""
+                UPDATE intenciones
+                SET description = :description, example_count = :example_count,
+                    auto_learned_count = 0, is_active = TRUE, updated_at = NOW()
+                WHERE id = :id
+            """), {
+                "id": intention_id,
+                "description": body.description,
+                "example_count": len(body.examples),
+            })
+        else:
+            intention_id = str(uuid.uuid4())
+            await session.execute(text("""
+                INSERT INTO intenciones (id, label, description, example_count, is_active)
+                VALUES (:id, :label, :description, :example_count, TRUE)
+            """), {
+                "id": intention_id,
+                "label": body.label,
+                "description": body.description,
+                "example_count": len(body.examples),
+            })
 
     # Embed and index examples in Qdrant
     if body.examples:
@@ -459,10 +476,19 @@ async def update_intention(
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
 
-    set_clause = ", ".join(f"{k} = :{k}" for k in updates)
-    updates["id"] = intention_id
-
     async with get_pg_session(tenant_id) as session:
+        # Si se renombra el label, validar colisión con otra intención (activa o no)
+        # para devolver 409 claro en vez de un 500 por el UNIQUE.
+        if "label" in updates:
+            clash = await session.execute(
+                text("SELECT 1 FROM intenciones WHERE label = :label AND id <> :id"),
+                {"label": updates["label"], "id": intention_id},
+            )
+            if clash.fetchone():
+                raise HTTPException(status_code=409, detail="Ya existe una intención con ese label")
+
+        set_clause = ", ".join(f"{k} = :{k}" for k in updates)
+        updates["id"] = intention_id
         result = await session.execute(
             text(f"UPDATE intenciones SET {set_clause}, updated_at = NOW() WHERE id = :id RETURNING id"),
             updates,
