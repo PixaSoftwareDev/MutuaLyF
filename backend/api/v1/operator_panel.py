@@ -551,9 +551,19 @@ async def transfer(
     # (el filtro evalúa el sector ACTUAL/origen, no el destino). Admin sin filtro.
     scope_sql, scope_params = _operator_sector_scope(current_user, "sector_id")
     async with get_pg_session(tenant_id) as session:
+        # Validar el sector destino: debe existir y estar activo. Sin esto, transferir
+        # a un sector inexistente/inactivo dejaba la conversación en una cola que no
+        # aparece en ningún lado → huérfana hasta el auto-cierre.
+        dest = await session.execute(
+            text("SELECT 1 FROM sectores WHERE id = :sid AND is_active = TRUE"),
+            {"sid": body.sector_id},
+        )
+        if dest.fetchone() is None:
+            raise HTTPException(status_code=404, detail="El sector destino no existe o está inactivo.")
+
         # Guard de estado: solo se transfiere una conversación ACTIVA (en cola o
-        # siendo atendida). Sin esto, transferir una conversación cerrada la
-        # resucitaba en la cola con un "caso nuevo" que el afiliado ya abandonó.
+        # siendo atendida) y a un sector DISTINTO del actual. Sin esto, transferir una
+        # cerrada la resucitaba, y transferir al mismo sector era un release encubierto.
         result = await session.execute(text(f"""
             UPDATE conversaciones
             SET sector_id = :sector_id,
@@ -561,13 +571,14 @@ async def transfer(
                 assigned_operator_id = NULL,
                 handoff_requested_at = NOW(),
                 updated_at = NOW()
-            WHERE id = :id AND status IN ('handoff_requested', 'human_attending'){scope_sql}
+            WHERE id = :id AND status IN ('handoff_requested', 'human_attending')
+              AND sector_id <> :sector_id{scope_sql}
             RETURNING id
         """), {"id": conversation_id, "sector_id": body.sector_id, **scope_params})
         if result.fetchone() is None:
             raise HTTPException(
                 status_code=409,
-                detail="No se puede transferir esta conversación: está cerrada, no existe o no pertenece a tus sectores.",
+                detail="No se puede transferir: está cerrada, ya está en ese sector, no existe o no pertenece a tus sectores.",
             )
 
         msg = body.message or config["transition_messages"].get("sector_transferred") or "Tu consulta fue derivada al área correspondiente."

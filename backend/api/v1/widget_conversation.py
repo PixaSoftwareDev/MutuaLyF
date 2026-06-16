@@ -232,10 +232,19 @@ async def send_message(
     # If handoff requested, hold bot response
     if conv_status == ConvStatus.HANDOFF_REQUESTED:
         async with get_pg_session(tenant_id) as session:
-            await session.execute(text("""
-                INSERT INTO mensajes (conversation_id, sender_type, content)
-                VALUES (:cid, 'system', 'Tu consulta está en cola. Un operador te atenderá pronto.')
-            """), {"cid": conversation_id})
+            # No spamear el cartel "en cola": insertarlo solo si el último mensaje del
+            # sistema no es ya ese (el afiliado puede escribir varias veces esperando).
+            queue_msg = "Tu consulta está en cola. Un operador te atenderá pronto."
+            last_sys = (await session.execute(text("""
+                SELECT content FROM mensajes
+                WHERE conversation_id = :cid AND sender_type = 'system'
+                ORDER BY created_at DESC LIMIT 1
+            """), {"cid": conversation_id})).fetchone()
+            if not last_sys or last_sys[0] != queue_msg:
+                await session.execute(text("""
+                    INSERT INTO mensajes (conversation_id, sender_type, content)
+                    VALUES (:cid, 'system', :msg)
+                """), {"cid": conversation_id, "msg": queue_msg})
         return {"message_id": msg_id, "status": conv_status, "bot_response": None}
 
     # El bot siempre corre el RAG. La unica regla de derivacion mira el
