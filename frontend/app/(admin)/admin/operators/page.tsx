@@ -294,6 +294,7 @@ function OperatorCard({
   onDeleted: () => void;
 }) {
   const activeSectors = sectors.filter(s => s.is_active);
+  const [showEditData, setShowEditData]     = useState(false);
   const [showEdit, setShowEdit]             = useState(false);
   const [showDeactivate, setShowDeactivate] = useState(false);
 
@@ -332,8 +333,12 @@ function OperatorCard({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-44">
-              <DropdownMenuItem onSelect={() => setShowEdit(true)}>
+              <DropdownMenuItem onSelect={() => setShowEditData(true)}>
                 <Pencil className="h-4 w-4 mr-2" />
+                Editar datos
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setShowEdit(true)}>
+                <Users className="h-4 w-4 mr-2" />
                 Editar sectores
               </DropdownMenuItem>
               <DropdownMenuSeparator />
@@ -379,6 +384,13 @@ function OperatorCard({
           )}
         </div>
       </div>
+
+      <EditUserSheet
+        open={showEditData}
+        onOpenChange={setShowEditData}
+        operator={operator}
+        onSaved={onDeleted}
+      />
 
       <EditSectorsSheet
         open={showEdit}
@@ -490,6 +502,82 @@ function EditSectorsSheet({
           Tenés que asignar al menos un sector. Sin sectores el operador no recibe ninguna consulta.
         </p>
       )}
+    </FormSheet>
+  );
+}
+
+// ── Panel editar datos del usuario (nombre / email) ──────────────────────────
+
+function EditUserSheet({
+  open, onOpenChange, operator, onSaved,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  operator: OperatorUser;
+  onSaved: () => void;
+}) {
+  const [name, setName]   = useState(operator.name);
+  const [email, setEmail] = useState(operator.email);
+
+  // Re-sync al abrir (por si cambió en background)
+  useEffect(() => {
+    if (open) { setName(operator.name); setEmail(operator.email); }
+  }, [open, operator.name, operator.email]);
+
+  const dirty =
+    name.trim() !== operator.name ||
+    email.trim().toLowerCase() !== operator.email.toLowerCase();
+
+  const saveM = useMutation({
+    mutationFn: async () => {
+      const payload: { name?: string; email?: string } = {};
+      if (name.trim() !== operator.name) payload.name = name.trim();
+      if (email.trim().toLowerCase() !== operator.email.toLowerCase()) payload.email = email.trim();
+      await apiClient.patch(`/admin/operators/${operator.id}`, payload);
+    },
+    onSuccess: () => {
+      onSaved();
+      toast({ title: "Datos actualizados", variant: "success" });
+      onOpenChange(false);
+    },
+    onError: (err: any) => {
+      const detail = err?.response?.data?.detail;
+      toast({ title: typeof detail === "string" ? detail : "No se pudo guardar", variant: "destructive" });
+    },
+  });
+
+  return (
+    <FormSheet
+      open={open}
+      onOpenChange={onOpenChange}
+      icon={Pencil}
+      title="Editar datos"
+      description={<>Corregí el nombre o el email de <span className="font-medium text-foreground">{operator.name}</span>.</>}
+      footer={
+        <>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
+          <Button
+            onClick={() => saveM.mutate()}
+            disabled={!dirty || !name.trim() || !email.trim() || saveM.isPending}
+          >
+            {saveM.isPending
+              ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+              : <Check className="h-4 w-4 mr-1.5" />}
+            Guardar cambios
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-5">
+        <div className="space-y-2">
+          <Label htmlFor="edit-name">Nombre</Label>
+          <Input id="edit-name" value={name} onChange={e => setName(e.target.value)} autoFocus />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="edit-email">Email</Label>
+          <Input id="edit-email" type="email" value={email} onChange={e => setEmail(e.target.value)} />
+        </div>
+      </div>
     </FormSheet>
   );
 }

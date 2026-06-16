@@ -1280,6 +1280,70 @@ async def create_operator(
             "role": reactivated_role, "is_active": True, "invitation_sent": invitation_sent if invite else None}
 
 
+class UpdateOperatorRequest(BaseModel):
+    name:  str | None = Field(default=None, min_length=1, max_length=120)
+    email: EmailStr | None = None
+
+
+@router.patch("/admin/operators/{operator_id}")
+async def update_operator(
+    operator_id: str,
+    body: UpdateOperatorRequest,
+    request: Request,
+    tenant_id: str = Depends(get_tenant_id),
+    current_user: CurrentUser = Depends(require_admin),
+):
+    """Editar nombre y/o email de un usuario activo del tenant.
+
+    No cambia rol ni contraseña (otros flujos). El email se re-valida contra el
+    UNIQUE para no chocar con otro usuario. Sin esto, un email mal escrito al crear
+    solo se podía corregir borrando y recreando.
+    """
+    _assert_tenant_access(current_user, tenant_id)
+    updates: list[str] = []
+    params: dict[str, str] = {"id": operator_id}
+
+    async with get_pg_session(tenant_id) as session:
+        target = await session.execute(text(
+            "SELECT role FROM usuarios WHERE id = :id AND is_active = TRUE"
+        ), {"id": operator_id})
+        target_row = target.fetchone()
+        if target_row is None:
+            raise HTTPException(status_code=404, detail="Usuario no encontrado")
+        # Simetría con el borrado: un admin no edita a otro admin (solo super_admin).
+        if target_row[0] == "admin" and current_user.role != Role.SUPER_ADMIN:
+            raise HTTPException(status_code=403, detail="No tenés permiso para editar a un administrador")
+
+        if body.name:
+            updates.append("name = :name")
+            params["name"] = body.name.strip()
+        if body.email:
+            email_norm = body.email.lower().strip()
+            clash = await session.execute(text(
+                "SELECT 1 FROM usuarios WHERE email = :email AND id <> :id"
+            ), {"email": email_norm, "id": operator_id})
+            if clash.fetchone():
+                raise HTTPException(status_code=409, detail="Ya existe otro usuario con ese email")
+            updates.append("email = :email")
+            params["email"] = email_norm
+
+        if not updates:
+            raise HTTPException(status_code=400, detail="No hay cambios para guardar")
+
+        await session.execute(text(
+            f"UPDATE usuarios SET {', '.join(updates)}, updated_at = NOW() WHERE id = :id"
+        ), params)
+
+    from core.audit import record as audit, fire_and_log
+    fire_and_log(audit(
+        tenant_id=tenant_id, actor_id=current_user.user_id, actor_email=current_user.email,
+        actor_role=current_user.role.value, action="user.updated",
+        resource=operator_id, detail={k: v for k, v in params.items() if k != "id"},
+        request=request,
+    ))
+    return {"id": operator_id, "updated": True}
+
+
 @router.delete("/admin/operators/{operator_id}", status_code=204)
 async def deactivate_operator(
     operator_id: str,
