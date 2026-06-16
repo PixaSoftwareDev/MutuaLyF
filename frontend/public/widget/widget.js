@@ -130,7 +130,7 @@
     "#ia-w-badge{position:absolute;top:-4px;right:-4px;background:#ef4444;color:#fff;border-radius:50%;width:20px;height:20px;font-size:11px;display:none;align-items:center;justify-content:center;font-weight:700;border:2px solid #fff;}",
 
     // Panel
-    "#ia-w-panel{position:fixed;bottom:100px;right:24px;width:" + PANEL_WIDTH + "px;max-width:calc(100vw - 32px);height:" + PANEL_HEIGHT + "px;max-height:calc(100vh - 130px);border-radius:16px;background:" + SLATE_50 + ";color:" + SLATE_800 + ";color-scheme:light;box-shadow:0 12px 40px rgba(0,0,0,.18);z-index:2147483000;display:none;flex-direction:column;font-family:'Inter',system-ui,-apple-system,sans-serif;overflow:hidden;}",
+    "#ia-w-panel{position:fixed;bottom:24px;right:24px;width:" + PANEL_WIDTH + "px;max-width:calc(100vw - 32px);height:" + PANEL_HEIGHT + "px;max-height:calc(100vh - 48px);border-radius:16px;background:" + SLATE_50 + ";color:" + SLATE_800 + ";color-scheme:light;box-shadow:0 12px 40px rgba(0,0,0,.18);z-index:2147483000;display:none;flex-direction:column;font-family:'Inter',system-ui,-apple-system,sans-serif;overflow:hidden;}",
     "#ia-w-panel *,#ia-w-panel *::before,#ia-w-panel *::after{box-sizing:border-box;color-scheme:light;}",
     "#ia-w-panel.open{display:flex;animation:ia-slideup .25s cubic-bezier(.16,1,.3,1);}",
     "@keyframes ia-slideup{from{opacity:0;transform:translateY(20px);}to{opacity:1;transform:translateY(0);}}",
@@ -141,8 +141,8 @@
     "#ia-w-panel ::-webkit-scrollbar-thumb{background:" + SLATE_300 + ";border-radius:8px;border:2px solid transparent;background-clip:content-box;}",
     "#ia-w-panel{scrollbar-width:thin;scrollbar-color:" + SLATE_300 + " transparent;}",
     // Responsive
-    "@media (max-width:640px){#ia-w-panel{bottom:0;right:0;left:0;top:0;width:100vw;height:100vh;max-width:100vw;max-height:100vh;border-radius:0;}#ia-w-btn{bottom:16px;right:16px;width:56px;height:56px;}#ia-w-panel.open ~ #ia-w-btn{display:none;}}",
-    "@media (min-width:1441px){#ia-w-panel{width:440px;height:700px;bottom:110px;right:32px;}#ia-w-btn{width:72px;height:72px;bottom:32px;right:32px;}}",
+    "@media (max-width:640px){#ia-w-panel{bottom:0;right:0;left:0;top:0;width:100vw;height:100vh;max-width:100vw;max-height:100vh;border-radius:0;}#ia-w-btn{bottom:16px;right:16px;width:56px;height:56px;}}",
+    "@media (min-width:1441px){#ia-w-panel{width:440px;height:700px;bottom:32px;right:32px;}#ia-w-btn{width:72px;height:72px;bottom:32px;right:32px;}}",
 
     // Header — gradiente que cambia por estado (igual que /chat)
     "#ia-w-header{flex-shrink:0;padding:0 16px;height:64px;display:flex;align-items:center;gap:12px;background:linear-gradient(to right,var(--ia-brand-dark),var(--ia-brand),var(--ia-brand-light));box-shadow:0 4px 12px rgba(0,0,0,.18);transition:background .5s;z-index:10;}",
@@ -332,7 +332,12 @@
   // ── Events ──────────────────────────────────────────────────────────────────
   btn.addEventListener("click", function () {
     panel.classList.toggle("open");
-    if (panel.classList.contains("open")) {
+    var isOpen = panel.classList.contains("open");
+    // Ocultar el FAB mientras el panel está abierto (se cierra con el × del
+    // header). Por JS y no por CSS: el botón se monta antes que el panel en el
+    // DOM, así que el selector hermano "#ia-w-panel.open ~ #ia-w-btn" no aplica.
+    btn.style.display = isOpen ? "none" : "flex";
+    if (isOpen) {
       badge.style.display = "none";
       if (conversationId) { /* ya en chat */ }
       else if (rememberedSector) { _enterChat(rememberedSector); }
@@ -342,6 +347,7 @@
 
   document.getElementById("ia-w-close").addEventListener("click", function () {
     panel.classList.remove("open");
+    btn.style.display = "flex";
   });
 
   backBtn.addEventListener("click", function () {
