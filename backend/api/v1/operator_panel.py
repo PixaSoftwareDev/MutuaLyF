@@ -1098,6 +1098,14 @@ async def assign_sectors(
             detail="Debes asignar al menos un sector al operador",
         )
     async with get_pg_session(tenant_id) as session:
+        # Validar que el id sea un usuario activo del tenant (operador/admin) antes de
+        # tocar operador_sectores: evita asignar sectores a un id arbitrario o inactivo.
+        valid = await session.execute(text(
+            "SELECT 1 FROM usuarios WHERE id = :uid AND is_active = TRUE "
+            "AND role IN ('operator', 'admin')"
+        ), {"uid": operator_id})
+        if valid.fetchone() is None:
+            raise HTTPException(status_code=404, detail="Operador no encontrado")
         await session.execute(
             text("DELETE FROM operador_sectores WHERE operador_id = :uid"),
             {"uid": operator_id},
@@ -1192,25 +1200,36 @@ async def create_operator(
     email_norm = body.email.lower().strip()
     async with get_pg_session(tenant_id) as session:
         existing = await session.execute(
-            text("SELECT id, is_active FROM usuarios WHERE email = :email"),
+            text("SELECT id, is_active, role FROM usuarios WHERE email = :email"),
             {"email": email_norm},
         )
         existing_row = existing.mappings().fetchone()
         if existing_row and existing_row["is_active"]:
             raise HTTPException(status_code=409, detail="Ya existe un usuario con ese email")
 
+        reactivated_role = "operator"
         if existing_row:
             # El email pertenece a un usuario dado de baja (soft-delete is_active=false).
-            # Como email es UNIQUE no se puede re-insertar: lo REACTIVAMOS como operador
-            # nuevo (nombre/clave nuevos, rol operator). Sin esto, recrear un usuario
-            # borrado con el mismo mail respondía 409 para siempre.
+            # Como email es UNIQUE no se puede re-insertar: lo REACTIVAMOS con nombre/clave
+            # nuevos. PRESERVAMOS el rol previo: si era admin NO lo degradamos a operator
+            # (recrear sobre el email de un admin de baja lo bajaba en silencio).
             new_id = str(existing_row["id"])
+            reactivated_role = existing_row["role"] or "operator"
             await session.execute(text("""
                 UPDATE usuarios
-                SET name = :name, hashed_password = :pwd, role = 'operator',
+                SET name = :name, hashed_password = :pwd,
                     is_active = TRUE, updated_at = NOW()
                 WHERE id = :id
             """), {"id": new_id, "name": body.name.strip(), "pwd": hash_password(effective_password)})
+            # Limpiar estado que sobrevive a la baja (el id se reusa): tokens de
+            # invitación/reset vivos (revivirían) y sectores heredados del usuario viejo.
+            await session.execute(text(
+                "UPDATE public.password_reset_tokens SET used_at = NOW() "
+                "WHERE user_id = :id AND tenant_id = :tid AND used_at IS NULL"
+            ), {"id": new_id, "tid": tenant_id})
+            await session.execute(text(
+                "DELETE FROM operador_sectores WHERE operador_id = :id"
+            ), {"id": new_id})
         else:
             new_id = str(uuid.uuid4())
             await session.execute(text("""
@@ -1258,7 +1277,7 @@ async def create_operator(
         request=request,
     ))
     return {"id": new_id, "email": body.email.lower().strip(), "name": body.name.strip(),
-            "role": "operator", "is_active": True, "invitation_sent": invitation_sent if invite else None}
+            "role": reactivated_role, "is_active": True, "invitation_sent": invitation_sent if invite else None}
 
 
 @router.delete("/admin/operators/{operator_id}", status_code=204)
@@ -1287,6 +1306,17 @@ async def deactivate_operator(
         freed = await release_operator_conversations(session, operator_id)
         if freed:
             logger.info("operator_deactivated_freed_convs operator=%s count=%d", operator_id, freed)
+
+        # Limpiar el estado que sobrevive a la baja (el id se reusa si luego se reactiva):
+        # sectores asignados (consistente con delete_sector) y tokens de invitación/reset
+        # vivos, que de otro modo revivirían al reactivar la cuenta con el mismo id.
+        await session.execute(text(
+            "DELETE FROM operador_sectores WHERE operador_id = :id"
+        ), {"id": operator_id})
+        await session.execute(text(
+            "UPDATE public.password_reset_tokens SET used_at = NOW() "
+            "WHERE user_id = :id AND tenant_id = :tid AND used_at IS NULL"
+        ), {"id": operator_id, "tid": tenant_id})
 
     logger.info("operator_deactivated id=%s tenant=%s by=%s", operator_id, tenant_id, current_user.user_id)
     from core.audit import record as audit, fire_and_log
