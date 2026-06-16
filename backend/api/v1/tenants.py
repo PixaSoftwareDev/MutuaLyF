@@ -1197,6 +1197,15 @@ async def update_tenant_user(
         if body.is_active is False:
             from services.handoff import release_operator_conversations
             await release_operator_conversations(session, user_id)
+            # Consistente con el borrado de operadores: limpiar sectores y tokens vivos
+            # (el id se reusa si luego se reactiva → un token viejo revivía).
+            await session.execute(text(
+                "DELETE FROM operador_sectores WHERE operador_id = :id"
+            ), {"id": user_id})
+            await session.execute(text(
+                "UPDATE public.password_reset_tokens SET used_at = NOW() "
+                "WHERE user_id = :id AND tenant_id = :tid AND used_at IS NULL"
+            ), {"id": user_id, "tid": tenant_id})
 
     logger.info("tenant_user_updated tenant=%s user=%s by=%s", tenant_id, user_id, current_user.user_id)
     return {"id": str(row["id"]), "email": row["email"], "name": row["name"], "role": row["role"], "is_active": row["is_active"]}
@@ -1226,24 +1235,47 @@ async def create_tenant_admin(
     invite = body.password is None
     effective_password = body.password or _secrets.token_urlsafe(24)
 
+    email_norm = body.email.lower().strip()
     async with get_pg_session(tenant_id) as session:
         existing = await session.execute(
-            text("SELECT id FROM usuarios WHERE email = :email"),
-            {"email": body.email.lower().strip()},
+            text("SELECT id, is_active FROM usuarios WHERE email = :email"),
+            {"email": email_norm},
         )
-        if existing.scalar_one_or_none():
+        existing_row = existing.mappings().fetchone()
+        if existing_row and existing_row["is_active"]:
             raise HTTPException(status_code=409, detail="Ya existe un usuario con ese email en este tenant")
 
-        new_id = str(uuid.uuid4())
-        await session.execute(text("""
-            INSERT INTO usuarios (id, email, name, hashed_password, role, is_active)
-            VALUES (:id, :email, :name, :pwd, 'admin', true)
-        """), {
-            "id": new_id,
-            "email": body.email.lower().strip(),
-            "name": body.name.strip(),
-            "pwd": hash_password(effective_password),
-        })
+        if existing_row:
+            # Email de una cuenta dada de baja (email es UNIQUE): la REACTIVAMOS como
+            # admin (el super-admin la está recreando explícitamente). Sin esto, recrear
+            # un usuario borrado con el mismo mail respondía 409 para siempre.
+            new_id = str(existing_row["id"])
+            await session.execute(text("""
+                UPDATE usuarios
+                SET name = :name, hashed_password = :pwd, role = 'admin',
+                    is_active = TRUE, updated_at = NOW()
+                WHERE id = :id
+            """), {"id": new_id, "name": body.name.strip(), "pwd": hash_password(effective_password)})
+            # Limpiar estado que sobrevive a la baja (el id se reusa): tokens vivos y
+            # sectores heredados.
+            await session.execute(text(
+                "UPDATE public.password_reset_tokens SET used_at = NOW() "
+                "WHERE user_id = :id AND tenant_id = :tid AND used_at IS NULL"
+            ), {"id": new_id, "tid": tenant_id})
+            await session.execute(text(
+                "DELETE FROM operador_sectores WHERE operador_id = :id"
+            ), {"id": new_id})
+        else:
+            new_id = str(uuid.uuid4())
+            await session.execute(text("""
+                INSERT INTO usuarios (id, email, name, hashed_password, role, is_active)
+                VALUES (:id, :email, :name, :pwd, 'admin', true)
+            """), {
+                "id": new_id,
+                "email": email_norm,
+                "name": body.name.strip(),
+                "pwd": hash_password(effective_password),
+            })
 
     invitation_sent = False
     if invite:
