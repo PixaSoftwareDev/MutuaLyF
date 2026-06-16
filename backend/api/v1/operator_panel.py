@@ -1121,7 +1121,7 @@ async def list_operators(
         result = await session.execute(text("""
             SELECT id, email, name, role, is_active, created_at
             FROM usuarios
-            WHERE role IN ('operator', 'admin')
+            WHERE role IN ('operator', 'admin') AND is_active = TRUE
             ORDER BY role, name
         """))
         return [dict(r) for r in result.mappings().all()]
@@ -1189,24 +1189,39 @@ async def create_operator(
     invite = body.password is None
     effective_password = body.password or _secrets.token_urlsafe(24)
 
+    email_norm = body.email.lower().strip()
     async with get_pg_session(tenant_id) as session:
         existing = await session.execute(
-            text("SELECT id FROM usuarios WHERE email = :email"),
-            {"email": body.email.lower().strip()},
+            text("SELECT id, is_active FROM usuarios WHERE email = :email"),
+            {"email": email_norm},
         )
-        if existing.scalar_one_or_none():
+        existing_row = existing.mappings().fetchone()
+        if existing_row and existing_row["is_active"]:
             raise HTTPException(status_code=409, detail="Ya existe un usuario con ese email")
 
-        new_id = str(uuid.uuid4())
-        await session.execute(text("""
-            INSERT INTO usuarios (id, email, name, hashed_password, role, is_active)
-            VALUES (:id, :email, :name, :pwd, 'operator', true)
-        """), {
-            "id": new_id,
-            "email": body.email.lower().strip(),
-            "name": body.name.strip(),
-            "pwd": hash_password(effective_password),
-        })
+        if existing_row:
+            # El email pertenece a un usuario dado de baja (soft-delete is_active=false).
+            # Como email es UNIQUE no se puede re-insertar: lo REACTIVAMOS como operador
+            # nuevo (nombre/clave nuevos, rol operator). Sin esto, recrear un usuario
+            # borrado con el mismo mail respondía 409 para siempre.
+            new_id = str(existing_row["id"])
+            await session.execute(text("""
+                UPDATE usuarios
+                SET name = :name, hashed_password = :pwd, role = 'operator',
+                    is_active = TRUE, updated_at = NOW()
+                WHERE id = :id
+            """), {"id": new_id, "name": body.name.strip(), "pwd": hash_password(effective_password)})
+        else:
+            new_id = str(uuid.uuid4())
+            await session.execute(text("""
+                INSERT INTO usuarios (id, email, name, hashed_password, role, is_active)
+                VALUES (:id, :email, :name, :pwd, 'operator', true)
+            """), {
+                "id": new_id,
+                "email": email_norm,
+                "name": body.name.strip(),
+                "pwd": hash_password(effective_password),
+            })
 
         # Asignar sector por defecto ("Consultas Generales" en el schema base).
         # Sin esto el operador queda invisible para el widget — operators-online
@@ -1217,7 +1232,8 @@ async def create_operator(
         default_sector_id = default_sector.scalar_one_or_none()
         if default_sector_id:
             await session.execute(text(
-                "INSERT INTO operador_sectores (operador_id, sector_id) VALUES (:uid, :sid)"
+                "INSERT INTO operador_sectores (operador_id, sector_id) VALUES (:uid, :sid) "
+                "ON CONFLICT DO NOTHING"  # el reactivado puede conservar el sector previo
             ), {"uid": new_id, "sid": str(default_sector_id)})
         else:
             logger.warning("operator_created_no_default_sector tenant=%s operator=%s", tenant_id, new_id)
