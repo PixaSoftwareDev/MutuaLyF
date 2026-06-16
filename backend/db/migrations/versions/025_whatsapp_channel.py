@@ -10,17 +10,22 @@ Por tenant (todos los schemas tenant_%):
   - conversaciones.channel ('widget' | 'whatsapp') + external_id (wa_id del
     cliente) con índice para el lookup del entrante.
 
-Idempotente (IF NOT EXISTS) — prod y staging comparten base.
+Idempotente (IF NOT EXISTS) — prod y staging comparten base. Sobre la base actual
+(que ya tiene estos objetos) es un no-op.
 
-Revision ID: 023
-Revises: 022
+Renumerada de 023 a 025 para converger con la cadena de prod, que tomó los IDs
+023/024 con otra implementación de WhatsApp (columnas whatsapp_* en tenants, hoy
+abandonada). Esta es la implementación buena: tabla whatsapp_accounts.
+
+Revision ID: 025
+Revises: 024
 """
 
 from alembic import op
 from sqlalchemy import text
 
-revision = "023"
-down_revision = "022"
+revision = "025"
+down_revision = "024"
 branch_labels = None
 depends_on = None
 
