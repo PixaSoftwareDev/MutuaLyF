@@ -79,7 +79,6 @@ def _check_lookup_rate(request: Request) -> bool:
     _LOOKUP_RATE_CACHE[ip] = hits
     # Garbage collect lazy: si el cache crece mas de 10k IPs, lo achicamos.
     if len(_LOOKUP_RATE_CACHE) > 10_000:
-        cutoff = now - _LOOKUP_RATE_WINDOW_S
         _LOOKUP_RATE_CACHE.clear()
     return True
 
