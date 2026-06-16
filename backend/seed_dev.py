@@ -31,7 +31,7 @@ async def main() -> None:
         print("  Password  : demo1234!")
     except Exception as e:
         if "already exists" in str(e).lower() or "duplicate" in str(e).lower():
-            print(f"[seed] Tenant 'demo' already exists — skipping.")
+            print("[seed] Tenant 'demo' already exists — skipping.")
         else:
             print(f"[seed] ERROR: {e}")
             raise

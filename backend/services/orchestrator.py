@@ -741,25 +741,35 @@ async def _log_query(
       - if cap exceeded → set auto_learning_blocked=TRUE instead
     Non-fatal on failure.
     """
-    try:
-        from core.database import get_pg_session
-        from sqlalchemy import text
+    from core.database import get_pg_session
+    from sqlalchemy import text
 
-        auto_learning_blocked = False
+    auto_learning_blocked = False
 
-        async with get_pg_session(tenant_id) as session:
-            # ── Auto-learning: high-confidence non-cache queries ──────────────
-            if (
-                intent_label
-                and intent_confidence is not None
-                and intent_confidence >= settings.intent_confidence_high
-                and not from_cache
-                and question_text
-            ):
+    # Auto-learning en su PROPIA transacción: si falla (constraint, intención
+    # borrada en paralelo, etc.) NO debe abortar ni perder el insert del log de
+    # la consulta. Antes compartían session y transacción, así que un error del
+    # auto-learn se tragaba toda la fila de consultas_log (que alimenta
+    # clustering, billing y la retención 60/90 días) sin más que un warning.
+    if (
+        intent_label
+        and intent_confidence is not None
+        and intent_confidence >= settings.intent_confidence_high
+        and not from_cache
+        and question_text
+    ):
+        try:
+            async with get_pg_session(tenant_id) as session:
                 auto_learning_blocked = await _maybe_auto_learn(
                     session, tenant_id, intent_label, question_hash, question_text
                 )
+        except Exception as exc:
+            logger.warning("auto_learn_failed tenant_id=%s error=%s", tenant_id, exc)
+            auto_learning_blocked = False
 
+    # Log de la consulta — transacción independiente del auto-learning.
+    try:
+        async with get_pg_session(tenant_id) as session:
             await session.execute(
                 text(
                     "INSERT INTO consultas_log "

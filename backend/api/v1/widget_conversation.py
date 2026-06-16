@@ -139,6 +139,18 @@ async def start_conversation(
             if sector_row:
                 sector_name = sector_row[0]
 
+        # Personalización del saludo: greeting_message custom y bot_name del tenant
+        # (tabla global public.tenants). Si el admin configuró un saludo propio se
+        # usa tal cual; si no, el nombre del bot entra en el saludo por defecto.
+        # Sin esto el bot saluda genérico e ignora lo configurado en el panel.
+        tenant_cfg = await session.execute(
+            text("SELECT greeting_message, bot_name FROM public.tenants WHERE id = :tid"),
+            {"tid": tenant_id},
+        )
+        cfg_row = tenant_cfg.mappings().fetchone()
+        custom_greeting = cfg_row["greeting_message"] if cfg_row else None
+        bot_name = (cfg_row["bot_name"] if cfg_row else None) or "Asistente"
+
         conv_id = str(uuid.uuid4())
         # IP: X-Forwarded-For (Nginx) tiene prioridad; fallback al IP directo
         forwarded = request.headers.get("X-Forwarded-For")
@@ -158,7 +170,10 @@ async def start_conversation(
         })
 
         # Insert greeting as first bot message so it survives polling
-        greeting = f"¡Hola! Soy el asistente de {sector_name}. ¿En qué te puedo ayudar hoy?"
+        if custom_greeting:
+            greeting = custom_greeting
+        else:
+            greeting = f"¡Hola! Soy {bot_name}, el asistente de {sector_name}. ¿En qué te puedo ayudar hoy?"
         await session.execute(text("""
             INSERT INTO mensajes (conversation_id, sender_type, content)
             VALUES (:cid, 'bot', :msg)
@@ -461,13 +476,29 @@ async def confirm_handoff(
     disparar el handoff (sin esto el operador ve "Afiliado anónimo").
     """
     # Anti-IDOR: la conversación debe pertenecer a este widget_session_id.
+    # Anti-abuso: además exigimos que haya una oferta de derivación vigente
+    # (is_handoff_offer=TRUE sin consumir). Sin esto, cualquiera con el
+    # widget_session_id podía POSTear confirm-handoff sin que el bot ofreciera
+    # nada y empujar la conversación a la cola, inundando a los operadores. El
+    # front solo expone el botón desde el cartel de oferta, así que esto no
+    # cambia el flujo legítimo — solo cierra la llamada cruda a la API.
     async with get_pg_session(tenant_id) as session:
         owner = await session.execute(
-            text("SELECT 1 FROM conversaciones WHERE id = :cid AND widget_session_id = :sid"),
+            text("""
+                SELECT EXISTS (
+                    SELECT 1 FROM mensajes
+                    WHERE conversation_id = :cid AND is_handoff_offer = TRUE
+                ) AS has_offer
+                FROM conversaciones
+                WHERE id = :cid AND widget_session_id = :sid
+            """),
             {"cid": conversation_id, "sid": widget_session_id},
         )
-        if owner.fetchone() is None:
+        owner_row = owner.fetchone()
+        if owner_row is None:
             raise HTTPException(status_code=404, detail="No encontramos la conversación. Iniciá una nueva.")
+        if not owner_row[0]:
+            raise HTTPException(status_code=409, detail="No hay una derivación pendiente para confirmar.")
 
     # Persistir datos de identificación si vinieron en el body
     if body and (body.afiliado_nombre or body.afiliado_dni):

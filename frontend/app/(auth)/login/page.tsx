@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, Suspense } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
@@ -29,7 +29,7 @@ const BTN_STYLE = { backgroundImage: BRAND_GRADIENT, color: "#fff" };
 type Step = "credentials" | "select" | "org";
 
 export default function LoginPage() {
-  return <Suspense><LoginForm /></Suspense>;
+  return <Suspense fallback={null}><LoginForm /></Suspense>;
 }
 
 function LoginForm() {
@@ -37,7 +37,10 @@ function LoginForm() {
   const searchParams = useSearchParams();
   const { setAuth } = useAuthStore();
 
-  const isSuperAdmin                  = searchParams.get("platform") === "1";
+  // isSuperAdmin se deriva de ?platform=1 pero NO en render: el server (sin
+  // params) y el client (con el param) renderizarían JSX distinto → hydration
+  // mismatch. Se inicializa en false y se setea en useEffect tras el mount.
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const [step, setStep]               = useState<Step>("credentials");
   const [email, setEmail]             = useState("");
   const [password, setPassword]       = useState("");
@@ -46,6 +49,11 @@ function LoginForm() {
   const [matches, setMatches]         = useState<LookupTenantMatch[]>([]);
   const [error, setError]             = useState<string | null>(null);
   const [loading, setLoading]         = useState(false);
+
+  // Leer ?platform=1 solo en el cliente para no crear mismatch con el SSR.
+  useEffect(() => {
+    if (searchParams.get("platform") === "1") setIsSuperAdmin(true);
+  }, [searchParams]);
 
   // ── Handlers ─────────────────────────────────────────────────────────────
 

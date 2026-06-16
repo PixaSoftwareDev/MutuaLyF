@@ -89,14 +89,17 @@ async def whatsapp_webhook(request: Request):
                 logger.info("whatsapp_webhook_disabled tenant=%s", account.tenant_id)
                 continue
 
-            # Firma HMAC con el app secret del tenant. Si el tenant no cargó
-            # app secret (modo prueba), se acepta sin firma pero queda logueado.
-            if account.app_secret:
-                if not wa.verify_signature(account.app_secret, raw, signature):
-                    logger.warning("whatsapp_webhook_bad_signature tenant=%s", account.tenant_id)
-                    continue
-            else:
-                logger.warning("whatsapp_webhook_unsigned tenant=%s (sin app secret configurado)", account.tenant_id)
+            # Seguridad: exigimos firma HMAC válida SIEMPRE. Sin app_secret no
+            # podemos verificar el origen, así que rechazamos el mensaje en vez de
+            # procesarlo: un atacante que conozca el phone_number_id (visible en
+            # Meta) podría falsificar mensajes y gastar el token real del tenant.
+            # Para activar WhatsApp en un tenant hay que cargarle el app_secret.
+            if not account.app_secret:
+                logger.warning("whatsapp_webhook_no_app_secret tenant=%s — mensaje rechazado", account.tenant_id)
+                continue
+            if not wa.verify_signature(account.app_secret, raw, signature):
+                logger.warning("whatsapp_webhook_bad_signature tenant=%s", account.tenant_id)
+                continue
 
             from services.whatsapp_inbound import process_incoming_message
             for message in messages:

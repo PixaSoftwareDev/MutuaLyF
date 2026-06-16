@@ -4,7 +4,6 @@ Operators see only their assigned sectors.
 Admins see all sectors and can transfer conversations between them.
 """
 
-import asyncio
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -13,7 +12,7 @@ from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import text
 
 from core.database import get_pg_session
-from core.security import CurrentUser, Role, require_admin, require_operator, get_widget_user, get_widget_or_chat_user, create_widget_token, create_public_chat_token
+from core.security import CurrentUser, Role, require_admin, require_operator, get_widget_or_chat_user, create_public_chat_token
 from core.tenant import get_tenant_id
 from services.handoff import ConvStatus, invalidate_config_cache
 from services.events import publish
@@ -729,12 +728,19 @@ async def close_conversation(
     from services.handoff import _get_handoff_config
     config = await _get_handoff_config(tenant_id)
 
+    # Aislamiento inter-sector: un operador solo puede cerrar conversaciones de
+    # sus sectores (admins/super-admins sin filtro). Sin esto, cualquier operador
+    # podía cerrar por id una conversación de otro sector del mismo tenant.
+    scope_sql, scope_params = _operator_sector_scope(current_user, "sector_id")
     async with get_pg_session(tenant_id) as session:
-        await session.execute(text("""
+        closed = await session.execute(text(f"""
             UPDATE conversaciones
             SET status = 'closed', closed_at = NOW(), updated_at = NOW()
-            WHERE id = :id
-        """), {"id": conversation_id})
+            WHERE id = :id{scope_sql}
+            RETURNING id
+        """), {"id": conversation_id, **scope_params})
+        if closed.fetchone() is None:
+            raise HTTPException(status_code=404, detail="Conversación no encontrada o fuera de tu sector.")
         msg = config["transition_messages"].get("conversation_closed") or "La conversación fue cerrada. Gracias por contactarnos."
         await session.execute(text("""
             INSERT INTO mensajes (conversation_id, sender_type, content)

@@ -13,7 +13,6 @@ Signals are accumulated per conversation in Redis (lightweight, no DB write per 
 DB is written only when state transitions occur.
 """
 
-import json
 import logging
 import re
 from dataclasses import dataclass
