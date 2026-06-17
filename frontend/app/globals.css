@@ -32,7 +32,9 @@
     --secondary-foreground: 222 24% 24%;
 
     --muted: 220 22% 96%;
-    --muted-foreground: 220 10% 44%;
+    /* 40% (no 44%): el gris de descripciones/hints sobre blanco pasa de ~4.4:1
+       a ~5.2:1, cruzando el AA de WCAG (4.5:1) con margen. Afecta todo el panel. */
+    --muted-foreground: 220 10% 40%;
 
     --accent: 222 26% 94%;
     --accent-foreground: 222 24% 18%;

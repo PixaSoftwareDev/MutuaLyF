@@ -5,13 +5,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, CheckCircle2, Sparkles, Bot, Drama } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
-import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { toast } from "@/components/ui/toast";
 import { SectionHeader } from "@/components/admin/settings/section-header";
+import { SettingsSaveBar } from "@/components/admin/settings/settings-save-bar";
 
 export function GeneralSettings() {
   const qc = useQueryClient();
@@ -74,19 +74,11 @@ export function GeneralSettings() {
           <Textarea
             value={botDescription}
             onChange={e => setBotDescription(e.target.value)}
-            rows={10}
+            // Alto adaptable en vez de rows fijo: en mobile (390px) 10 filas
+            // empujaban el guardar contra el textarea; crece desde sm.
+            className="min-h-[9rem] sm:min-h-[15rem] text-sm resize-none leading-relaxed"
             placeholder="Sin instrucciones aún. Completá el onboarding o escribilas acá."
-            className="text-sm resize-none leading-relaxed"
           />
-          <div className="flex justify-end mt-3">
-            <Button
-              onClick={() => saveDescriptionM.mutate()}
-              disabled={!descriptionDirty || saveDescriptionM.isPending}
-            >
-              {saveDescriptionM.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
-              Guardar cambios
-            </Button>
-          </div>
         </CardContent>
       </Card>
 
@@ -144,6 +136,12 @@ export function GeneralSettings() {
           )}
         </CardContent>
       </Card>
+
+      <SettingsSaveBar
+        dirty={descriptionDirty}
+        pending={saveDescriptionM.isPending}
+        onSave={() => saveDescriptionM.mutate()}
+      />
     </div>
   );
 }

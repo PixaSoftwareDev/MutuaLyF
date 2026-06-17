@@ -245,7 +245,9 @@ export default function AdminConversationsPage() {
               En vivo
             </span>
           }
-          description="Todas las conversaciones del asistente y la atención humana, en tiempo real."
+          // En mobile la descripción se oculta: el header ya carga título +
+          // "En vivo" + filtros + tabs + búsqueda; la lista es lo que se viene a ver.
+          description={<span className="hidden sm:inline">Todas las conversaciones del asistente y la atención humana, en tiempo real.</span>}
           actions={
             <Button
               variant={showFilters || hasActiveFilters ? "default" : "outline"}

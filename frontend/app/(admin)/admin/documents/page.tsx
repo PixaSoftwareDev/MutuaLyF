@@ -20,9 +20,10 @@ import {
 import { DocumentUploader } from "@/components/documents/document-uploader";
 import { toast } from "@/components/ui/toast";
 import { PageShell } from "@/components/layout/page-shell";
-import { PageHeader } from "@/components/layout/page-header";
+import { PageHeader, CountChip } from "@/components/layout/page-header";
 import { ExportKbButton } from "@/components/admin/export-kb-button";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
 import { cn } from "@/lib/utils";
 import {
   DOC_STATUS_CONFIG, fileExt, fmtDate, PendingChunkCard,
@@ -35,7 +36,7 @@ export default function DocumentsPage() {
   const [search, setSearch] = useState("");
   const [uploadOpen, setUploadOpen] = useState(false);
 
-  const { data: documents = [], isLoading, error } = useQuery({
+  const { data: documents = [], isLoading, error, refetch } = useQuery({
     queryKey: ["documents"],
     queryFn: api.documents.list,
     staleTime: 10_000,
@@ -95,11 +96,18 @@ export default function DocumentsPage() {
 
   const processingCount = documents.filter((d) => ["pending", "processing"].includes(d.status)).length;
   const isEmpty = !isLoading && !error && documents.length === 0;
+  const totalChunks = documents.reduce((acc, d) => acc + (d.chunk_count ?? 0), 0);
 
   return (
     <PageShell>
       <PageHeader
         title="Documentos"
+        badge={!isLoading && !error && documents.length > 0
+          ? <CountChip>
+              {documents.length} {documents.length === 1 ? "documento" : "documentos"}
+              {totalChunks > 0 ? ` · ${totalChunks.toLocaleString("es-AR")} fragmentos` : ""}
+            </CountChip>
+          : undefined}
         description="La base de conocimiento que el asistente usa para responder."
         actions={
           !isEmpty ? (
@@ -135,7 +143,13 @@ export default function DocumentsPage() {
           </div>
         </Card>
       ) : error ? (
-        <Card className="rounded-2xl p-8 text-center text-destructive text-sm">Error al cargar documentos</Card>
+        <Card className="rounded-2xl">
+          <ErrorState
+            title="Error al cargar documentos"
+            description="No pudimos traer tus documentos. Revisá la conexión y probá de nuevo."
+            onRetry={() => refetch()}
+          />
+        </Card>
       ) : isEmpty ? (
         <Card className="rounded-2xl p-6 sm:p-8">
           <div className="max-w-xl mx-auto text-center mb-5">

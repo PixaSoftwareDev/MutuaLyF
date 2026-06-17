@@ -2,15 +2,15 @@
 
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Loader2, Save, Workflow, Repeat, Timer, MessagesSquare } from "lucide-react";
+import { Workflow, Repeat, Timer, MessagesSquare } from "lucide-react";
 import { api } from "@/lib/api";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/toast";
 import { SectionHeader } from "@/components/admin/settings/section-header";
+import { SettingsSaveBar } from "@/components/admin/settings/settings-save-bar";
 
 // Tres mensajes que cubren los tres momentos del flujo:
 //   1. Bot detecta que conviene derivar (insuficiente N veces) -> handoff_offer
@@ -205,13 +205,11 @@ export function HandoffSettings() {
         </CardContent>
       </Card>
 
-      {/* Guardar siempre visible (deshabilitado sin cambios) */}
-      <div className="flex justify-end">
-        <Button onClick={() => updateM.mutate()} disabled={!dirty || updateM.isPending}>
-          {updateM.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
-          Guardar cambios
-        </Button>
-      </div>
+      <SettingsSaveBar
+        dirty={dirty}
+        pending={updateM.isPending}
+        onSave={() => updateM.mutate()}
+      />
     </div>
   );
 }

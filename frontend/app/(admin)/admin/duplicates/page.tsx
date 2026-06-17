@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
@@ -480,7 +481,7 @@ export default function DuplicatesPage() {
   const [resolvingId, setResolvingId] = useState<string | null>(null);
   const [page, setPage] = useState(1);
 
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["duplicates"],
     queryFn: api.duplicates.list,
     staleTime: 30_000,
@@ -532,24 +533,28 @@ export default function DuplicatesPage() {
         description="Pares de fragmentos con contenido similar entre documentos. Decidí cuál conservar."
       />
 
-      {error && (
-        <div className="text-destructive text-sm">
-          Error al cargar duplicados.
-        </div>
-      )}
-
       {/* Pairs list */}
-      {isLoading ? (
+      {error ? (
+        <Card className="rounded-2xl">
+          <ErrorState
+            title="Error al cargar duplicados"
+            description="No pudimos traer los pares de fragmentos. Probá de nuevo."
+            onRetry={() => refetch()}
+          />
+        </Card>
+      ) : isLoading ? (
         <div className="space-y-4">
           <Skeleton className="h-48 w-full" />
           <Skeleton className="h-48 w-full" />
         </div>
       ) : pendingPairs.length === 0 ? (
-        <EmptyState
-          icon={CopyCheck}
-          title="No hay duplicados pendientes"
-          description="Cuando el sistema detecte fragmentos con contenido muy similar entre documentos, vas a poder revisarlos acá."
-        />
+        <Card className="rounded-2xl">
+          <EmptyState
+            icon={CopyCheck}
+            title="No hay duplicados pendientes"
+            description="Cuando el sistema detecte fragmentos con contenido muy similar entre documentos, vas a poder revisarlos acá."
+          />
+        </Card>
       ) : (
         <div className="space-y-4">
           {pagedPairs.map((pair) => (

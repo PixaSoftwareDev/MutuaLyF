@@ -2,10 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Check, Pipette, Bot, SendHorizontal, Pencil, Wand2, Palette } from "lucide-react";
+import { Check, Pipette, Bot, SendHorizontal, Pencil, Wand2, Palette } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -15,6 +14,7 @@ import { cn } from "@/lib/utils";
 import { contrastRatio, pickReadableTextColor } from "@/lib/use-tenant-branding";
 import { DEFAULT_BOT_NAME, DEFAULT_GREETING } from "@/components/admin/settings/chat-preview";
 import { SectionHeader } from "@/components/admin/settings/section-header";
+import { SettingsSaveBar } from "@/components/admin/settings/settings-save-bar";
 
 const DEFAULT_COLOR = "#99323D";
 const PALETTE_PRESETS = [
@@ -131,6 +131,7 @@ function AssistantCard({
   });
 
   return (
+    <>
     <Card className="rounded-2xl overflow-hidden">
       <CardHeader className="pb-4">
         <SectionHeader
@@ -236,19 +237,15 @@ function AssistantCard({
           </div>
         </div>
 
-        {/* Footer: aviso de cambios + guardar */}
-        <div className="flex items-center justify-between gap-4 border-t pt-4">
-          <p className="text-[11px] text-muted-foreground inline-flex items-center gap-1.5">
-            {anyDirty && <span className="h-1.5 w-1.5 rounded-full bg-warning" />}
-            {anyDirty ? "Tenés cambios sin guardar." : "Todo guardado."}
-          </p>
-          <Button onClick={() => saveM.mutate()} disabled={!anyDirty || saveM.isPending}>
-            {saveM.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
-            Guardar cambios
-          </Button>
-        </div>
       </CardContent>
     </Card>
+
+    <SettingsSaveBar
+      dirty={anyDirty}
+      pending={saveM.isPending}
+      onSave={() => saveM.mutate()}
+    />
+    </>
   );
 }
 
@@ -336,7 +333,7 @@ function ColorField({
         aria-label="Color en hexadecimal"
         className={cn(
           "h-8 w-24 rounded-md border bg-background px-2.5 text-xs font-mono uppercase text-muted-foreground",
-          "focus:outline-none focus:ring-1 focus:ring-primary focus:text-foreground",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus:text-foreground",
           cssColorToHex(raw) ? "border-input" : "border-destructive",
         )}
       />

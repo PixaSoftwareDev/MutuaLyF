@@ -35,7 +35,10 @@ function SettingsContent() {
           <TabsTrigger value="asistente">Asistente</TabsTrigger>
           <TabsTrigger value="apariencia">Apariencia</TabsTrigger>
           <TabsTrigger value="canales">Canales</TabsTrigger>
-          <TabsTrigger value="derivacion">Derivación a humano</TabsTrigger>
+          <TabsTrigger value="derivacion">
+            <span className="sm:hidden">Derivación</span>
+            <span className="hidden sm:inline">Derivación a humano</span>
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="asistente" className="mt-6 animate-fade-in">

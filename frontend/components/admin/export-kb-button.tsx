@@ -74,7 +74,7 @@ export function ExportKbButton() {
       <DialogTrigger asChild>
         <Button variant="outline" size="sm">
           <Download className="h-4 w-4 mr-1.5" />
-          Exportar KB
+          Exportar base
         </Button>
       </DialogTrigger>
 
