@@ -108,8 +108,13 @@ async def global_audit_log(
             async with get_pg_session(tid) as session:
                 result = await session.execute(
                     text(
+                        # Mitigación: se traen hasta 2000 eventos por tenant y se paginan
+                        # en memoria. Para tenants con muchísima auditoría, los más viejos
+                        # del rango podrían no entrar y el `total` queda topeado — el fix
+                        # completo es paginar en SQL (UNION entre schemas). Suficiente para
+                        # el volumen actual.
                         f"SELECT id, actor_id, actor_email, actor_role, action, resource, detail, ip_address, created_at "
-                        f"FROM audit_log {where} ORDER BY created_at DESC LIMIT 500"
+                        f"FROM audit_log {where} ORDER BY created_at DESC LIMIT 2000"
                     ),
                     params,
                 )

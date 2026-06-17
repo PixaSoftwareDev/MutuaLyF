@@ -33,7 +33,7 @@ async def list_documents(
         result = await session.execute(
             text(
                 "SELECT id, title, filename, status, chunk_count, quality_gate_status, storage_key, created_at, updated_at "
-                "FROM documentos ORDER BY created_at DESC LIMIT 500"
+                "FROM documentos ORDER BY created_at DESC LIMIT 2000"
             )
         )
         rows = result.mappings().all()

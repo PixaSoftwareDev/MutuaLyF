@@ -916,7 +916,7 @@ export const api = {
   },
 
   duplicates: {
-    list: async () => { const { data } = await apiClient.get<DuplicatesResponse>("/duplicates"); return data; },
+    list: async () => { const { data } = await apiClient.get<DuplicatesResponse>("/duplicates?page_size=200"); return data; },
     resolve: async (pairId: string, action: "keep_a" | "keep_b" | "keep_both") => {
       await apiClient.post(`/duplicates/${pairId}/resolve`, { action });
     },
