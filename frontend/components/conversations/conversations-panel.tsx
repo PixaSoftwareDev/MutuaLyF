@@ -1253,5 +1253,7 @@ function formatRelative(ms: number): string {
   const m = Math.floor(s / 60);
   if (m < 60)  return `${m}m`;
   const h = Math.floor(m / 60);
-  return `${h}h ${m % 60}m`;
+  if (h < 24)  return `${h}h ${m % 60}m`;
+  const d = Math.floor(h / 24);
+  return `${d}d ${h % 24}h`;
 }
