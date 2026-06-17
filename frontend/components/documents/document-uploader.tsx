@@ -32,7 +32,8 @@ interface UploadItem {
   phase: UploadPhase;
   uploadPct: number;
   error?: string;
-  /** Cuando phase=duplicate: titulo del doc ya existente. */
+  /** Cuando phase=duplicate: id y titulo del doc ya existente. */
+  duplicateOfId?: string;
   duplicateOfTitle?: string;
   duplicateMatchType?: DuplicateMatchType;
 }
@@ -89,12 +90,31 @@ export function DocumentUploader({ onUploaded, onDone }: { onUploaded?: () => vo
         const matchType = err.response.data?.match_type as DuplicateMatchType | undefined;
         update(item.file, {
           phase: "duplicate",
+          duplicateOfId: dup?.id,
           duplicateOfTitle: dup?.title || dup?.filename,
           duplicateMatchType: matchType,
         });
         return;
       }
       update(item.file, { phase: "failed", error: extractErrorMessage(err, "No se pudo subir el archivo.") });
+    }
+  };
+
+  // Reemplazar el documento existente: borra el viejo y sube el nuevo. Lo decide
+  // el admin explícitamente desde el aviso de duplicado (no se pisa nada solo).
+  const replaceFile = async (item: UploadItem) => {
+    if (!item.duplicateOfId) return;
+    update(item.file, { phase: "uploading", uploadPct: 0 });
+    try {
+      await api.documents.delete(item.duplicateOfId);
+      await api.documents.upload(item.file, (pct) => update(item.file, { uploadPct: pct }));
+      remove(item.file);
+      onUploaded?.();
+    } catch (err: any) {
+      update(item.file, {
+        phase: "failed",
+        error: extractErrorMessage(err, "No se pudo reemplazar el documento."),
+      });
     }
   };
 
@@ -186,7 +206,12 @@ export function DocumentUploader({ onUploaded, onDone }: { onUploaded?: () => vo
       {items.length > 0 && (
         <div className="space-y-2">
           {items.map((item, idx) => (
-            <UploadRow key={idx} item={item} onDismiss={() => remove(item.file)} />
+            <UploadRow
+              key={idx}
+              item={item}
+              onDismiss={() => remove(item.file)}
+              onReplace={() => replaceFile(item)}
+            />
           ))}
         </div>
       )}
@@ -196,7 +221,7 @@ export function DocumentUploader({ onUploaded, onDone }: { onUploaded?: () => vo
 
 // ── UploadRow ─────────────────────────────────────────────────────────────────
 
-function UploadRow({ item, onDismiss }: { item: UploadItem; onDismiss: () => void }) {
+function UploadRow({ item, onDismiss, onReplace }: { item: UploadItem; onDismiss: () => void; onReplace: () => void }) {
   const sizeMB = (item.file.size / (1024 * 1024)).toFixed(1);
   const isUploading = item.phase === "uploading";
   const isFailed    = item.phase === "failed";
@@ -266,7 +291,7 @@ function UploadRow({ item, onDismiss }: { item: UploadItem; onDismiss: () => voi
               {item.duplicateOfTitle && (
                 <> (<span className="font-medium">"{item.duplicateOfTitle}"</span>)</>
               )}
-              . Renombrá el archivo o eliminá el anterior antes de subir.
+              . Podés reemplazar el anterior o renombrar el archivo nuevo.
             </>
           ) : item.duplicateMatchType === "same_content" ? (
             <>
@@ -286,6 +311,12 @@ function UploadRow({ item, onDismiss }: { item: UploadItem; onDismiss: () => voi
             </>
           )}
         </p>
+      )}
+
+      {isDuplicate && item.duplicateOfId && item.duplicateMatchType !== "exact_bytes" && (
+        <Button size="sm" variant="outline" className="h-7 text-xs" onClick={onReplace}>
+          Reemplazar el anterior
+        </Button>
       )}
 
       {isFailed && item.error && (
