@@ -372,13 +372,23 @@ async def _read_conversation_snapshot(tenant_id: str, conversation_id: str, widg
         if not conv_row:
             return None
 
+        # Los ÚLTIMOS 50 mensajes (no los primeros). Antes era ORDER BY ASC LIMIT 50,
+        # que devolvía los 50 más VIEJOS: en conversaciones de más de 50 mensajes el
+        # widget se "congelaba" en los primeros 50 y los nuevos no aparecían (el polling
+        # comparaba contra el mensaje #50, que nunca cambiaba). Tomamos los 50 recientes
+        # con DESC y los reordenamos cronológicamente para renderizar.
         msg_rows = (await session.execute(text("""
             SELECT id, sender_type, content, is_handoff_offer, created_at,
                    attachment_key, attachment_name, attachment_mime, attachment_size
-            FROM mensajes
-            WHERE conversation_id = :cid
+            FROM (
+                SELECT id, sender_type, content, is_handoff_offer, created_at,
+                       attachment_key, attachment_name, attachment_mime, attachment_size
+                FROM mensajes
+                WHERE conversation_id = :cid
+                ORDER BY created_at DESC
+                LIMIT 50
+            ) sub
             ORDER BY created_at ASC
-            LIMIT 50
         """), {"cid": conversation_id})).mappings().all()
 
         messages = [
