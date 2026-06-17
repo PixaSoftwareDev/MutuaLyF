@@ -76,15 +76,11 @@ async def handle_query(
     tracer = get_tracer()
 
     start_ms = int(time.monotonic() * 1000)
-    question_hash = _hash_question(question)
-
-    with tracer.start_as_current_span("query.handle") as span:
-        span.set_attribute("tenant_id", tenant_id)
-        span.set_attribute("question_hash", question_hash)
 
     # ── Step 0: Query normalization (acronym expansion) ────────────────────────
-    # Normalize before cache lookup so "RRHH" and "Recursos Humanos" share cache.
-    # The original question is kept for display; normalized version drives retrieval.
+    # Normalizamos PRIMERO para que la clave de cache, el retrieval y los embeddings
+    # usen la forma canónica: "RRHH" y "Recursos Humanos" comparten cache. El texto
+    # original se conserva para mostrar.
     from services.query_normalizer import normalize_query
     normalized_question = normalize_query(question)
     if normalized_question != question:
@@ -92,6 +88,14 @@ async def handle_query(
             "query_normalized original=%r normalized=%r",
             question[:80], normalized_question[:80],
         )
+
+    # La clave de cache se computa sobre la query NORMALIZADA. Antes se hacía sobre la
+    # cruda, una línea ANTES de normalizar, así que las siglas nunca compartían cache.
+    question_hash = _hash_question(normalized_question)
+
+    with tracer.start_as_current_span("query.handle") as span:
+        span.set_attribute("tenant_id", tenant_id)
+        span.set_attribute("question_hash", question_hash)
 
     # ── Step 1: Redis exact cache ──────────────────────────────────────────────
     cached = await _check_cache(question_hash, tenant_id)
@@ -104,6 +108,10 @@ async def handle_query(
         QUERY_DURATION.labels(tenant_id=tenant_id, complexity="cached").observe(latency_ms)
         cached["from_cache"] = True
         cached["latency_ms"] = latency_ms
+        # La consulta servida desde cache TAMBIÉN consume cuota y cuenta en las
+        # métricas de "consultas del mes" (antes solo se registraba el usage_event en
+        # el camino que tocaba el LLM, así que la cuota subcontaba el tráfico real).
+        asyncio.ensure_future(_log_usage_event_app(tenant_id, "query", 1))
         asyncio.ensure_future(_log_query(
             tenant_id=tenant_id,
             user_id=user_id,
@@ -134,6 +142,7 @@ async def handle_query(
                 QUERY_DURATION.labels(tenant_id=tenant_id, complexity="cached").observe(latency_ms)
                 sem_cached["from_cache"] = True
                 sem_cached["latency_ms"] = latency_ms
+                asyncio.ensure_future(_log_usage_event_app(tenant_id, "query", 1))
                 asyncio.ensure_future(_log_query(
                     tenant_id=tenant_id,
                     user_id=user_id,
