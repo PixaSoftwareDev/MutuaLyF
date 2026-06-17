@@ -291,6 +291,28 @@ async def create_intention(
     if body.examples:
         await _index_examples_in_qdrant(tenant_id, intention_id, body.label, body.examples)
 
+    # Persistir los ejemplos TAMBIÉN en intencion_ejemplos (antes solo iban a Qdrant):
+    # sin esto, el reentrenador del clasificador no los usaba y el panel los listaba
+    # vacíos pese a mostrar example_count>0. Manuales = no auto-aprendidos, ya aprobados.
+    # Se reemplazan los manuales previos (cubre el caso de reactivación).
+    import hashlib
+    async with get_pg_session(tenant_id) as session:
+        await session.execute(
+            text("DELETE FROM intencion_ejemplos WHERE intencion_id = :iid AND is_auto_learned = FALSE"),
+            {"iid": intention_id},
+        )
+        seen_hashes: set[str] = set()
+        for ex in body.examples:
+            qh = hashlib.sha256(ex.encode("utf-8")).hexdigest()
+            if qh in seen_hashes:
+                continue
+            seen_hashes.add(qh)
+            await session.execute(text("""
+                INSERT INTO intencion_ejemplos
+                  (id, intencion_id, question_hash, question_text, is_auto_learned, is_approved)
+                VALUES (gen_random_uuid(), :iid, :qh, :qt, FALSE, TRUE)
+            """), {"iid": intention_id, "qh": qh, "qt": ex})
+
     logger.info("intention_created tenant=%s label=%s id=%s", tenant_id, body.label, intention_id)
     return {"id": intention_id, "label": body.label, "status": "created"}
 
