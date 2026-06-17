@@ -27,6 +27,7 @@ interface TenantRow {
   admin_email: string; created_at: string;
   limits: { users: number; documents: number; queries_month: number };
   usage_30d: { queries: number; ingests: number };
+  queries_this_month: number;
 }
 
 const PLAN_COLORS: Record<string, string> = {
@@ -188,7 +189,7 @@ function TenantRowCard({ tenant: t, anomaly, onClick }: {
 
   // Consumo del mes vs cuota del plan — lo que el operador necesita de un
   // vistazo para detectar tenants cerca del límite sin entrar al detalle.
-  const used  = t.usage_30d?.queries ?? 0;
+  const used  = t.queries_this_month ?? 0;
   const limit = t.limits?.queries_month ?? 0;
   const pct   = limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : null;
   const quotaTone =

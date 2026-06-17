@@ -66,7 +66,9 @@ async def list_tenants(
                 COUNT(ue.id) FILTER (WHERE ue.event_type = 'ingest'
                     AND ue.created_at >= NOW() - INTERVAL '30 days') AS ingests_30d,
                 SUM(ue.value) FILTER (WHERE ue.event_type = 'query'
-                    AND ue.created_at >= NOW() - INTERVAL '30 days') AS total_queries_30d
+                    AND ue.created_at >= NOW() - INTERVAL '30 days') AS total_queries_30d,
+                COUNT(ue.id) FILTER (WHERE ue.event_type = 'query'
+                    AND ue.created_at >= date_trunc('month', NOW())) AS queries_this_month
             FROM tenants t
             LEFT JOIN usage_events ue ON ue.tenant_id = t.id
             GROUP BY t.id
@@ -87,6 +89,8 @@ async def list_tenants(
                 "queries":  int(r["queries_30d"] or 0),
                 "ingests":  int(r["ingests_30d"] or 0),
             },
+            # Consumo del MES en curso (lo que realmente cuenta para la cuota mensual).
+            "queries_this_month": int(r["queries_this_month"] or 0),
         }
         for r in rows
     ]
@@ -1331,7 +1335,7 @@ async def get_platform_health(
             SELECT
                 t.id, t.name, t.plan,
                 COALESCE(SUM(ue.value) FILTER (WHERE ue.event_type = 'query'), 0)  AS queries_month,
-                COALESCE(SUM(ue.value) FILTER (WHERE ue.event_type = 'ingest'), 0) AS ingests_month
+                COALESCE(COUNT(ue.id) FILTER (WHERE ue.event_type = 'ingest'), 0) AS ingests_month
             FROM tenants t
             LEFT JOIN usage_events ue
                    ON ue.tenant_id = t.id
@@ -1388,7 +1392,7 @@ async def get_tenant_metrics(
                 COALESCE(SUM(value) FILTER (WHERE event_type='query' AND created_at >= NOW() - INTERVAL '7 days'),        0) AS queries_7d,
                 COALESCE(SUM(value) FILTER (WHERE event_type='query' AND created_at >= NOW() - INTERVAL '30 days'),       0) AS queries_30d,
                 COALESCE(SUM(value) FILTER (WHERE event_type='query' AND created_at >= date_trunc('month', NOW())),       0) AS queries_this_month,
-                COALESCE(SUM(value) FILTER (WHERE event_type='ingest' AND created_at >= NOW() - INTERVAL '30 days'),      0) AS ingests_30d,
+                COALESCE(COUNT(*) FILTER (WHERE event_type='ingest' AND created_at >= NOW() - INTERVAL '30 days'),      0) AS ingests_30d,
                 COALESCE(SUM(value) FILTER (WHERE event_type='llm_tokens' AND created_at >= NOW() - INTERVAL '30 days'), 0) AS llm_tokens_30d
             FROM usage_events WHERE tenant_id = :tid
         """), {"tid": tenant_id})).mappings().fetchone()
@@ -1498,7 +1502,7 @@ async def get_tenant_metrics(
     plan   = tenant_row["plan"]
     limits = PLAN_LIMITS.get(plan, {})
     q_used = int(usage_row["queries_this_month"])
-    d_used = docs["total"]
+    d_used = docs["total"] - docs["failed"]  # coincide con el enforce de cuota (excluye 'failed')
 
     def quota_entry(used: int, limit: int) -> dict:
         return {
@@ -1775,7 +1779,7 @@ async def get_platform_traffic(
                 t.plan,
                 t.status,
                 COALESCE(SUM(ue.value) FILTER (WHERE ue.event_type = 'query'), 0)  AS queries_30d,
-                COALESCE(SUM(ue.value) FILTER (WHERE ue.event_type = 'ingest'), 0) AS ingests_30d,
+                COALESCE(COUNT(ue.id) FILTER (WHERE ue.event_type = 'ingest'), 0) AS ingests_30d,
                 COALESCE(SUM(ue.value) FILTER (WHERE ue.event_type = 'llm_tokens'), 0) AS tokens_30d
             FROM tenants t
             LEFT JOIN usage_events ue ON ue.tenant_id = t.id
@@ -1851,7 +1855,7 @@ async def get_tenant_health(
                 MAX(created_at) FILTER (WHERE event_type = 'ingest')  AS last_ingest_at,
                 COALESCE(SUM(value) FILTER (WHERE event_type = 'query'
                     AND created_at >= NOW() - INTERVAL '7 days'), 0)  AS queries_7d,
-                COALESCE(SUM(value) FILTER (WHERE event_type = 'ingest'
+                COALESCE(COUNT(*) FILTER (WHERE event_type = 'ingest'
                     AND created_at >= NOW() - INTERVAL '7 days'), 0)  AS ingests_7d,
                 COALESCE(SUM(value) FILTER (WHERE event_type = 'llm_tokens'
                     AND created_at >= NOW() - INTERVAL '7 days'), 0)  AS tokens_7d
