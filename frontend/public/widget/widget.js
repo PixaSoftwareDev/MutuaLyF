@@ -102,6 +102,7 @@
   // ── State ─────────────────────────────────────────────────────────────────────
   var conversationId = null;
   var lastMessageId  = null;
+  var seenIds        = {};   // ids de mensajes ya pintados (anti-duplicado del poll)
   var pollAlive      = false;
   var pollTimeout    = null;
   var convStatus     = "bot_active";
@@ -506,9 +507,11 @@
       .then(function (r) { return r.json(); })
       .then(function (data) {
         bodyInner.innerHTML = "";
+        seenIds = {};
         (data.messages || []).forEach(function (m) {
           if (m.is_handoff_offer && data.status === "bot_active") { _showHandoffOffer(m.content); }
           else { _appendMessage(m.sender_type, m.content, m.attachment_name ? { id: m.id, name: m.attachment_name, mime: m.attachment_mime } : null); }
+          seenIds[m.id] = true;
           lastMessageId = m.id;
         });
         convStatus = data.status;
@@ -652,17 +655,20 @@
         var pendingOffer = null;
         (data.messages || []).forEach(function (m) {
           if (m.is_handoff_offer) { pendingOffer = m.content; return; }
-          if (lastMessageId === m.id) return;
-          // Solo agregamos mensajes que no hayamos pintado ya (operador / sistema
-          // que llegan por poll). Los del bot/user ya se pintaron en _sendMessage.
+          // Anti-duplicado: cada mensaje se pinta UNA sola vez. Antes la guarda
+          // comparaba contra lastMessageId, que se reasignaba dentro del mismo bucle,
+          // así que en cada poll se re-pintaban todos los mensajes de operador/sistema.
+          if (seenIds[m.id]) return;
+          seenIds[m.id] = true;
+          // Solo agregamos los de operador/sistema que llegan por poll; los del bot/user
+          // ya se pintaron en _sendMessage (los marcamos vistos arriba, no se re-pintan).
           if (m.sender_type === "operator" || m.sender_type === "system") {
             _appendMessage(m.sender_type, m.content, m.attachment_name ? { id: m.id, name: m.attachment_name, mime: m.attachment_mime } : null);
-            lastMessageId = m.id;
             if (!panel.classList.contains("open")) { badge.style.display = "flex"; badge.textContent = "!"; }
-          } else {
-            lastMessageId = m.id;
           }
         });
+        // Anchor del long-poll = último mensaje del snapshot (una sola vez, fuera del bucle).
+        if (data.messages && data.messages.length) lastMessageId = data.messages[data.messages.length - 1].id;
         if (pendingOffer && convStatus === "bot_active") _showHandoffOffer(pendingOffer);
         else if (convStatus !== "bot_active" && handoffBubble && !handoffConfirmed) { /* la oferta sigue visible hasta confirmar */ }
       })
