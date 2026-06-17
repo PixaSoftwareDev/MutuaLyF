@@ -6,6 +6,7 @@ import Image from "next/image";
 import { useQuery } from "@tanstack/react-query";
 import { LogOut, Inbox, History, MoreVertical, UserCircle } from "lucide-react";
 import { useAuthStore } from "@/lib/store";
+import { useTenantBranding } from "@/lib/use-tenant-branding";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import {
@@ -33,6 +34,12 @@ export function OperatorTopbar() {
   const roleLabel = ROLE_LABEL[userRole ?? ""] ?? "Operador";
   const router = useRouter();
   const pathname = usePathname();
+
+  // Inyecta el color del tenant (--brand) en el panel del operador, igual que
+  // el Sidebar del admin. Sin esto, las burbujas del chat (bg-brand) caían al
+  // azul por defecto de --brand, mientras el admin y el widget las ven verdes.
+  // No cambia la identidad Intellix del shell (eso vive en --action).
+  useTenantBranding();
 
   // Conversaciones en espera — badge en la tab Bandeja. Misma query key que el
   // panel del operador: con la bandeja abierta comparten cache (cero requests
