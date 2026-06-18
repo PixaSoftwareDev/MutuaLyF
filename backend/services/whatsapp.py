@@ -123,6 +123,44 @@ def _normalize_recipient(number: str) -> str:
     return n
 
 
+# El typing indicator + read receipt requieren una versión reciente de la Graph
+# API. Lo aislamos en su propia base para NO tocar GRAPH_BASE (v21), que es el
+# camino crítico de send_text ya probado en producción.
+_GRAPH_BASE_SIGNALS = "https://graph.facebook.com/v23.0"
+
+
+async def send_typing_indicator(account: WhatsAppAccount, message_id: str) -> None:
+    """Marca el mensaje del afiliado como leído (✓✓) y muestra 'escribiendo…'.
+
+    Meta acopla ambas señales en un solo request (status=read + typing_indicator);
+    no se puede una sin la otra. El indicador dura hasta 25s o hasta que se envía
+    el próximo mensaje — la respuesta del bot lo reemplaza.
+
+    Best-effort: se invoca fire-and-forget desde el handler, así que NUNCA bloquea
+    ni suma latencia a la respuesta. Si falla (versión vieja, red), se ignora.
+    """
+    if not message_id:
+        return
+    payload = {
+        "messaging_product": "whatsapp",
+        "status": "read",
+        "message_id": message_id,
+        "typing_indicator": {"type": "text"},
+    }
+    url = f"{_GRAPH_BASE_SIGNALS}/{account.phone_number_id}/messages"
+    headers = {"Authorization": f"Bearer {account.access_token}"}
+    try:
+        async with httpx.AsyncClient(timeout=_SEND_TIMEOUT_S) as client:
+            resp = await client.post(url, json=payload, headers=headers)
+        if resp.status_code >= 300:
+            logger.info(
+                "whatsapp_typing_skipped tenant=%s status=%s body=%s",
+                account.tenant_id, resp.status_code, resp.text[:160],
+            )
+    except Exception as exc:
+        logger.info("whatsapp_typing_error tenant=%s error=%s", account.tenant_id, exc)
+
+
 async def send_text(account: WhatsAppAccount, to_wa_id: str, body: str) -> str | None:
     """Envía un mensaje de texto. Devuelve el message id de Meta o None si falló.
 

@@ -23,7 +23,7 @@ from services.handoff import (
     ConvStatus, HandoffTrigger,
     evaluate_handoff, request_handoff, get_default_sector_id,
 )
-from services.whatsapp import WhatsAppAccount, send_text
+from services.whatsapp import WhatsAppAccount, send_text, send_typing_indicator
 
 logger = logging.getLogger(__name__)
 
@@ -184,6 +184,12 @@ async def process_incoming_message(account: WhatsAppAccount, value: dict, messag
             return
 
         # ── Bot activo: mismo flujo que el widget ────────────────────────────
+        # "Escribiendo…" + leído (✓✓): best-effort, fire-and-forget. Se dispara
+        # acá —apenas sabemos que el bot VA a responder (no en derivaciones)— y
+        # corre en paralelo al RAG/LLM, así no suma latencia a la respuesta.
+        import asyncio
+        _typing = asyncio.ensure_future(send_typing_indicator(account, message_id))
+
         from services.orchestrator import handle_query
         from core.plan_limits import enforce_query_limit
         from fastapi import HTTPException
