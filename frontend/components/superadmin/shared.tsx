@@ -5,6 +5,7 @@
  * componentes de métricas que usan Inicio, Organizaciones y Monitoreo.
  */
 
+import { type LucideIcon } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
@@ -113,6 +114,58 @@ export function HeaderKpi({ label, value, tone = "neutral", loading }: {
   );
 }
 
+// ── KPI unificado (ícono opcional + acento; mismo lenguaje en Inicio y
+//    Organizaciones). El color aparece SOLO cuando expresa estado (tone) o
+//    cuando es una métrica de marca (accentBrand). ────────────────────────────
+
+export function Kpi({ icon: Icon, label, value, tone = "neutral", accentBrand, sublabel, loading }: {
+  icon?: LucideIcon;
+  label: string;
+  value: string | number;
+  tone?: "neutral" | "success" | "warn" | "danger";
+  accentBrand?: boolean;
+  sublabel?: string;
+  loading?: boolean;
+}) {
+  const accent =
+    accentBrand        ? "before:bg-action-gradient" :
+    tone === "success" ? "before:bg-success" :
+    tone === "warn"    ? "before:bg-warning" :
+    tone === "danger"  ? "before:bg-destructive" :
+                         "before:bg-border";
+  const numColor =
+    tone === "success" ? "text-success" :
+    tone === "warn"    ? "text-warning" :
+    tone === "danger"  ? "text-destructive" :
+                         "text-foreground";
+  const iconColor =
+    accentBrand        ? "text-action/70" :
+    tone === "success" ? "text-success/70" :
+    tone === "warn"    ? "text-warning/70" :
+    tone === "danger"  ? "text-destructive/70" :
+                         "text-muted-foreground/50";
+  return (
+    <div className={cn(
+      "relative overflow-hidden rounded-xl border bg-card px-4 py-3.5 shadow-sm",
+      "before:absolute before:left-0 before:top-0 before:bottom-0 before:w-1 before:content-['']",
+      accent,
+    )}>
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">{label}</span>
+        {Icon && <Icon className={cn("h-4 w-4 shrink-0", iconColor)} />}
+      </div>
+      {loading
+        ? <Skeleton className="mt-2 h-8 w-16" />
+        : <div className={cn("mt-1.5 text-3xl font-semibold tabular-nums leading-none", numColor)}>
+            {typeof value === "number" ? value.toLocaleString("es-AR") : value}
+          </div>}
+      {sublabel && !loading && (
+        <p className="mt-1 text-[11px] text-muted-foreground tabular-nums">{sublabel}</p>
+      )}
+    </div>
+  );
+}
+
 // ── Sección con cabecera de icono en gradient ────────────────────────────────
 
 export function Section({ icon: Icon, label, sublabel, children }: {
@@ -148,13 +201,22 @@ export function StatTile({ label, value, tone = "neutral", sublabel }: {
   tone?: "neutral" | "success" | "warn" | "danger";
   sublabel?: string;
 }) {
+  const accent =
+    tone === "success" ? "before:bg-success" :
+    tone === "warn"    ? "before:bg-warning" :
+    tone === "danger"  ? "before:bg-destructive" :
+                         "before:bg-border";
   return (
-    <div className="rounded-lg bg-muted/50 px-3.5 py-3">
+    <div className={cn(
+      "relative overflow-hidden rounded-xl border bg-card px-3.5 py-3 shadow-sm",
+      "before:absolute before:left-0 before:top-0 before:bottom-0 before:w-0.5 before:content-['']",
+      accent,
+    )}>
       <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground leading-tight">
         {label}
       </p>
-      <p className={cn("mt-1 text-lg font-semibold tabular-nums leading-none", TILE_TONE[tone])}>{value}</p>
-      {sublabel && <p className="text-[11px] text-muted-foreground/80 mt-1">{sublabel}</p>}
+      <p className={cn("mt-1 text-xl font-semibold tabular-nums leading-none", TILE_TONE[tone])}>{value}</p>
+      {sublabel && <p className="text-[11px] text-muted-foreground/70 mt-1">{sublabel}</p>}
     </div>
   );
 }

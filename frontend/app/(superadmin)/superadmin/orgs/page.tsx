@@ -4,8 +4,8 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import {
-  Plus, Loader2, RefreshCw, Building2, AlertTriangle,
-  ChevronRight, CheckCircle2, Search, Bot,
+  Plus, Loader2, Building2, AlertTriangle,
+  ChevronRight, Search, Bot, TrendingUp, Ban,
 } from "lucide-react";
 import { api, apiClient } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -17,7 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageShell } from "@/components/layout/page-shell";
 import { PageHeader, CountChip } from "@/components/layout/page-header";
-import { fmtNum, HeaderKpi } from "@/components/superadmin/shared";
+import { fmtNum, Kpi } from "@/components/superadmin/shared";
 import { toast } from "@/components/ui/toast";
 import { cn, toSlug } from "@/lib/utils";
 
@@ -28,6 +28,21 @@ interface TenantRow {
   limits: { users: number; documents: number; queries_month: number };
   usage_30d: { queries: number; ingests: number };
   queries_this_month: number;
+  last_activity_at: string | null;
+}
+
+// Última actividad relativa. >14 días sin uso = tenant "dormido" (riesgo de baja).
+function relActivity(iso: string | null): string {
+  if (!iso) return "sin actividad aún";
+  const ms  = Date.now() - new Date(iso).getTime();
+  const min = Math.floor(ms / 60_000);
+  const h   = Math.floor(min / 60);
+  const d   = Math.floor(h / 24);
+  if (d >= 14)  return `sin uso hace ${d} d`;
+  if (min < 1)  return "activo recién";
+  if (min < 60) return `activo hace ${min} min`;
+  if (h < 24)   return `activo hace ${h} h`;
+  return `activo hace ${d} d`;
 }
 
 const PLAN_COLORS: Record<string, string> = {
@@ -76,6 +91,13 @@ export default function OrganizationsPage() {
 
   const hasAnomalies = (health?.anomalies?.length ?? 0) > 0;
 
+  // Métricas de gestión derivadas de la lista (sin endpoint extra).
+  const totalTenants  = health ? health.total_tenants : tenants.length;
+  const activeTenants = health?.active_tenants ?? tenants.filter(t => t.status === "active").length;
+  const suspended     = tenants.filter(t => t.status === "suspended").length;
+  const monthStart    = new Date(new Date().getFullYear(), new Date().getMonth(), 1).getTime();
+  const newThisMonth  = tenants.filter(t => t.created_at && new Date(t.created_at).getTime() >= monthStart).length;
+
   return (
     <>
       <PageShell>
@@ -87,28 +109,36 @@ export default function OrganizationsPage() {
             : undefined}
           description="Los clientes de la plataforma: planes, cuotas y acceso al detalle de cada uno."
           actions={
-            <>
-              <Button variant="ghost" size="icon" onClick={inv} className="h-9 w-9" title="Actualizar">
-                <RefreshCw className="h-4 w-4" />
-              </Button>
-              <Button size="sm" onClick={() => setShowCreate(true)} className="h-9 gap-1.5 group">
-                <Plus className="h-3.5 w-3.5 transition-transform group-hover:rotate-90" />
-                <span className="hidden sm:inline">Nueva organización</span>
-              </Button>
-            </>
+            <Button size="sm" onClick={() => setShowCreate(true)} className="h-9 gap-1.5 group">
+              <Plus className="h-3.5 w-3.5 transition-transform group-hover:rotate-90" />
+              <span className="hidden sm:inline">Nueva organización</span>
+            </Button>
           }
         />
 
         {/* KPIs */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
-          <HeaderKpi label="Organizaciones" value={health ? health.total_tenants : tenants.length} loading={!health && isLoading} />
-          <HeaderKpi label="Activas" value={health?.active_tenants ?? 0} tone="success" loading={!health} />
-          <HeaderKpi label="Consultas hoy" value={health?.queries_today ?? 0} loading={!health} />
-          <HeaderKpi
+          <Kpi
+            icon={Building2}
+            label="Organizaciones"
+            value={totalTenants}
+            sublabel={`${activeTenants} ${activeTenants === 1 ? "activa" : "activas"}`}
+            loading={!health && isLoading}
+          />
+          <Kpi icon={TrendingUp} label="Nuevas este mes" value={newThisMonth} loading={isLoading} />
+          <Kpi
+            icon={AlertTriangle}
             label="Cerca de cuota"
             value={health?.anomalies?.length ?? 0}
             tone={(health?.anomalies?.length ?? 0) > 0 ? "warn" : "neutral"}
             loading={!health}
+          />
+          <Kpi
+            icon={Ban}
+            label="Suspendidas"
+            value={suspended}
+            tone={suspended > 0 ? "danger" : "neutral"}
+            loading={isLoading}
           />
         </div>
 
@@ -183,9 +213,7 @@ function TenantRowCard({ tenant: t, anomaly, onClick }: {
   anomaly?: { pct: number; detail: string };
   onClick: () => void;
 }) {
-  const created = t.created_at
-    ? new Date(t.created_at).toLocaleDateString("es-AR", { day: "2-digit", month: "short", year: "numeric" })
-    : "—";
+  const dormant = !t.last_activity_at || (Date.now() - new Date(t.last_activity_at).getTime()) > 14 * 86_400_000;
 
   // Consumo del mes vs cuota del plan — lo que el operador necesita de un
   // vistazo para detectar tenants cerca del límite sin entrar al detalle.
@@ -210,10 +238,12 @@ function TenantRowCard({ tenant: t, anomaly, onClick }: {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="font-medium text-sm">{t.name}</span>
-            <code className="text-xs text-muted-foreground font-mono bg-muted px-1.5 py-0.5 rounded hidden sm:inline">{t.id}</code>
+            <code className="text-[10px] text-muted-foreground/50 font-mono hidden sm:inline">{t.id}</code>
             {anomaly && <span className="inline-flex items-center gap-1 text-xs text-warning font-medium"><AlertTriangle className="h-3 w-3" /> {anomaly.pct}% cuota</span>}
           </div>
-          <p className="text-xs text-muted-foreground truncate mt-0.5">{t.admin_email} · desde {created}</p>
+          <p className="text-xs text-muted-foreground truncate mt-0.5">
+            {t.admin_email} · <span className={cn(dormant && "text-warning font-medium")}>{relActivity(t.last_activity_at)}</span>
+          </p>
         </div>
         <div className="flex items-center gap-2 sm:gap-3 shrink-0">
           <span className={cn("text-xs font-medium px-2 py-0.5 rounded-full hidden md:inline capitalize", PLAN_COLORS[t.plan] || "bg-muted")}>{t.plan}</span>

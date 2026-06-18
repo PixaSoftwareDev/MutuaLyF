@@ -8,7 +8,7 @@ import {
   PauseCircle, PlayCircle, Settings2, UserPlus, Building2,
   TrendingUp, FileText, Zap, Clock, Database, Shield,
   MessageSquare, Target, Activity, ChevronRight, Bot, X, Users, Eye, EyeOff,
-  AtSign, Star, Plus, Trash2, FileStack, HeartPulse, Headset, Bug, HardDrive,
+  AtSign, Star, Plus, Trash2, FileStack, HeartPulse, Headset, Bug, HardDrive, MoreVertical,
 } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api, apiClient } from "@/lib/api";
@@ -18,10 +18,10 @@ import { Separator } from "@/components/ui/separator";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { EmptyState } from "@/components/ui/empty-state";
-import { PageHeader } from "@/components/layout/page-header";
 import { StatTile, ErrorRow } from "@/components/superadmin/shared";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
@@ -75,6 +75,12 @@ const STATUS_PILL: Record<string, { label: string; cls: string }> = {
   suspended:  { label: "Suspendida", cls: "bg-destructive/10 text-destructive" },
 };
 
+// Sección "Dominios de email" oculta por ahora: el login funciona sin dominios
+// (resuelve el tenant por email, escaneando los tenants). Los dominios son una
+// optimización para cuando haya muchos clientes — el backend sigue intacto.
+// Poner en true para volver a mostrarla en el detalle.
+const SHOW_EMAIL_DOMAINS = false;
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 export default function TenantDetailPage() {
   const { id: tenantId } = useParams() as { id: string };
@@ -85,6 +91,8 @@ export default function TenantDetailPage() {
   const [editPlan, setEditPlan]                 = useState(false);
   const [detailTab, setDetailTab]               = useState<"general" | "actividad" | "recursos" | "salud">("general");
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [showSuspendConfirm, setShowSuspendConfirm] = useState(false);
+  const [resetConfirmText, setResetConfirmText] = useState("");
   const [editingUser, setEditingUser] = useState<{ id: string; email: string; name: string; role: string; is_active: boolean } | null>(null);
 
   const inv = () => {
@@ -147,11 +155,11 @@ export default function TenantDetailPage() {
     onError: (e: any) => toast({ title: e?.response?.data?.detail ?? "Error al asignar", variant: "destructive" }),
   });
 
-  const suspendM  = useMutation({ mutationFn: () => apiClient.post(`/tenants/${tenantId}/suspend`),  onSuccess: () => { inv(); qc.invalidateQueries({ queryKey: ["tenants"] }); toast({ title: "Tenant suspendido" }); }, onError: () => toast({ title: "Error", variant: "destructive" }) });
+  const suspendM  = useMutation({ mutationFn: () => apiClient.post(`/tenants/${tenantId}/suspend`),  onSuccess: () => { inv(); qc.invalidateQueries({ queryKey: ["tenants"] }); setShowSuspendConfirm(false); toast({ title: "Organización suspendida" }); }, onError: () => toast({ title: "Error", variant: "destructive" }) });
   const activateM = useMutation({ mutationFn: () => apiClient.post(`/tenants/${tenantId}/activate`), onSuccess: () => { inv(); qc.invalidateQueries({ queryKey: ["tenants"] }); toast({ title: "Tenant reactivado", variant: "success" }); }, onError: () => toast({ title: "Error", variant: "destructive" }) });
   const resetM    = useMutation({
     mutationFn: () => apiClient.post(`/tenants/${tenantId}/reset-onboarding`),
-    onSuccess: () => { inv(); setShowResetConfirm(false); toast({ title: "Onboarding reseteado", description: "El tenant arrancará desde el asistente de configuración.", variant: "success" }); },
+    onSuccess: () => { inv(); setShowResetConfirm(false); setResetConfirmText(""); toast({ title: "Onboarding reseteado", description: "El tenant arrancará desde el asistente de configuración.", variant: "success" }); },
     onError: () => toast({ title: "Error al resetear", variant: "destructive" }),
   });
   const planM     = useMutation({
@@ -163,7 +171,7 @@ export default function TenantDetailPage() {
   if (isLoading) return <LoadingState />;
   if (error || !m) return (
     <div className="h-full flex flex-col overflow-hidden">
-      <TopBar onBack={() => router.push("/superadmin/orgs")} onRefresh={inv} label="—" loading={false} />
+      <TopBar onBack={() => router.push("/superadmin/orgs")} />
       <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
         No se pudo cargar la información del tenant.
       </div>
@@ -177,7 +185,7 @@ export default function TenantDetailPage() {
 
   return (
     <div className="h-full flex flex-col overflow-hidden bg-muted/20">
-      <TopBar onBack={() => router.push("/superadmin/orgs")} onRefresh={inv} label={t.name} loading={false} />
+      <TopBar onBack={() => router.push("/superadmin/orgs")} />
 
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-4 space-y-4 pb-10">
@@ -190,7 +198,7 @@ export default function TenantDetailPage() {
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <h2 className="text-lg font-semibold">{t.name}</h2>
+                  <h2 className="text-xl font-semibold tracking-tight">{t.name}</h2>
                   <code className="text-xs font-mono bg-muted px-1.5 py-0.5 rounded text-muted-foreground">{t.id}</code>
                 </div>
                 <p className="text-sm text-muted-foreground mt-0.5">{t.admin_email}</p>
@@ -244,10 +252,9 @@ export default function TenantDetailPage() {
                 <Button
                   size="sm" variant="outline"
                   className="h-8 gap-1.5 text-xs text-warning border-warning/20 hover:bg-warning/10"
-                  disabled={suspendM.isPending}
-                  onClick={() => suspendM.mutate()}
+                  onClick={() => setShowSuspendConfirm(true)}
                 >
-                  {suspendM.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <PauseCircle className="h-3.5 w-3.5" />}
+                  <PauseCircle className="h-3.5 w-3.5" />
                   Suspender
                 </Button>
               ) : (
@@ -262,14 +269,24 @@ export default function TenantDetailPage() {
                 </Button>
               )}
 
-              <Button
-                size="sm" variant="outline"
-                className="h-8 gap-1.5 text-xs text-destructive border-destructive/20 hover:bg-destructive/10"
-                onClick={() => setShowResetConfirm(true)}
-              >
-                <RefreshCw className="h-3.5 w-3.5" />
-                Resetear onboarding
-              </Button>
+              {/* Acciones peligrosas escondidas detrás de un menú: resetear es
+                  destructivo e irreversible, no debe estar a un click accidental. */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button size="sm" variant="ghost" className="h-8 w-8 p-0 ml-auto text-muted-foreground" title="Más acciones">
+                    <MoreVertical className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem
+                    onSelect={() => setShowResetConfirm(true)}
+                    className="text-destructive focus:text-destructive"
+                  >
+                    <RefreshCw className="h-4 w-4 mr-2" />
+                    Resetear onboarding
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </div>
 
@@ -294,8 +311,8 @@ export default function TenantDetailPage() {
 
           {detailTab === "general" && (
           <section className="space-y-4 animate-fade-in">
-          {/* ── Dominios de email (email-first login) ───────────────────── */}
-          <EmailDomainsSection tenantId={tenantId} />
+          {/* Dominios de email — oculto por ahora (ver SHOW_EMAIL_DOMAINS). */}
+          {SHOW_EMAIL_DOMAINS && <EmailDomainsSection tenantId={tenantId} />}
 
           {/* ── Usuarios ─────────────────────────────────────────────── */}
           <div className="flex items-center justify-between">
@@ -676,7 +693,7 @@ export default function TenantDetailPage() {
       )}
 
       {showResetConfirm && (
-        <Dialog open onOpenChange={v => !v && setShowResetConfirm(false)}>
+        <Dialog open onOpenChange={v => { if (!v) { setShowResetConfirm(false); setResetConfirmText(""); } }}>
           <DialogContent className="w-full max-w-md mx-4 sm:mx-auto">
             <DialogHeader>
               <div className="flex items-start gap-3 text-left">
@@ -702,17 +719,69 @@ export default function TenantDetailPage() {
               de configuración. Antes de hacerlo en una organización con datos reales, verificá que el
               backup diario esté al día (Sistema → Backups y disco).
             </p>
+
+            {/* Barrera anti-accidente: hay que tipear el nombre exacto. */}
+            <div className="space-y-1.5">
+              <Label htmlFor="reset-confirm" className="text-xs font-medium">
+                Escribí <span className="font-semibold text-foreground">{t.name}</span> para confirmar
+              </Label>
+              <Input
+                id="reset-confirm"
+                value={resetConfirmText}
+                onChange={e => setResetConfirmText(e.target.value)}
+                placeholder={t.name}
+                autoComplete="off"
+              />
+            </div>
+
             <DialogFooter className="flex-col sm:flex-row gap-2">
-              <Button variant="outline" className="w-full sm:w-auto" onClick={() => setShowResetConfirm(false)}>
+              <Button variant="outline" className="w-full sm:w-auto" onClick={() => { setShowResetConfirm(false); setResetConfirmText(""); }}>
                 Cancelar
               </Button>
               <Button
                 variant="destructive" className="w-full sm:w-auto"
-                disabled={resetM.isPending}
+                disabled={resetM.isPending || resetConfirmText.trim() !== t.name}
                 onClick={() => resetM.mutate()}
               >
                 {resetM.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
                 Sí, resetear
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {showSuspendConfirm && (
+        <Dialog open onOpenChange={v => !v && setShowSuspendConfirm(false)}>
+          <DialogContent className="w-full max-w-md mx-4 sm:mx-auto">
+            <DialogHeader>
+              <div className="flex items-start gap-3 text-left">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-warning/10">
+                  <PauseCircle className="h-5 w-5 text-warning" />
+                </div>
+                <div className="min-w-0 space-y-1.5 pt-0.5">
+                  <DialogTitle>Suspender organización</DialogTitle>
+                  <p className="text-sm text-muted-foreground">
+                    <span className="font-medium text-foreground">{t.name}</span> va a quedar sin acceso:
+                    sus usuarios no van a poder iniciar sesión y el asistente deja de responder a los afiliados.
+                  </p>
+                </div>
+              </div>
+            </DialogHeader>
+            <p className="text-xs text-muted-foreground border-t pt-3">
+              Es reversible — la podés reactivar cuando quieras desde acá. No se borra ningún dato.
+            </p>
+            <DialogFooter className="flex-col sm:flex-row gap-2">
+              <Button variant="outline" className="w-full sm:w-auto" onClick={() => setShowSuspendConfirm(false)}>
+                Cancelar
+              </Button>
+              <Button
+                className="w-full sm:w-auto bg-warning text-warning-foreground hover:bg-warning/90"
+                disabled={suspendM.isPending}
+                onClick={() => suspendM.mutate()}
+              >
+                {suspendM.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+                Suspender
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -724,26 +793,17 @@ export default function TenantDetailPage() {
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-function TopBar({ onBack, onRefresh, label, loading }: { onBack: () => void; onRefresh: () => void; label: string; loading: boolean }) {
+function TopBar({ onBack }: { onBack: () => void }) {
   return (
-    <div className="shrink-0 bg-background border-b px-4 sm:px-6 pt-4 sm:pt-6 pb-4">
+    <div className="shrink-0 bg-background border-b px-4 sm:px-6 py-3">
       <div className="max-w-[1400px] mx-auto">
         <button
           onClick={onBack}
-          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors mb-2"
+          className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
         >
-          <ArrowLeft className="h-3.5 w-3.5" />
+          <ArrowLeft className="h-4 w-4" />
           Organizaciones
         </button>
-        <PageHeader
-          title={label}
-          description="Detalle, uso y recursos de la organización"
-          actions={
-            <Button variant="ghost" size="icon" className="h-9 w-9 shrink-0" onClick={onRefresh} title="Actualizar">
-              <RefreshCw className="h-4 w-4" />
-            </Button>
-          }
-        />
       </div>
     </div>
   );

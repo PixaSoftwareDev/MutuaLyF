@@ -1755,6 +1755,88 @@ async def get_platform_ops(
 
 # ── Platform-wide traffic (super_admin only) ──────────────────────────────────
 
+# ── Planes (configurables desde el super-admin) ──────────────────────────────
+
+def _slugify_plan(s: str) -> str:
+    import re
+    return re.sub(r"[^a-z0-9_]+", "_", (s or "").lower().strip()).strip("_")
+
+
+class PlanUpsert(BaseModel):
+    name:          str
+    users:         int = -1
+    documents:     int = -1
+    queries_month: int = -1
+    max_mb:        int = 200
+    price_usd:     float | None = None
+    is_active:     bool = True
+    sort_order:    int = 0
+
+
+@router.get("/platform/plans")
+async def list_plans(current_user: CurrentUser = Depends(require_super_admin)):
+    """Lista de planes (de la tabla, con fallback hardcodeado)."""
+    from core.plans import get_all_plans
+    plans = await get_all_plans(force=True)
+    items = [{"id": pid, **data} for pid, data in plans.items()]
+    items.sort(key=lambda p: (p.get("sort_order", 0), p["id"]))
+    return {"plans": items}
+
+
+@router.patch("/platform/plans/{plan_id}")
+async def update_plan(plan_id: str, body: PlanUpsert, current_user: CurrentUser = Depends(require_super_admin)):
+    """Editar los límites de un plan existente."""
+    if not body.name.strip():
+        raise HTTPException(status_code=400, detail="El nombre del plan es obligatorio.")
+    from core.plans import invalidate_cache
+    async with get_pg_session(None) as session:
+        result = await session.execute(text("""
+            UPDATE public.plans SET
+                name = :name, users = :users, documents = :documents,
+                queries_month = :queries_month, max_mb = :max_mb,
+                price_usd = :price_usd, is_active = :is_active, sort_order = :sort_order,
+                updated_at = NOW()
+            WHERE id = :id RETURNING id
+        """), {
+            "id": plan_id, "name": body.name.strip(), "users": body.users,
+            "documents": body.documents, "queries_month": body.queries_month,
+            "max_mb": body.max_mb, "price_usd": body.price_usd,
+            "is_active": body.is_active, "sort_order": body.sort_order,
+        })
+        if not result.fetchone():
+            raise HTTPException(status_code=404, detail="Plan no encontrado.")
+    invalidate_cache()
+    logger.info("plan_updated id=%s by=%s", plan_id, current_user.user_id)
+    return {"status": "ok", "id": plan_id}
+
+
+@router.post("/platform/plans/{plan_id}", status_code=201)
+async def create_plan(plan_id: str, body: PlanUpsert, current_user: CurrentUser = Depends(require_super_admin)):
+    """Crear un plan nuevo (el id/slug va en la URL)."""
+    if not body.name.strip():
+        raise HTTPException(status_code=400, detail="El nombre del plan es obligatorio.")
+    pid = _slugify_plan(plan_id)
+    if not pid:
+        raise HTTPException(status_code=400, detail="Identificador de plan inválido.")
+    from core.plans import invalidate_cache
+    async with get_pg_session(None) as session:
+        exists = (await session.execute(text("SELECT 1 FROM public.plans WHERE id = :id"), {"id": pid})).scalar()
+        if exists:
+            raise HTTPException(status_code=409, detail=f"Ya existe un plan con id '{pid}'.")
+        await session.execute(text("""
+            INSERT INTO public.plans (id, name, users, documents, queries_month, max_mb, price_usd, is_active, sort_order)
+            VALUES (:id, :name, :users, :documents, :queries_month, :max_mb, :price_usd, :is_active, :sort_order)
+        """), {
+            "id": pid, "name": body.name.strip(), "users": body.users,
+            "documents": body.documents, "queries_month": body.queries_month,
+            "max_mb": body.max_mb, "price_usd": body.price_usd,
+            "is_active": body.is_active, "sort_order": body.sort_order,
+        })
+    invalidate_cache()
+    logger.info("plan_created id=%s by=%s", pid, current_user.user_id)
+    return {"status": "ok", "id": pid}
+
+
 @router.get("/platform/costs")
 async def get_platform_costs(
     days: int = 30,

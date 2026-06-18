@@ -35,8 +35,9 @@ async def enforce_document_limit(tenant_id: str, file_size_bytes: int) -> None:
     """Raise HTTP 402 if the tenant has reached their document or file size limit."""
     from core.database import get_pg_session
 
+    from core.plans import get_plan_limits
     plan = await _get_tenant_plan(tenant_id)
-    limits = PLAN_LIMITS.get(plan, PLAN_LIMITS["starter"])
+    limits = await get_plan_limits(plan)
 
     # File size check
     max_bytes = limits["max_mb"] * 1024 * 1024
@@ -85,8 +86,9 @@ async def enforce_query_limit(tenant_id: str) -> None:
     """Raise HTTP 429 if the tenant has exceeded their monthly query quota."""
     from core.database import get_pg_session
 
+    from core.plans import get_plan_limits
     plan = await _get_tenant_plan(tenant_id)
-    limits = PLAN_LIMITS.get(plan, PLAN_LIMITS["starter"])
+    limits = await get_plan_limits(plan)
 
     query_limit = limits["queries_month"]
     if query_limit == -1:

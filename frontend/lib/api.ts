@@ -111,6 +111,19 @@ apiClient.interceptors.response.use(
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
+export interface PlanRow {
+  id: string;
+  name: string;
+  users: number;
+  documents: number;
+  queries_month: number;
+  max_mb: number;
+  price_usd: number | null;
+  is_active: boolean;
+  sort_order: number;
+}
+export type PlanBody = Omit<PlanRow, "id">;
+
 export interface LoginResponse {
   access_token: string;
   token_type: string;
@@ -701,6 +714,28 @@ export const api = {
         daily: Array<{ day: string; event_type: string; total: number }>;
         per_tenant: Array<{ id: string; name: string; plan: string; status: string; queries_30d: number; ingests_30d: number; tokens_30d: number }>;
       };
+    },
+    platformCosts: async () => {
+      const { data } = await apiClient.get("/tenants/platform/costs");
+      return data as {
+        available: boolean;
+        total_usd: number;
+        currency: string;
+        daily: Array<{ ts: number; usd: number }>;
+        reason?: string;
+      };
+    },
+    listPlans: async () => {
+      const { data } = await apiClient.get("/tenants/platform/plans");
+      return data as { plans: PlanRow[] };
+    },
+    updatePlan: async (id: string, body: PlanBody) => {
+      const { data } = await apiClient.patch(`/tenants/platform/plans/${id}`, body);
+      return data;
+    },
+    createPlan: async (id: string, body: PlanBody) => {
+      const { data } = await apiClient.post(`/tenants/platform/plans/${encodeURIComponent(id)}`, body);
+      return data;
     },
     platformHealth: async () => {
       const { data } = await apiClient.get("/tenants/platform/health");

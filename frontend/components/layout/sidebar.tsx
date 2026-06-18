@@ -6,7 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import Image from "next/image";
 import {
   Inbox, FileText, Tags, Settings, LogOut, PanelLeftClose,
-  Shield, Building2, GitMerge, Users, ExternalLink, BotMessageSquare, ClipboardList, Bot, Network, X, ChevronRight,
+  Shield, Building2, GitMerge, Users, ExternalLink, BotMessageSquare, ClipboardList, Bot, Network, X, ChevronRight, Layers,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore, useUIStore } from "@/lib/store";
@@ -81,6 +81,8 @@ const navGroups: NavGroup[] = [
       { href: "/superadmin/orgs",       label: "Organizaciones", icon: Building2,     superAdminOnly: true,
         matchPrefixes: ["/superadmin/orgs", "/superadmin/tenants"],
         tooltip: "Los clientes de la plataforma: planes, cuotas y detalle por organización." },
+      { href: "/superadmin/plans",      label: "Planes",         icon: Layers,        superAdminOnly: true,
+        tooltip: "Los planes de la plataforma: límites y precios. Editá o creá planes." },
       { href: "/superadmin/monitoring", label: "Monitoreo",      icon: Network,       superAdminOnly: true,
         tooltip: "Infraestructura, alertas, errores recientes y backups." },
       { href: "/superadmin/prompts",    label: "Bots / Prompts", icon: Bot,           superAdminOnly: true,

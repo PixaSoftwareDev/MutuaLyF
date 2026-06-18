@@ -7,8 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuthStore } from "@/lib/store";
 import { api } from "@/lib/api";
-import { AuthShell, brandBtnStyle } from "@/components/auth/auth-shell";
-import { Loader2, AlertTriangle, Shield, Eye, EyeOff } from "lucide-react";
+import { AuthShell, brandBtnStyle, BRAND_GRADIENT } from "@/components/auth/auth-shell";
+import { Loader2, AlertTriangle, ShieldCheck, Eye, EyeOff } from "lucide-react";
 
 export default function LoginSuperadminPage() {
   const router = useRouter();
@@ -46,23 +46,31 @@ export default function LoginSuperadminPage() {
 
   return (
     <AuthShell>
-      <div className="space-y-1 mb-6 text-center">
+      {/* Insignia de plataforma: identidad Intellix (no un tenant). El escudo
+          sobre el gradient de marca + el pill comunican "esta es la consola
+          del equipo", con la misma jerarquía visual que el login normal. */}
+      <div className="flex flex-col items-center text-center mb-7 lg:mb-8">
+        <div
+          className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl shadow-lg shadow-indigo-500/25"
+          style={{ backgroundImage: BRAND_GRADIENT }}
+        >
+          <ShieldCheck className="h-7 w-7 text-white" />
+        </div>
         <h1 className="text-2xl lg:text-[26px] font-semibold tracking-tight text-slate-900">
-          Acceso de plataforma
+          Consola de plataforma
         </h1>
-        <p className="text-[14px] lg:text-[15px] text-slate-500 leading-relaxed">
-          Panel exclusivo para super administradores.
+        <p className="text-[14px] lg:text-[15px] text-slate-500 leading-relaxed mt-1.5">
+          Acceso exclusivo del equipo Intellix.
         </p>
+        <span className="mt-4 inline-flex items-center gap-1.5 rounded-full border border-violet-200/70 bg-violet-50 px-3 py-1 text-[12px] font-semibold text-violet-700">
+          <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundImage: BRAND_GRADIENT }} />
+          Super administrador
+        </span>
       </div>
 
-      <div className="flex items-center justify-center gap-2 rounded-lg bg-violet-50 border border-violet-200 px-3 py-2 mb-5">
-        <Shield className="h-4 w-4 text-violet-600 shrink-0" />
-        <span className="text-sm text-violet-700 font-medium">Modo super administrador</span>
-      </div>
-
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <form onSubmit={handleSubmit} className="space-y-4 lg:space-y-5 xl:space-y-6">
         <div className="space-y-1.5">
-          <Label htmlFor="email" className="text-xs font-medium text-slate-600">Email</Label>
+          <Label htmlFor="email" className="text-[13px] font-medium text-slate-700">Email</Label>
           <Input
             id="email"
             type="email"
@@ -71,11 +79,12 @@ export default function LoginSuperadminPage() {
             onChange={e => setEmail(e.target.value)}
             required
             autoComplete="email"
+            className="h-11 lg:h-12 xl:h-[52px] text-[15px] focus-visible:ring-2 focus-visible:ring-indigo-500/30"
           />
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor="password" className="text-xs font-medium text-slate-600">Contraseña</Label>
+          <Label htmlFor="password" className="text-[13px] font-medium text-slate-700">Contraseña</Label>
           <div className="relative">
             <Input
               id="password"
@@ -84,7 +93,7 @@ export default function LoginSuperadminPage() {
               onChange={e => setPassword(e.target.value)}
               required
               autoComplete="current-password"
-              className="pr-9"
+              className="h-11 lg:h-12 xl:h-[52px] pr-10 text-[15px] focus-visible:ring-2 focus-visible:ring-indigo-500/30"
             />
             <button
               type="button"
@@ -105,7 +114,7 @@ export default function LoginSuperadminPage() {
           </div>
         )}
 
-        <Button type="submit" className="w-full h-11 font-medium" style={brandBtnStyle} disabled={loading}>
+        <Button type="submit" className="w-full h-11 lg:h-12 text-[15px] font-medium" style={brandBtnStyle} disabled={loading}>
           {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
           {loading ? "Ingresando…" : "Ingresar"}
         </Button>
