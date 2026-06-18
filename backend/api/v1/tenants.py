@@ -1752,6 +1752,18 @@ async def get_platform_ops(
 
 # ── Platform-wide traffic (super_admin only) ──────────────────────────────────
 
+@router.get("/platform/costs")
+async def get_platform_costs(
+    days: int = 30,
+    current_user: CurrentUser = Depends(require_super_admin),
+):
+    """Gasto real de la organización en OpenAI (Admin API). Solo super-admin.
+    Best-effort: si la Admin key no está configurada o la API falla, devuelve
+    available=False y el panel lo muestra como no disponible."""
+    from services.openai_billing import get_costs
+    return await get_costs(max(1, min(days, 90)))
+
+
 @router.get("/platform/traffic")
 async def get_platform_traffic(
     current_user: CurrentUser = Depends(require_super_admin),

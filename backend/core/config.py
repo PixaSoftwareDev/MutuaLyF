@@ -23,6 +23,11 @@ class Settings(BaseSettings):
     llm_provider: str = "groq"
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
+    # Admin API key (sk-admin-…) para LEER el gasto/usage de la organización en
+    # OpenAI (endpoint /v1/organization/costs). Distinta de openai_api_key (que es
+    # para inferencia): esta es solo lectura de billing. Si está vacía, el panel
+    # muestra el costo como "no configurado".
+    openai_admin_api_key: str = ""
 
     # ── Embedding provider switch (local | openai | tei) ─────────────────────
     # local: multilingual-e5-large CPU-bound EN el proceso uvicorn, ~1.5GB RAM,
