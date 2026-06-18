@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { FormSheet } from "@/components/layout/form-sheet";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageShell } from "@/components/layout/page-shell";
@@ -327,18 +327,23 @@ function CreateTenantModal({ open, onClose, onCreated }: { open: boolean; onClos
   const selectedPersonality = availablePersonalities.find((x: any) => x.id === form.personality_id);
 
   return (
-    <Dialog open={open} onOpenChange={v => !v && handleClose()}>
-      <DialogContent className="flex flex-col p-0 gap-0 w-[calc(100%-2rem)] sm:w-full sm:max-w-lg">
-
-        {/* Header */}
-        <DialogHeader className="shrink-0 px-5 pt-5 pb-4 border-b">
-          <DialogTitle className="flex items-center gap-2 text-base">
-            <Building2 className="h-4 w-4 text-primary" />Nueva organización
-          </DialogTitle>
-        </DialogHeader>
-
-        {/* Scrollable body */}
-        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 py-4 space-y-4">
+    <FormSheet
+      open={open}
+      onOpenChange={v => !v && handleClose()}
+      icon={Building2}
+      title="Nueva organización"
+      description="Datos de la organización y su admin inicial."
+      footer={
+        <>
+          <Button variant="outline" onClick={handleClose}>Cancelar</Button>
+          <Button disabled={!canSubmit} onClick={() => { setError(""); createM.mutate(); }}>
+            {createM.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+            Crear organización
+          </Button>
+        </>
+      }
+    >
+        <div className="space-y-4">
 
           {/* Nombre + slug */}
           <div className="space-y-1.5">
@@ -438,15 +443,6 @@ function CreateTenantModal({ open, onClose, onCreated }: { open: boolean; onClos
           )}
         </div>
 
-        {/* Footer pegado abajo */}
-        <DialogFooter className="shrink-0 px-5 py-4 border-t flex-col sm:flex-row gap-2">
-          <Button variant="outline" className="w-full sm:w-auto" onClick={handleClose}>Cancelar</Button>
-          <Button className="w-full sm:w-auto" disabled={!canSubmit} onClick={() => { setError(""); createM.mutate(); }}>
-            {createM.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
-            Crear organización
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    </FormSheet>
   );
 }

@@ -4,11 +4,11 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter, useParams } from "next/navigation";
 import {
-  ArrowLeft, RefreshCw, Loader2, AlertTriangle, CheckCircle2,
+  ArrowLeft, RefreshCw, Loader2, AlertTriangle, CheckCircle2, XCircle,
   PauseCircle, PlayCircle, Settings2, UserPlus, Building2,
   TrendingUp, FileText, Zap, Clock, Database, Shield,
-  MessageSquare, Target, Activity, ChevronRight, Bot, X, Users, Eye, EyeOff,
-  AtSign, Star, Plus, Trash2, FileStack, HeartPulse, Headset, Bug, HardDrive, MoreVertical,
+  MessageSquare, Target, Activity, ChevronRight, ChevronDown, Bot, X, Users, Eye, EyeOff,
+  AtSign, Star, Plus, Trash2, HeartPulse, Bug, HardDrive, MoreVertical,
 } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api, apiClient } from "@/lib/api";
@@ -19,10 +19,11 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
+import { FormSheet } from "@/components/layout/form-sheet";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { EmptyState } from "@/components/ui/empty-state";
-import { StatTile, ErrorRow } from "@/components/superadmin/shared";
+import { Kpi, ErrorRow } from "@/components/superadmin/shared";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
@@ -39,11 +40,6 @@ function fmtBytes(b: number): string {
   if (b >= 1_048_576)     return (b / 1_048_576).toFixed(1)     + " MB";
   if (b >= 1_024)         return (b / 1_024).toFixed(1)         + " KB";
   return b + " B";
-}
-
-function fmtPct(n: number | null | undefined): string {
-  if (n == null) return "—";
-  return (n * 100).toFixed(1) + "%";
 }
 
 function fmtMs(ms: number | null | undefined): string {
@@ -89,7 +85,7 @@ export default function TenantDetailPage() {
 
   const [showCreateAdmin, setShowCreateAdmin]   = useState(false);
   const [editPlan, setEditPlan]                 = useState(false);
-  const [detailTab, setDetailTab]               = useState<"general" | "actividad" | "recursos" | "salud">("general");
+  const [detailTab, setDetailTab]               = useState<"general" | "actividad" | "salud">("salud");
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [showSuspendConfirm, setShowSuspendConfirm] = useState(false);
   const [resetConfirmText, setResetConfirmText] = useState("");
@@ -294,17 +290,14 @@ export default function TenantDetailPage() {
                  único con todo mezclado ──────────────────────────────────── */}
           <Tabs value={detailTab} onValueChange={v => setDetailTab(v as typeof detailTab)}>
             <TabsList>
-              <TabsTrigger value="general" className="gap-1.5">
-                <Users className="h-3.5 w-3.5" /> Equipo y bot
+              <TabsTrigger value="salud" className="gap-1.5">
+                <HeartPulse className="h-3.5 w-3.5" /> Salud
               </TabsTrigger>
               <TabsTrigger value="actividad" className="gap-1.5">
                 <Activity className="h-3.5 w-3.5" /> Actividad
               </TabsTrigger>
-              <TabsTrigger value="recursos" className="gap-1.5">
-                <FileStack className="h-3.5 w-3.5" /> Recursos
-              </TabsTrigger>
-              <TabsTrigger value="salud" className="gap-1.5">
-                <HeartPulse className="h-3.5 w-3.5" /> Salud
+              <TabsTrigger value="general" className="gap-1.5">
+                <Users className="h-3.5 w-3.5" /> Equipo y bot
               </TabsTrigger>
             </TabsList>
           </Tabs>
@@ -398,165 +391,150 @@ export default function TenantDetailPage() {
           )}
 
           {detailTab === "actividad" && (
-          <section className="space-y-4 animate-fade-in">
+          <section className="space-y-5 animate-fade-in">
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-4 items-start">
+          {m.performance.total_logged === 0 && m.usage.queries_30d === 0 ? (
+            <EmptyState
+              icon={Activity}
+              title="Sin actividad todavía"
+              description="Este cliente aún no registró consultas ni ingestas en los últimos 30 días."
+              className="rounded-2xl border border-dashed bg-card"
+            />
+          ) : (
+          <>
+          {/* ── Resumen — lo que un superadmin mira primero ───────────── */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <Kpi
+              icon={MessageSquare}
+              label="Consultas 30d"
+              value={fmtNum(m.usage.queries_30d)}
+              accentBrand
+              sublabel={`${fmtNum(m.usage.queries_7d)} en los últimos 7 días`}
+            />
+            <Kpi
+              icon={FileText}
+              label="Ingestas 30d"
+              value={fmtNum(m.usage.ingests_30d)}
+              sublabel="documentos procesados"
+            />
+            <Kpi
+              icon={Zap}
+              label="Tokens LLM 30d"
+              value={fmtNum(m.usage.llm_tokens_30d)}
+              sublabel="consumo de IA · costo aprox."
+            />
+            <Kpi
+              icon={Target}
+              label="Confianza prom."
+              value={m.performance.avg_confidence != null ? (m.performance.avg_confidence * 100).toFixed(0) + "%" : "—"}
+              tone={m.performance.avg_confidence == null ? "neutral" : m.performance.avg_confidence >= 0.8 ? "success" : m.performance.avg_confidence >= 0.6 ? "warn" : "danger"}
+              sublabel="calidad de las respuestas"
+            />
+          </div>
 
-          {/* ── Usage KPIs ───────────────────────────────────────────── */}
-          <div className="space-y-2 lg:col-span-2">
-          <SectionTitle icon={TrendingUp} label="Uso" />
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
-            <StatTile label="Consultas hoy"  value={fmtNum(m.usage.queries_today)} />
-            <StatTile label="Consultas 7d"   value={fmtNum(m.usage.queries_7d)} />
-            <StatTile label="Consultas 30d"  value={fmtNum(m.usage.queries_30d)} />
-            <StatTile label="Ingestas 30d"   value={fmtNum(m.usage.ingests_30d)} />
-            <StatTile label="Tokens LLM 30d" value={fmtNum(m.usage.llm_tokens_30d)} sublabel="aprox." />
-          </div>
+          {/* ── Volumen + Rendimiento ─────────────────────────────────── */}
+          <div className="grid gap-4 lg:grid-cols-2 items-start">
+
+            {/* Volumen — número protagonista + barras comparativas */}
+            <div className="rounded-2xl border bg-card shadow-sm overflow-hidden">
+              <PanelHeader icon={TrendingUp} label="Volumen de consultas" sublabel="ritmo de uso" />
+              <div className="p-4">
+                <div className="flex items-end justify-between gap-4">
+                  <div className="min-w-0">
+                    <p className="text-4xl font-bold tabular-nums leading-none">{fmtNum(m.usage.queries_30d)}</p>
+                    <p className="mt-1.5 text-xs text-muted-foreground">consultas en 30 días</p>
+                  </div>
+                  <div className="shrink-0 rounded-xl bg-action-gradient-soft px-3 py-2 text-right">
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-action/80">Promedio</p>
+                    <p className="text-base font-semibold tabular-nums text-action leading-none mt-0.5">
+                      ≈ {fmtNum(Math.round(m.usage.queries_30d / 30))}<span className="text-[11px] font-normal">/día</span>
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-4 space-y-2.5">
+                  <VolBar label="Hoy"     value={m.usage.queries_today} max={m.usage.queries_30d} />
+                  <VolBar label="7 días"  value={m.usage.queries_7d}    max={m.usage.queries_30d} />
+                  <VolBar label="30 días" value={m.usage.queries_30d}   max={m.usage.queries_30d} />
+                </div>
+              </div>
+            </div>
+
+            {/* Rendimiento — anillo de cache + gauges de latencia */}
+            <div className="rounded-2xl border bg-card shadow-sm overflow-hidden">
+              <PanelHeader icon={Zap} label="Rendimiento del servicio" sublabel="últimos 30d" />
+              <div className="flex items-center gap-5 p-4">
+                <Donut value={m.performance.cache_hit_rate} label="Cache hit" />
+                <div className="h-14 w-px bg-border shrink-0" />
+                <div className="flex flex-1 flex-col gap-3.5 min-w-0">
+                  <LatencyGauge label="Latencia p50" ms={m.performance.latency_p50} />
+                  <LatencyGauge label="Latencia p95" ms={m.performance.latency_p95} />
+                </div>
+              </div>
+            </div>
+
           </div>
 
-          {/* ── Performance ──────────────────────────────────────────── */}
-          <div className="space-y-2 lg:col-span-2">
-          <SectionTitle icon={Zap} label="Rendimiento" sublabel="últimos 30d, datos de consultas_log" />
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-            <StatTile label="Latencia p50"   value={fmtMs(m.performance.latency_p50)}   tone={latencyTone(m.performance.latency_p50)} />
-            <StatTile label="Latencia p95"   value={fmtMs(m.performance.latency_p95)}   tone={latencyTone(m.performance.latency_p95)} />
-            <StatTile label="Cache hit rate" value={fmtPct(m.performance.cache_hit_rate)} />
-            <StatTile label="Conf. promedio" value={m.performance.avg_confidence != null ? (m.performance.avg_confidence * 100).toFixed(0) + "%" : "—"} />
-          </div>
-          </div>
+          {/* ── Qué consultan + Últimas consultas (desplegables) ──────── */}
+          <div className="space-y-3">
 
-          {/* ── Top intents ──────────────────────────────────────────── */}
-          {m.top_intents.length > 0 && (
-            <div className="space-y-2">
-              <SectionTitle icon={Target} label="Intenciones más frecuentes" sublabel="30d" />
-              <div className="rounded-xl border bg-card shadow-sm divide-y overflow-hidden">
+            <CollapsiblePanel icon={Target} label="Qué consultan" sublabel="intenciones más frecuentes · 30d" count={m.top_intents.length}>
+              <div className="divide-y">
                 {m.top_intents.map((intent, i) => {
                   const max = m.top_intents[0].count;
                   const pct = Math.round((intent.count / max) * 100);
                   return (
-                    <div key={intent.label} className="flex items-center gap-3 px-4 py-2.5">
-                      <span className="text-xs text-muted-foreground w-4 tabular-nums shrink-0">{i + 1}</span>
+                    <div key={intent.label} className="flex items-center gap-3 px-4 py-3">
+                      <span className="text-xs text-muted-foreground/50 w-4 tabular-nums shrink-0 font-semibold">{i + 1}</span>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium truncate">{intent.label}</p>
-                        <div className="flex items-center gap-2 mt-1">
-                          <div className="flex-1 h-1 bg-muted rounded-full overflow-hidden">
-                            <div className="h-full bg-primary/60 rounded-full" style={{ width: `${pct}%` }} />
-                          </div>
+                        <div className="mt-1.5 h-1.5 bg-muted rounded-full overflow-hidden">
+                          <div className="h-full bg-action-gradient rounded-full" style={{ width: `${Math.max(pct, 4)}%` }} />
                         </div>
                       </div>
-                      <span className="text-xs tabular-nums text-muted-foreground shrink-0">{fmtNum(intent.count)} q</span>
-                      {intent.avg_confidence != null && (
-                        <span className="text-xs tabular-nums text-muted-foreground shrink-0 hidden sm:inline">
-                          {(intent.avg_confidence * 100).toFixed(0)}% conf.
-                        </span>
-                      )}
+                      <div className="shrink-0 text-right">
+                        <p className="text-sm font-semibold tabular-nums leading-none">{fmtNum(intent.count)}</p>
+                        {intent.avg_confidence != null && (
+                          <p className="text-[10px] tabular-nums text-muted-foreground mt-1">{(intent.avg_confidence * 100).toFixed(0)}% conf.</p>
+                        )}
+                      </div>
                     </div>
                   );
                 })}
               </div>
-            </div>
-          )}
+            </CollapsiblePanel>
 
-          {/* ── Recent queries ───────────────────────────────────────── */}
-          {m.recent_queries.length > 0 && (
-            <div className="space-y-2">
-              <SectionTitle icon={MessageSquare} label="Últimas consultas" sublabel="máx. 10" />
-              <div className="rounded-xl border bg-card shadow-sm divide-y overflow-hidden">
+            <CollapsiblePanel icon={MessageSquare} label="Últimas consultas" sublabel="las más recientes" count={m.recent_queries.length}>
+              <div className="divide-y">
                 {m.recent_queries.map((q, i) => (
                   <div key={i} className="flex items-start gap-3 px-4 py-3">
+                    <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted/60">
+                      <MessageSquare className="h-3.5 w-3.5 text-muted-foreground" />
+                    </span>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm text-foreground truncate">
-                        {q.question_text ?? <span className="text-muted-foreground italic">sin texto</span>}
+                      <p className={cn("text-sm truncate", q.question_text ? "text-foreground" : "italic text-muted-foreground/70")}>
+                        {q.question_text ?? "Consulta sin texto guardado"}
                       </p>
-                      <div className="flex items-center gap-2 mt-1 flex-wrap">
+                      <div className="mt-1 flex items-center gap-x-2 gap-y-1 flex-wrap text-[10px] text-muted-foreground">
                         {q.intent_label && (
-                          <span className="text-xs bg-primary/10 text-primary px-1.5 py-0.5 rounded-full">
-                            {q.intent_label}
-                          </span>
+                          <span className="font-medium bg-action-gradient-soft text-action px-1.5 py-0.5 rounded-full">{q.intent_label}</span>
                         )}
                         {q.from_cache && (
-                          <span className="text-xs bg-info/10 text-info px-1.5 py-0.5 rounded-full">
-                            cache
-                          </span>
+                          <span className="font-medium bg-info/10 text-info px-1.5 py-0.5 rounded-full">cache</span>
                         )}
-                        <span className="text-xs text-muted-foreground">{fmtMs(q.latency_ms)}</span>
+                        <span className="tabular-nums">{fmtMs(q.latency_ms)}</span>
+                        <span className="text-muted-foreground/40">·</span>
+                        <span className="tabular-nums">{relTime(q.created_at)}</span>
                       </div>
                     </div>
-                    <span className="text-xs text-muted-foreground shrink-0 mt-0.5">{relTime(q.created_at)}</span>
                   </div>
                 ))}
               </div>
-            </div>
+            </CollapsiblePanel>
+
+          </div>
+          </>
           )}
 
-          {/* Empty state for no consultas_log data */}
-          {m.performance.total_logged === 0 && (
-            <div className="lg:col-span-2">
-              <EmptyState
-                icon={Activity}
-                title="Sin consultas registradas"
-                description="Este tenant aún no tiene consultas en los últimos 30 días."
-                className="rounded-xl border border-dashed bg-card"
-              />
-            </div>
-          )}
-
-          </div>{/* /grid Actividad */}
-          </section>
-          )}
-
-          {detailTab === "recursos" && (
-          <section className="space-y-4 animate-fade-in">
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-4 items-start">
-
-          {/* ── Documents + Storage ──────────────────────────────────── */}
-          <div className="space-y-2">
-          <SectionTitle icon={FileText} label="Documentos" />
-          <div className="rounded-xl border bg-card shadow-sm divide-y">
-            <div className="grid grid-cols-2 sm:grid-cols-4 divide-x">
-              <DocStat label="Total"      value={m.docs.total} />
-              <DocStat label="Listos"     value={m.docs.ready}      tone="success" />
-              <DocStat label="Fallidos"   value={m.docs.failed}     tone={m.docs.failed > 0 ? "danger" : "neutral"} />
-              <DocStat label="Procesando" value={m.docs.processing} tone={m.docs.processing > 0 ? "warn" : "neutral"} />
-            </div>
-            <div className="px-4 py-3 flex items-center gap-2 text-sm text-muted-foreground">
-              <Database className="h-3.5 w-3.5 shrink-0" />
-              <span>Almacenamiento: <span className="font-medium text-foreground">{fmtBytes(m.docs.storage_bytes)}</span></span>
-            </div>
-          </div>
-          </div>
-
-          {/* ── Quality gate ─────────────────────────────────────────── */}
-          <div className="space-y-2">
-          <SectionTitle icon={CheckCircle2} label="Quality gate" sublabel="últimos 30d" />
-          <div className="grid grid-cols-3 gap-2.5">
-            <StatTile label="Aprobadas"  value={fmtNum(m.quality.passed)}  tone={m.quality.passed > 0 ? "success" : "neutral"} />
-            <StatTile label="Pendientes" value={fmtNum(m.quality.pending)} tone={m.quality.pending > 0 ? "warn" : "neutral"} />
-            <StatTile label="Saltadas"   value={fmtNum(m.quality.skipped)} tone={m.quality.skipped > 0 ? "danger" : "neutral"} />
-          </div>
-          </div>
-
-          {/* ── Quotas ───────────────────────────────────────────────── */}
-          <div className="space-y-2 lg:col-span-2">
-          <SectionTitle icon={Shield} label="Cuotas del plan" sublabel={t.plan} />
-          <div className="grid sm:grid-cols-2 gap-3">
-            <QuotaBar
-              label="Consultas / mes"
-              used={quotaQ.used}
-              limit={quotaQ.limit}
-              pct={quotaQ.pct}
-            />
-            <QuotaBar
-              label="Documentos"
-              used={quotaD.used}
-              limit={quotaD.limit}
-              pct={quotaD.pct}
-            />
-          </div>
-          </div>
-
-          </div>{/* /grid Recursos */}
           </section>
           )}
 
@@ -567,106 +545,173 @@ export default function TenantDetailPage() {
             <div className="space-y-2">
               {[1,2,3].map(i => <Skeleton key={i} className="h-24 w-full rounded-xl" />)}
             </div>
-          ) : (
+          ) : (() => {
+            // Veredicto preventivo: qué hay que vigilar en este cliente.
+            const issues: Array<{ tone: "warn" | "down"; text: string }> = [];
+            if (healthData.errors.length > 0) issues.push({ tone: "down", text: `${healthData.errors.length} ${healthData.errors.length === 1 ? "error reciente" : "errores recientes"} en el backend` });
+            if (m.docs.failed > 0) issues.push({ tone: "warn", text: `${m.docs.failed} ${m.docs.failed === 1 ? "documento que falló" : "documentos que fallaron"} en la ingesta` });
+            if (quotaQ.pct != null && quotaQ.pct >= 90) issues.push({ tone: "down", text: `Consultas al ${quotaQ.pct.toFixed(0)}% del límite del plan` });
+            else if (quotaQ.pct != null && quotaQ.pct >= 70) issues.push({ tone: "warn", text: `Consultas al ${quotaQ.pct.toFixed(0)}% del límite del plan` });
+            if (quotaD.pct != null && quotaD.pct >= 90) issues.push({ tone: "down", text: `Documentos al ${quotaD.pct.toFixed(0)}% del límite del plan` });
+            else if (quotaD.pct != null && quotaD.pct >= 70) issues.push({ tone: "warn", text: `Documentos al ${quotaD.pct.toFixed(0)}% del límite del plan` });
+            if (m.quality.skipped > 0) issues.push({ tone: "warn", text: `${m.quality.skipped} ${m.quality.skipped === 1 ? "documento descartado" : "documentos descartados"} por el quality gate` });
+            if (!healthData.activity.last_query_at) issues.push({ tone: "warn", text: "Todavía sin consultas — cliente inactivo" });
+
+            const down = issues.some(i => i.tone === "down");
+            const vtone: "ok" | "warn" | "down" = down ? "down" : issues.length ? "warn" : "ok";
+            const VIcon = vtone === "ok" ? CheckCircle2 : vtone === "down" ? XCircle : AlertTriangle;
+            const vCls = vtone === "ok"
+              ? "border-success/25 from-success/[0.10] text-success"
+              : vtone === "down"
+              ? "border-destructive/30 from-destructive/[0.12] text-destructive"
+              : "border-warning/30 from-warning/[0.12] text-warning";
+            const vLabel = vtone === "ok" ? "Cliente sano" : vtone === "down" ? "Requiere acción" : "Para revisar";
+            const vSummary = vtone === "ok"
+              ? "Sin errores, cuotas con margen y la ingesta al día."
+              : `${issues.length} ${issues.length === 1 ? "cosa para prevenir" : "cosas para prevenir"} en este cliente.`;
+
+            return (
           <>
-          {/* ── Actividad del bot ─────────────────────────────────────── */}
-          <div className="space-y-2">
-            <SectionTitle icon={Activity} label="Actividad del bot" sublabel="¿viene funcionando?" />
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
-              <StatTile
-                label="Última consulta"
-                value={healthData.activity.last_query_at ? relTime(healthData.activity.last_query_at) : "nunca"}
-                tone={healthData.activity.last_query_at ? "neutral" : "warn"}
-              />
-              <StatTile label="Consultas 7d" value={fmtNum(healthData.activity.queries_7d)} />
-              <StatTile label="Ingestas 7d" value={fmtNum(healthData.activity.ingests_7d)} />
-              <StatTile label="Tokens LLM 7d" value={fmtNum(healthData.activity.tokens_7d)} />
-              <StatTile
-                label="Última ingesta"
-                value={healthData.activity.last_ingest_at ? relTime(healthData.activity.last_ingest_at) : "nunca"}
-              />
-            </div>
-            {healthData.activity.queries_by_day.length > 1 && (
-              <div className="rounded-lg border bg-card px-4 py-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2">
-                  Consultas por día — últimos 7 días
-                </p>
-                <div className="flex items-end gap-1.5">
-                  {healthData.activity.queries_by_day.map(d => {
-                    const max = Math.max(...healthData.activity.queries_by_day.map(x => x.queries), 1);
-                    return (
-                      <div key={d.day} className="flex-1 flex flex-col items-center justify-end gap-1 min-w-0">
-                        <span className="text-[10px] text-muted-foreground tabular-nums">{d.queries}</span>
-                        <div
-                          className="w-full max-w-[64px] rounded-sm bg-action-gradient opacity-80"
-                          style={{ height: `${Math.max(4, Math.round((d.queries / max) * 48))}px` }}
-                        />
-                        <span className="text-[9px] text-muted-foreground/70 tabular-nums">
-                          {new Date(d.day + "T00:00:00").toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit" })}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
+          {/* ── Veredicto preventivo del tenant ───────────────────────── */}
+          <div className={cn("rounded-2xl border bg-gradient-to-br to-transparent p-5", vCls)}>
+            <div className="flex items-start gap-4">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-background/60">
+                <VIcon className="h-6 w-6" />
               </div>
-            )}
+              <div className="min-w-0">
+                <p className="text-lg font-semibold tracking-tight text-foreground">{vLabel}</p>
+                <p className="mt-0.5 text-sm text-muted-foreground">{vSummary}</p>
+              </div>
+            </div>
           </div>
 
-          {/* ── Atención ahora ────────────────────────────────────────── */}
-          <div className="space-y-2">
-            <SectionTitle icon={Headset} label="Atención ahora" sublabel="en vivo" />
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-              <StatTile
-                label="Esperando operador"
-                value={String(healthData.ops.waiting)}
-                tone={healthData.ops.oldest_wait_min > 5 ? "danger" : healthData.ops.waiting > 0 ? "warn" : "neutral"}
-              />
-              <StatTile label="En atención" value={String(healthData.ops.attending)} />
-              <StatTile
-                label="Espera más antigua"
-                value={healthData.ops.waiting > 0 ? `${healthData.ops.oldest_wait_min < 1 ? "<1" : Math.round(healthData.ops.oldest_wait_min)} min` : "—"}
-                tone={healthData.ops.oldest_wait_min > 5 ? "danger" : healthData.ops.oldest_wait_min > 2 ? "warn" : "neutral"}
-              />
-              <StatTile label="Derivaciones hoy" value={String(healthData.ops.handoffs_today)} />
+          {/* ── Para prevenir ─────────────────────────────────────────── */}
+          {issues.length > 0 && (
+            <div className="overflow-hidden rounded-2xl border border-warning/30 bg-warning/[0.05]">
+              <div className="flex items-center gap-2 border-b border-warning/20 px-4 py-2.5 text-sm font-semibold">
+                <AlertTriangle className="h-4 w-4 text-warning" /> Para prevenir en este cliente
+              </div>
+              <div className="divide-y divide-border/60">
+                {issues.map((it, i) => (
+                  <div key={i} className="flex items-center gap-3 px-4 py-2.5">
+                    <span className={cn("h-2 w-2 shrink-0 rounded-full", it.tone === "down" ? "bg-destructive" : "bg-warning")} />
+                    <span className={cn("text-sm", it.tone === "down" ? "font-medium text-destructive" : "text-foreground")}>{it.text}</span>
+                  </div>
+                ))}
+              </div>
             </div>
+          )}
+
+          {/* ── Capacidad: cuotas + base de conocimiento ──────────────── */}
+          <div className="grid items-start gap-4 lg:grid-cols-2">
+
+            {/* Cuotas del plan */}
+            <div className="rounded-2xl border bg-card shadow-sm overflow-hidden">
+              <PanelHeader icon={Shield} label="Cuotas del plan" sublabel={t.plan} />
+              <div className="p-4 space-y-3.5">
+                <QuotaBar label="Consultas / mes" used={quotaQ.used} limit={quotaQ.limit} pct={quotaQ.pct} />
+                <QuotaBar label="Documentos" used={quotaD.used} limit={quotaD.limit} pct={quotaD.pct} />
+              </div>
+            </div>
+
+            {/* Base de conocimiento — anillo de procesados + estados + quality */}
+            <div className="rounded-2xl border bg-card shadow-sm overflow-hidden">
+              <PanelHeader icon={FileText} label="Base de conocimiento" sublabel="documentos e ingesta" />
+              <div className="flex items-center gap-5 p-4">
+                <Donut value={m.docs.total > 0 ? m.docs.ready / m.docs.total : null} label="Procesados" />
+                <div className="h-14 w-px bg-border shrink-0" />
+                <div className="flex-1 min-w-0 space-y-2.5">
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-2xl font-bold tabular-nums leading-none">{fmtNum(m.docs.total)}</span>
+                    <span className="text-xs text-muted-foreground truncate">documentos · {fmtBytes(m.docs.storage_bytes)}</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    <StatusPill tone="success" label="listos" value={m.docs.ready} />
+                    {m.docs.failed > 0 && <StatusPill tone="danger" label="fallidos" value={m.docs.failed} />}
+                    {m.docs.processing > 0 && <StatusPill tone="warn" label="procesando" value={m.docs.processing} />}
+                  </div>
+                  <div className="flex items-center gap-1.5 flex-wrap border-t pt-2 text-[11px] text-muted-foreground">
+                    <CheckCircle2 className="h-3 w-3 shrink-0" /> Validación
+                    <span className="font-semibold text-success tabular-nums">{fmtNum(m.quality.passed)} validados</span>
+                    {m.quality.pending > 0 && <span className="font-semibold text-warning tabular-nums">· {fmtNum(m.quality.pending)} sin validar</span>}
+                    {m.quality.skipped > 0 && <span className="font-semibold text-destructive tabular-nums">· {fmtNum(m.quality.skipped)} descartados</span>}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+          {/* ── Infra: almacenamiento + señal de actividad ────────────── */}
+          <div className="grid items-start gap-4 lg:grid-cols-2">
+
+            {/* Almacenamiento + backup global */}
+            <div className="rounded-2xl border bg-card shadow-sm overflow-hidden">
+              <PanelHeader icon={HardDrive} label="Almacenamiento" sublabel="lo que ocupa en el servidor" />
+              <div className="p-4 space-y-2.5">
+                <StorageRow label="Documentos" value={healthData.storage.documents != null ? fmtNum(healthData.storage.documents) : "—"} />
+                <StorageRow label="Datos en PostgreSQL" value={fmtBytes(healthData.storage.schema_bytes)} hint="schema propio" />
+                <StorageRow
+                  label="Archivos"
+                  value={healthData.storage.minio_bytes != null ? fmtBytes(healthData.storage.minio_bytes) : "—"}
+                  hint={healthData.storage.minio_objects != null ? `${fmtNum(healthData.storage.minio_objects)} objetos` : undefined}
+                />
+                <div className="flex items-center gap-2 rounded-lg bg-muted/30 px-3 py-2 text-[11px] text-muted-foreground">
+                  <Database className="h-3.5 w-3.5 shrink-0" />
+                  <span>Backups y disco son de toda la plataforma — en{" "}
+                    <Link href="/superadmin/monitoring" className="text-action hover:underline">Monitoreo</Link>.</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Señal de actividad — ¿el cliente sigue vivo? */}
+            <div className="rounded-2xl border bg-card shadow-sm overflow-hidden">
+              <PanelHeader icon={Activity} label="Señal de actividad" sublabel="¿el cliente está activo?" />
+              <div className="grid grid-cols-2 divide-x">
+                <div className="px-4 py-4">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Última consulta</p>
+                  <p className={cn("mt-1.5 text-lg font-semibold leading-none", healthData.activity.last_query_at ? "text-foreground" : "text-warning")}>
+                    {healthData.activity.last_query_at ? relTime(healthData.activity.last_query_at) : "Nunca"}
+                  </p>
+                </div>
+                <div className="px-4 py-4">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Última ingesta</p>
+                  <p className={cn("mt-1.5 text-lg font-semibold leading-none", healthData.activity.last_ingest_at ? "text-foreground" : "text-muted-foreground")}>
+                    {healthData.activity.last_ingest_at ? relTime(healthData.activity.last_ingest_at) : "Nunca"}
+                  </p>
+                </div>
+              </div>
+            </div>
+
           </div>
 
           {/* ── Errores de esta organización ──────────────────────────── */}
-          <div className="space-y-2">
-            <SectionTitle icon={Bug} label="Errores de esta organización" sublabel="del buffer del backend, últimos 7 días" />
+          <div className="rounded-2xl border bg-card shadow-sm overflow-hidden">
+            <div className="flex items-center gap-2.5 px-4 py-2.5 border-b bg-muted/20">
+              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-action-gradient-soft shrink-0">
+                <Bug className="h-3.5 w-3.5 text-action" />
+              </span>
+              <span className="text-sm font-semibold">Errores de esta organización</span>
+              <span className="text-xs text-muted-foreground hidden sm:inline">backend · últimos 7 días</span>
+              {healthData.errors.length > 0 && (
+                <span className="ml-auto inline-flex items-center justify-center rounded-full bg-destructive/10 px-2 py-0.5 text-xs font-semibold tabular-nums text-destructive">
+                  {healthData.errors.length}
+                </span>
+              )}
+            </div>
             {healthData.errors.length === 0 ? (
-              <p className="text-sm text-success flex items-center gap-2 font-medium">
-                <CheckCircle2 className="h-4 w-4 shrink-0" /> Sin errores registrados para esta organización.
+              <p className="px-4 py-4 text-sm text-success flex items-center gap-2 font-medium">
+                <CheckCircle2 className="h-4 w-4 shrink-0" /> Sin errores registrados.
               </p>
             ) : (
-              <div className="rounded-lg border divide-y max-h-[320px] overflow-y-auto scrollbar-slim">
+              <div className="divide-y max-h-[320px] overflow-y-auto scrollbar-slim">
                 {healthData.errors.map((e, i) => <ErrorRow key={i} e={e} />)}
               </div>
             )}
           </div>
-
-          {/* ── Huella de almacenamiento ──────────────────────────────── */}
-          <div className="space-y-2">
-            <SectionTitle icon={HardDrive} label="Almacenamiento" sublabel="lo que esta organización ocupa en el servidor" />
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-              <StatTile
-                label="Documentos"
-                value={healthData.storage.documents != null ? fmtNum(healthData.storage.documents) : "—"}
-              />
-              <StatTile label="Datos en PostgreSQL" value={fmtBytes(healthData.storage.schema_bytes)} sublabel="schema propio" />
-              <StatTile
-                label="Archivos"
-                value={healthData.storage.minio_bytes != null ? fmtBytes(healthData.storage.minio_bytes) : "—"}
-                sublabel={healthData.storage.minio_objects != null ? `${fmtNum(healthData.storage.minio_objects)} objetos (docs + adjuntos)` : undefined}
-              />
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Los backups, la memoria y el estado de los servicios son de la plataforma completa — los ves en{" "}
-              <Link href="/superadmin/monitoring" className="text-action hover:underline">Monitoreo</Link>.
-            </p>
-          </div>
           </>
-          )}
+            );
+          })()}
 
           </section>
           )}
@@ -809,6 +854,157 @@ function TopBar({ onBack }: { onBack: () => void }) {
   );
 }
 
+// Panel desplegable: header clickeable con contador; cerrado por defecto.
+function CollapsiblePanel({ icon: Icon, label, sublabel, count, defaultOpen = false, children }: {
+  icon: any; label: string; sublabel?: string; count?: number; defaultOpen?: boolean; children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  const empty = count === 0;
+  return (
+    <div className="rounded-2xl border bg-card shadow-sm overflow-hidden">
+      <button
+        type="button"
+        onClick={() => !empty && setOpen(o => !o)}
+        disabled={empty}
+        className={cn(
+          "flex w-full items-center gap-2.5 px-4 py-3 text-left transition-colors",
+          empty ? "cursor-default" : "hover:bg-muted/30",
+        )}
+      >
+        <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-action-gradient-soft shrink-0">
+          <Icon className="h-3.5 w-3.5 text-action" />
+        </span>
+        <span className="text-sm font-semibold">{label}</span>
+        {sublabel && <span className="text-xs text-muted-foreground hidden sm:inline">{sublabel}</span>}
+        <span className="ml-auto flex items-center gap-2.5">
+          {count != null && (
+            <span className={cn(
+              "inline-flex min-w-[1.5rem] items-center justify-center rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums",
+              empty ? "bg-muted text-muted-foreground/60" : "bg-action-gradient-soft text-action",
+            )}>
+              {count}
+            </span>
+          )}
+          {!empty && <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", open && "rotate-180")} />}
+        </span>
+      </button>
+      {open && !empty && <div className="border-t animate-fade-in">{children}</div>}
+    </div>
+  );
+}
+
+// Cabecera de panel (ícono en gradient de marca + título).
+function PanelHeader({ icon: Icon, label, sublabel }: { icon: any; label: string; sublabel?: string }) {
+  return (
+    <div className="flex items-center gap-2.5 px-4 py-2.5 border-b bg-muted/20">
+      <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-action-gradient-soft shrink-0">
+        <Icon className="h-3.5 w-3.5 text-action" />
+      </span>
+      <span className="text-sm font-semibold">{label}</span>
+      {sublabel && <span className="text-xs text-muted-foreground">{sublabel}</span>}
+    </div>
+  );
+}
+
+// Anillo radial (donut) para porcentajes — número al centro.
+function Donut({ value, label }: { value: number | null; label: string }) {
+  const pct = value == null ? null : Math.round(value * 100);
+  const r = 25, c = 2 * Math.PI * r;
+  const off = pct == null ? c : c * (1 - Math.min(pct, 100) / 100);
+  return (
+    <div className="flex shrink-0 flex-col items-center justify-center">
+      <div className="relative h-[72px] w-[72px]">
+        <svg className="h-[72px] w-[72px] -rotate-90" viewBox="0 0 64 64">
+          <circle cx="32" cy="32" r={r} fill="none" className="stroke-muted" strokeWidth="6" />
+          {pct != null && (
+            <circle
+              cx="32" cy="32" r={r} fill="none"
+              className="stroke-action transition-all"
+              strokeWidth="6" strokeLinecap="round"
+              strokeDasharray={c} strokeDashoffset={off}
+            />
+          )}
+        </svg>
+        <div className="absolute inset-0 flex items-center justify-center text-sm font-bold tabular-nums">
+          {pct == null ? "—" : `${pct}%`}
+        </div>
+      </div>
+      <p className="mt-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">{label}</p>
+    </div>
+  );
+}
+
+// Indicador de latencia: número grande + estado + barra con zona SLA.
+function LatencyGauge({ label, ms }: { label: string; ms: number | null }) {
+  const tone = latencyTone(ms);
+  const pct = ms == null ? 0 : Math.min((ms / 5000) * 100, 100); // 5s = lleno
+  const bar =
+    tone === "danger"  ? "bg-destructive" :
+    tone === "warn"    ? "bg-warning" :
+    tone === "success" ? "bg-success" :
+                         "bg-muted-foreground/40";
+  const txt =
+    tone === "danger"  ? "text-destructive" :
+    tone === "warn"    ? "text-warning" :
+    tone === "success" ? "text-success" :
+                         "text-muted-foreground";
+  const status = ms == null ? "Sin datos" : tone === "success" ? "Óptima" : tone === "warn" ? "Elevada" : "Lenta";
+  return (
+    <div className="flex-1 min-w-0">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">{label}</p>
+        <span className={cn("inline-flex items-center gap-1 text-[10px] font-semibold", txt)}>
+          <span className={cn("h-1.5 w-1.5 rounded-full", bar)} /> {status}
+        </span>
+      </div>
+      <p className="mt-1.5 text-2xl font-semibold tabular-nums leading-none">{fmtMs(ms)}</p>
+      <div className="mt-2 h-1.5 rounded-full bg-muted overflow-hidden">
+        <div className={cn("h-full rounded-full transition-all", bar)} style={{ width: `${Math.max(pct, 3)}%` }} />
+      </div>
+    </div>
+  );
+}
+
+// Barra comparativa de volumen (proporcional al máximo del período).
+function VolBar({ label, value, max }: { label: string; value: number; max: number }) {
+  const pct = max > 0 ? Math.round((value / max) * 100) : 0;
+  return (
+    <div className="flex items-center gap-3">
+      <span className="w-16 shrink-0 text-[11px] font-medium text-muted-foreground">{label}</span>
+      <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
+        <div className="h-full rounded-full bg-action-gradient transition-all" style={{ width: `${Math.max(pct, 2)}%` }} />
+      </div>
+      <span className="w-12 shrink-0 text-right text-xs font-semibold tabular-nums">{fmtNum(value)}</span>
+    </div>
+  );
+}
+
+// Pill de estado con conteo (listos / fallidos / etc.).
+function StatusPill({ tone, label, value }: { tone: "neutral" | "success" | "warn" | "danger"; label: string; value: number }) {
+  const cls =
+    tone === "success" ? "bg-success/10 text-success" :
+    tone === "warn"    ? "bg-warning/10 text-warning" :
+    tone === "danger"  ? "bg-destructive/10 text-destructive" :
+                         "bg-muted text-muted-foreground";
+  return (
+    <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium", cls)}>
+      <span className="tabular-nums font-semibold">{fmtNum(value)}</span> {label}
+    </span>
+  );
+}
+
+// Fila de almacenamiento (label a la izquierda, valor a la derecha).
+function StorageRow({ label, value, hint }: { label: string; value: string; hint?: string }) {
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <span className="text-sm text-muted-foreground truncate">
+        {label}{hint && <span className="text-[11px] text-muted-foreground/60"> · {hint}</span>}
+      </span>
+      <span className="text-sm font-semibold tabular-nums shrink-0">{value}</span>
+    </div>
+  );
+}
+
 function SectionTitle({ icon: Icon, label, sublabel }: { icon: any; label: string; sublabel?: string }) {
   return (
     <div className="flex items-center gap-2.5 pt-2">
@@ -817,20 +1013,6 @@ function SectionTitle({ icon: Icon, label, sublabel }: { icon: any; label: strin
       </span>
       <span className="text-sm font-semibold">{label}</span>
       {sublabel && <span className="text-xs text-muted-foreground">{sublabel}</span>}
-    </div>
-  );
-}
-
-function DocStat({ label, value, tone = "neutral" }: { label: string; value: number; tone?: "neutral" | "success" | "warn" | "danger" }) {
-  const color =
-    tone === "success" ? "text-success" :
-    tone === "warn"    ? "text-warning" :
-    tone === "danger"  ? "text-destructive" :
-                         "text-foreground";
-  return (
-    <div className="px-4 py-3">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground leading-tight">{label}</p>
-      <p className={cn("mt-1 text-lg font-semibold tabular-nums leading-none", color)}>{value}</p>
     </div>
   );
 }
@@ -905,6 +1087,7 @@ function BotSelector({ allTemplates, bots, activeBot, activateBotM, deactivateBo
 }) {
   const assignedIds = new Set(bots.map((b: any) => b.id));
   const activeTemplates = allTemplates.filter((t: any) => t.is_active);
+  const [confirmOff, setConfirmOff] = useState(false);
 
   if (activeTemplates.length === 0) {
     return (
@@ -930,6 +1113,7 @@ function BotSelector({ allTemplates, bots, activeBot, activateBotM, deactivateBo
   ];
 
   return (
+    <>
     <div className="rounded-xl border bg-card shadow-sm px-5 py-4 space-y-3">
       {/* Status strip */}
       <div className={cn(
@@ -950,12 +1134,11 @@ function BotSelector({ allTemplates, bots, activeBot, activateBotM, deactivateBo
         </div>
         {activeBot && (
           <button
-            onClick={() => deactivateBotM.mutate()}
-            disabled={deactivateBotM.isPending}
+            onClick={() => setConfirmOff(true)}
             className="text-xs text-muted-foreground hover:text-destructive transition-colors shrink-0 flex items-center gap-1"
           >
-            {deactivateBotM.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <X className="h-3 w-3" />}
-            Desactivar
+            <X className="h-3 w-3" />
+            Volver a estándar
           </button>
         )}
       </div>
@@ -1017,6 +1200,40 @@ function BotSelector({ allTemplates, bots, activeBot, activateBotM, deactivateBo
         })}
       </div>
     </div>
+
+    {confirmOff && activeBot && (
+      <Dialog open onOpenChange={v => !v && setConfirmOff(false)}>
+        <DialogContent className="w-full max-w-md mx-4 sm:mx-auto">
+          <DialogHeader>
+            <div className="flex items-start gap-3 text-left">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-warning/10">
+                <Bot className="h-5 w-5 text-warning" />
+              </div>
+              <div className="min-w-0 space-y-1.5 pt-0.5">
+                <DialogTitle>Volver a modo estándar</DialogTitle>
+                <p className="text-sm text-muted-foreground">
+                  El asistente va a dejar de usar la personalidad{" "}
+                  <span className="font-medium text-foreground">{activeBot.nombre}</span> y va a responder
+                  con el comportamiento estándar. Lo podés reactivar cuando quieras.
+                </p>
+              </div>
+            </div>
+          </DialogHeader>
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button variant="outline" className="w-full sm:w-auto" onClick={() => setConfirmOff(false)}>Cancelar</Button>
+            <Button
+              className="w-full sm:w-auto bg-warning text-warning-foreground hover:bg-warning/90"
+              disabled={deactivateBotM.isPending}
+              onClick={() => deactivateBotM.mutate(undefined, { onSettled: () => setConfirmOff(false) })}
+            >
+              {deactivateBotM.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+              Volver a estándar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    )}
+    </>
   );
 }
 
@@ -1049,13 +1266,22 @@ function EditUserModal({ tenantId, user, onClose, onSaved }: {
   });
 
   return (
-    <Dialog open onOpenChange={v => !v && onClose()}>
-      <DialogContent className="sm:max-w-sm p-6 w-[calc(100%-2rem)]">
-        <DialogHeader className="mb-2">
-          <DialogTitle>Editar usuario</DialogTitle>
-          <p className="text-xs text-muted-foreground">{user.email}</p>
-        </DialogHeader>
-
+    <FormSheet
+      open
+      onOpenChange={v => !v && onClose()}
+      icon={Settings2}
+      title="Editar usuario"
+      description={user.email}
+      footer={
+        <>
+          <Button variant="outline" onClick={onClose}>Cancelar</Button>
+          <Button onClick={() => saveM.mutate()} disabled={saveM.isPending || !name.trim()}>
+            {saveM.isPending && <Loader2 className="h-4 w-4 animate-spin mr-1.5" />}
+            Guardar
+          </Button>
+        </>
+      }
+    >
         <div className="space-y-4">
           <div className="space-y-1.5">
             <Label htmlFor="eu-name" className="text-xs font-medium">Nombre</Label>
@@ -1124,15 +1350,7 @@ function EditUserModal({ tenantId, user, onClose, onSaved }: {
           )}
         </div>
 
-        <DialogFooter className="mt-2">
-          <Button variant="outline" onClick={onClose}>Cancelar</Button>
-          <Button onClick={() => saveM.mutate()} disabled={saveM.isPending || !name.trim()}>
-            {saveM.isPending && <Loader2 className="h-4 w-4 animate-spin mr-1.5" />}
-            Guardar
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    </FormSheet>
   );
 }
 
@@ -1169,18 +1387,25 @@ function CreateAdminModal({ tenantId, tenantName, onClose, onCreated }: {
   });
 
   return (
-    <Dialog open onOpenChange={v => !v && onClose()}>
-      <DialogContent className="w-full max-w-sm mx-4 sm:mx-auto">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <UserPlus className="h-4 w-4 text-primary" />
-            Nuevo admin
-          </DialogTitle>
-          <p className="text-sm text-muted-foreground pt-1">
-            Para <span className="font-medium text-foreground">{tenantName}</span>
-          </p>
-        </DialogHeader>
-
+    <FormSheet
+      open
+      onOpenChange={v => !v && onClose()}
+      icon={UserPlus}
+      title="Nuevo usuario"
+      description={<>Para <span className="font-medium text-foreground">{tenantName}</span></>}
+      footer={
+        <>
+          <Button variant="outline" onClick={onClose}>Cancelar</Button>
+          <Button
+            disabled={createM.isPending || !form.email || (!inviteMode && form.password.length < 8)}
+            onClick={() => { setError(""); createM.mutate(); }}
+          >
+            {createM.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+            {inviteMode ? "Crear e invitar" : "Crear admin"}
+          </Button>
+        </>
+      }
+    >
         <div className="space-y-3 py-1">
           {([
             { key: "email", label: "Email",  placeholder: "admin@empresa.com", type: "email" },
@@ -1220,19 +1445,7 @@ function CreateAdminModal({ tenantId, tenantName, onClose, onCreated }: {
           )}
         </div>
 
-        <DialogFooter className="flex-col sm:flex-row gap-2">
-          <Button variant="outline" className="w-full sm:w-auto" onClick={onClose}>Cancelar</Button>
-          <Button
-            className="w-full sm:w-auto"
-            disabled={createM.isPending || !form.email || (!inviteMode && form.password.length < 8)}
-            onClick={() => { setError(""); createM.mutate(); }}
-          >
-            {createM.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
-            {inviteMode ? "Crear e invitar" : "Crear admin"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    </FormSheet>
   );
 }
 

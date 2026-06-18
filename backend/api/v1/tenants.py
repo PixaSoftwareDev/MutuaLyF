@@ -1444,13 +1444,18 @@ async def get_tenant_metrics(
                     "total_logged":   int(perf_row["total_logged"]),
                 }
 
+            # Quality gate REAL: estado de validación de los DOCUMENTOS (no de
+            # consultas_log, cuyo quality_gate_status es vestigial — siempre queda
+            # en el default 'pending' porque el insert de la consulta nunca lo setea).
+            # documentos.quality_gate_status se agrega desde los chunks: 'passed'
+            # (validado), 'pending' (en cola / sin validar), 'skipped' (descartado).
             for r in (await session.execute(text("""
                 SELECT quality_gate_status, COUNT(*)::int AS cnt
-                FROM consultas_log
-                WHERE created_at >= NOW() - INTERVAL '30 days'
+                FROM documentos
                 GROUP BY quality_gate_status
             """))).mappings().all():
-                quality[r["quality_gate_status"]] = r["cnt"]
+                if r["quality_gate_status"] in quality:
+                    quality[r["quality_gate_status"]] = r["cnt"]
 
             recent_queries = [
                 {

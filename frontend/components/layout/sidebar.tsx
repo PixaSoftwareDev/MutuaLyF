@@ -6,7 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import Image from "next/image";
 import {
   Inbox, FileText, Tags, Settings, LogOut, PanelLeftClose,
-  Shield, Building2, GitMerge, Users, ExternalLink, BotMessageSquare, ClipboardList, Bot, Network, X, ChevronRight, Layers,
+  Home, Building2, GitMerge, Users, ExternalLink, BotMessageSquare, ClipboardList, Bot, Network, X, ChevronRight, Layers,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore, useUIStore } from "@/lib/store";
@@ -76,7 +76,7 @@ const navGroups: NavGroup[] = [
   {
     label: "Plataforma",
     items: [
-      { href: "/superadmin",            label: "Inicio",         icon: Shield,        superAdminOnly: true,
+      { href: "/superadmin",            label: "Inicio",         icon: Home,          superAdminOnly: true,
         tooltip: "Centro de operaciones: estado, alertas, colas y consumo de un vistazo." },
       { href: "/superadmin/orgs",       label: "Organizaciones", icon: Building2,     superAdminOnly: true,
         matchPrefixes: ["/superadmin/orgs", "/superadmin/tenants"],

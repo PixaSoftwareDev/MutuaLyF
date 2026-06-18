@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   RefreshCw, Database, Server, Zap, Bot, BarChart3, HardDrive,
-  AlertTriangle, BellRing, Bug, CheckCircle2,
+  AlertTriangle, BellRing, Bug, CheckCircle2, ChevronDown,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -51,18 +51,27 @@ function BackupHistory({ history }: {
   );
 }
 
-/** Subgrupo dentro de "Métricas detalladas": encabezado liviano + tiles. */
-function MetricGroup({ icon: Icon, label, sublabel, children }: {
-  icon: any; label: string; sublabel?: string; children: React.ReactNode;
+/** Panel desplegable para un grupo de "Métricas detalladas". Cerrado por
+ *  defecto: la salud crítica está arriba, el detalle técnico se expande. */
+function CollapsibleMetric({ icon: Icon, label, sublabel, defaultOpen = false, children }: {
+  icon: any; label: string; sublabel?: string; defaultOpen?: boolean; children: React.ReactNode;
 }) {
+  const [open, setOpen] = useState(defaultOpen);
   return (
-    <div className="px-4 py-4">
-      <div className="flex items-baseline gap-2 mb-3">
-        <Icon className="h-4 w-4 text-muted-foreground self-center shrink-0" />
+    <div className="rounded-2xl border bg-card shadow-sm overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className="flex w-full items-center gap-2.5 px-4 py-3 text-left transition-colors hover:bg-muted/30"
+      >
+        <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-action-gradient-soft shrink-0">
+          <Icon className="h-3.5 w-3.5 text-action" />
+        </span>
         <span className="text-sm font-semibold">{label}</span>
-        {sublabel && <span className="text-xs text-muted-foreground truncate">{sublabel}</span>}
-      </div>
-      {children}
+        {sublabel && <span className="text-xs text-muted-foreground truncate hidden sm:inline">{sublabel}</span>}
+        <ChevronDown className={cn("ml-auto h-4 w-4 shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
+      </button>
+      {open && <div className="border-t p-4 animate-fade-in">{children}</div>}
     </div>
   );
 }
@@ -128,6 +137,37 @@ export default function MonitoringPage() {
         </div>
       ) : !system ? null : (
       <div className="space-y-5 pb-6 animate-fade-in">
+
+        {/* ── Veredicto de salud del sistema ── */}
+        {(() => {
+          const down = services.filter(s => !s.up);
+          const crit = alerts.filter(a => a.severity === "critical").length;
+          const tone: "ok" | "warn" | "down" = down.length > 0 || crit > 0 ? "down" : alerts.length > 0 ? "warn" : "ok";
+          const Icon = tone === "ok" ? CheckCircle2 : AlertTriangle;
+          const cls = tone === "ok"
+            ? "border-success/25 from-success/[0.10] text-success"
+            : tone === "down"
+            ? "border-destructive/30 from-destructive/[0.12] text-destructive"
+            : "border-warning/30 from-warning/[0.12] text-warning";
+          const title = tone === "ok" ? "Todo operativo" : tone === "down" ? "Requiere atención" : "Con avisos";
+          const parts: string[] = [];
+          if (down.length) parts.push(`${down.length} ${down.length === 1 ? "servicio caído" : "servicios caídos"}`);
+          if (alerts.length) parts.push(`${alerts.length} ${alerts.length === 1 ? "alerta activa" : "alertas activas"}`);
+          const summary = tone === "ok" ? "Servicios operativos y sin alertas activas." : parts.join(" · ");
+          return (
+            <div className={cn("rounded-2xl border bg-gradient-to-br to-transparent p-5", cls)}>
+              <div className="flex items-center gap-4">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-background/60">
+                  <Icon className="h-6 w-6" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-lg font-semibold tracking-tight text-foreground">{title}</p>
+                  <p className="mt-0.5 text-sm text-muted-foreground">{summary}</p>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* ── Servicios — neutro cuando está bien, rojo solo cuando falla ── */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
@@ -236,134 +276,137 @@ export default function MonitoringPage() {
           )}
         </Section>
 
-        {/* ── Métricas detalladas — un solo bloque, grupos separados ── */}
-        <Section icon={BarChart3} label="Métricas detalladas" sublabel="aplicación, API, bases y LLM">
-          <div className="-m-4 divide-y">
+        {/* ── Métricas detalladas — paneles desplegables ── */}
+        <div className="space-y-3">
+          <div className="flex items-center gap-2 px-1 pt-1">
+            <BarChart3 className="h-4 w-4 text-muted-foreground shrink-0" />
+            <h2 className="text-sm font-semibold">Métricas detalladas</h2>
+            <span className="text-xs text-muted-foreground">aplicación, API, bases y LLM · tocá para expandir</span>
+          </div>
 
-            <MetricGroup icon={BarChart3} label="Aplicación" sublabel="acumulado desde inicio">
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
-                <StatTile label="Tenants activos"   value={String(system.app.active_tenants)} />
-                <StatTile label="Consultas totales" value={fmtNum(system.app.total_queries)} />
-                <StatTile label="Cache hits"        value={fmtNum(system.app.total_cache_hits)} />
-                <StatTile label="Ingestas totales"  value={fmtNum(system.app.total_ingests)} />
-                <StatTile label="HTTP requests"     value={fmtNum(system.backend.total_requests)} />
-              </div>
-            </MetricGroup>
+          <CollapsibleMetric icon={BarChart3} label="Aplicación" sublabel="acumulado desde inicio" defaultOpen>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
+              <StatTile label="Tenants activos"   value={String(system.app.active_tenants)} />
+              <StatTile label="Consultas totales" value={fmtNum(system.app.total_queries)} />
+              <StatTile label="Cache hits"        value={fmtNum(system.app.total_cache_hits)} />
+              <StatTile label="Ingestas totales"  value={fmtNum(system.app.total_ingests)} />
+              <StatTile label="HTTP requests"     value={fmtNum(system.backend.total_requests)} />
+            </div>
+          </CollapsibleMetric>
 
-            <MetricGroup icon={Server} label="Backend API" sublabel="últimos 10 min">
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-                <StatTile
-                  label="Latencia p95"
-                  value={system.backend.latency_p95_ms != null ? system.backend.latency_p95_ms.toFixed(0) + "ms" : "—"}
-                  tone={
-                    system.backend.latency_p95_ms == null ? "neutral" :
-                    system.backend.latency_p95_ms > 2000 ? "danger" :
-                    system.backend.latency_p95_ms > 1000 ? "warn" : "success"
-                  }
-                />
-                <StatTile
-                  label="Error rate 5m"
-                  value={system.backend.error_rate_5m > 0 ? (system.backend.error_rate_5m * 100).toFixed(2) + "%" : "0%"}
-                  tone={system.backend.error_rate_5m > 0.01 ? "danger" : "success"}
-                />
-                <StatTile label="HTTP requests" value={fmtNum(system.backend.total_requests)} sublabel="acumulado" />
-              </div>
-            </MetricGroup>
+          <CollapsibleMetric icon={Server} label="Backend API" sublabel="últimos 10 min">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+              <StatTile
+                label="Latencia p95"
+                value={system.backend.latency_p95_ms != null ? system.backend.latency_p95_ms.toFixed(0) + "ms" : "—"}
+                tone={
+                  system.backend.latency_p95_ms == null ? "neutral" :
+                  system.backend.latency_p95_ms > 2000 ? "danger" :
+                  system.backend.latency_p95_ms > 1000 ? "warn" : "success"
+                }
+              />
+              <StatTile
+                label="Error rate 5m"
+                value={system.backend.error_rate_5m > 0 ? (system.backend.error_rate_5m * 100).toFixed(2) + "%" : "0%"}
+                tone={system.backend.error_rate_5m > 0.01 ? "danger" : "success"}
+              />
+              <StatTile label="HTTP requests" value={fmtNum(system.backend.total_requests)} sublabel="acumulado" />
+            </div>
+          </CollapsibleMetric>
 
-            <MetricGroup icon={Database} label="PostgreSQL" sublabel={`${fmtBytes(system.postgres.db_size_bytes)} · plataforma`}>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-                <StatTile label="Conexiones activas" value={String(system.postgres.connections)} />
-                <StatTile
-                  label="Cache hit rate"
-                  value={system.postgres.cache_hit_rate != null ? (system.postgres.cache_hit_rate * 100).toFixed(1) + "%" : "—"}
-                  tone={
-                    system.postgres.cache_hit_rate == null ? "neutral" :
-                    system.postgres.cache_hit_rate < 0.9 ? "warn" : "success"
-                  }
-                  sublabel="buffer pool"
-                />
-                <StatTile
-                  label="Deadlocks"
-                  value={String(system.postgres.deadlocks_total)}
-                  tone={system.postgres.deadlocks_total > 0 ? "danger" : "success"}
-                  sublabel="acumulados"
-                />
-              </div>
-            </MetricGroup>
+          <CollapsibleMetric icon={Database} label="PostgreSQL" sublabel={`${fmtBytes(system.postgres.db_size_bytes)} · plataforma`}>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+              <StatTile label="Conexiones activas" value={String(system.postgres.connections)} />
+              <StatTile
+                label="Cache hit rate"
+                value={system.postgres.cache_hit_rate != null ? (system.postgres.cache_hit_rate * 100).toFixed(1) + "%" : "—"}
+                tone={
+                  system.postgres.cache_hit_rate == null ? "neutral" :
+                  system.postgres.cache_hit_rate < 0.9 ? "warn" : "success"
+                }
+                sublabel="buffer pool"
+              />
+              <StatTile
+                label="Deadlocks"
+                value={String(system.postgres.deadlocks_total)}
+                tone={system.postgres.deadlocks_total > 0 ? "danger" : "success"}
+                sublabel="acumulados"
+              />
+            </div>
+          </CollapsibleMetric>
 
-            <MetricGroup icon={Zap} label="Redis" sublabel="broker DB0 · cache DB1 · rate-limit DB2">
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
-                <StatTile
-                  label="Memoria usada"
-                  value={fmtBytes(system.redis.memory_used_bytes)}
-                  sublabel={system.redis.memory_max_bytes > 0 ? `de ${fmtBytes(system.redis.memory_max_bytes)}` : "sin límite"}
-                />
-                <StatTile
-                  label="Hit rate keyspace"
-                  value={system.redis.keyspace_hit_rate != null ? (system.redis.keyspace_hit_rate * 100).toFixed(1) + "%" : "—"}
-                  tone={
-                    system.redis.keyspace_hit_rate == null ? "neutral" :
-                    system.redis.keyspace_hit_rate < 0.3 ? "warn" : "success"
-                  }
-                />
-                <StatTile label="Clientes conectados" value={String(system.redis.connected_clients)} />
-                <StatTile label="Claves broker (DB0)" value={String(system.redis.keys_by_db?.db0 ?? 0)} sublabel="jobs pendientes" />
-                <StatTile label="Cache entries (DB1)" value={String(system.redis.keys_by_db?.db1 ?? 0)} />
-                <StatTile
-                  label="Evictions"
-                  value={String(system.redis.evicted_keys)}
-                  tone={system.redis.evicted_keys > 0 ? "danger" : "success"}
-                  sublabel={system.redis.evicted_keys > 0 ? "memoria insuficiente" : "OK"}
-                />
-                <StatTile
-                  label="Fragmentación"
-                  value={system.redis.fragmentation_ratio.toFixed(2) + "x"}
-                  tone={
-                    system.redis.fragmentation_ratio > 1.5 ? "warn" :
-                    system.redis.fragmentation_ratio < 0.7 ? "warn" : "success"
-                  }
-                  sublabel={system.redis.slowlog_length > 0 ? `slowlog: ${system.redis.slowlog_length}` : undefined}
-                />
-              </div>
-            </MetricGroup>
+          <CollapsibleMetric icon={Zap} label="Redis" sublabel="broker DB0 · cache DB1 · rate-limit DB2">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
+              <StatTile
+                label="Memoria usada"
+                value={fmtBytes(system.redis.memory_used_bytes)}
+                sublabel={system.redis.memory_max_bytes > 0 ? `de ${fmtBytes(system.redis.memory_max_bytes)}` : "sin límite"}
+              />
+              <StatTile
+                label="Hit rate keyspace"
+                value={system.redis.keyspace_hit_rate != null ? (system.redis.keyspace_hit_rate * 100).toFixed(1) + "%" : "—"}
+                tone={
+                  system.redis.keyspace_hit_rate == null ? "neutral" :
+                  system.redis.keyspace_hit_rate < 0.3 ? "warn" : "success"
+                }
+              />
+              <StatTile label="Clientes conectados" value={String(system.redis.connected_clients)} />
+              <StatTile label="Claves broker (DB0)" value={String(system.redis.keys_by_db?.db0 ?? 0)} sublabel="jobs pendientes" />
+              <StatTile label="Cache entries (DB1)" value={String(system.redis.keys_by_db?.db1 ?? 0)} />
+              <StatTile
+                label="Evictions"
+                value={String(system.redis.evicted_keys)}
+                tone={system.redis.evicted_keys > 0 ? "danger" : "success"}
+                sublabel={system.redis.evicted_keys > 0 ? "memoria insuficiente" : "OK"}
+              />
+              <StatTile
+                label="Fragmentación"
+                value={system.redis.fragmentation_ratio.toFixed(2) + "x"}
+                tone={
+                  system.redis.fragmentation_ratio > 1.5 ? "warn" :
+                  system.redis.fragmentation_ratio < 0.7 ? "warn" : "success"
+                }
+                sublabel={system.redis.slowlog_length > 0 ? `slowlog: ${system.redis.slowlog_length}` : undefined}
+              />
+            </div>
+          </CollapsibleMetric>
 
-            <MetricGroup icon={Bot} label="Groq API" sublabel="llamadas acumuladas desde inicio del proceso">
-              {system.groq.total_calls === 0 ? (
-                <p className="text-sm text-muted-foreground">Sin llamadas registradas aún. Los contadores se resetean al reiniciar el backend.</p>
-              ) : (
-                <div className="space-y-2">
-                  {system.groq.by_model.map((m: any) => (
-                    <div key={m.model} className="rounded-lg bg-muted/50 px-4 py-3">
-                      <div className="flex items-center justify-between flex-wrap gap-2">
-                        <code className="text-xs font-mono text-foreground">{m.model}</code>
-                        <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                          <span className="tabular-nums">{fmtNum(m.total)} llamadas</span>
-                          {m.errors > 0 && (
-                            <span className="text-destructive font-medium">{m.errors} errores</span>
-                          )}
-                        </div>
-                      </div>
-                      <div className="mt-2 flex flex-wrap gap-1.5">
-                        {Object.entries(m.calls as Record<string, number>).map(([status, count]) => (
-                          <span key={status} className={cn("text-xs px-2 py-0.5 rounded-full",
-                            status === "success"    ? "bg-success/10 text-success" :
-                            status === "error"      ? "bg-destructive/10 text-destructive" :
-                            status === "timeout"    ? "bg-warning/10 text-warning" :
-                            status === "rate_limit" ? "bg-warning/10 text-warning" :
-                            "bg-muted text-muted-foreground"
-                          )}>
-                            {status}: {count}
-                          </span>
-                        ))}
+          <CollapsibleMetric icon={Bot} label="Groq API" sublabel="llamadas acumuladas desde inicio del proceso">
+            {system.groq.total_calls === 0 ? (
+              <p className="text-sm text-muted-foreground">Sin llamadas registradas aún. Los contadores se resetean al reiniciar el backend.</p>
+            ) : (
+              <div className="space-y-2">
+                {system.groq.by_model.map((m: any) => (
+                  <div key={m.model} className="rounded-lg bg-muted/50 px-4 py-3">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <code className="text-xs font-mono text-foreground">{m.model}</code>
+                      <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                        <span className="tabular-nums">{fmtNum(m.total)} llamadas</span>
+                        {m.errors > 0 && (
+                          <span className="text-destructive font-medium">{m.errors} errores</span>
+                        )}
                       </div>
                     </div>
-                  ))}
-                </div>
-              )}
-            </MetricGroup>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {Object.entries(m.calls as Record<string, number>).map(([status, count]) => (
+                        <span key={status} className={cn("text-xs px-2 py-0.5 rounded-full",
+                          status === "success"    ? "bg-success/10 text-success" :
+                          status === "error"      ? "bg-destructive/10 text-destructive" :
+                          status === "timeout"    ? "bg-warning/10 text-warning" :
+                          status === "rate_limit" ? "bg-warning/10 text-warning" :
+                          "bg-muted text-muted-foreground"
+                        )}>
+                          {status}: {count}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CollapsibleMetric>
 
-          </div>
-        </Section>
+        </div>
 
       </div>
       )}
