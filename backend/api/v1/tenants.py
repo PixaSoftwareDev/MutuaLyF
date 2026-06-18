@@ -77,6 +77,8 @@ async def list_tenants(
         """))
         rows = result.mappings().all()
 
+    from core.plans import get_all_plans
+    plans = await get_all_plans()
     return [
         {
             "id":           r["id"],
@@ -85,7 +87,7 @@ async def list_tenants(
             "status":       r["status"],
             "admin_email":  r["admin_email"],
             "created_at":   r["created_at"].isoformat() if r["created_at"] else None,
-            "limits":       PLAN_LIMITS.get(r["plan"], {}),
+            "limits":       plans.get(r["plan"], {}),
             "usage_30d": {
                 "queries":  int(r["queries_30d"] or 0),
                 "ingests":  int(r["ingests_30d"] or 0),
@@ -138,6 +140,8 @@ async def get_tenant(
     except Exception:
         pass
 
+    from core.plans import get_all_plans
+    plans = await get_all_plans()
     return {
         "id":          str(row["id"]),
         "name":        row["name"],
@@ -145,7 +149,7 @@ async def get_tenant(
         "status":      row["status"],
         "admin_email": row["admin_email"],
         "created_at":  row["created_at"].isoformat() if row["created_at"] else None,
-        "limits":      PLAN_LIMITS.get(row["plan"], {}),
+        "limits":      plans.get(row["plan"], {}),
         "usage_30d":   usage,
         "doc_count":   doc_count,
     }
@@ -1348,9 +1352,11 @@ async def get_platform_health(
         """))
         month_data = month_rows.mappings().all()
 
+    from core.plans import get_all_plans
+    plans = await get_all_plans()
     anomalies = []
     for r in month_data:
-        limit = PLAN_LIMITS.get(r["plan"], {}).get("queries_month", -1)
+        limit = plans.get(r["plan"], {}).get("queries_month", -1)
         if limit > 0:
             used = int(r["queries_month"])
             pct = used / limit
@@ -1502,8 +1508,9 @@ async def get_tenant_metrics(
         logger.warning("tenant_metrics_docs_failed tenant=%s err=%s", tenant_id, exc)
 
     # 4. Quota
+    from core.plans import get_all_plans
     plan   = tenant_row["plan"]
-    limits = PLAN_LIMITS.get(plan, {})
+    limits = (await get_all_plans()).get(plan, {})
     q_used = int(usage_row["queries_this_month"])
     d_used = docs["total"] - docs["failed"]  # coincide con el enforce de cuota (excluye 'failed')
 
