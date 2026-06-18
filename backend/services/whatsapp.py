@@ -108,6 +108,21 @@ def verify_signature(app_secret: str, payload: bytes, signature_header: str | No
 
 # ── Graph API ─────────────────────────────────────────────────────────────────
 
+def _normalize_recipient(number: str) -> str:
+    """Normaliza el número destinatario antes de enviar.
+
+    Argentina: WhatsApp entrega el 'from' del mensaje entrante con un 9 tras el
+    54 (prefijo de móvil), pero la Cloud API espera el número SIN ese 9 para
+    enviar — si se manda con el 9, Meta lo rechaza (#131030 'not in allowed list'
+    o número inválido), porque el wa_id real registrado no lleva el 9. Otros
+    países no se tocan.
+    """
+    n = number.lstrip("+").strip()
+    if n.startswith("549") and len(n) == 13:
+        return "54" + n[3:]
+    return n
+
+
 async def send_text(account: WhatsAppAccount, to_wa_id: str, body: str) -> str | None:
     """Envía un mensaje de texto. Devuelve el message id de Meta o None si falló.
 
@@ -118,7 +133,7 @@ async def send_text(account: WhatsAppAccount, to_wa_id: str, body: str) -> str |
     payload = {
         "messaging_product": "whatsapp",
         "recipient_type": "individual",
-        "to": to_wa_id,
+        "to": _normalize_recipient(to_wa_id),
         "type": "text",
         "text": {"preview_url": False, "body": body[:4096]},
     }
