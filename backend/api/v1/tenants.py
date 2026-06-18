@@ -68,7 +68,8 @@ async def list_tenants(
                 SUM(ue.value) FILTER (WHERE ue.event_type = 'query'
                     AND ue.created_at >= NOW() - INTERVAL '30 days') AS total_queries_30d,
                 COUNT(ue.id) FILTER (WHERE ue.event_type = 'query'
-                    AND ue.created_at >= date_trunc('month', NOW())) AS queries_this_month
+                    AND ue.created_at >= date_trunc('month', NOW())) AS queries_this_month,
+                MAX(ue.created_at) AS last_activity_at
             FROM tenants t
             LEFT JOIN usage_events ue ON ue.tenant_id = t.id
             GROUP BY t.id
@@ -91,6 +92,8 @@ async def list_tenants(
             },
             # Consumo del MES en curso (lo que realmente cuenta para la cuota mensual).
             "queries_this_month": int(r["queries_this_month"] or 0),
+            # Última actividad registrada (cualquier evento) — para detectar tenants dormidos.
+            "last_activity_at": r["last_activity_at"].isoformat() if r["last_activity_at"] else None,
         }
         for r in rows
     ]
