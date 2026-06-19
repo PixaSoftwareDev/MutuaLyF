@@ -81,7 +81,15 @@ async def whatsapp_webhook(request: Request):
             phone_number_id = (value.get("metadata") or {}).get("phone_number_id")
             if not phone_number_id:
                 continue
-            account = await wa.get_account_by_phone_number_id(str(phone_number_id))
+            try:
+                account = await wa.get_account_by_phone_number_id(str(phone_number_id))
+            except Exception as exc:
+                # decrypt_secret lanza si la key de cifrado cambió o el ciphertext
+                # se corrompió. Sin este guard, un evento de UNA cuenta corrupta
+                # rompía el procesamiento de todo el webhook (y de los demás eventos
+                # del mismo payload), devolviéndole 500 a Meta y forzando reintentos.
+                logger.error("whatsapp_account_resolve_failed phone_number_id=%s error=%s", phone_number_id, exc)
+                continue
             if not account:
                 logger.warning("whatsapp_webhook_unknown_number phone_number_id=%s", phone_number_id)
                 continue
