@@ -22,7 +22,7 @@ from sqlalchemy import text
 
 from core.database import get_pg_session
 from core.rate_limit import check_widget_rate_limit
-from core.security import CurrentUser, get_widget_or_chat_user
+from core.security import CurrentUser, TokenScope, get_widget_or_chat_user
 from core.tenant import get_tenant_id
 from services.handoff import (
     ConvStatus, HandoffTrigger,
@@ -81,9 +81,12 @@ async def start_conversation(
 ):
     """Create a new conversation or resume existing active one for this session."""
     # Canal widget desactivado desde el panel (Configuración → Canales) → 403.
-    # "Probar chat" (is_test) sigue funcionando para que el admin pueda probar.
+    # "Probar chat" (is_test) sigue funcionando para que el admin pueda probar:
+    # el botón del panel abre /chat con un WIDGET token (admin-generado) + test=1.
+    # Un afiliado anónimo usa un PUBLIC_CHAT token (/public/chat-token) y NO puede
+    # saltear el flag seteando is_test=true → solo el scope WIDGET lo habilita.
     # try/except: tolera bases que aún no corrieron la migración 023.
-    if not body.is_test:
+    if not (body.is_test and widget_user.scope == TokenScope.WIDGET):
         try:
             async with get_pg_session() as gsession:
                 row = (await gsession.execute(
@@ -124,20 +127,38 @@ async def start_conversation(
                 "resumed": True,
             }
 
-        # Resolve sector
-        sector_id = body.sector_id
-        if not sector_id:
-            sector_id = await get_default_sector_id(tenant_id)
+        # Resolve sector. body.sector_id lo controla el cliente: validar que sea
+        # un UUID real, exista en ESTE tenant y esté activo. Si no, caer al sector
+        # por defecto en vez de insertar un sector_id basura (que rompería la FK
+        # conversaciones.sector_id → sectores con un 500, o quedaría colgado).
+        sector_id = (body.sector_id or "").strip() or None
+        if sector_id:
+            try:
+                uuid.UUID(sector_id)
+            except ValueError:
+                sector_id = None
 
-        # Fetch sector name for greeting
         sector_name = "consultas"
+        sector_row = None
         if sector_id:
             sector_result = await session.execute(
-                text("SELECT nombre FROM sectores WHERE id = :id"), {"id": sector_id}
+                text("SELECT nombre FROM sectores WHERE id = :id AND is_active = TRUE"),
+                {"id": sector_id},
             )
             sector_row = sector_result.fetchone()
-            if sector_row:
-                sector_name = sector_row[0]
+
+        if not sector_row:
+            # sector inválido/inactivo/ausente → default del tenant
+            sector_id = await get_default_sector_id(tenant_id)
+            if sector_id:
+                default_result = await session.execute(
+                    text("SELECT nombre FROM sectores WHERE id = :id"), {"id": sector_id}
+                )
+                default_row = default_result.fetchone()
+                if default_row:
+                    sector_name = default_row[0]
+        else:
+            sector_name = sector_row[0]
 
         # Personalización del saludo: greeting_message custom y bot_name del tenant
         # (tabla global public.tenants). Si el admin configuró un saludo propio se

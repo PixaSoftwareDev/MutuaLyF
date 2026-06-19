@@ -876,11 +876,17 @@ async def public_chat_token(tenant_id: str = Depends(get_tenant_id)):
     Only requires X-Tenant-ID header — no user login needed."""
     async with get_pg_session() as session:
         row = await session.execute(
-            text("SELECT id FROM tenants WHERE id = :tid AND status != 'suspended'"),
+            text("SELECT widget_enabled FROM tenants WHERE id = :tid AND status != 'suspended'"),
             {"tid": tenant_id},
         )
-        if not row.fetchone():
+        found = row.fetchone()
+        if not found:
             raise HTTPException(status_code=404, detail="Tenant not found")
+        # Canal de chat web desactivado desde el panel → no emitir token público.
+        # `is False` (no `== False`): un NULL —tenant sin la columna seteada— no
+        # es False, así que se trata como habilitado (fail-open conservador).
+        if found[0] is False:
+            raise HTTPException(status_code=403, detail="El canal de chat web está desactivado.")
     return {"widget_token": create_public_chat_token(tenant_id), "tenant_id": tenant_id}
 
 
