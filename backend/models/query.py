@@ -1,10 +1,15 @@
 """Pydantic schemas for the query endpoint."""
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
 class ConversationTurn(BaseModel):
-    role: str   # "user" | "bot"
+    # Solo los roles del diálogo afiliado↔bot. Rechaza cualquier otro ('system',
+    # etc.) en el request para que un cliente no pueda fabricar turnos con un rol
+    # privilegiado e inyectarlos en el prompt del LLM.
+    role: Literal["user", "bot"]
     content: str = Field(..., max_length=2000)
 
 

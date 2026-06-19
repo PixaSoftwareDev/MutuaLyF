@@ -488,7 +488,7 @@ async def handle_query(
             for sender, content in older:
                 label = role_map_label.get(sender, sender)
                 n = settings.history_summary_chars
-                excerpt = content[:n].replace("\n", " ")
+                excerpt = _sanitize_input(content)[:n].replace("\n", " ")
                 if len(content) > n:
                     excerpt += "…"
                 summary_lines.append(f"- {label}: {excerpt}")
@@ -503,7 +503,7 @@ async def handle_query(
         for sender, content in recent:
             role = role_map.get(sender)
             if role:
-                messages.append({"role": role, "content": content[:max_chars]})
+                messages.append({"role": role, "content": _sanitize_input(content)[:max_chars]})
 
     messages.append({"role": "user", "content": sanitized_q})
 
