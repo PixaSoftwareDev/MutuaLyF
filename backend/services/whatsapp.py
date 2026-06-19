@@ -161,20 +161,10 @@ async def send_typing_indicator(account: WhatsAppAccount, message_id: str) -> No
         logger.info("whatsapp_typing_error tenant=%s error=%s", account.tenant_id, exc)
 
 
-async def send_text(account: WhatsAppAccount, to_wa_id: str, body: str) -> str | None:
-    """Envía un mensaje de texto. Devuelve el message id de Meta o None si falló.
-
-    WhatsApp corta los mensajes en 4096 chars — truncamos defensivamente.
-    Reintenta ante errores de red/5xx; los 4xx (token vencido, ventana de 24h
-    cerrada) no se reintentan: se loguean para diagnóstico.
-    """
-    payload = {
-        "messaging_product": "whatsapp",
-        "recipient_type": "individual",
-        "to": _normalize_recipient(to_wa_id),
-        "type": "text",
-        "text": {"preview_url": False, "body": body[:4096]},
-    }
+async def _post_message(account: WhatsAppAccount, payload: dict) -> str | None:
+    """POST a /{phone_number_id}/messages con reintentos. Devuelve el message id
+    de Meta o None si falló. Reintenta ante red/5xx; los 4xx (token vencido,
+    ventana de 24h, número inválido) no se reintentan, se loguean."""
     url = f"{GRAPH_BASE}/{account.phone_number_id}/messages"
     headers = {"Authorization": f"Bearer {account.access_token}"}
 
@@ -185,9 +175,7 @@ async def send_text(account: WhatsAppAccount, to_wa_id: str, body: str) -> str |
                 resp = await client.post(url, json=payload, headers=headers)
             if resp.status_code < 300:
                 data = resp.json()
-                msg_id = (data.get("messages") or [{}])[0].get("id")
-                return msg_id
-            # 4xx → error definitivo (credenciales, ventana 24h, número inválido)
+                return (data.get("messages") or [{}])[0].get("id")
             last_error = f"HTTP {resp.status_code}: {resp.text[:500]}"
             if resp.status_code < 500:
                 break
@@ -195,11 +183,73 @@ async def send_text(account: WhatsAppAccount, to_wa_id: str, body: str) -> str |
             last_error = repr(exc)
         await asyncio.sleep(0.5 * attempt)
 
-    logger.error(
-        "whatsapp_send_failed tenant=%s to=%s error=%s",
-        account.tenant_id, to_wa_id, last_error,
-    )
+    logger.error("whatsapp_send_failed tenant=%s error=%s", account.tenant_id, last_error)
     return None
+
+
+async def send_text(account: WhatsAppAccount, to_wa_id: str, body: str) -> str | None:
+    """Envía un mensaje de texto. WhatsApp corta en 4096 chars — truncamos."""
+    return await _post_message(account, {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": _normalize_recipient(to_wa_id),
+        "type": "text",
+        "text": {"preview_url": False, "body": body[:4096]},
+    })
+
+
+async def send_interactive_buttons(
+    account: WhatsAppAccount, to_wa_id: str, body: str,
+    buttons: list[dict],
+) -> str | None:
+    """Mensaje con botones de respuesta rápida (máx 3). `buttons`: [{id, title}].
+    Cada title se corta a 20 chars (límite de Meta). El id vuelve en el webhook
+    como interactive.button_reply.id."""
+    reply_buttons = [
+        {"type": "reply", "reply": {"id": str(b["id"])[:256], "title": str(b["title"])[:20]}}
+        for b in buttons[:3]
+    ]
+    return await _post_message(account, {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": _normalize_recipient(to_wa_id),
+        "type": "interactive",
+        "interactive": {
+            "type": "button",
+            "body": {"text": body[:1024]},
+            "action": {"buttons": reply_buttons},
+        },
+    })
+
+
+async def send_interactive_list(
+    account: WhatsAppAccount, to_wa_id: str, body: str,
+    button_text: str, rows: list[dict],
+) -> str | None:
+    """Mensaje con lista desplegable (hasta 10 filas). `rows`: [{id, title,
+    description?}]. title ≤24, description ≤72 (límites de Meta). El id elegido
+    vuelve en el webhook como interactive.list_reply.id."""
+    list_rows = []
+    for r in rows[:10]:
+        row = {"id": str(r["id"])[:200], "title": str(r["title"])[:24]}
+        desc = (r.get("description") or "").strip()
+        if desc:
+            row["description"] = desc[:72]
+        list_rows.append(row)
+    return await _post_message(account, {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": _normalize_recipient(to_wa_id),
+        "type": "interactive",
+        "interactive": {
+            "type": "list",
+            "body": {"text": body[:1024]},
+            "action": {
+                "button": button_text[:20],
+                "sections": [{"title": "Áreas", "rows": list_rows}],
+            },
+        },
+    })
 
 
 async def fetch_phone_info(phone_number_id: str, access_token: str) -> dict:

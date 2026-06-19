@@ -23,7 +23,10 @@ from services.handoff import (
     ConvStatus, HandoffTrigger,
     evaluate_handoff, request_handoff, get_default_sector_id,
 )
-from services.whatsapp import WhatsAppAccount, send_text, send_typing_indicator
+from services.whatsapp import (
+    WhatsAppAccount, send_text, send_typing_indicator,
+    send_interactive_buttons, send_interactive_list,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -65,10 +68,10 @@ async def _insert_message(tenant_id: str, conversation_id: str, sender_type: str
     return msg_id
 
 
-async def _get_or_create_conversation(tenant_id: str, wa_id: str, profile_name: str | None) -> dict:
-    """Conversación abierta para este número, o una nueva con el sector default."""
+async def _find_open_conversation(tenant_id: str, wa_id: str) -> dict | None:
+    """Conversación abierta para este número, o None. Toma un advisory lock por
+    wa_id (Meta puede entregar 2 webhooks en paralelo) durante el chequeo."""
     async with get_pg_session(tenant_id) as session:
-        # Advisory lock por wa_id: Meta puede entregar 2 webhooks en paralelo.
         await session.execute(
             text("SELECT pg_advisory_xact_lock(hashtextextended(:sid, 0))"),
             {"sid": f"wa:{wa_id}"},
@@ -78,15 +81,19 @@ async def _get_or_create_conversation(tenant_id: str, wa_id: str, profile_name: 
             WHERE channel = 'whatsapp' AND external_id = :wa AND status != 'closed'
             ORDER BY created_at DESC LIMIT 1
         """), {"wa": wa_id})).mappings().fetchone()
-        if row:
-            return {
-                "id": str(row["id"]),
-                "status": row["status"],
-                "sector_id": str(row["sector_id"]) if row["sector_id"] else None,
-                "created": False,
-            }
+    if not row:
+        return None
+    return {
+        "id": str(row["id"]),
+        "status": row["status"],
+        "sector_id": str(row["sector_id"]) if row["sector_id"] else None,
+        "created": False,
+    }
 
-    sector_id = await get_default_sector_id(tenant_id)
+
+async def _create_conversation(tenant_id: str, wa_id: str, profile_name: str | None,
+                               sector_id: str | None) -> dict:
+    """Crea la conversación de WhatsApp en el sector dado."""
     conv_id = str(uuid.uuid4())
     async with get_pg_session(tenant_id) as session:
         await session.execute(text("""
@@ -94,14 +101,117 @@ async def _get_or_create_conversation(tenant_id: str, wa_id: str, profile_name: 
               (id, widget_session_id, channel, external_id, sector_id, afiliado_nombre)
             VALUES (:id, :sid, 'whatsapp', :wa, :sector_id, :nombre)
         """), {
-            "id": conv_id,
-            "sid": f"wa:{wa_id}",
-            "wa": wa_id,
-            "sector_id": sector_id,
-            "nombre": profile_name,
+            "id": conv_id, "sid": f"wa:{wa_id}", "wa": wa_id,
+            "sector_id": sector_id, "nombre": profile_name,
         })
-    logger.info("whatsapp_conversation_started id=%s tenant=%s", conv_id, tenant_id)
+    logger.info("whatsapp_conversation_started id=%s tenant=%s sector=%s", conv_id, tenant_id, sector_id)
     return {"id": conv_id, "status": ConvStatus.BOT_ACTIVE, "sector_id": sector_id, "created": True}
+
+
+# ── Onboarding: elegir área al primer contacto (espejo del menú del widget) ───
+
+async def _list_active_sectors(tenant_id: str) -> list[dict]:
+    """Sectores activos del tenant — misma fuente que /widget/sectors del web."""
+    async with get_pg_session(tenant_id) as session:
+        rows = (await session.execute(text("""
+            SELECT id, nombre, descripcion FROM sectores
+            WHERE is_active = TRUE
+            ORDER BY is_default DESC, nombre ASC
+        """))).mappings().all()
+    return [dict(r) for r in rows]
+
+
+async def _get_greeting(tenant_id: str) -> str | None:
+    async with get_pg_session() as session:
+        row = (await session.execute(
+            text("SELECT greeting_message FROM tenants WHERE id = :tid"), {"tid": tenant_id},
+        )).mappings().fetchone()
+    return row["greeting_message"] if row else None
+
+
+def _extract_interactive_id(message: dict) -> str | None:
+    """Id del botón/fila que tocó el afiliado (interactive reply de Meta)."""
+    inter = message.get("interactive") or {}
+    if inter.get("type") == "list_reply":
+        return (inter.get("list_reply") or {}).get("id")
+    if inter.get("type") == "button_reply":
+        return (inter.get("button_reply") or {}).get("id")
+    return None
+
+
+# Flag en Redis: ya le mandamos el menú a este número y todavía no eligió. Evita
+# re-mandar el menú en loop si el afiliado lo ignora y escribe texto.
+_MENU_TTL_S = 3600
+
+
+async def _menu_flag_set(tenant_id: str, wa_id: str) -> bool:
+    try:
+        return bool(await get_redis_cache().get(f"wa:menu:{tenant_id}:{wa_id}"))
+    except Exception:
+        return False
+
+
+async def _set_menu_flag(tenant_id: str, wa_id: str) -> None:
+    try:
+        await get_redis_cache().set(f"wa:menu:{tenant_id}:{wa_id}", "1", ex=_MENU_TTL_S)
+    except Exception:
+        pass
+
+
+async def _clear_menu_flag(tenant_id: str, wa_id: str) -> None:
+    try:
+        await get_redis_cache().delete(f"wa:menu:{tenant_id}:{wa_id}")
+    except Exception:
+        pass
+
+
+async def _send_sector_menu(account: WhatsAppAccount, wa_id: str,
+                            sectors: list[dict], greeting: str | None) -> None:
+    """Saludo + menú de áreas. Botones si son ≤3, lista desplegable si son más."""
+    intro = (greeting or "").strip() or "¡Hola! 👋 ¿Sobre qué tema querés consultar?"
+    body = f"{intro}\n\nElegí una opción para empezar 👇"
+    if len(sectors) <= 3:
+        buttons = [{"id": f"sector:{s['id']}", "title": s["nombre"]} for s in sectors]
+        await send_interactive_buttons(account, wa_id, body, buttons)
+    else:
+        rows = [{"id": f"sector:{s['id']}", "title": s["nombre"],
+                 "description": s.get("descripcion") or ""} for s in sectors]
+        await send_interactive_list(account, wa_id, body, "Ver áreas", rows)
+
+
+async def _onboard_sector(account: WhatsAppAccount, tenant_id: str, wa_id: str,
+                          profile_name: str | None, selected_id: str | None,
+                          has_text: bool) -> dict:
+    """Primer contacto sin conversación: ofrece el menú de áreas o resuelve la
+    elección. Devuelve {done: bool, conv: dict|None}.
+      - done=True  → ya se respondió (menú enviado o sector confirmado); cortar.
+      - done=False → se creó la conversación con el default; seguir con el texto.
+    """
+    sectors = await _list_active_sectors(tenant_id)
+
+    # ¿Eligió un área de la lista/botones?
+    if selected_id and selected_id.startswith("sector:"):
+        sid = selected_id.split("sector:", 1)[1]
+        match = next((s for s in sectors if str(s["id"]) == sid), None)
+        if match:
+            conv = await _create_conversation(tenant_id, wa_id, profile_name, str(match["id"]))
+            await _clear_menu_flag(tenant_id, wa_id)
+            ack = f"¡Listo! 👍 Te ayudo con *{match['nombre']}*. Contame, ¿qué necesitás?"
+            await _insert_message(tenant_id, conv["id"], "system", ack)
+            await send_text(account, wa_id, ack)
+            return {"done": True, "conv": conv}
+
+    # No eligió. Si hay más de un área y no le mostramos el menú aún → mostrarlo.
+    if len(sectors) > 1 and not await _menu_flag_set(tenant_id, wa_id):
+        await _send_sector_menu(account, wa_id, sectors, await _get_greeting(tenant_id))
+        await _set_menu_flag(tenant_id, wa_id)
+        return {"done": True, "conv": None}
+
+    # 0/1 área, o ya ignoró el menú una vez → atender en el sector por defecto.
+    default_sid = await get_default_sector_id(tenant_id)
+    conv = await _create_conversation(tenant_id, wa_id, profile_name, default_sid)
+    await _clear_menu_flag(tenant_id, wa_id)
+    return {"done": False, "conv": conv}
 
 
 async def _has_pending_offer(tenant_id: str, conversation_id: str) -> bool:
@@ -133,22 +243,39 @@ async def process_incoming_message(account: WhatsAppAccount, value: dict, messag
         if contacts:
             profile_name = (contacts[0].get("profile") or {}).get("name")
 
+        msg_type = message.get("type")
+        selected_id = _extract_interactive_id(message) if msg_type == "interactive" else None
+        content = ""
+        if msg_type == "text":
+            content = ((message.get("text") or {}).get("body") or "").strip()[:2000]
+
+        conv = await _find_open_conversation(tenant_id, wa_id)
+
+        # Primer contacto (sin conversación): ofrecer el menú de áreas o resolver
+        # la elección. Si done=True ya respondimos (menú enviado o sector elegido).
+        if conv is None:
+            result = await _onboard_sector(
+                account, tenant_id, wa_id, profile_name, selected_id, has_text=bool(content),
+            )
+            if result["done"]:
+                return
+            conv = result["conv"]  # se creó en el sector por defecto; seguimos con el texto
+        elif selected_id is not None:
+            # Un toque a un menú viejo con la conversación ya abierta no aplica.
+            return
+
         # Solo texto en el MVP. Media (imágenes/audio) es fase siguiente:
         # avisamos al cliente en vez de ignorar en silencio.
-        if message.get("type") != "text":
-            conv = await _get_or_create_conversation(tenant_id, wa_id, profile_name)
+        if msg_type != "text":
             note = "[El cliente envió un adjunto no soportado todavía por este canal]"
             await _insert_message(tenant_id, conv["id"], "user", note)
             await send_text(account, wa_id,
                             "Por ahora solo puedo leer mensajes de texto. ¿Me escribís tu consulta?")
             return
 
-        content = ((message.get("text") or {}).get("body") or "").strip()
         if not content:
             return
-        content = content[:2000]  # mismo cap que el widget
 
-        conv = await _get_or_create_conversation(tenant_id, wa_id, profile_name)
         conv_id = conv["id"]
         conv_status = conv["status"]
         conv_sector_id = conv["sector_id"]
