@@ -310,9 +310,13 @@ async def export_kb_json(
         "conversations": len(payload["conversations"]) if include_conversations and payload.get("conversations") else 0,
         "embeddings": len(payload["embeddings"]) if include_embeddings and isinstance(payload.get("embeddings"), list) else 0,
     }
-    import asyncio
-    asyncio.create_task(
-        audit_record(
+    # Audit SÍNCRONO (await): el export es una operación sensible (toda la KB con
+    # PII) y su registro de auditoría no debe perderse. `asyncio.create_task` NO
+    # retiene una referencia fuerte → el GC puede recolectar la task antes de que
+    # termine y el audit se pierde en silencio. El INSERT es marginal frente al
+    # export. Best-effort: si el audit falla, no se rompe la descarga.
+    try:
+        await audit_record(
             tenant_id=tenant_id,
             actor_id=current_user.user_id,
             actor_email=current_user.email,
@@ -325,7 +329,8 @@ async def export_kb_json(
             },
             request=request,
         )
-    )
+    except Exception as exc:
+        logger.warning("kb_export_audit_failed tenant=%s error=%s", tenant_id, exc)
 
     # ── 5. Respuesta JSON descargable ────────────────────────────────────────
     body = json.dumps(payload, ensure_ascii=False, indent=2)
