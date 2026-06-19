@@ -87,9 +87,12 @@ async def provision_tenant(
         async with pg_conn.transaction():
             await pg_conn.execute(f'CREATE SCHEMA "{schema_name}"')
             await pg_conn.execute(f'SET search_path TO "{schema_name}"')
-            for statement in _split_sql(schema_sql):
-                if statement.strip():
-                    await pg_conn.execute(statement)
+            # Ejecutar el schema COMPLETO en un solo execute: asyncpg corre
+            # múltiples statements DDL de una. NO partir por ';' — el split
+            # ingenuo rompía cualquier literal (un DEFAULT JSON en español) o
+            # bloque DO $$ ... $$ que contuviera un ';'.
+            if schema_sql.strip():
+                await pg_conn.execute(schema_sql)
 
             # Create initial admin user inside tenant schema
             hashed = hash_password(admin_password)
@@ -230,11 +233,6 @@ def _send_welcome_email(to_email: str, name: str, tenant_id: str) -> None:
             server.sendmail(settings.email_from, [to_email], msg.as_string())
     except Exception as exc:
         logger.warning("welcome_email_failed error=%s", exc)
-
-
-def _split_sql(sql: str) -> list[str]:
-    """Split SQL file into individual statements on semicolons."""
-    return [s.strip() for s in sql.split(";") if s.strip()]
 
 
 def main() -> None:
