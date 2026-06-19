@@ -171,6 +171,14 @@ async def create_tenant(
         sys.path.insert(0, str(Path("/app")))
         from provision_tenant import provision_tenant
 
+        # Detección ESTRUCTURADA del conflicto (no por substring del error): ¿ya
+        # existe el tenant? Chequeo previo en la tabla global.
+        async with get_pg_session(None) as _check:
+            if (await _check.execute(
+                text("SELECT 1 FROM tenants WHERE id = :id"), {"id": payload.id}
+            )).scalar() is not None:
+                raise HTTPException(status_code=409, detail=f"Tenant '{payload.id}' ya existe")
+
         await provision_tenant(
             tenant_id=payload.id,
             name=payload.name,
@@ -220,9 +228,11 @@ async def create_tenant(
     except HTTPException:
         raise
     except Exception as exc:
-        err = str(exc)
-        # Distinguish PG duplicate (tenant truly exists) from Qdrant orphan mismatch
-        if ("already exists" in err.lower() or "duplicate" in err.lower()) and "qdrant" not in err.lower() and "collection" not in err.lower():
+        # Conflicto de duplicado en el race (dos altas del mismo id casi a la vez):
+        # detección ESTRUCTURADA por el sqlstate de Postgres, NO por substring del
+        # mensaje (que falla con otro locale/idioma o da falsos positivos).
+        sqlstate = getattr(exc, "sqlstate", None) or getattr(getattr(exc, "__cause__", None), "sqlstate", None)
+        if sqlstate in {"23505", "42P06", "42P07", "42710"}:  # unique / duplicate schema/table/object
             raise HTTPException(status_code=409, detail=f"Tenant '{payload.id}' ya existe")
         logger.error("tenant_create_failed id=%s error=%s", payload.id, exc)
         # No filtrar el stack trace/infra al usuario — el detalle ya quedó en logs.
