@@ -35,8 +35,17 @@ CREATE TABLE IF NOT EXISTS documentos (
 );
 
 -- Unique constraint on hash_bytes enables ON CONFLICT ON CONSTRAINT uq_doc_hash_bytes in ingest.py
--- NULLs are allowed (documents without hash are legacy/failed extractions)
-ALTER TABLE documentos ADD CONSTRAINT uq_doc_hash_bytes UNIQUE (content_hash_bytes);
+-- NULLs are allowed (documents without hash are legacy/failed extractions).
+-- Idempotente: ADD CONSTRAINT no soporta IF NOT EXISTS, así que se chequea
+-- pg_constraint para que re-correr el schema sobre un tenant existente no falle.
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'uq_doc_hash_bytes' AND conrelid = 'documentos'::regclass
+    ) THEN
+        ALTER TABLE documentos ADD CONSTRAINT uq_doc_hash_bytes UNIQUE (content_hash_bytes);
+    END IF;
+END $$;
 CREATE UNIQUE INDEX IF NOT EXISTS ix_documentos_hash_text ON documentos (content_hash_text) WHERE content_hash_text IS NOT NULL;
 
 -- Query audit log: used for intent classification, HDBSCAN clustering, billing
