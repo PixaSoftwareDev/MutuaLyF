@@ -421,7 +421,14 @@ async def delete_document(
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
         storage_key = doc["storage_key"]
 
-    # 2. Delete Qdrant chunks (filter by document_id in payload)
+    # Borramos primero los stores externos y SOLO si los críticos (Qdrant, MinIO)
+    # salieron bien tocamos PostgreSQL. Así, ante un fallo, NO dejamos huérfanos
+    # silenciosos (chunks que el bot sigue recuperando / archivo original con PII)
+    # con el registro PG ya borrado e irrecuperable desde el panel: el documento
+    # se conserva y el borrado se puede reintentar.
+    critical_failures: list[str] = []
+
+    # 2. Delete Qdrant chunks (crítico: los huérfanos quedan buscables)
     qdrant = get_qdrant_client()
     try:
         await qdrant.delete(
@@ -432,8 +439,10 @@ async def delete_document(
         )
     except Exception as e:
         logger.warning("delete_qdrant_chunks_failed document_id=%s error=%s", document_id, e)
+        critical_failures.append("qdrant")
 
-    # 3. Delete Neo4j nodes for this document (chunks, document, and orphaned entities)
+    # 3. Delete Neo4j nodes (best-effort: entidades deshabilitadas y Neo4j puede
+    #    no estar disponible legítimamente → NO bloquea el borrado del documento)
     try:
         from core.database import get_neo4j_driver
         neo4j = get_neo4j_driver()
@@ -466,20 +475,7 @@ async def delete_document(
     except Exception as e:
         logger.warning("delete_neo4j_nodes_failed document_id=%s error=%s", document_id, e)
 
-    # 4. Delete parent_chunks (BM25 full-text search index) + pares de duplicados.
-    # Sin limpiar chunk_duplicate_pairs, los pares que referencian este documento
-    # quedan huérfanos y el panel de duplicados los sigue mostrando aunque sus
-    # chunks ya no existan en Qdrant (bug reportado en la demo del 05/06).
-    async with get_pg_session(tenant_id) as session:
-        await session.execute(
-            text("DELETE FROM parent_chunks WHERE document_id = :id"), {"id": document_id}
-        )
-        await session.execute(
-            text("DELETE FROM chunk_duplicate_pairs WHERE doc_id_a = :id OR doc_id_b = :id"),
-            {"id": document_id},
-        )
-
-    # 5. Delete original file from MinIO
+    # 4. Delete original file from MinIO (crítico: archivo original con PII)
     if storage_key:
         try:
             import asyncio as _asyncio
@@ -490,9 +486,32 @@ async def delete_document(
             logger.info("minio_delete_ok document_id=%s key=%s", document_id, storage_key)
         except Exception as e:
             logger.warning("minio_delete_failed document_id=%s error=%s", document_id, e)
+            critical_failures.append("minio")
 
-    # 6. Delete PG record
+    # Si falló un store crítico, NO borramos el registro PG: conservamos el
+    # documento para poder reintentar el borrado, en vez de devolver un 204 que
+    # oculta huérfanos buscables / con PII.
+    if critical_failures:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=(
+                f"No se pudo completar el borrado ({', '.join(critical_failures)}). "
+                "El documento se conserva — reintentá en un momento."
+            ),
+        )
+
+    # 5. PostgreSQL: parent_chunks (BM25) + pares de duplicados + registro del
+    # documento, en una sola transacción. Sin limpiar chunk_duplicate_pairs, los
+    # pares que referencian este documento quedan huérfanos y el panel de
+    # duplicados los sigue mostrando aunque sus chunks ya no existan (bug 05/06).
     async with get_pg_session(tenant_id) as session:
+        await session.execute(
+            text("DELETE FROM parent_chunks WHERE document_id = :id"), {"id": document_id}
+        )
+        await session.execute(
+            text("DELETE FROM chunk_duplicate_pairs WHERE doc_id_a = :id OR doc_id_b = :id"),
+            {"id": document_id},
+        )
         await session.execute(
             text("DELETE FROM documentos WHERE id = :id"), {"id": document_id}
         )

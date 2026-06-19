@@ -1,7 +1,7 @@
 """Tests for the ingestion pipeline services."""
 
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from services.chunker import (
     chunk_document,
@@ -285,3 +285,42 @@ class TestPurgeDocumentArtifacts:
             await _purge_document_artifacts("doc-1", "tenant_a", qdrant)  # no debe lanzar
 
         assert session.execute.await_count == 2
+
+
+class _DeleteSession:
+    """Session mock: el SELECT inicial devuelve el documento; trackea los executes
+    para verificar que NO se ejecute el DELETE del registro si algo crítico falló."""
+    def __init__(self):
+        self.executed = []
+    async def execute(self, stmt, params=None):
+        self.executed.append(str(stmt))
+        r = MagicMock()
+        r.mappings.return_value.fetchone.return_value = {"id": "doc-1", "storage_key": "k1"}
+        return r
+
+
+class TestDeleteDocumentOrphans:
+    """Fix #11: si un store crítico (Qdrant/MinIO) falla, NO se borra el registro
+    PG (el documento se conserva, reintentable) y se devuelve 502, en vez de un
+    204 que dejaría chunks buscables / archivo con PII huérfanos."""
+
+    @pytest.mark.asyncio
+    async def test_qdrant_failure_returns_502_and_keeps_pg_record(self):
+        from fastapi import HTTPException
+        from api.v1 import ingest
+
+        session = _DeleteSession()
+        qdrant = AsyncMock()
+        qdrant.delete.side_effect = RuntimeError("qdrant down")
+
+        with patch.object(ingest, "get_pg_session", lambda *a, **k: _FakePgCM(session)), \
+             patch.object(ingest, "get_qdrant_client", return_value=qdrant), \
+             patch("core.database.get_neo4j_driver", return_value=MagicMock()), \
+             patch.object(ingest, "get_minio_client", return_value=MagicMock()):
+            with pytest.raises(HTTPException) as exc:
+                await ingest.delete_document(
+                    "doc-1", MagicMock(), tenant_id="tenant_a", current_user=MagicMock(),
+                )
+        assert exc.value.status_code == 502
+        # El registro del documento NO se borró → el borrado se puede reintentar
+        assert not any("DELETE FROM documentos" in e for e in session.executed)
