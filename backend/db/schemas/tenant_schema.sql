@@ -159,6 +159,7 @@ CREATE TABLE IF NOT EXISTS handoff_config (
     inactivity_timeout_minutes      INTEGER NOT NULL DEFAULT 15,
     consecutive_insufficient_count  INTEGER NOT NULL DEFAULT 3,
     attention_hours                 TEXT,
+    contact_info                    TEXT,
     transition_messages             JSONB NOT NULL DEFAULT '{"handoff_offer":"Veo que tengo dificultades para resolver tu consulta. ¿Querés que te conecte con un operador?","handoff_confirmed":"Listo, tu solicitud fue recibida. Un operador te atenderá en breve.","operator_inactive_alert":"Todavía estás en cola. Un operador te atenderá a la brevedad."}',
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
