@@ -170,7 +170,10 @@ export default function AdminConversationsPage() {
     const to = new Date();
     const from = new Date();
     from.setDate(from.getDate() - days);
-    const iso = (d: Date) => d.toISOString().slice(0, 10);
+    // YMD en hora LOCAL del navegador: toISOString() es UTC y en AR (UTC-3),
+    // pasadas las 21:00, "hoy" en UTC ya es mañana → el preset traía el día errado.
+    const iso = (d: Date) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     setDateFrom(iso(from));
     setDateTo(iso(to));
   };
