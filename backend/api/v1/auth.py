@@ -60,27 +60,31 @@ class LookupTenantResponse(BaseModel):
     matches: list[LookupTenantMatch]
 
 
-# Cache de rate limit en memoria, por IP. 5 lookups/min para frenar
-# enumeracion masiva (bot probando emails al azar para mapear tenants).
-_LOOKUP_RATE_CACHE: dict[str, list[float]] = {}
+# Rate limit por IP: 5 lookups/min para frenar enumeracion masiva (bot probando
+# emails al azar para mapear tenants).
 _LOOKUP_RATE_MAX = 5
 _LOOKUP_RATE_WINDOW_S = 60
 
 
-def _check_lookup_rate(request: Request) -> bool:
-    import time as _t
+async def _check_lookup_rate(request: Request) -> bool:
+    """True si la IP está dentro del límite. El throttle vive en Redis (DB2,
+    rate-limit), NO en un dict por proceso: con N workers el dict daba un límite
+    efectivo de 5×N/min y se reiniciaba en cada deploy. Fail-open: si Redis no
+    responde, no bloqueamos — preferible a trabar logins/lookups legítimos por
+    una caída de Redis (el lockout de brute-force del login es la defensa dura)."""
     forwarded = request.headers.get("X-Forwarded-For")
     ip = forwarded.split(",")[0].strip() if forwarded else (request.client.host if request.client else "unknown")
-    now = _t.monotonic()
-    hits = [t for t in _LOOKUP_RATE_CACHE.get(ip, []) if now - t < _LOOKUP_RATE_WINDOW_S]
-    if len(hits) >= _LOOKUP_RATE_MAX:
-        return False
-    hits.append(now)
-    _LOOKUP_RATE_CACHE[ip] = hits
-    # Garbage collect lazy: si el cache crece mas de 10k IPs, lo achicamos.
-    if len(_LOOKUP_RATE_CACHE) > 10_000:
-        _LOOKUP_RATE_CACHE.clear()
-    return True
+    try:
+        from core.database import get_redis_ratelimit
+        redis = get_redis_ratelimit()
+        key = f"rl:lookup:{ip}"
+        n = await redis.incr(key)
+        if n == 1:
+            await redis.expire(key, _LOOKUP_RATE_WINDOW_S)
+        return n <= _LOOKUP_RATE_MAX
+    except Exception as exc:
+        logger.warning("lookup_rate_check_unavailable ip=%s error=%s", ip, exc)
+        return True
 
 
 @router.post("/lookup-tenant", response_model=LookupTenantResponse)
@@ -101,7 +105,7 @@ async def lookup_tenant(body: LookupTenantBody, request: Request) -> LookupTenan
       - Super-admin NO aparece en los matches (esta en platform_users, no en
         tenant_X.usuarios).
     """
-    if not _check_lookup_rate(request):
+    if not await _check_lookup_rate(request):
         # No 429 — devolvemos matches vacios para no diferenciar de "no existe".
         # El frontend muestra mensaje generico.
         return LookupTenantResponse(matches=[])
@@ -531,7 +535,7 @@ async def forgot_password(body: ForgotPasswordRequest, request: Request):
     from core.config import settings
     from core.email import send_email
 
-    if not _check_lookup_rate(request):
+    if not await _check_lookup_rate(request):
         return {"status": "ok"}
 
     email = body.email.lower().strip()

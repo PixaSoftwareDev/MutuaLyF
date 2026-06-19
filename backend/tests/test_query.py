@@ -67,6 +67,45 @@ class TestLLMRetryPredicate:
         assert _is_retryable_llm_error(ValueError("nope")) is False
 
 
+class TestLookupRateLimit:
+    """Fix #7: el throttle de lookup-tenant/forgot-password vive en Redis (no en
+    un dict por proceso) y es fail-open si Redis cae."""
+
+    @pytest.mark.asyncio
+    async def test_blocks_after_max_using_redis(self):
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from api.v1.auth import _check_lookup_rate, _LOOKUP_RATE_MAX
+        req = MagicMock()
+        req.headers.get.return_value = None
+        req.client.host = "1.2.3.4"
+        counter = {"n": 0}
+        redis = AsyncMock()
+
+        async def _incr(_key):
+            counter["n"] += 1
+            return counter["n"]
+        redis.incr.side_effect = _incr
+
+        with patch("core.database.get_redis_ratelimit", return_value=redis):
+            results = [await _check_lookup_rate(req) for _ in range(_LOOKUP_RATE_MAX + 2)]
+        assert all(results[:_LOOKUP_RATE_MAX])          # los primeros N pasan
+        assert results[_LOOKUP_RATE_MAX] is False       # el N+1 se bloquea
+        redis.expire.assert_awaited()                   # TTL seteado en el primer hit
+
+    @pytest.mark.asyncio
+    async def test_fail_open_when_redis_down(self):
+        from unittest.mock import MagicMock, patch
+        from api.v1.auth import _check_lookup_rate
+        req = MagicMock()
+        req.headers.get.return_value = None
+        req.client.host = "1.2.3.4"
+
+        def _boom():
+            raise RuntimeError("redis down")
+        with patch("core.database.get_redis_ratelimit", side_effect=_boom):
+            assert await _check_lookup_rate(req) is True  # no bloquea logins legítimos
+
+
 class TestOrchestratorInputSanitization:
     """Verify that prompt injection prevention works."""
 
