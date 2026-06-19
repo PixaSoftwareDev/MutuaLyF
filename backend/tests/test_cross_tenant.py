@@ -176,3 +176,52 @@ class TestTenantWidgetTokenIsolation:
         )
         # Widget endpoint requires scope=widget — full token has scope=full
         assert response.status_code in (401, 403, 501)
+
+
+class TestEmailDomainsCrossTenant:
+    """IDOR fix: un admin no puede leer/agregar/borrar email-domains de OTRO
+    tenant cambiando el tenant_id en la URL. El guard corre antes de tocar la
+    DB, así que el 403 se verifica sin base real. Super-admin y el uso legítimo
+    (admin sobre su propio tenant) NO deben recibir 403."""
+
+    def test_admin_cannot_list_other_tenant_domains(self):
+        token_a = create_access_token("user-a", "tenant_a", Role.ADMIN)
+        r = client.get(
+            "/api/v1/tenants/tenant_b/email-domains",
+            headers={"Authorization": f"Bearer {token_a}"},
+        )
+        assert r.status_code == 403
+
+    def test_admin_cannot_add_domain_to_other_tenant(self):
+        token_a = create_access_token("user-a", "tenant_a", Role.ADMIN)
+        r = client.post(
+            "/api/v1/tenants/tenant_b/email-domains",
+            json={"domain": "empresa.com", "is_primary": False},
+            headers={"Authorization": f"Bearer {token_a}"},
+        )
+        assert r.status_code == 403
+
+    def test_admin_cannot_remove_other_tenant_domain(self):
+        token_a = create_access_token("user-a", "tenant_a", Role.ADMIN)
+        r = client.delete(
+            "/api/v1/tenants/tenant_b/email-domains/empresa.com",
+            headers={"Authorization": f"Bearer {token_a}"},
+        )
+        assert r.status_code == 403
+
+    def test_admin_can_access_own_tenant_domains(self):
+        """El guard no debe bloquear el uso legítimo (admin sobre su tenant)."""
+        token_a = create_access_token("user-a", "tenant_a", Role.ADMIN)
+        r = client.get(
+            "/api/v1/tenants/tenant_a/email-domains",
+            headers={"Authorization": f"Bearer {token_a}"},
+        )
+        assert r.status_code != 403
+
+    def test_super_admin_can_access_any_tenant_domains(self):
+        super_token = create_access_token("superadmin", "system", Role.SUPER_ADMIN)
+        r = client.get(
+            "/api/v1/tenants/tenant_b/email-domains",
+            headers={"Authorization": f"Bearer {super_token}"},
+        )
+        assert r.status_code != 403

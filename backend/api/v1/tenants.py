@@ -374,13 +374,15 @@ class EmailDomainBody(BaseModel):
 @router.get("/{tenant_id}/email-domains")
 async def list_email_domains(
     tenant_id: str,
-    _: CurrentUser = Depends(require_admin_or_super),
+    current_user: CurrentUser = Depends(require_admin_or_super),
 ):
     """Lista los dominios de email asociados a un tenant.
 
     Admin del propio tenant puede ver los suyos; super-admin puede ver
-    cualquiera. La validacion de "su propio tenant" se hace abajo.
+    cualquiera.
     """
+    if current_user.role.value != "super_admin" and current_user.tenant_id != tenant_id:
+        raise HTTPException(status_code=403, detail="No autorizado para otro tenant")
     async with get_pg_session(None) as session:
         result = await session.execute(
             text(
@@ -414,6 +416,9 @@ async def add_email_domain(
       - Bloqueamos dominios genericos (gmail, hotmail) para evitar que un
         admin se "robe" todos los usuarios de Gmail accidentalmente.
     """
+    if current_user.role.value != "super_admin" and current_user.tenant_id != tenant_id:
+        raise HTTPException(status_code=403, detail="No autorizado para otro tenant")
+
     BLOCKED_DOMAINS = {
         "gmail.com", "hotmail.com", "outlook.com", "yahoo.com", "yahoo.com.ar",
         "live.com", "icloud.com", "protonmail.com", "msn.com", "googlemail.com",
@@ -483,6 +488,8 @@ async def remove_email_domain(
 ):
     """Quita un dominio. Los usuarios existentes siguen funcionando — solo
     deja de ofrecer el shortcut de branding por dominio en el login."""
+    if current_user.role.value != "super_admin" and current_user.tenant_id != tenant_id:
+        raise HTTPException(status_code=403, detail="No autorizado para otro tenant")
     domain = domain.lower().strip()
     async with get_pg_session(None) as session:
         result = await session.execute(
