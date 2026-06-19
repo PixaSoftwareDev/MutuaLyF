@@ -434,7 +434,8 @@ async def refresh_token(request: Request, response: Response):
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
 async def logout(request: Request, response: Response, current_user: CurrentUser = Depends(get_current_user)):
     """Invalidate session by clearing the refresh token cookie."""
-    response.delete_cookie("refresh_token", httponly=True, samesite="strict")
+    # Mismos flags que _set_refresh_cookie para que el borrado matchee de verdad.
+    response.delete_cookie("refresh_token", path="/", httponly=True, secure=settings.is_production, samesite="strict")
 
     from core.audit import record as audit, fire_and_log
     fire_and_log(audit(
@@ -610,7 +611,9 @@ def _set_refresh_cookie(response: Response, token: str) -> None:
         key="refresh_token",
         value=token,
         httponly=True,
+        secure=settings.is_production,  # el token de refresh no debe viajar por HTTP en prod
         samesite="strict",
+        path="/",
         max_age=60 * 60 * 24 * 30,
     )
 
