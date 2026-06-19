@@ -313,7 +313,7 @@ async def send_message(
     handoff_message = None
     handoff_offered = False
     if signal.trigger != HandoffTrigger.NONE:
-        from services.handoff import has_online_operators, build_no_operators_message, _get_handoff_config
+        from services.handoff import has_online_operators, build_no_operators_message, _get_handoff_config, _mark_offer_pending
         if await has_online_operators(tenant_id, conv_sector_id):
             # Hay operadores conectados → ofrecer derivación (cartel con botón).
             async with get_pg_session(tenant_id) as session:
@@ -322,6 +322,7 @@ async def send_message(
                     VALUES (:cid, 'system', :msg, TRUE)
                 """), {"cid": conversation_id, "msg": signal.offer_message})
             await _publish_event(tenant_id, "new_message", {"conversation_id": conversation_id})
+            await _mark_offer_pending(conversation_id)  # cooldown 90s SOLO al mostrar el cartel
             handoff_message = signal.offer_message
             handoff_offered = True
         else:

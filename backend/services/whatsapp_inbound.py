@@ -378,11 +378,12 @@ async def process_incoming_message(account: WhatsAppAccount, value: dict, messag
             bot_answer=bot_answer,
         )
         if signal.trigger != HandoffTrigger.NONE:
-            from services.handoff import has_online_operators, build_no_operators_message, _get_handoff_config
+            from services.handoff import has_online_operators, build_no_operators_message, _get_handoff_config, _mark_offer_pending
             if await has_online_operators(tenant_id, conv_sector_id):
                 offer = f"{signal.offer_message}\n\nRespondé *OPERADOR* para hablar con una persona."
                 await _insert_message(tenant_id, conv_id, "system", offer, is_handoff_offer=True)
                 await send_text(account, wa_id, offer)
+                await _mark_offer_pending(conv_id)  # cooldown 90s SOLO al mostrar el cartel
             else:
                 cfg = await _get_handoff_config(tenant_id)
                 msg = build_no_operators_message(cfg)

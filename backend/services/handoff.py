@@ -246,9 +246,12 @@ async def evaluate_handoff(
             )
             if offer_pending:
                 return HandoffSignal(trigger=HandoffTrigger.NONE, auto_activate=False, offer_message="")
-            # Disparar oferta: reset counter + cooldown 90s
+            # Disparar oferta: reset counter. El cooldown (_mark_offer_pending) NO
+            # se setea acá — lo setea el CALLER y SOLO si efectivamente muestra el
+            # cartel (hay operadores online). Marcarlo acá ponía el cooldown de 90s
+            # aunque luego no hubiera operadores y el cartel nunca se mostrara,
+            # bloqueando re-ofrecer incluso si aparece un operador en esos 90s.
             await _reset_insufficient(conversation_id)
-            await _mark_offer_pending(conversation_id)
             return HandoffSignal(
                 trigger=HandoffTrigger.INSUFFICIENT,
                 auto_activate=False,
