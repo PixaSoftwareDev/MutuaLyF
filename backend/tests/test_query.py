@@ -40,6 +40,33 @@ class TestComplexityClassifier:
         assert settings.groq_model_reasoning not in forbidden
 
 
+class TestLLMRetryPredicate:
+    """Fix #6: el retry del LLM debe reintentar transitorios en AMBOS providers
+    (groq y OpenAI/httpx) pero NO los 4xx definitivos."""
+
+    def _http_err(self, code: int):
+        import httpx
+        req = httpx.Request("POST", "http://x/chat/completions")
+        return httpx.HTTPStatusError("e", request=req, response=httpx.Response(code, request=req))
+
+    def test_transient_httpx_errors_are_retryable(self):
+        import httpx
+        from services.groq_client import _is_retryable_llm_error
+        assert _is_retryable_llm_error(httpx.TimeoutException("t")) is True
+        assert _is_retryable_llm_error(httpx.ConnectError("c")) is True
+
+    def test_http_429_and_5xx_retryable_4xx_not(self):
+        from services.groq_client import _is_retryable_llm_error
+        for code in (429, 500, 502, 503, 504):
+            assert _is_retryable_llm_error(self._http_err(code)) is True, code
+        for code in (400, 401, 403, 404, 422):
+            assert _is_retryable_llm_error(self._http_err(code)) is False, code
+
+    def test_unknown_error_not_retryable(self):
+        from services.groq_client import _is_retryable_llm_error
+        assert _is_retryable_llm_error(ValueError("nope")) is False
+
+
 class TestOrchestratorInputSanitization:
     """Verify that prompt injection prevention works."""
 

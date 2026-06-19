@@ -32,7 +32,7 @@ import httpx
 from groq import AsyncGroq, APIError, APITimeoutError, RateLimitError
 from tenacity import (
     retry,
-    retry_if_exception_type,
+    retry_if_exception,
     stop_after_attempt,
     wait_exponential,
     before_sleep_log,
@@ -138,8 +138,21 @@ def _model_for_complexity(complexity: str) -> str:
     return settings.groq_model_fast
 
 
+def _is_retryable_llm_error(exc: BaseException) -> bool:
+    """¿El error del LLM justifica reintentar? Cubre AMBOS providers:
+      - groq SDK: APITimeoutError, RateLimitError.
+      - OpenAI (httpx crudo): timeouts / errores de conexión, y HTTP 429/5xx.
+    Los 4xx definitivos (401 token inválido, 400 request malo) NO se reintentan
+    — reintentarlos sería inútil y solo agregaría latencia."""
+    if isinstance(exc, (APITimeoutError, RateLimitError, httpx.TimeoutException, httpx.ConnectError)):
+        return True
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code in (429, 500, 502, 503, 504)
+    return False
+
+
 @retry(
-    retry=retry_if_exception_type((APITimeoutError, RateLimitError)),
+    retry=retry_if_exception(_is_retryable_llm_error),
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=1, max=10),
     before_sleep=before_sleep_log(logger, logging.WARNING),
