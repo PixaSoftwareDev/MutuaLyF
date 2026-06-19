@@ -1,6 +1,15 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
+// ⚠️ SEGURIDAD: este middleware es GATING DE UX, NO la barrera de seguridad.
+// El rol sale de la cookie `ia_role`, que es NO firmada y la setea el cliente
+// (document.cookie en el login) → un usuario puede editarla. La autoridad real es
+// el BACKEND: cada endpoint valida el JWT FIRMADO (rol incluido) y devuelve 401/403;
+// la firma no se puede falsificar sin el JWT_SECRET, que no vive en el front.
+// Manipular esta cookie solo deja ver el CASCARÓN de una UI que queda VACÍA (las
+// APIs fallan) — nunca datos de otro rol o tenant. No mover NINGUNA decisión de
+// seguridad de datos a este middleware ni al AuthGuard/store (también client-side).
+
 // Routes accessible by each role — strictly separated, no overlap
 const ROLE_PREFIXES: Record<string, string[]> = {
   super_admin: ["/superadmin"],
