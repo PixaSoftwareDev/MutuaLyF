@@ -242,3 +242,46 @@ class TestQualityGate:
             assert len(results) == 2
             for r in results:
                 assert r.status == QualityStatus.PENDING
+
+
+# ── Purga idempotente (fix #2: el retry no debe duplicar chunks) ────────────────
+
+class _FakePgCM:
+    """Context manager async que devuelve una session mockeada."""
+    def __init__(self, session):
+        self._session = session
+    async def __aenter__(self):
+        return self._session
+    async def __aexit__(self, *exc):
+        return False
+
+
+class TestPurgeDocumentArtifacts:
+    @pytest.mark.asyncio
+    async def test_purge_borra_qdrant_y_pg_por_document_id(self):
+        """Borra los puntos de Qdrant del documento + las 2 tablas PG."""
+        from workers.ingest_tasks import _purge_document_artifacts
+
+        qdrant = AsyncMock()
+        session = AsyncMock()
+        with patch("core.database.get_worker_pg_session", return_value=_FakePgCM(session)):
+            await _purge_document_artifacts("doc-1", "tenant_a", qdrant)
+
+        qdrant.delete.assert_awaited_once()
+        assert qdrant.delete.call_args.kwargs["collection_name"] == "tenant_a_docs"
+        # DELETE de parent_chunks + DELETE de chunk_duplicate_pairs
+        assert session.execute.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_purge_es_best_effort_si_qdrant_falla(self):
+        """En la 1ra ingesta la colección no existe → Qdrant lanza, pero la purga
+        no debe propagar el error ni saltarse el borrado en PG."""
+        from workers.ingest_tasks import _purge_document_artifacts
+
+        qdrant = AsyncMock()
+        qdrant.delete.side_effect = RuntimeError("collection not found")
+        session = AsyncMock()
+        with patch("core.database.get_worker_pg_session", return_value=_FakePgCM(session)):
+            await _purge_document_artifacts("doc-1", "tenant_a", qdrant)  # no debe lanzar
+
+        assert session.execute.await_count == 2

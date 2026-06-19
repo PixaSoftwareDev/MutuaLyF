@@ -405,7 +405,7 @@ async def delete_document(
     document_id: str,
     request: Request,
     tenant_id: str = Depends(get_tenant_id),
-    current_user: CurrentUser = Depends(require_operator),
+    current_user: CurrentUser = Depends(require_admin),
 ):
     """Delete a document and all associated data: PG record, Qdrant chunks, Neo4j nodes, parent_chunks, MinIO file."""
     # 1. Verify document exists and belongs to this tenant; fetch storage_key for MinIO cleanup

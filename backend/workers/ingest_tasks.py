@@ -134,6 +134,13 @@ async def _run_ingest_pipeline(
 
     await _update_document_status(document_id, tenant_id, "processing")
 
+    # ── 0. Limpieza idempotente — borrar artefactos previos de este documento ─
+    # Hace seguro el autoretry: sin esto, un reintento tras un fallo parcial deja
+    # lo ya indexado (ids regenerados en cada corrida) y los nuevos se SUMAN →
+    # chunks duplicados en Qdrant y parents huérfanos en PG. Borrar primero
+    # garantiza que cada (re)intento reconstruya el documento desde cero.
+    await _purge_document_artifacts(document_id, tenant_id, qdrant)
+
     # ── 1. Extract text (CPU-bound: PDF parsing, docx parsing) ───────────────
     # Read file bytes FIRST before any operation that might fail — so Celery
     # retries can still access the file (it's deleted only on success at step 10).
@@ -250,6 +257,15 @@ async def _run_ingest_pipeline(
         logger.warning(
             "embed_partial_failure document_id=%s total=%d embedded=%d",
             document_id, len(chunks), len(valid),
+        )
+
+    # Fallo TOTAL de embedding (embedder caído / sin saldo / modelo sin cargar):
+    # NO marcar el documento 'ready' vacío en silencio. Relanzar para que el
+    # autoretry reintente — suele ser transitorio. El purge idempotente (paso 0)
+    # hace seguro el reintento. _ingest_with_lifecycle marca 'failed' al capturar.
+    if not valid:
+        raise RuntimeError(
+            f"embedding_total_failure document_id={document_id} chunks={len(chunks)} embedded=0"
         )
 
     points: list[PointStruct] = [
@@ -376,10 +392,17 @@ async def _run_ingest_pipeline(
     #     countdown=0,
     # )
 
-    # ── 10. Enqueue quality gate retries for chunks pending Groq response ──────
+    # ── 10. Encolar revalidación de quality gate para los chunks pendientes ────
+    # El quality gate corre sobre PARENTS; quality_map está indexado por id de
+    # PARENT. El bug previo buscaba quality_map.get(c.id) con c = child → un id de
+    # child JAMÁS está en quality_map → pending_retry siempre vacío → la
+    # revalidación NUNCA se encolaba (chunks 'pending' eternos si Groq caía en la
+    # ingesta). Se mapea por c.parent_id. revalidate_chunk_quality opera sobre el
+    # punto de Qdrant (el child), que es quien lleva el quality_gate_status.
     pending_retry = [
         c for c, _ in valid
-        if quality_map.get(c.id) and quality_map[c.id].status.value == "pending"
+        if c.parent_id and quality_map.get(c.parent_id)
+        and quality_map[c.parent_id].status.value == "pending"
     ]
     for chunk in pending_retry:
         revalidate_chunk_quality.apply_async(args=[chunk.id, tenant_id], countdown=_RETRY_DELAYS[0])
@@ -544,6 +567,44 @@ async def _maybe_resolve_document_quality(
 
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
+
+async def _purge_document_artifacts(
+    document_id: str, tenant_id: str, qdrant: AsyncQdrantClient,
+) -> None:
+    """Borra idempotentemente todo lo ya indexado de este document_id ANTES de
+    (re)indexar. Hace seguro el autoretry de process_document: como los ids de
+    chunks/parents se regeneran en cada corrida, sin esto un reintento tras un
+    fallo parcial SUMA puntos nuevos a Qdrant (los viejos quedan huérfanos) y
+    parents duplicados en PG. Mismo borrado que delete_document, best-effort por
+    subsistema (en la primera ingesta de un documento no hay nada que borrar)."""
+    from qdrant_client.models import Filter, FieldCondition, MatchValue
+    from core.database import get_worker_pg_session
+    from sqlalchemy import text as _sa_text
+
+    try:
+        await qdrant.delete(
+            collection_name=f"{tenant_id}_docs",
+            points_selector=Filter(
+                must=[FieldCondition(key="document_id", match=MatchValue(value=document_id))]
+            ),
+        )
+    except Exception as exc:
+        # La colección puede no existir aún (primera ingesta del tenant) — ok.
+        logger.info("purge_qdrant_skipped document_id=%s reason=%s", document_id, exc)
+
+    try:
+        async with get_worker_pg_session(tenant_id) as session:
+            await session.execute(
+                _sa_text("DELETE FROM parent_chunks WHERE document_id = :id"),
+                {"id": document_id},
+            )
+            await session.execute(
+                _sa_text("DELETE FROM chunk_duplicate_pairs WHERE doc_id_a = :id OR doc_id_b = :id"),
+                {"id": document_id},
+            )
+    except Exception as exc:
+        logger.warning("purge_pg_failed document_id=%s error=%s", document_id, exc)
+
 
 async def _store_parent_chunks(parents: list, tenant_id: str) -> None:
     """Persist parent chunks to PostgreSQL.
