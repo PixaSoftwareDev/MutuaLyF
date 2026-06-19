@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuthStore } from "@/lib/store";
 import { api, type LookupTenantMatch } from "@/lib/api";
+import { decodeJwtPayload } from "@/lib/jwt";
 import { toSlug } from "@/lib/utils";
 import { Loader2, AlertTriangle, Shield, Eye, EyeOff, ChevronLeft, Lock } from "lucide-react";
 
@@ -67,9 +68,10 @@ function LoginForm() {
     setLoading(true);
     try {
       const data = await api.auth.login(email, password, effectiveTenant);
-      const payload = JSON.parse(atob(data.access_token.split(".")[1]));
-      const role = payload.role as string;
-      const resolvedTenant = payload.tenant_id as string;
+      const payload = decodeJwtPayload<{ role?: string; tenant_id?: string }>(data.access_token);
+      if (!payload?.role || !payload?.tenant_id) throw new Error("Token de sesión inválido");
+      const role = payload.role;
+      const resolvedTenant = payload.tenant_id;
 
       setAuth(data.access_token, resolvedTenant, email, role);
       document.cookie = `ia_role=${role}; path=/; SameSite=strict`;

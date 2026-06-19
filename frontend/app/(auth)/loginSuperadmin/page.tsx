@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuthStore } from "@/lib/store";
 import { api } from "@/lib/api";
+import { decodeJwtPayload } from "@/lib/jwt";
 import { AuthShell, brandBtnStyle, BRAND_GRADIENT } from "@/components/auth/auth-shell";
 import { Loader2, AlertTriangle, ShieldCheck, Eye, EyeOff } from "lucide-react";
 
@@ -26,9 +27,10 @@ export default function LoginSuperadminPage() {
     setLoading(true);
     try {
       const data = await api.auth.login(email, password, "");
-      const payload = JSON.parse(atob(data.access_token.split(".")[1]));
-      const role = payload.role as string;
-      const resolvedTenant = payload.tenant_id as string;
+      const payload = decodeJwtPayload<{ role?: string; tenant_id?: string }>(data.access_token);
+      if (!payload?.role || !payload?.tenant_id) throw new Error("Token de sesión inválido");
+      const role = payload.role;
+      const resolvedTenant = payload.tenant_id;
 
       setAuth(data.access_token, resolvedTenant, email, role);
       document.cookie = `ia_role=${role}; path=/; SameSite=strict`;
