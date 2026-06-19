@@ -106,6 +106,21 @@ class TestLookupRateLimit:
             assert await _check_lookup_rate(req) is True  # no bloquea logins legítimos
 
 
+class TestWhatsappMenuFailOpen:
+    """Fix #8: si Redis cae, el flag del menú de WhatsApp asume 'ya ofrecido'
+    para NO loopear mostrando el menú (la rama del menú no crea conversación)."""
+
+    @pytest.mark.asyncio
+    async def test_menu_flag_fail_open_when_redis_down(self):
+        from unittest.mock import patch
+        from services.whatsapp_inbound import _menu_flag_set
+
+        def _boom():
+            raise RuntimeError("redis down")
+        with patch("services.whatsapp_inbound.get_redis_cache", side_effect=_boom):
+            assert await _menu_flag_set("tenant_a", "549111222333") is True
+
+
 class TestOrchestratorInputSanitization:
     """Verify that prompt injection prevention works."""
 

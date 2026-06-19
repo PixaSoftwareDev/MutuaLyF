@@ -148,7 +148,12 @@ async def _menu_flag_set(tenant_id: str, wa_id: str) -> bool:
     try:
         return bool(await get_redis_cache().get(f"wa:menu:{tenant_id}:{wa_id}"))
     except Exception:
-        return False
+        # Redis caído: asumir que el menú YA se ofreció (fail-open). Si devolviera
+        # False, la rama del menú —que NO crea conversación— se repetiría en cada
+        # mensaje y el afiliado quedaría atrapado recibiendo el menú en loop, sin
+        # llegar al bot. Asumiendo True, cae a crear la conversación en el sector
+        # por defecto y lo atiende: sin menú, pero sin loop.
+        return True
 
 
 async def _set_menu_flag(tenant_id: str, wa_id: str) -> None:
