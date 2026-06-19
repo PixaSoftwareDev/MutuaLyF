@@ -60,7 +60,11 @@ async def enforce_document_limit(tenant_id: str, file_size_bytes: int) -> None:
             )
             doc_count = row.scalar_one() or 0
     except Exception as exc:
-        logger.warning("plan_limit_doc_count_failed tenant_id=%s error=%s — skipping check", tenant_id, exc)
+        # FAIL-OPEN INTENCIONAL: ante un hipo de DB no bloqueamos la ingesta
+        # (priorizamos disponibilidad; el abuso de cuota en un fallo transitorio es
+        # marginal). Log a ERROR —no warning— para que dispare alerta: si se repite,
+        # hay un problema de DB sostenido y se está corriendo SIN chequeo de cuota.
+        logger.error("plan_limit_doc_count_failed tenant_id=%s error=%s — FAIL-OPEN, sin chequeo de cuota", tenant_id, exc)
         return
 
     if doc_count >= doc_limit:
@@ -108,7 +112,11 @@ async def enforce_query_limit(tenant_id: str) -> None:
             )
             queries_this_month = row.scalar_one() or 0
     except Exception as exc:
-        logger.warning("plan_limit_query_count_failed tenant_id=%s error=%s — skipping check", tenant_id, exc)
+        # FAIL-OPEN INTENCIONAL en el camino de respuesta del chat: bloquear ante un
+        # hipo de la DB de conteo dejaría a los afiliados sin servicio. Log a ERROR
+        # —no warning— para que dispare alerta: si ocurre sostenido, hay un problema
+        # de DB y se está corriendo SIN tope de cuota.
+        logger.error("plan_limit_query_count_failed tenant_id=%s error=%s — FAIL-OPEN, sin chequeo de cuota", tenant_id, exc)
         return
 
     if queries_this_month >= query_limit:
