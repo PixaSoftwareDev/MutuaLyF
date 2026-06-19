@@ -745,14 +745,17 @@ async def ingest_document(
     # hash_text. A tiny TOCTOU window remains but the consequence is a duplicate doc,
     # not data loss — acceptable given the rarity of concurrent same-content uploads.
     async with get_pg_session(tenant_id) as session:
-        # Un intento anterior que quedó en 'failed' conserva su hash/filename y
-        # bloquearía re-subir el archivo corregido (el doc falló, no tiene contenido
-        # útil indexado). Lo borramos antes de los checks para liberar el UNIQUE.
+        # Un intento anterior que quedó en 'failed' con el MISMO contenido (hash)
+        # bloquearía re-subir el archivo corregido por el UNIQUE de hash_bytes; lo
+        # borramos antes de los checks. SOLO por contenido (hash), NO por filename:
+        # el 'OR filename' borraba cualquier 'failed' que compartiera nombre aunque
+        # fuera contenido DISTINTO (pérdida de datos). Los 'failed' sin hash tienen
+        # hash NULL → no colisionan con el UNIQUE, así que no hace falta limpiarlos.
         await session.execute(text("""
             DELETE FROM documentos
             WHERE status = 'failed'
-              AND (content_hash_bytes = :hb OR content_hash_text = :ht OR filename = :fn)
-        """), {"hb": hash_bytes, "ht": hash_text, "fn": file.filename})
+              AND (content_hash_bytes = :hb OR content_hash_text = :ht)
+        """), {"hb": hash_bytes, "ht": hash_text})
 
         # ── Check 1: mismo filename pero contenido distinto ──────────────────
         # Si bytes coinciden tambien → se ignora aca, el ON CONFLICT abajo
