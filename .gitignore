@@ -73,7 +73,7 @@ nginx/certs/
 # =========================
 # DOCKER
 # =========================
-.dockerignore
+# Nota: los .dockerignore SÍ se versionan (config del build). No ignorarlos.
 
 # Docker overrides
 docker-compose.override.yml

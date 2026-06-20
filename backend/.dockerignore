@@ -1,0 +1,23 @@
+# Secrets — nunca hornear en la imagen
+.env
+.env.*
+*.env
+
+# Control de versiones
+.git
+.gitignore
+
+# Caches de Python y herramientas (se regeneran)
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Estado de runtime de Celery beat (se regenera al arrancar)
+celerybeat-schedule
+celerybeat-schedule.*
+
+# Artefactos de SO
+.DS_Store
+Thumbs.db
