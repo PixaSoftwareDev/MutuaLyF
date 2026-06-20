@@ -149,10 +149,11 @@ Las intenciones **no se definen a mano** — emergen de las consultas reales de 
 ```
 /
 ├── CLAUDE.md                    # Este archivo
-├── PROMPT.md                    # System prompt del ingeniero
 ├── progress.json                # Estado de avance del proyecto
 ├── docker-compose.yml           # Orquestación completa
 ├── .env.example                 # Variables de entorno documentadas
+│
+├── docs/                        # Documentación: PROMPT.md, OPERACIONES, RUNBOOK, guías, manual
 │
 ├── backend/
 │   ├── main.py                  # Entry point FastAPI
