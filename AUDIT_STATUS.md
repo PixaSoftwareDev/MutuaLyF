@@ -127,14 +127,14 @@
 | 7 | `api/v1/auth.py:405,416` | `uuid.UUID(sub)` → 500 | ✅ HECHO (try/except → 401) |
 | 8 | `core/security.py:111` | `decode_token` no exige `exp` | ✅ HECHO (`options={"require":["exp"]}`; emisores verificados) |
 | 9 | `core/database.py:153` | `_validate_tenant_id` acepta `'public'` | ✅ HECHO (blocklist schemas reservados + `pg_*`) |
-| 10 | `whatsapp_inbound.py:71-91` | Advisory lock se libera antes de crear conv (race) | 🟡 |
-| 11 | `api/v1/intentions.py:254-317` | Transacción no atómica → intención huérfana | 🟡 |
+| 10 | `whatsapp_inbound.py:71-91` | Advisory lock se libera antes de crear conv (race) | ✅ HECHO: lock + re-check dentro de la transacción del INSERT (webhooks paralelos ya no duplican) |
+| 11 | `api/v1/intentions.py:254-317` | Transacción no atómica → intención huérfana | ✅ HECHO: intención + ejemplos en una sola transacción PG; Qdrant after-commit |
 | 12 | `core/database.py:118-124` | Reset `search_path` traga excepción con `pass` mudo | ✅ HECHO (`logger.error` con exc_info) |
 | 13 | `scripts/provision_tenant.py:139` | `neo4j_db=True` aunque Community no creó la DB | ✅ HECHO (flag solo en rama Enterprise) |
 | 14 | `nginx.prod.conf:73` | `ssl_ciphers` laxos | 🟡 recrear nginx |
 | 15 | `nginx.prod.conf:33` | CSP `unsafe-eval` | 🟡 puede romper Next |
-| 16 | `docker-compose.yml:503` | postgres-exporter con password en el DSN | 🟡 |
-| 17 | `db/migrations/env.py:22` | Autogenerate no importa modelos → riesgo DROPs | 🟡 |
+| 16 | `docker-compose.yml:503` | postgres-exporter con password en el DSN | ✅ HECHO: `DATA_SOURCE_URI`/`USER`/`PASS` separados; verificado en prod `pg_up=1` |
+| 17 | `db/migrations/env.py:22` | Autogenerate no importa modelos → riesgo DROPs | 🛑 NO TOCAR: importar los modelos haría "funcionar" autogenerate, pero con el ORM `Tenant` incompleto (#20) generaría DROPs destructivos. Las migraciones son manuales — el "fix" empeora. Ya documentado en #20 |
 
 ### 🟢 BAJA
 | # | Archivo | Problema | Tocar |
