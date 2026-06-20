@@ -1,7 +1,7 @@
 """Application settings loaded from environment variables via pydantic-settings."""
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 
 
 class Settings(BaseSettings):
@@ -13,7 +13,9 @@ class Settings(BaseSettings):
     )
 
     # ── Groq ──────────────────────────────────────────────────────────────────
-    groq_api_key: str
+    # NO required: solo se exige la key del provider ACTIVO (ver _validate_provider_keys).
+    # Antes era obligatoria siempre y el boot caía aunque el provider real fuera openai.
+    groq_api_key: str = ""
     groq_model_fast: str = "llama-3.3-70b-versatile"
     groq_model_reasoning: str = "meta-llama/llama-4-scout-17b-16e-instruct"
 
@@ -294,6 +296,25 @@ class Settings(BaseSettings):
                 "Use GROQ_MODEL_FAST / GROQ_MODEL_REASONING env vars."
             )
         return value
+
+    @model_validator(mode="after")
+    def _validate_provider_keys(self) -> "Settings":
+        """Exigir solo la key del provider ACTIVO (LLM y embeddings).
+
+        Reemplaza el viejo `groq_api_key` required-siempre, que rompía el boot
+        cuando el provider real era openai. Ahora:
+          - si se usa groq  -> GROQ_API_KEY obligatoria
+          - si se usa openai -> OPENAI_API_KEY obligatoria
+        Falla ruidoso y claro si falta la key que SÍ se va a usar, y no molesta
+        por la del provider inactivo.
+        """
+        if self.llm_provider == "groq" and not self.groq_api_key:
+            raise ValueError("LLM_PROVIDER=groq requiere GROQ_API_KEY en el .env")
+        if self.llm_provider == "openai" and not self.openai_api_key:
+            raise ValueError("LLM_PROVIDER=openai requiere OPENAI_API_KEY en el .env")
+        if self.embedding_provider == "openai" and not self.openai_api_key:
+            raise ValueError("EMBEDDING_PROVIDER=openai requiere OPENAI_API_KEY en el .env")
+        return self
 
 
 settings = Settings()  # type: ignore[call-arg]

@@ -117,8 +117,8 @@
 | 1 | `nginx.prod.conf:40-41` | `rate=100000r/m` temporal → abuso de costo LLM sin freno | 🟡 congelado hasta go-live |
 | 2 | `backend/.dockerignore` (ausente) | `COPY . .` hornea `.env`/PII/`.git` en la imagen | ✅ HECHO (context real es `./backend`; impacto runtime nulo por bind-mount) |
 | 3 | `docker-compose.yml:439-440` | Grafana `admin/admin` si falta `GRAFANA_PASSWORD` | ✅ HECHO (fail-fast `:?`; ⚠️ requiere `GRAFANA_PASSWORD` en `.env` del VPS al deployar) |
-| 4 | `workers/ingest_tasks.py:346-372` | Status de doc queda `pending` permanente | 🟡 |
-| 5 | `core/config.py:16` | `groq_api_key` required pese a provider OpenAI → riesgo boot | 🟡 |
+| 4 | `workers/ingest_tasks.py:346-372` | Status de doc queda `pending` permanente | ✅ YA RESUELTO (verificado): `pending_retry` mapea por `parent_id`, `revalidate_chunk_quality` con backoff 1m/5m/30m/2h + `_maybe_resolve_document_quality` re-computa el doc. El backlog estaba desactualizado |
+| 5 | `core/config.py:16` | `groq_api_key` required pese a provider OpenAI → riesgo boot | ✅ HECHO: `groq_api_key` opcional + validador condicional (exige solo la key del provider activo). Prod/staging usan `openai` con ambas keys → arranque intacto |
 
 ### 🟡 MEDIA
 | # | Archivo | Problema | Tocar |

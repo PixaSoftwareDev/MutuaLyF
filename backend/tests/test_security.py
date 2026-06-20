@@ -142,3 +142,44 @@ class TestConfigValidation:
                 neo4j_password="p",
                 jwt_secret_key="s" * 32,
             )
+
+    # ── Provider key validation (#5) ──────────────────────────────────────────
+    @staticmethod
+    def _base_kwargs(**over):
+        kw = dict(
+            postgres_user="u", postgres_password="p",
+            neo4j_password="p", jwt_secret_key="s" * 32,
+            _env_file=None,  # aislar del .env real
+        )
+        kw.update(over)
+        return kw
+
+    def test_openai_provider_without_groq_key_is_ok(self):
+        """Provider openai no exige GROQ_API_KEY (antes el boot caía)."""
+        from core.config import Settings
+        s = Settings(**self._base_kwargs(
+            llm_provider="openai", embedding_provider="openai",
+            openai_api_key="sk-test", groq_api_key="",
+        ))
+        assert s.groq_api_key == ""
+        assert s.openai_api_key == "sk-test"
+
+    def test_openai_provider_without_openai_key_raises(self):
+        """Si el provider activo es openai, falta OPENAI_API_KEY debe fallar."""
+        from pydantic import ValidationError
+        from core.config import Settings
+        with pytest.raises((ValidationError, ValueError)):
+            Settings(**self._base_kwargs(
+                llm_provider="openai", embedding_provider="local",
+                openai_api_key="", groq_api_key="",
+            ))
+
+    def test_groq_provider_without_groq_key_raises(self):
+        """Si el provider activo es groq, falta GROQ_API_KEY debe fallar."""
+        from pydantic import ValidationError
+        from core.config import Settings
+        with pytest.raises((ValidationError, ValueError)):
+            Settings(**self._base_kwargs(
+                llm_provider="groq", embedding_provider="local",
+                groq_api_key="",
+            ))
