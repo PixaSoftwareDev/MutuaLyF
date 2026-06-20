@@ -936,6 +936,12 @@ export const api = {
       const { data } = await apiClient.get(`/admin/operators/${operatorId}/sectors`);
       return data as Array<{ id: string; nombre: string }>;
     },
+    // Mapa operador_id -> sectores para todo el tenant en una sola request
+    // (evita el N+1 de pedir los sectores de cada operador por separado).
+    getOperatorsSectorsMap: async () => {
+      const { data } = await apiClient.get(`/admin/operators/sectors-map`);
+      return data as Record<string, Array<{ id: string; nombre: string }>>;
+    },
     getSectorOperators: async (sectorId: string) => {
       const { data } = await apiClient.get(`/admin/sectors/${sectorId}/operators`);
       return data as Array<{ id: string; name: string; email: string; is_active: boolean }>;
@@ -1047,11 +1053,12 @@ export const api = {
   // (backend ENTITIES_DISABLED). Si la feature vuelve, está en el historial de git.
 
   audit: {
-    list: async (params?: { limit?: number; offset?: number; action?: string; dateFrom?: string; dateTo?: string }) => {
+    list: async (params?: { limit?: number; offset?: number; action?: string; search?: string; dateFrom?: string; dateTo?: string }) => {
       const q = new URLSearchParams();
       if (params?.limit)    q.set("limit",     String(params.limit));
       if (params?.offset)   q.set("offset",    String(params.offset));
       if (params?.action)   q.set("action",    params.action);
+      if (params?.search)   q.set("search",    params.search);
       if (params?.dateFrom) q.set("date_from", params.dateFrom);
       if (params?.dateTo)   q.set("date_to",   params.dateTo);
       const { data } = await apiClient.get(`/audit?${q}`);

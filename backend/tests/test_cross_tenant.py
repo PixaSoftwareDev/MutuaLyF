@@ -144,6 +144,13 @@ class TestDatabaseSearchPathIsolation:
     def test_dash_normalized_to_underscore(self):
         assert _validate_tenant_id("my-company") == "my_company"
 
+    def test_validate_tenant_id_rejects_reserved_schemas(self):
+        """Schemas reservados de Postgres no pueden usarse como tenant_id (#9):
+        'public' u otros pasaban la validación alfanumérica y romperían el aislamiento."""
+        for reserved in ["public", "PUBLIC", "pg_catalog", "information_schema", "pg_toast", "pg_temp_1"]:
+            with pytest.raises(ValueError):
+                _validate_tenant_id(reserved)
+
 
 class TestTenantWidgetTokenIsolation:
     """Widget token tests — widget scope must be strictly read-only."""

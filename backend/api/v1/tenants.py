@@ -1748,35 +1748,52 @@ async def get_platform_ops(
             text("SELECT id, name FROM tenants WHERE status = 'active' ORDER BY id"))
         tenants_list = [(r[0], r[1]) for r in result.fetchall()]
 
-    queues = []
-    handoffs_today_total = 0
-    for tid, tname in tenants_list:
-        try:
-            async with get_pg_session(tid) as session:
-                # OJO: el FILTER va pegado al agregado MIN(...) — afuera del
-                # paréntesis es un syntax error que el try de abajo tragaba y
-                # dejaba las colas siempre vacías.
-                row = (await session.execute(text("""
-                    SELECT
-                        COUNT(*) FILTER (WHERE status = 'handoff_requested') AS waiting,
-                        EXTRACT(EPOCH FROM (NOW() - MIN(handoff_requested_at)
-                            FILTER (WHERE status = 'handoff_requested'))) AS oldest_wait_s,
-                        COUNT(*) FILTER (WHERE status = 'human_attending') AS attending,
-                        COUNT(*) FILTER (WHERE handoff_requested_at >= CURRENT_DATE) AS handoffs_today
-                    FROM conversaciones
-                """))).mappings().fetchone()
+    # Consultar las colas de cada tenant en paralelo (con tope para no agotar el
+    # pool) en vez de secuencialmente: antes era un round-trip por tenant en serie.
+    import asyncio
+    sem = asyncio.Semaphore(8)
+
+    async def _tenant_queue(tid: str, tname: str):
+        async with sem:
+            try:
+                async with get_pg_session(tid) as session:
+                    # OJO: el FILTER va pegado al agregado MIN(...) — afuera del
+                    # paréntesis es un syntax error que el try de abajo tragaba y
+                    # dejaba las colas siempre vacías.
+                    row = (await session.execute(text("""
+                        SELECT
+                            COUNT(*) FILTER (WHERE status = 'handoff_requested') AS waiting,
+                            EXTRACT(EPOCH FROM (NOW() - MIN(handoff_requested_at)
+                                FILTER (WHERE status = 'handoff_requested'))) AS oldest_wait_s,
+                            COUNT(*) FILTER (WHERE status = 'human_attending') AS attending,
+                            COUNT(*) FILTER (WHERE handoff_requested_at >= CURRENT_DATE) AS handoffs_today
+                        FROM conversaciones
+                    """))).mappings().fetchone()
+            except Exception:
+                return None  # schema a medio provisionar
             waiting = int(row["waiting"] or 0)
-            handoffs_today_total += int(row["handoffs_today"] or 0)
-            if waiting > 0 or int(row["attending"] or 0) > 0:
-                queues.append({
+            attending = int(row["attending"] or 0)
+            queue = None
+            if waiting > 0 or attending > 0:
+                queue = {
                     "tenant_id": tid,
                     "tenant_name": tname,
                     "waiting": waiting,
-                    "attending": int(row["attending"] or 0),
+                    "attending": attending,
                     "oldest_wait_min": round((row["oldest_wait_s"] or 0) / 60, 1) if waiting else 0,
-                })
-        except Exception:
-            continue  # schema a medio provisionar
+                }
+            return {"handoffs_today": int(row["handoffs_today"] or 0), "queue": queue}
+
+    results = await asyncio.gather(*[_tenant_queue(t, n) for t, n in tenants_list])
+
+    queues = []
+    handoffs_today_total = 0
+    for res in results:
+        if res is None:
+            continue
+        handoffs_today_total += res["handoffs_today"]
+        if res["queue"]:
+            queues.append(res["queue"])
 
     queues.sort(key=lambda q: (-q["waiting"], -q["oldest_wait_min"]))
     return {"queues": queues, "handoffs_today": handoffs_today_total}

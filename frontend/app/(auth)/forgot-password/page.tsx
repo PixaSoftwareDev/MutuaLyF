@@ -9,14 +9,22 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { AuthShell, brandBtnStyle } from "@/components/auth/auth-shell";
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 export default function ForgotPasswordPage() {
   const [email, setEmail]     = useState("");
   const [sent, setSent]       = useState(false);
   const [loading, setLoading] = useState(false);
+  const [error, setError]     = useState("");
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email.trim() || loading) return;
+    if (loading) return;
+    if (!EMAIL_RE.test(email.trim())) {
+      setError("Ingresá un email válido.");
+      return;
+    }
+    setError("");
     setLoading(true);
     try {
       await api.auth.forgotPassword(email.trim());
@@ -61,13 +69,15 @@ export default function ForgotPasswordPage() {
                   id="email"
                   type="email"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) => { setEmail(e.target.value); if (error) setError(""); }}
                   placeholder="tu@email.com"
                   className="h-11 lg:h-12 xl:h-[52px] pl-9 text-[15px] focus-visible:ring-2 focus-visible:ring-indigo-500/30"
                   autoFocus
                   aria-label="Email"
+                  aria-invalid={!!error}
                 />
               </div>
+              {error && <p className="text-[13px] text-destructive">{error}</p>}
             </div>
             <Button
               type="submit"

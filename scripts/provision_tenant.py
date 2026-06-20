@@ -131,12 +131,15 @@ async def provision_tenant(
         try:
             async with neo4j_driver.session(database="system") as session:
                 await session.run(f"CREATE DATABASE `{tenant_id}` IF NOT EXISTS")
+            # Solo marcar para rollback si la DB se creo realmente (Enterprise).
+            created["neo4j_db"] = True
         except Exception as neo4j_err:
             if "UnsupportedAdministrationCommand" in str(neo4j_err) or "unsupported" in str(neo4j_err).lower():
+                # Community Edition no crea DB por tenant: no hay nada que dropear en
+                # el rollback, asi que no marcamos el flag.
                 logger.warning("neo4j_community_edition_skipping_create_db tenant_id=%s", tenant_id)
             else:
                 raise
-        created["neo4j_db"] = True
         logger.info("step_4_done neo4j_db tenant_id=%s", tenant_id)
 
         # ── Step 5: Models directory ───────────────────────────────────────────

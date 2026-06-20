@@ -82,6 +82,49 @@ class TestJWTValidation:
             decode_token(tampered)
 
 
+class TestJWTHardening:
+    """Regresión de los fixes de la auditoría pre-producción."""
+
+    @staticmethod
+    def _encode(claims: dict) -> str:
+        return jwt.encode(claims, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
+
+    @staticmethod
+    def _exp():
+        from datetime import datetime, timezone, timedelta
+        return datetime.now(timezone.utc) + timedelta(minutes=5)
+
+    def test_token_without_exp_is_rejected(self):
+        """decode_token debe exigir 'exp' — un token sin expiración es inválido."""
+        from fastapi import HTTPException
+        token = self._encode({"sub": "u1", "tenant_id": "acme", "role": "admin", "scope": "full"})
+        with pytest.raises(HTTPException) as exc:
+            decode_token(token)
+        assert exc.value.status_code == 401
+
+    def test_unknown_role_degrades_to_operator_not_500(self):
+        """Un rol fuera del enum no debe tirar 500 — degrada a OPERATOR."""
+        from core.security import _get_current_user_from_token
+        token = self._encode({"sub": "u1", "tenant_id": "acme", "role": "wizard", "scope": "full", "exp": self._exp()})
+        user = _get_current_user_from_token(token)
+        assert user.role == Role.OPERATOR
+
+    def test_unknown_scope_degrades_to_widget_not_500(self):
+        """Un scope fuera del enum no debe tirar 500 — degrada a WIDGET (menor privilegio)."""
+        from core.security import _get_current_user_from_token
+        token = self._encode({"sub": "u1", "tenant_id": "acme", "role": "admin", "scope": "superpower", "exp": self._exp()})
+        user = _get_current_user_from_token(token)
+        assert user.scope == TokenScope.WIDGET
+
+    def test_valid_role_and_scope_preserved(self):
+        """Un token bien formado conserva su rol y scope reales."""
+        from core.security import _get_current_user_from_token
+        token = self._encode({"sub": "u1", "tenant_id": "acme", "role": "admin", "scope": "full", "exp": self._exp()})
+        user = _get_current_user_from_token(token)
+        assert user.role == Role.ADMIN
+        assert user.scope == TokenScope.FULL
+
+
 class TestConfigValidation:
     def test_forbidden_groq_model_id_raises(self):
         """The settings validator must reject forbidden model IDs."""

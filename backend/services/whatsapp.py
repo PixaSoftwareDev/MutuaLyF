@@ -32,6 +32,25 @@ GRAPH_BASE = "https://graph.facebook.com/v21.0"
 _SEND_RETRIES = 3
 _SEND_TIMEOUT_S = 15.0
 
+# Cliente httpx compartido: reutiliza conexiones keep-alive a graph.facebook.com
+# en vez de abrir un socket TLS nuevo por mensaje. Lazy + auto-recrea si se cerró.
+_client: httpx.AsyncClient | None = None
+
+
+def _get_client() -> httpx.AsyncClient:
+    global _client
+    if _client is None or _client.is_closed:
+        _client = httpx.AsyncClient(timeout=_SEND_TIMEOUT_S)
+    return _client
+
+
+async def aclose_client() -> None:
+    """Cerrar el cliente compartido en el shutdown de la app (best-effort)."""
+    global _client
+    if _client is not None and not _client.is_closed:
+        await _client.aclose()
+        _client = None
+
 
 @dataclass
 class WhatsAppAccount:
@@ -150,8 +169,7 @@ async def send_typing_indicator(account: WhatsAppAccount, message_id: str) -> No
     url = f"{_GRAPH_BASE_SIGNALS}/{account.phone_number_id}/messages"
     headers = {"Authorization": f"Bearer {account.access_token}"}
     try:
-        async with httpx.AsyncClient(timeout=_SEND_TIMEOUT_S) as client:
-            resp = await client.post(url, json=payload, headers=headers)
+        resp = await _get_client().post(url, json=payload, headers=headers)
         if resp.status_code >= 300:
             logger.info(
                 "whatsapp_typing_skipped tenant=%s status=%s body=%s",
@@ -171,8 +189,7 @@ async def _post_message(account: WhatsAppAccount, payload: dict) -> str | None:
     last_error: str | None = None
     for attempt in range(1, _SEND_RETRIES + 1):
         try:
-            async with httpx.AsyncClient(timeout=_SEND_TIMEOUT_S) as client:
-                resp = await client.post(url, json=payload, headers=headers)
+            resp = await _get_client().post(url, json=payload, headers=headers)
             if resp.status_code < 300:
                 data = resp.json()
                 return (data.get("messages") or [{}])[0].get("id")
@@ -260,8 +277,7 @@ async def fetch_phone_info(phone_number_id: str, access_token: str) -> dict:
     params = {"fields": "display_phone_number,verified_name,quality_rating"}
     headers = {"Authorization": f"Bearer {access_token}"}
     try:
-        async with httpx.AsyncClient(timeout=_SEND_TIMEOUT_S) as client:
-            resp = await client.get(url, params=params, headers=headers)
+        resp = await _get_client().get(url, params=params, headers=headers)
     except httpx.HTTPError as exc:
         raise ValueError(f"No se pudo conectar con la API de Meta: {exc!r}") from exc
     if resp.status_code >= 300:

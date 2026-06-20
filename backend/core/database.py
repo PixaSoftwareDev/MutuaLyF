@@ -121,7 +121,12 @@ async def get_pg_session(tenant_id: str | None = None) -> AsyncGenerator[AsyncSe
                     await session.execute(text("SET search_path TO public"))
                     await session.commit()
                 except Exception:
-                    pass
+                    # No cambia el comportamiento (el SET al adquirir re-setea y
+                    # verifica), pero dejamos rastro: si el reset falla, la conexion
+                    # vuelve al pool con el search_path del tenant.
+                    logger.error(
+                        "search_path_reset_failed tenant_id=%s", tenant_id, exc_info=True,
+                    )
 
 
 @asynccontextmanager
@@ -150,12 +155,21 @@ async def get_worker_pg_session(tenant_id: str | None = None) -> AsyncGenerator[
             await engine.dispose()
 
 
+# Schemas reservados de Postgres: ninguno puede ser usado como tenant_id porque
+# pasaria la validacion alfanumerica y romperia el aislamiento (las queries irian
+# a public / catalogos del sistema en vez del schema del tenant).
+_RESERVED_SCHEMAS = {"public", "pg_catalog", "information_schema", "pg_toast"}
+
+
 def _validate_tenant_id(tenant_id: str) -> str:
     """Ensure tenant_id contains only safe characters before schema interpolation."""
     if not tenant_id.replace("_", "").replace("-", "").isalnum():
         raise ValueError(f"Invalid tenant_id format: {tenant_id!r}")
     # Normalize dashes to underscores for schema name compatibility
-    return tenant_id.replace("-", "_")
+    normalized = tenant_id.replace("-", "_")
+    if normalized.lower() in _RESERVED_SCHEMAS or normalized.lower().startswith("pg_"):
+        raise ValueError(f"Reserved schema name not allowed as tenant_id: {tenant_id!r}")
+    return normalized
 
 
 async def close_pg_engine() -> None:

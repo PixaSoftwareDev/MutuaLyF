@@ -55,7 +55,9 @@ async def get_online_operators(tenant_id: str) -> list[dict]:
         from core.database import get_redis_cache
         redis = get_redis_cache()
         pattern = _presence_key(tenant_id, "*")
-        keys = await redis.keys(pattern)
+        # SCAN en vez de KEYS: KEYS bloquea el event-loop de Redis en O(N) sobre
+        # TODO el keyspace (compartido entre tenants); scan_iter es incremental.
+        keys = [k async for k in redis.scan_iter(match=pattern, count=100)]
         if not keys:
             return []
         names = await redis.mget(*keys)

@@ -15,6 +15,7 @@ async def list_audit_events(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     action: str | None = None,
+    search: str | None = Query(None, max_length=100),
     date_from: str | None = Query(None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
     date_to: str | None = Query(None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
     tenant_id: str = Depends(get_tenant_id),
@@ -26,6 +27,15 @@ async def list_audit_events(
     if action:
         where += " AND action = :action"
         params["action"] = action
+    if search:
+        # Búsqueda server-side sobre TODO el historial (antes el front solo
+        # filtraba la página actual). ILIKE para case-insensitive; CAST a text
+        # cubre actor_id (uuid) e ip_address (inet).
+        where += (
+            " AND (actor_email ILIKE :search OR CAST(actor_id AS text) ILIKE :search"
+            " OR resource ILIKE :search OR CAST(ip_address AS text) ILIKE :search)"
+        )
+        params["search"] = f"%{search}%"
     if date_from:
         where += " AND created_at >= CAST(:date_from AS date)"
         params["date_from"] = date_from

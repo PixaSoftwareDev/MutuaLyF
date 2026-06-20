@@ -400,12 +400,19 @@ async def refresh_token(request: Request, response: Response):
     user_id: str  = payload.get("sub", "")
     tenant_id: str = payload.get("tenant_id", "")
 
+    # El `sub` debe ser un UUID valido; si viene malformado es un token corrupto
+    # (401), no un error del servidor (500).
+    try:
+        user_uuid = uuid.UUID(user_id)
+    except (ValueError, AttributeError, TypeError):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+
     # Super-admin refresh
     if tenant_id == "__platform__":
         async with get_pg_session(None) as session:
             result = await session.execute(
                 text("SELECT id FROM platform_users WHERE id = :id AND is_active = true"),
-                {"id": uuid.UUID(user_id)},
+                {"id": user_uuid},
             )
             if not result.fetchone():
                 raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
@@ -416,7 +423,7 @@ async def refresh_token(request: Request, response: Response):
     from db.tenant_models import User
     async with get_pg_session(tenant_id) as session:
         result = await session.execute(
-            select(User).where(User.id == uuid.UUID(user_id), User.is_active == True)
+            select(User).where(User.id == user_uuid, User.is_active == True)
         )
         user = result.scalar_one_or_none()
 

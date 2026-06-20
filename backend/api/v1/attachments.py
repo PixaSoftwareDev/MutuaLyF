@@ -41,13 +41,6 @@ router = APIRouter()
 # el cliente es trivial de spoofear, así que también validamos los magic bytes.
 _ALLOWED_MIME = {"image/png", "image/jpeg", "image/jpg", "image/webp", "application/pdf"}
 _MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024  # 10 MB
-# Firmas (magic numbers) por tipo, para revalidar el contenido real.
-_MAGIC = {
-    b"\x89PNG\r\n\x1a\n": "image/png",
-    b"\xff\xd8\xff": "image/jpeg",
-    b"%PDF": "application/pdf",
-    b"RIFF": "image/webp",  # RIFF....WEBP — se refina abajo
-}
 
 
 def _sniff_mime(content: bytes) -> str | None:

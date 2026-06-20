@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
@@ -111,45 +111,44 @@ type AuditEvent = Awaited<ReturnType<typeof api.audit.list>>["events"][number];
 export default function AuditPage() {
   const [page, setPage]     = useState(0);
   const [action, setAction] = useState("");
-  const [search, setSearch] = useState("");
+  const [searchInput, setSearchInput] = useState("");
+  const [search, setSearch] = useState("");  // valor con debounce que va al server
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo]     = useState("");
   const [expanded, setExpanded] = useState<string | null>(null);
 
+  // Debounce: la búsqueda se hace en el servidor (sobre todo el historial), así
+  // que no disparamos una request por cada tecla. Al cambiar, volvemos a página 1.
+  useEffect(() => {
+    const t = setTimeout(() => { setSearch(searchInput.trim()); setPage(0); }, 300);
+    return () => clearTimeout(t);
+  }, [searchInput]);
+
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["audit", page, action, dateFrom, dateTo],
+    queryKey: ["audit", page, action, search, dateFrom, dateTo],
     queryFn: () => api.audit.list({
       limit: PAGE_SIZE,
       offset: page * PAGE_SIZE,
       action: action || undefined,
+      search: search || undefined,
       dateFrom: dateFrom || undefined,
       dateTo: dateTo || undefined,
     }),
   });
 
-  const filteredEvents = useMemo(() => {
-    if (!data) return [];
-    if (!search.trim()) return data.events;
-    const q = search.trim().toLowerCase();
-    return data.events.filter(e =>
-      (e.actor_email ?? "").toLowerCase().includes(q) ||
-      (e.actor_id ?? "").toLowerCase().includes(q) ||
-      (e.resource ?? "").toLowerCase().includes(q) ||
-      (e.ip_address ?? "").toLowerCase().includes(q)
-    );
-  }, [data, search]);
+  const events = data?.events ?? [];
 
   // Grupos por día preservando el orden del servidor (descendente).
   const dayGroups = useMemo(() => {
     const groups: Array<{ label: string; events: AuditEvent[] }> = [];
-    for (const ev of filteredEvents) {
+    for (const ev of events) {
       const label = dayLabel(ev.created_at);
       const last = groups[groups.length - 1];
       if (last && last.label === label) last.events.push(ev);
       else groups.push({ label, events: [ev] });
     }
     return groups;
-  }, [filteredEvents]);
+  }, [events]);
 
   const totalPages = data ? Math.max(1, Math.ceil(data.total / PAGE_SIZE)) : 1;
 
@@ -173,8 +172,8 @@ export default function AuditPage() {
               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input
                 placeholder="Buscar usuario, recurso, IP…"
-                value={search}
-                onChange={e => setSearch(e.target.value)}
+                value={searchInput}
+                onChange={e => setSearchInput(e.target.value)}
                 className="pl-8 h-8 text-sm"
               />
             </div>
@@ -218,11 +217,6 @@ export default function AuditPage() {
               )}
             </div>
           </div>
-          {search.trim() && (
-            <p className="text-[11px] text-muted-foreground mt-1.5">
-              La búsqueda filtra los {PAGE_SIZE} eventos de esta página. Para acotar en todo el historial usá el filtro de acción.
-            </p>
-          )}
         </CardHeader>
 
         <CardContent className="p-0">
@@ -234,7 +228,7 @@ export default function AuditPage() {
           {isError && (
             <div className="py-8 text-center text-destructive text-sm">No se pudo cargar el registro.</div>
           )}
-          {data && filteredEvents.length === 0 && !isLoading && (
+          {data && events.length === 0 && !isLoading && (
             <EmptyState
               icon={ScrollText}
               title={search ? "Sin coincidencias" : "No hay eventos registrados"}
@@ -247,7 +241,7 @@ export default function AuditPage() {
           )}
 
           {/* Mobile: lista agrupada por día */}
-          {filteredEvents.length > 0 && (
+          {events.length > 0 && (
             <div className="sm:hidden">
               {dayGroups.map(group => (
                 <Fragment key={group.label}>
@@ -292,7 +286,7 @@ export default function AuditPage() {
           )}
 
           {/* Desktop: tabla agrupada por día con filas expandibles */}
-          {filteredEvents.length > 0 && (
+          {events.length > 0 && (
             <div className="hidden sm:block">
               <Table className="min-w-[760px]">
                 <TableHeader className="bg-muted/40">

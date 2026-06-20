@@ -66,6 +66,14 @@ export default function OperatorsPage() {
   });
   const onlineIds = new Set((presenceData?.operators ?? []).map(o => o.user_id));
 
+  // Sectores de TODOS los operadores en una sola request (evita el N+1 de una
+  // query por card). Cada card recibe su lista por prop desde este mapa.
+  const { data: sectorsMap = {}, isLoading: loadingSectorsMap } = useQuery({
+    queryKey: ["operators-sectors-map"],
+    queryFn: api.sectors.getOperatorsSectorsMap,
+    staleTime: 30_000,
+  });
+
   const activeSectors = useMemo(() => sectors.filter(s => s.is_active), [sectors]);
   const defaultSectorId = useMemo(() => activeSectors.find(s => s.is_default)?.id ?? null, [activeSectors]);
 
@@ -169,6 +177,8 @@ export default function OperatorsPage() {
               key={op.id}
               operator={op}
               sectors={sectors}
+              assignedSectors={sectorsMap[op.id] ?? []}
+              assignedLoading={loadingSectorsMap}
               isOnline={onlineIds.has(op.id)}
               onDeleted={() => qc.invalidateQueries({ queryKey: ["operators"] })}
             />
@@ -286,10 +296,12 @@ export default function OperatorsPage() {
 // acciones (el menú de 3 puntos) — sin botones que aparecen al hover.
 
 function OperatorCard({
-  operator, sectors, isOnline, onDeleted,
+  operator, sectors, assignedSectors, assignedLoading, isOnline, onDeleted,
 }: {
   operator: OperatorUser;
   sectors: SectorRow[];
+  assignedSectors: Array<{ id: string; nombre: string }>;
+  assignedLoading: boolean;
   isOnline: boolean;
   onDeleted: () => void;
 }) {
@@ -297,12 +309,6 @@ function OperatorCard({
   const [showEditData, setShowEditData]     = useState(false);
   const [showEdit, setShowEdit]             = useState(false);
   const [showDeactivate, setShowDeactivate] = useState(false);
-
-  const { data: assignedSectors = [], isLoading: assignedLoading } = useQuery({
-    queryKey: ["operator-sectors", operator.id],
-    queryFn: () => api.sectors.getOperatorSectors(operator.id),
-    staleTime: 30_000,
-  });
 
   return (
     <>
@@ -439,7 +445,7 @@ function EditSectorsSheet({
   const saveM = useMutation({
     mutationFn: () => api.sectors.assignOperatorSectors(operator.id, Array.from(selected)),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["operator-sectors", operator.id] });
+      qc.invalidateQueries({ queryKey: ["operators-sectors-map"] });
       toast({ title: `Sectores de ${operator.name} actualizados`, variant: "success" });
       onOpenChange(false);
     },

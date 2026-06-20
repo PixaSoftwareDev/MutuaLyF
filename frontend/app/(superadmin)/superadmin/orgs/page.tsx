@@ -151,8 +151,11 @@ export default function OrganizationsPage() {
             {health!.anomalies.map(a => (
               <span
                 key={a.tenant_id}
+                role="button"
+                tabIndex={0}
                 className="inline-flex items-center gap-1 text-xs text-warning bg-warning/10 px-2 py-0.5 rounded-full cursor-pointer hover:bg-warning/20 transition-colors"
                 onClick={() => router.push(`/superadmin/tenants/${a.tenant_id}`)}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); router.push(`/superadmin/tenants/${a.tenant_id}`); } }}
               >
                 {a.tenant_name} {a.pct}% cuota
               </span>

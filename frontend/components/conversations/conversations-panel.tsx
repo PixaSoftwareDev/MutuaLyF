@@ -186,6 +186,9 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
         gain.gain.setValueAtTime(0.25, ctx.currentTime);
         gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.45);
         osc.start(); osc.stop(ctx.currentTime + 0.45);
+        // Liberar el contexto al terminar: el browser limita ~6 AudioContext
+        // simultaneos; sin cerrar, tras varias derivaciones el beep deja de sonar.
+        osc.onended = () => { ctx.close().catch(() => {}); };
       } catch { /* blocked until user interaction */ }
     });
 

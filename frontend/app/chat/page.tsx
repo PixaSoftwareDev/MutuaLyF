@@ -113,6 +113,9 @@ function AttachmentMessage({ msg, url, headers, operatorName }: {
       src={src}
       alt={msg.attachment?.name || "imagen"}
       onClick={() => window.open(src, "_blank")}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); window.open(src, "_blank"); } }}
+      role="button"
+      tabIndex={0}
       className="max-w-[220px] max-h-[220px] rounded-xl cursor-pointer"
     />
   ) : (

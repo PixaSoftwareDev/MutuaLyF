@@ -21,7 +21,16 @@ def _now() -> datetime:
 
 
 class Tenant(Base):
-    """Global tenant registry."""
+    """Global tenant registry.
+
+    NOTA (deuda conocida): este modelo está INTENCIONALMENTE incompleto. La tabla
+    real ``public.tenants`` tiene muchas más columnas (branding, config de WhatsApp,
+    límites, contacto, etc.) que se gestionan por SQL crudo en ``api/v1/tenants.py``
+    y en las migraciones, no por este ORM. Solo se mapean acá las columnas que algún
+    código consume vía ORM. NO usar este modelo como fuente de verdad del schema y,
+    en particular, NO habilitar autogenerate de Alembic contra él sin revisar el
+    diff a mano: creería que faltan columnas y propondría DROPs destructivos.
+    """
 
     __tablename__ = "tenants"
 

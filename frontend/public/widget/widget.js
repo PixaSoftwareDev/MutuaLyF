@@ -36,6 +36,12 @@
 
   if (!WIDGET_TOKEN) { console.error("[IA Widget] data-token is required"); return; }
 
+  // Logs de diagnostico: ocultos por defecto para no ensuciar la consola del
+  // sitio donde se embebe. Activar con data-debug="true" en el <script>.
+  var DEBUG = scriptTag ? (scriptTag.getAttribute("data-debug") === "true") : false;
+  function wwarn() { if (DEBUG) console.warn.apply(console, arguments); }
+  function werr()  { if (DEBUG) console.error.apply(console, arguments); }
+
   // ── Color helpers (mismos que use-tenant-branding.ts: shade ±15) ─────────────
   function _shade(hex, pct) {
     var h = hex.replace("#", "");
@@ -326,7 +332,7 @@
           avatarEl.innerHTML = '<img src="' + LOGO_URL + '" alt="" />';
         }
       })
-      .catch(function (err) { console.warn("[IA Widget] branding:", err); });
+      .catch(function (err) { wwarn("[IA Widget] branding:", err); });
   }
   _loadBranding();
 
@@ -451,7 +457,7 @@
         }
       })
       .catch(function (err) {
-        console.error("[IA Widget] sectores:", err);
+        werr("[IA Widget] sectores:", err);
         var pills = document.getElementById("ia-w-pills");
         if (pills) pills.innerHTML = '<p style="color:' + SLATE_400 + ';font-size:13px;">No se pudieron cargar los sectores.</p>';
       });
@@ -497,7 +503,7 @@
         _startPolling();
       })
       .catch(function (err) {
-        console.error("[IA Widget] start:", err);
+        werr("[IA Widget] start:", err);
         _appendMessage("error", "Error al iniciar la conversación.");
       });
   }
@@ -519,7 +525,7 @@
         afiliadoIdentified = !!data.afiliado_identified;
         _updateHeader();
       })
-      .catch(function (err) { console.error("[IA Widget] history:", err); });
+      .catch(function (err) { werr("[IA Widget] history:", err); });
   }
 
   // ── Enviar mensaje ────────────────────────────────────────────────────────────
@@ -570,7 +576,7 @@
       .catch(function (err) {
         _hideTyping();
         _appendMessage("error", "Error al enviar. Intentá de nuevo.");
-        console.error("[IA Widget] send:", err);
+        werr("[IA Widget] send:", err);
       })
       .finally(function () {
         sendBtn.disabled = false; inputEl.disabled = false; inputEl.focus();
@@ -776,7 +782,7 @@
         if (data.message) _appendMessage("system", data.message);
       })
       .catch(function (err) {
-        console.error("[IA Widget] confirm handoff:", err);
+        werr("[IA Widget] confirm handoff:", err);
         handoffConfirmed = false;
         // Restaurar la oferta (el loader había reemplazado el botón) para reintentar.
         if (handoffBubble) _renderHandoffOffer(lastHandoffMessage);

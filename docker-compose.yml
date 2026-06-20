@@ -437,7 +437,9 @@ services:
     restart: unless-stopped
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      # Fail-fast: si GRAFANA_PASSWORD no esta seteado en .env, `docker compose up`
+      # aborta en vez de arrancar Grafana con el admin/admin por defecto.
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:?Defina GRAFANA_PASSWORD en .env}
       GF_SERVER_ROOT_URL: http://localhost:3001
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_AUTH_ANONYMOUS_ENABLED: "false"

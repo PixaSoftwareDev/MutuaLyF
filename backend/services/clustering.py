@@ -97,24 +97,18 @@ async def cluster_tenant(tenant_id: str) -> dict:
                 cluster_counts[label] = cluster_counts.get(label, 0) + 1
 
         # ── 5. Bulk update: assign cluster IDs ───────────────────────────────
-        candidate_ids = set()
+        # candidate_ids sale directo de los counts (O(clusters)), sin recorrer
+        # todas las filas; luego un solo loop O(n) agrupa row_ids y junta el ruido.
+        candidate_ids = {
+            cluster_id_map[label]
+            for label, count in cluster_counts.items()
+            if count >= settings.intent_cluster_min_size
+        }
+        candidates_by_cluster: dict[str, list[str]] = {}
         unassigned_noise_ids = []
-
-        for idx, (row_id, label) in enumerate(zip(ids, labels)):
+        for row_id, label in zip(ids, labels):
             if label == _NOISE_LABEL:
                 unassigned_noise_ids.append(row_id)
-                continue
-
-            cluster_uuid = cluster_id_map[label]
-            count = cluster_counts[label]
-            new_status = "candidate" if count >= settings.intent_cluster_min_size else "unassigned"
-            if new_status == "candidate":
-                candidate_ids.add(cluster_uuid)
-
-        # Update candidate clusters
-        candidates_by_cluster: dict[str, list[str]] = {}
-        for idx, (row_id, label) in enumerate(zip(ids, labels)):
-            if label == _NOISE_LABEL:
                 continue
             cluster_uuid = cluster_id_map[label]
             if cluster_uuid in candidate_ids:

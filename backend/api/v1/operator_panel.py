@@ -1187,6 +1187,32 @@ async def list_operators(
         return [dict(r) for r in result.mappings().all()]
 
 
+@router.get("/admin/operators/sectors-map")
+async def get_operators_sectors_map(
+    tenant_id: str = Depends(get_tenant_id),
+    current_user: CurrentUser = Depends(require_admin),
+):
+    """Mapa operador_id -> [sectores] para TODO el tenant en una sola query.
+
+    Evita el N+1 del panel de operadores (antes el front pedía los sectores de
+    cada operador por separado, una request por card). Los operadores sin sectores
+    simplemente no aparecen como clave; el front los trata como lista vacía.
+    """
+    _assert_tenant_access(current_user, tenant_id)
+    async with get_pg_session(tenant_id) as session:
+        result = await session.execute(text("""
+            SELECT os.operador_id, s.id, s.nombre
+            FROM operador_sectores os
+            JOIN sectores s ON s.id = os.sector_id
+        """))
+        out: dict[str, list[dict]] = {}
+        for r in result.mappings().all():
+            out.setdefault(str(r["operador_id"]), []).append(
+                {"id": str(r["id"]), "nombre": r["nombre"]}
+            )
+    return out
+
+
 @router.get("/admin/operators/{operator_id}/sectors")
 async def get_operator_sectors(
     operator_id: str,

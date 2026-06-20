@@ -68,6 +68,8 @@ async def lifespan(app: FastAPI):
     logger.info("startup_complete")
     yield
     logger.info("shutdown_begin")
+    from services.whatsapp import aclose_client
+    await aclose_client()
     await disconnect_all()
     logger.info("shutdown_complete")
 

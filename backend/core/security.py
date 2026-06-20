@@ -115,6 +115,7 @@ def decode_token(token: str) -> dict[str, Any]:
             token,
             settings.jwt_secret_key,
             algorithms=[settings.jwt_algorithm],
+            options={"require": ["exp"]},  # rechaza tokens sin expiración (todos los emisores ponen exp)
         )
         return payload
     except JWTError as exc:
@@ -141,7 +142,6 @@ class CurrentUser:
 
 def _get_current_user_from_token(token: str) -> CurrentUser:
     payload = decode_token(token)
-    scope = TokenScope(payload.get("scope", TokenScope.FULL.value))
     user_id: str = payload.get("sub", "")
     tenant_id: str = payload.get("tenant_id", "")
     role_str: str = payload.get("role", Role.OPERATOR.value)
@@ -150,10 +150,23 @@ def _get_current_user_from_token(token: str) -> CurrentUser:
     if not tenant_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing tenant_id in token")
 
+    # Defensa: un scope/rol fuera del enum (token legacy o manipulado) no debe
+    # tirar un 500. Degradamos al valor de menor privilegio en vez de reventar.
+    try:
+        scope = TokenScope(payload.get("scope", TokenScope.FULL.value))
+    except ValueError:
+        logger.warning("jwt_unknown_scope scope=%r", payload.get("scope"))
+        scope = TokenScope.WIDGET
+    try:
+        role = Role(role_str)
+    except ValueError:
+        logger.warning("jwt_unknown_role role=%r", role_str)
+        role = Role.OPERATOR
+
     return CurrentUser(
         user_id=user_id,
         tenant_id=tenant_id,
-        role=Role(role_str),
+        role=role,
         scope=scope,
         email=email,
     )
