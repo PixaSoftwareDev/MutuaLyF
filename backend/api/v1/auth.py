@@ -11,6 +11,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, Field
 from sqlalchemy import select, text
 
+from core.config import settings
 from core.database import get_pg_session
 from core.security import (
     Role,
