@@ -266,7 +266,9 @@ async def edit_duplicate_chunk(
         raise
     except Exception as exc:
         logger.error("edit_chunk_qdrant_failed chunk_id=%s error=%s", chunk_id, exc)
-        raise HTTPException(status_code=502, detail=f"Error al actualizar Qdrant: {exc}")
+        # No exponer el detalle de la excepción al cliente (info interna). El
+        # detalle completo queda en el logger.error de arriba para diagnóstico.
+        raise HTTPException(status_code=502, detail="No se pudo actualizar el índice de búsqueda. Reintentá en unos segundos.")
 
     # 4. Update snapshot text in chunk_duplicate_pairs
     async with get_pg_session(tenant_id) as session:

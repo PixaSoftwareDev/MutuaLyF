@@ -52,9 +52,11 @@ class LookupTenantMatch(BaseModel):
     logo_url:      str | None = None
     primary_color: str | None = None
     role:          str
-    # match_via: 'domain' | 'email' — solo para debug interno, el frontend
-    # no lo usa pero ayuda a entender en logs por qué se asocio.
-    match_via:     str
+    # match_via: 'domain' | 'email' — solo para debug interno y para ordenar los
+    # matches (dominio primero). exclude=True: NO se serializa en la respuesta —
+    # exponerlo a un endpoint anónimo filtra señal de enumeración (si un dominio
+    # está mapeado a un tenant). El atributo sigue disponible server-side.
+    match_via:     str = Field(exclude=True)
 
 
 class LookupTenantResponse(BaseModel):

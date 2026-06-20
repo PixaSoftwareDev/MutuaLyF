@@ -299,7 +299,8 @@ async def export_kb_json(
             payload["embeddings"] = all_points
         except Exception as exc:
             logger.warning("kb_export_embeddings_failed tenant=%s error=%s", tenant_id, exc)
-            payload["embeddings"] = {"error": str(exc), "points": []}
+            # Mensaje genérico en el payload descargable; el detalle queda en el log.
+            payload["embeddings"] = {"error": "No se pudieron exportar los embeddings.", "points": []}
     else:
         payload["embeddings"] = None
 
