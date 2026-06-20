@@ -115,7 +115,9 @@ def decode_token(token: str) -> dict[str, Any]:
             token,
             settings.jwt_secret_key,
             algorithms=[settings.jwt_algorithm],
-            options={"require": ["exp"]},  # rechaza tokens sin expiración (todos los emisores ponen exp)
+            # python-jose usa "require_exp" (no el "require: [...]" de PyJWT):
+            # rechaza tokens sin expiración. Todos los emisores ya ponen exp.
+            options={"require_exp": True},
         )
         return payload
     except JWTError as exc:
