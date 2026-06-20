@@ -3,6 +3,12 @@
 > Documento de trabajo. Cada ítem pendiente está clasificado por riesgo para decidir
 > con criterio. Regla de oro: **el bot funciona bien — todo cambio mejora o no se hace.**
 
+> **DEPLOY 2026-06-20 (`b90f3d7`):** lote infra + auth-hardening + perf/limpieza + frontend + tests
+> desplegado `dev → main → staging → prod`. Backend (bind-mount, restart) + frontend (rebuild).
+> Verificado: tests de regresión 8/8 en staging y prod, health 200, `intellix.com.ar` 200.
+> Bug detectado y corregido en staging: `decode_token` usaba sintaxis de PyJWT en vez de
+> `python-jose` (`require_exp`). Pendientes que NO entraron: #4, #5, #10, #11, #14-17, #19, #32.
+
 ## Leyenda de riesgo
 - 🟢 **Mejora segura** — fix inocuo, no toca el flujo del bot ni nada intencional.
 - 🟡 **Requiere entender** — verificar si lo actual es intencional antes de tocar, o tocar tiene riesgo técnico (nginx/Redis/base compartida). NO cambiar solo.
