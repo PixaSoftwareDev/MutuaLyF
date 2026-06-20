@@ -11,7 +11,6 @@ Usage:
 import argparse
 import asyncio
 import logging
-import os
 import smtplib
 import sys
 from email.mime.text import MIMEText
@@ -26,7 +25,7 @@ from qdrant_client import AsyncQdrantClient
 from qdrant_client.models import Distance, VectorParams
 
 from core.config import settings
-from core.security import hash_password, create_access_token, Role
+from core.security import hash_password
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -110,6 +109,18 @@ async def provision_tenant(
         # ── Step 3: Qdrant collections ─────────────────────────────────────────
         docs_collection = f"{tenant_id}_docs"
         intents_collection = f"{tenant_id}_intenciones"
+
+        # Guard: stale collections can exist when the PG volume is wiped in dev
+        # but Qdrant is not. Treat existing collection as a hard error (not silent
+        # reuse) so ops are aware of orphaned data. The error surfaces clearly.
+        existing = await qdrant.get_collections()
+        existing_names = {c.name for c in existing.collections}
+        for col in (docs_collection, intents_collection):
+            if col in existing_names:
+                raise RuntimeError(
+                    f"Qdrant collection '{col}' already exists but has no matching PG tenant. "
+                    f"Delete it manually: DELETE http://qdrant:6333/collections/{col}"
+                )
 
         await qdrant.create_collection(
             collection_name=docs_collection,
