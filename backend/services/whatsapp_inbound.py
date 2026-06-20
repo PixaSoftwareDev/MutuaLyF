@@ -93,9 +93,33 @@ async def _find_open_conversation(tenant_id: str, wa_id: str) -> dict | None:
 
 async def _create_conversation(tenant_id: str, wa_id: str, profile_name: str | None,
                                sector_id: str | None) -> dict:
-    """Crea la conversación de WhatsApp en el sector dado."""
+    """Crea la conversación de WhatsApp en el sector dado.
+
+    Toma el advisory lock por wa_id y re-chequea la existencia DENTRO de la misma
+    transacción que el INSERT. Meta puede entregar 2 webhooks del mismo número en
+    paralelo: sin esto, ambos pasaban el find inicial (cuyo lock ya se liberó) y
+    creaban conversaciones DUPLICADAS. Acá la creación es atómica — el segundo
+    webhook ve la conversación que creó el primero y la reutiliza.
+    """
     conv_id = str(uuid.uuid4())
     async with get_pg_session(tenant_id) as session:
+        await session.execute(
+            text("SELECT pg_advisory_xact_lock(hashtextextended(:sid, 0))"),
+            {"sid": f"wa:{wa_id}"},
+        )
+        existing = (await session.execute(text("""
+            SELECT id, status, sector_id FROM conversaciones
+            WHERE channel = 'whatsapp' AND external_id = :wa AND status != 'closed'
+            ORDER BY created_at DESC LIMIT 1
+        """), {"wa": wa_id})).mappings().fetchone()
+        if existing:
+            logger.info("whatsapp_conversation_exists_skip_create wa=%s tenant=%s", wa_id, tenant_id)
+            return {
+                "id": str(existing["id"]),
+                "status": existing["status"],
+                "sector_id": str(existing["sector_id"]) if existing["sector_id"] else None,
+                "created": False,
+            }
         await session.execute(text("""
             INSERT INTO conversaciones
               (id, widget_session_id, channel, external_id, sector_id, afiliado_nombre)

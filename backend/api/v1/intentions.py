@@ -251,6 +251,10 @@ async def create_intention(
     current_user: CurrentUser = Depends(require_admin),
 ):
     """Manually create and activate a new intention with optional seed examples."""
+    # Intención + ejemplos en UNA sola transacción PG: si la persistencia de
+    # ejemplos falla, la intención no queda huérfana (rollback completo). El
+    # indexado en Qdrant es externo a PG y va después, best-effort.
+    import hashlib
     async with get_pg_session(tenant_id) as session:
         existing = await session.execute(
             text("SELECT id, is_active FROM intenciones WHERE label = :label"),
@@ -287,23 +291,17 @@ async def create_intention(
                 "example_count": len(body.examples),
             })
 
-    # Embed and index examples in Qdrant
-    if body.examples:
-        await _index_examples_in_qdrant(tenant_id, intention_id, body.label, body.examples)
-
-    # Persistir los ejemplos TAMBIÉN en intencion_ejemplos (antes solo iban a Qdrant):
-    # sin esto, el reentrenador del clasificador no los usaba y el panel los listaba
-    # vacíos pese a mostrar example_count>0. Manuales = no auto-aprendidos, ya aprobados.
-    # Se reemplazan los manuales previos (cubre el caso de reactivación).
-    import hashlib
-    async with get_pg_session(tenant_id) as session:
+        # Persistir los ejemplos en intencion_ejemplos (antes solo iban a Qdrant):
+        # sin esto, el reentrenador del clasificador no los usaba y el panel los listaba
+        # vacíos pese a mostrar example_count>0. Manuales = no auto-aprendidos, ya aprobados.
+        # Se reemplazan los manuales previos (cubre el caso de reactivación).
         await session.execute(
             text("DELETE FROM intencion_ejemplos WHERE intencion_id = :iid AND is_auto_learned = FALSE"),
             {"iid": intention_id},
         )
         seen_hashes: set[str] = set()
-        for ex in body.examples:
-            qh = hashlib.sha256(ex.encode("utf-8")).hexdigest()
+        for ex_text in body.examples:
+            qh = hashlib.sha256(ex_text.encode("utf-8")).hexdigest()
             if qh in seen_hashes:
                 continue
             seen_hashes.add(qh)
@@ -311,7 +309,11 @@ async def create_intention(
                 INSERT INTO intencion_ejemplos
                   (id, intencion_id, question_hash, question_text, is_auto_learned, is_approved)
                 VALUES (gen_random_uuid(), :iid, :qh, :qt, FALSE, TRUE)
-            """), {"iid": intention_id, "qh": qh, "qt": ex})
+            """), {"iid": intention_id, "qh": qh, "qt": ex_text})
+
+    # Embed e indexar ejemplos en Qdrant — DESPUÉS del commit PG (externo, best-effort).
+    if body.examples:
+        await _index_examples_in_qdrant(tenant_id, intention_id, body.label, body.examples)
 
     logger.info("intention_created tenant=%s label=%s id=%s", tenant_id, body.label, intention_id)
     return {"id": intention_id, "label": body.label, "status": "created"}

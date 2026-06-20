@@ -502,7 +502,11 @@ services:
     container_name: ia_postgres_exporter
     restart: unless-stopped
     environment:
-      DATA_SOURCE_NAME: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable"
+      # Credenciales separadas del URI: evita el password embebido en el connection
+      # string (que algunos drivers/tools loguean). El exporter las recompone internamente.
+      DATA_SOURCE_URI: "postgres:5432/${POSTGRES_DB}?sslmode=disable"
+      DATA_SOURCE_USER: ${POSTGRES_USER}
+      DATA_SOURCE_PASS: ${POSTGRES_PASSWORD}
     depends_on:
       postgres:
         condition: service_healthy
