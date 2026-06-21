@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Plus, Search, Play, BrainCircuit, ChevronRight, Check, X, MoreHorizontal, Inbox, Sparkles, Tag } from "lucide-react";
+import { Loader2, Plus, Search, Play, BrainCircuit, ChevronRight, Check, X, MoreHorizontal, Inbox, Layers, Tag } from "lucide-react";
 import { EmptyState } from "@/components/ui/empty-state";
 import {
   DropdownMenu,
@@ -299,7 +299,7 @@ export default function IntentionsPage() {
           <TabsContent value="clusters" className="mt-4 space-y-3">
             {clusters.length === 0 ? (
               <EmptyState
-                icon={Sparkles}
+                icon={Layers}
                 title="Sin grupos sugeridos"
                 description="Usá 'Detectar temas nuevos' (arriba) para que el sistema agrupe consultas similares y te proponga temas."
               />
