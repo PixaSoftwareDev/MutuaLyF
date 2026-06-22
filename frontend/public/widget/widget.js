@@ -139,8 +139,12 @@
     // Panel
     "#ia-w-panel{position:fixed;bottom:24px;right:24px;width:" + PANEL_WIDTH + "px;max-width:calc(100vw - 32px);height:" + PANEL_HEIGHT + "px;max-height:calc(100vh - 48px);border-radius:16px;background:" + SLATE_50 + ";color:" + SLATE_800 + ";color-scheme:light;box-shadow:0 12px 40px rgba(0,0,0,.18);z-index:2147483000;display:none;flex-direction:column;font-family:'Inter',system-ui,-apple-system,sans-serif;overflow:hidden;}",
     "#ia-w-panel *,#ia-w-panel *::before,#ia-w-panel *::after{box-sizing:border-box;color-scheme:light;}",
-    "#ia-w-panel.open{display:flex;animation:ia-slideup .25s cubic-bezier(.16,1,.3,1);}",
-    "@keyframes ia-slideup{from{opacity:0;transform:translateY(20px);}to{opacity:1;transform:translateY(0);}}",
+    "#ia-w-panel.open{display:flex;animation:ia-slideup .28s cubic-bezier(.16,1,.3,1);transform-origin:bottom right;}",
+    "#ia-w-panel.closing{display:flex;animation:ia-slidedown .2s cubic-bezier(.4,0,1,1) forwards;transform-origin:bottom right;}",
+    "@keyframes ia-slideup{from{opacity:0;transform:translateY(16px) scale(.97);}to{opacity:1;transform:translateY(0) scale(1);}}",
+    "@keyframes ia-slidedown{from{opacity:1;transform:translateY(0) scale(1);}to{opacity:0;transform:translateY(12px) scale(.98);}}",
+    "@keyframes ia-fab-in{from{opacity:0;transform:scale(.5);}to{opacity:1;transform:scale(1);}}",
+    "@media (prefers-reduced-motion:reduce){#ia-w-panel.open,#ia-w-panel.closing{animation-duration:.01ms;}}",
     "#ia-w-panel input,#ia-w-panel textarea{color:" + SLATE_800 + ";caret-color:var(--ia-brand);-webkit-text-fill-color:" + SLATE_800 + ";}",
     // Scrollbar sutil
     "#ia-w-panel ::-webkit-scrollbar{width:8px;height:8px;}",
@@ -353,8 +357,16 @@
   });
 
   document.getElementById("ia-w-close").addEventListener("click", function () {
-    panel.classList.remove("open");
-    btn.style.display = "flex";
+    // Cierre animado: corre ia-slidedown y recién después oculta el panel
+    // (display:none no es animable). El FAB reaparece con un micro-pop.
+    if (panel.classList.contains("closing")) return;
+    panel.classList.add("closing");
+    setTimeout(function () {
+      panel.classList.remove("open", "closing");
+      btn.style.display = "flex";
+      btn.style.animation = "ia-fab-in .25s cubic-bezier(.16,1,.3,1)";
+      setTimeout(function () { btn.style.animation = ""; }, 280);
+    }, 200);
   });
 
   backBtn.addEventListener("click", function () {
