@@ -280,6 +280,23 @@ async def edit_chunk_text(
                 {"t": new_text, "pid": parent_id, "did": document_id},
             )
 
+    # 5. Invalidar respuestas cacheadas del tenant. Sin esto, una respuesta vieja
+    # cacheada antes de la edición (p.ej. "no encontré ese dato") se seguiría
+    # sirviendo hasta el TTL aunque el chunk ya tenga el contenido nuevo. Igual
+    # que hace la ingesta de documentos tras indexar.
+    try:
+        from core.database import get_redis_cache
+        _redis = get_redis_cache()
+        _cursor = 0
+        while True:
+            _cursor, _keys = await _redis.scan(_cursor, match=f"{tenant_id}:cache:*", count=200)
+            if _keys:
+                await _redis.delete(*_keys)
+            if _cursor == 0:
+                break
+    except Exception as _exc:
+        logger.warning("chunk_edit_cache_invalidation_failed tenant_id=%s error=%s", tenant_id, _exc)
+
     logger.info(
         "chunk_text_edited document_id=%s chunk_id=%s parent_id=%s len=%d user=%s",
         document_id, chunk_id, parent_id, len(new_text), current_user.email,
