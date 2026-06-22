@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from core.config import settings
 from core.logging_config import configure_logging
@@ -107,6 +108,38 @@ async def request_id_middleware(request: Request, call_next):
 
 # ── CORS ──────────────────────────────────────────────────────────────────────
 
+# El panel admin usa cookies → CORS restringido a la lista de orígenes, con
+# credentials. El WIDGET, en cambio, se embebe en webs de clientes arbitrarias y
+# autentica con token Bearer (no cookies): sus endpoints públicos aceptan
+# CUALQUIER origen, sin credentials. Sin esto el browser bloquea por CORS las
+# llamadas del widget desde la web del cliente (branding, sectores, mensajes) y
+# el widget queda en su estado por defecto (p.ej. color rojo en vez del del tenant).
+_WIDGET_CORS_PREFIXES = ("/api/v1/public/", "/api/v1/widget/")
+
+
+class WidgetCORSMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        origin = request.headers.get("origin")
+        is_widget = any(request.url.path.startswith(p) for p in _WIDGET_CORS_PREFIXES)
+        if not (is_widget and origin):
+            return await call_next(request)
+        # Preflight: responder directo (no requiere tenant ni auth).
+        if request.method == "OPTIONS":
+            resp = Response(status_code=204)
+        else:
+            resp = await call_next(request)
+        # CORS abierto SOLO para el widget. Sin Allow-Credentials a propósito
+        # (usa Bearer, no cookies) → seguro permitir cualquier origen.
+        resp.headers["Access-Control-Allow-Origin"] = origin
+        resp.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+        resp.headers["Access-Control-Allow-Headers"] = (
+            request.headers.get("access-control-request-headers") or "Authorization, Content-Type"
+        )
+        resp.headers["Access-Control-Max-Age"] = "600"
+        resp.headers["Vary"] = "Origin"
+        return resp
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
@@ -115,6 +148,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.add_middleware(TenantMiddleware)
+# Widget CORS: se agrega ÚLTIMO → queda como el middleware más externo, así
+# intercepta el preflight del widget antes que el CORS estándar y el de tenant.
+app.add_middleware(WidgetCORSMiddleware)
 
 
 # ── Errores de parámetros mal formados → 422 (no 500) ──────────────────────────
