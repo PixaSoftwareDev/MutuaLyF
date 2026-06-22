@@ -127,3 +127,4 @@ secrets/
 # Artefactos del browser de prueba (Playwright MCP)
 .playwright-mcp/
 /*.png
+frontend/public/widget/test.html

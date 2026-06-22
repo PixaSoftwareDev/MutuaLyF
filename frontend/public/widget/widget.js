@@ -28,7 +28,9 @@
   var PLACEHOLDER   = scriptTag ? (scriptTag.getAttribute("data-placeholder") || "Escribí tu mensaje…") : "Escribí tu mensaje…";
   // TITLE y branding son defaults; se sobreescriben con el branding del tenant.
   var TITLE         = scriptTag ? (scriptTag.getAttribute("data-title") || "Asistente") : "Asistente";
-  var DEFAULT_PRIMARY = "#99323D";
+  // Color neutro: SOLO se usa si el branding del tenant no carga (fallback).
+  // En el flujo normal la esfera aparece recién con el color real del tenant.
+  var DEFAULT_PRIMARY = "#64748b";
   var LOGO_URL      = null;
   var GREETING      = null;  // saludo del tenant si esta configurado
   var PANEL_WIDTH   = scriptTag ? (scriptTag.getAttribute("data-width")  || "400") : "400";
@@ -130,7 +132,8 @@
     "@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');",
 
     // FAB
-    "#ia-w-btn{position:fixed;bottom:24px;right:24px;width:64px;height:64px;border-radius:50%;background:linear-gradient(135deg,var(--ia-brand-light),var(--ia-brand-dark));color:#fff;border:none;cursor:pointer;box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:2147483000;display:flex;align-items:center;justify-content:center;transition:transform .2s,box-shadow .2s;}",
+    "#ia-w-btn{position:fixed;bottom:24px;right:24px;width:64px;height:64px;border-radius:50%;background:linear-gradient(135deg,var(--ia-brand-light),var(--ia-brand-dark));color:#fff;border:none;cursor:pointer;box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:2147483000;display:flex;align-items:center;justify-content:center;transition:transform .2s,box-shadow .2s,opacity .25s;opacity:0;}",
+    "#ia-w-btn.ia-ready{opacity:1;}",
     "#ia-w-btn svg{width:28px;height:28px;}",
     "#ia-w-btn:hover{transform:scale(1.08);box-shadow:0 8px 28px rgba(0,0,0,.3);}",
     "#ia-w-btn img{width:34px;height:34px;border-radius:50%;object-fit:cover;}",
@@ -250,7 +253,7 @@
     // Input bar (igual que /chat)
     "#ia-w-inputbar{flex-shrink:0;border-top:1px solid " + SLATE_200 + ";background:rgba(255,255,255,.85);backdrop-filter:blur(8px);padding:12px 14px;}",
     "#ia-w-inputrow{display:flex;gap:10px;align-items:center;}",
-    "#ia-w-input{flex:1;background:" + SLATE_100 + ";border:1px solid transparent;border-radius:16px;padding:11px 16px;font-size:14px;outline:none;resize:none;min-height:42px;max-height:96px;font-family:inherit;line-height:1.4;transition:all .15s;}",
+    "#ia-w-input{flex:1;background:" + SLATE_100 + ";border:1px solid transparent;border-radius:16px;padding:11px 16px;font-size:14px;outline:none;resize:none;min-height:42px;max-height:96px;font-family:inherit;line-height:1.4;overflow-y:hidden;transition:background .15s,border-color .15s,box-shadow .15s;}",
     "#ia-w-input::placeholder{color:" + SLATE_400 + ";}",
     "#ia-w-input:hover{background:#fefefe;}",
     "#ia-w-input:focus{background:#fff;border-color:var(--ia-brand);box-shadow:0 0 0 3px var(--ia-brand-25);}",
@@ -321,23 +324,29 @@
   var badge      = document.getElementById("ia-w-badge");
 
   // ── Branding del tenant ───────────────────────────────────────────────────────
+  // Revela la esfera (fade-in). Se llama SOLO cuando ya se aplicó el color del
+  // tenant (o el neutro de fallback) → nunca se ve el parpadeo de color default.
+  function _revealBtn() { btn.classList.add("ia-ready"); }
+
   function _loadBranding() {
-    if (!TENANT_ID) return;
+    if (!TENANT_ID) { _revealBtn(); return; }
     fetch(API_BASE + "/api/v1/public/tenant-branding?tenant_id=" + encodeURIComponent(TENANT_ID))
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (b) {
-        if (!b) return;
-        if (b.primary_color) _applyBrand(b.primary_color);
-        if (b.bot_name) { TITLE = b.bot_name; titleEl.textContent = b.bot_name; panel.setAttribute("aria-label", b.bot_name); }
-        if (b.greeting_message) GREETING = b.greeting_message;
-        if (b.logo_url) {
-          LOGO_URL = b.logo_url.indexOf("http") === 0 ? b.logo_url : (API_BASE + b.logo_url);
-          btn.innerHTML = '<img src="' + LOGO_URL + '" alt="" /><span id="ia-w-badge"></span>';
-          badge = document.getElementById("ia-w-badge");
-          avatarEl.innerHTML = '<img src="' + LOGO_URL + '" alt="" />';
+        if (b) {
+          if (b.primary_color) _applyBrand(b.primary_color);
+          if (b.bot_name) { TITLE = b.bot_name; titleEl.textContent = b.bot_name; panel.setAttribute("aria-label", b.bot_name); }
+          if (b.greeting_message) GREETING = b.greeting_message;
+          if (b.logo_url) {
+            LOGO_URL = b.logo_url.indexOf("http") === 0 ? b.logo_url : (API_BASE + b.logo_url);
+            btn.innerHTML = '<img src="' + LOGO_URL + '" alt="" /><span id="ia-w-badge"></span>';
+            badge = document.getElementById("ia-w-badge");
+            avatarEl.innerHTML = '<img src="' + LOGO_URL + '" alt="" />';
+          }
         }
+        _revealBtn();
       })
-      .catch(function (err) { wwarn("[IA Widget] branding:", err); });
+      .catch(function (err) { wwarn("[IA Widget] branding:", err); _revealBtn(); });
   }
   _loadBranding();
 
@@ -389,6 +398,8 @@
   inputEl.addEventListener("input", function () {
     this.style.height = "auto";
     this.style.height = Math.min(this.scrollHeight, 96) + "px";
+    // Sin scrollbar mientras el texto crece; aparece solo al tocar el máximo (96px).
+    this.style.overflowY = this.scrollHeight > 96 ? "auto" : "hidden";
   });
   inputEl.addEventListener("keydown", function (e) {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); _onSubmit(); }
@@ -397,7 +408,7 @@
   function _onSubmit() {
     var text = inputEl.value.trim();
     if (!text) return;
-    inputEl.value = ""; inputEl.style.height = "auto";
+    inputEl.value = ""; inputEl.style.height = "auto"; inputEl.style.overflowY = "hidden";
     if (!conversationId) {
       // En el hero, escribir directo manda al sector default
       var def = sectors.find(function (s) { return s.is_default; }) || sectors[0];
