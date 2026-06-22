@@ -149,6 +149,7 @@
     // Scrollbar sutil
     "#ia-w-panel ::-webkit-scrollbar{width:8px;height:8px;}",
     "#ia-w-panel ::-webkit-scrollbar-track{background:transparent;}",
+    "#ia-w-panel ::-webkit-scrollbar-button{display:none;width:0;height:0;}",
     "#ia-w-panel ::-webkit-scrollbar-thumb{background:" + SLATE_300 + ";border-radius:8px;border:2px solid transparent;background-clip:content-box;}",
     "#ia-w-panel{scrollbar-width:thin;scrollbar-color:" + SLATE_300 + " transparent;}",
     // Responsive
