@@ -914,9 +914,8 @@
     if (last < text.length) parentEl.appendChild(document.createTextNode(text.slice(last)));
   }
 
-  function _renderTextWithLinks(text, parentEl) {
-    // Markdown [etiqueta](url) primero (muestra solo la etiqueta); en los
-    // segmentos de texto restantes, detecta URLs sueltas.
+  // Links [etiqueta](url) + URLs sueltas dentro de un fragmento.
+  function _appendLinks(text, parentEl) {
     MD_LINK_REGEX.lastIndex = 0;
     var last = 0, m;
     while ((m = MD_LINK_REGEX.exec(text)) !== null) {
@@ -925,6 +924,33 @@
       last = m.index + m[0].length;
     }
     if (last < text.length) _appendPlainWithUrls(text.slice(last), parentEl);
+  }
+
+  // Negrita **texto** → <strong>; el resto va por _appendLinks.
+  function _appendInline(text, parentEl) {
+    var BOLD = /\*\*([^*]+)\*\*/g;
+    BOLD.lastIndex = 0;
+    var last = 0, m;
+    while ((m = BOLD.exec(text)) !== null) {
+      if (m.index > last) _appendLinks(text.slice(last, m.index), parentEl);
+      var strong = document.createElement("strong");
+      _appendLinks(m[1], strong);
+      parentEl.appendChild(strong);
+      last = m.index + m[0].length;
+    }
+    if (last < text.length) _appendLinks(text.slice(last), parentEl);
+  }
+
+  // Render de Markdown básico (negrita, listas con -/*, saltos de línea) + links,
+  // todo con DOM (seguro: nunca innerHTML con texto del LLM).
+  function _renderTextWithLinks(text, parentEl) {
+    var lines = String(text == null ? "" : text).split("\n");
+    lines.forEach(function (line, i) {
+      if (i > 0) parentEl.appendChild(document.createElement("br"));
+      var bullet = line.match(/^\s*[-*]\s+(.*)$/);
+      if (bullet) { parentEl.appendChild(document.createTextNode("• ")); line = bullet[1]; }
+      _appendInline(line, parentEl);
+    });
   }
 
   function _escape(str) {
