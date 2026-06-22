@@ -828,6 +828,12 @@ export const api = {
       const { data } = await apiClient.post<WidgetTokenResponse>(`/tenants/${tenantId}/widget-token`);
       return data;
     },
+    // Token ACTUAL (descifrado) sin regenerar. 404 si fue generado antes de
+    // guardarse cifrado (hay que regenerar una vez).
+    getWidgetToken: async (tenantId: string): Promise<WidgetTokenResponse> => {
+      const { data } = await apiClient.get<WidgetTokenResponse>(`/tenants/${tenantId}/widget-token`);
+      return data;
+    },
     listEmailDomains: async (tenantId: string): Promise<Array<{ domain: string; is_primary: boolean; created_at: string | null }>> => {
       const { data } = await apiClient.get(`/tenants/${tenantId}/email-domains`);
       return data;

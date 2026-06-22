@@ -1134,11 +1134,15 @@ async def generate_widget_token(
 
     token = create_widget_token(tenant_id)
     token_hash = hashlib.sha256(token.encode()).hexdigest()
+    # Guardar también el token CIFRADO para poder copiarlo luego sin regenerar
+    # (el widget-token es semi-público: va en el HTML del cliente).
+    from core.crypto import encrypt_secret
+    token_enc = encrypt_secret(token)
 
     async with get_pg_session(None) as session:
         await session.execute(
-            text("UPDATE tenants SET widget_token_hash = :hash, updated_at = NOW() WHERE id = :tid"),
-            {"hash": token_hash, "tid": tenant_id},
+            text("UPDATE tenants SET widget_token_hash = :hash, widget_token_enc = :enc, updated_at = NOW() WHERE id = :tid"),
+            {"hash": token_hash, "enc": token_enc, "tid": tenant_id},
         )
 
     # Bust the cached hash so the new token is valid immediately
@@ -1154,6 +1158,40 @@ async def generate_widget_token(
         widget_token=token,
         tenant_id=tenant_id,
     )
+
+
+@router.get("/{tenant_id}/widget-token", response_model=WidgetTokenResponse)
+async def get_widget_token(
+    tenant_id: str,
+    current_user: CurrentUser = Depends(require_admin_or_super),
+):
+    """Devuelve el widget-token ACTUAL (descifrado) sin regenerarlo.
+
+    Permite copiarlo desde el panel sin invalidar el token ya instalado en las
+    webs de los clientes. Tokens viejos generados antes de esta mejora (solo
+    tienen hash, no la versión cifrada) requieren regenerar una vez → 404.
+    """
+    if current_user.role.value != "super_admin" and current_user.tenant_id != tenant_id:
+        raise HTTPException(status_code=403, detail="No autorizado para otro tenant")
+
+    async with get_pg_session(None) as session:
+        row = (await session.execute(
+            text("SELECT widget_token_enc FROM tenants WHERE id = :tid"),
+            {"tid": tenant_id},
+        )).mappings().fetchone()
+
+    if not row or not row["widget_token_enc"]:
+        raise HTTPException(
+            status_code=404,
+            detail="Token no disponible para copiar — regenerá una vez para guardarlo",
+        )
+
+    from core.crypto import decrypt_secret
+    try:
+        token = decrypt_secret(row["widget_token_enc"])
+    except ValueError:
+        raise HTTPException(status_code=409, detail="No se pudo descifrar el token — regeneralo")
+    return WidgetTokenResponse(widget_token=token, tenant_id=tenant_id)
 
 
 # ── List users of a tenant (super_admin only) ────────────────────────────────

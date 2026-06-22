@@ -136,6 +136,21 @@ function WidgetCard({ channels, onChanged }: { channels: ChannelsState; onChange
     onError: () => toast({ title: "No se pudo generar el token", variant: "destructive" }),
   });
 
+  // Mostrar el token ACTUAL (descifrado) sin regenerar — no invalida el instalado.
+  const showM = useMutation({
+    mutationFn: () => api.tenants.getWidgetToken(tenantId!),
+    onSuccess: (data) => { setWidgetToken(data.widget_token); },
+    onError: (err: unknown) => {
+      const status = (err as { response?: { status?: number } })?.response?.status;
+      toast({
+        title: status === 404
+          ? "Regenerá el token una vez para poder copiarlo sin regenerar"
+          : "No se pudo obtener el token",
+        variant: status === 404 ? "default" : "destructive",
+      });
+    },
+  });
+
   const widgetScript = widgetToken
     ? `<script\n  src="${window.location.origin}/widget/widget.js"\n  data-api-url="${window.location.origin}"\n  data-token="${widgetToken}"\n  data-title="${botConfig?.bot_name || DEFAULT_BOT_NAME}"\n  data-placeholder="Hacé tu consulta..."\n></script>`
     : null;
@@ -180,18 +195,33 @@ function WidgetCard({ channels, onChanged }: { channels: ChannelsState; onChange
               Generá el token y pegá el snippet en tu web para incrustar el asistente.
             </p>
           </div>
-          <Button
-            size="sm"
-            variant={widgetToken ? "outline" : "default"}
-            onClick={() => tokenM.mutate()}
-            disabled={tokenM.isPending}
-            className="shrink-0 group"
-          >
-            {tokenM.isPending
-              ? <Loader2 className="h-4 w-4 animate-spin mr-1" />
-              : <RefreshCw className="h-4 w-4 mr-1 transition-transform duration-500 group-hover:rotate-180" />}
-            {widgetToken || channels.widget.has_token ? "Regenerar token" : "Generar token"}
-          </Button>
+          <div className="flex items-center gap-2 shrink-0">
+            {channels.widget.has_token && !widgetToken && (
+              <Button
+                size="sm" variant="default"
+                onClick={() => showM.mutate()}
+                disabled={showM.isPending}
+                className="group"
+              >
+                {showM.isPending
+                  ? <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                  : <Copy className="h-4 w-4 mr-1" />}
+                Mostrar token
+              </Button>
+            )}
+            <Button
+              size="sm"
+              variant={(widgetToken || channels.widget.has_token) ? "outline" : "default"}
+              onClick={() => tokenM.mutate()}
+              disabled={tokenM.isPending}
+              className="group"
+            >
+              {tokenM.isPending
+                ? <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                : <RefreshCw className="h-4 w-4 mr-1 transition-transform duration-500 group-hover:rotate-180" />}
+              {widgetToken || channels.widget.has_token ? "Regenerar token" : "Generar token"}
+            </Button>
+          </div>
         </div>
 
         {widgetToken && widgetScript && (
