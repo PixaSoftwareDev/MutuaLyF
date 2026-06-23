@@ -156,7 +156,7 @@
     "#ia-w-panel ::-webkit-scrollbar-thumb{background:" + SLATE_300 + ";border-radius:8px;border:2px solid transparent;background-clip:content-box;}",
     "#ia-w-panel{scrollbar-width:thin;scrollbar-color:" + SLATE_300 + " transparent;}",
     // Responsive
-    "@media (max-width:640px){#ia-w-panel{bottom:0;right:0;left:0;top:0;width:100vw;height:100vh;max-width:100vw;max-height:100vh;border-radius:0;}#ia-w-btn{bottom:16px;right:16px;width:56px;height:56px;}}",
+    "@media (max-width:640px){#ia-w-panel{bottom:0;right:0;left:0;top:0;width:100vw;height:100vh;height:100dvh;max-width:100vw;max-height:100vh;max-height:100dvh;border-radius:0;}#ia-w-btn{bottom:16px;right:16px;width:56px;height:56px;}#ia-w-inputbar{-webkit-backdrop-filter:none;backdrop-filter:none;background:#fff;}#ia-w-avatar{-webkit-backdrop-filter:none;backdrop-filter:none;}}",
     "@media (min-width:1441px){#ia-w-panel{width:440px;height:700px;bottom:32px;right:32px;}#ia-w-btn{width:72px;height:72px;bottom:32px;right:32px;}}",
 
     // Header — gradiente que cambia por estado (igual que /chat)
@@ -373,11 +373,28 @@
     panel.classList.add("closing");
     setTimeout(function () {
       panel.classList.remove("open", "closing");
+      panel.style.height = "";
       btn.style.display = "flex";
       btn.style.animation = "ia-fab-in .25s cubic-bezier(.16,1,.3,1)";
       setTimeout(function () { btn.style.animation = ""; }, 280);
     }, 200);
   });
+
+  // Mobile: al aparecer el teclado el viewport visible se achica. Ajustamos el
+  // alto del panel al área realmente visible para que el input no quede tapado
+  // (100dvh no siempre alcanza en iOS). Se resetea al cerrar o en escritorio.
+  if (window.visualViewport) {
+    var _vv = window.visualViewport;
+    var _syncViewport = function () {
+      if (window.innerWidth <= 640 && panel.classList.contains("open")) {
+        panel.style.height = _vv.height + "px";
+        _scrollBottom();
+      } else if (window.innerWidth > 640) {
+        panel.style.height = "";
+      }
+    };
+    _vv.addEventListener("resize", _syncViewport);
+  }
 
   backBtn.addEventListener("click", function () {
     _stopPolling();
