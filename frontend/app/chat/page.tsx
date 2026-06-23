@@ -796,7 +796,7 @@ function ChatInner() {
                   phase === "selecting"
                     ? sectorsLoading || sectors.length === 0
                       ? "Cargando sectores…"
-                      : "Escribí tu consulta y presioná Enter…"
+                      : "Escribí tu consulta…"
                     : "Escribí tu mensaje…"
                 }
                 disabled={phase === "selecting" && (sectorsLoading || sectors.length === 0)}
