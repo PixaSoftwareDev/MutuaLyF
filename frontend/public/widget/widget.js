@@ -156,7 +156,17 @@
     "#ia-w-panel ::-webkit-scrollbar-thumb{background:" + SLATE_300 + ";border-radius:8px;border:2px solid transparent;background-clip:content-box;}",
     "#ia-w-panel{scrollbar-width:thin;scrollbar-color:" + SLATE_300 + " transparent;}",
     // Responsive
-    "@media (max-width:640px){#ia-w-panel{bottom:0;right:0;left:0;top:0;width:100vw;height:100vh;height:100dvh;max-width:100vw;max-height:100vh;max-height:100dvh;border-radius:0;}#ia-w-btn{bottom:16px;right:16px;width:56px;height:56px;}#ia-w-inputbar{-webkit-backdrop-filter:none;backdrop-filter:none;background:#fff;}#ia-w-avatar{-webkit-backdrop-filter:none;backdrop-filter:none;}}",
+    "@media (max-width:640px){"
+      + "#ia-w-panel{top:0;right:0;left:0;bottom:auto;width:100vw;height:100vh;height:100dvh;max-width:100vw;max-height:none;border-radius:0;box-shadow:none;overflow-x:hidden;touch-action:manipulation;}"
+      + "#ia-w-panel.open{animation:ia-slideup-m .2s ease-out;transform-origin:center;}"
+      + "#ia-w-btn{bottom:16px;right:16px;width:56px;height:56px;box-shadow:0 2px 10px rgba(0,0,0,.25);touch-action:manipulation;}"
+      + "#ia-w-header{padding-top:env(safe-area-inset-top,0);height:calc(64px + env(safe-area-inset-top,0));}"
+      + "#ia-w-inputbar{-webkit-backdrop-filter:none;backdrop-filter:none;background:#fff;padding-bottom:calc(12px + env(safe-area-inset-bottom,0));}"
+      + "#ia-w-avatar{-webkit-backdrop-filter:none;backdrop-filter:none;}"
+      + "#ia-w-input,.ia-w-hf-form input{font-size:16px;}"
+      + "#ia-w-body{overscroll-behavior:contain;-webkit-overflow-scrolling:touch;}"
+    + "}",
+    "@keyframes ia-slideup-m{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}}",
     "@media (min-width:1441px){#ia-w-panel{width:440px;height:700px;bottom:32px;right:32px;}#ia-w-btn{width:72px;height:72px;bottom:32px;right:32px;}}",
 
     // Header — gradiente que cambia por estado (igual que /chat)
@@ -182,7 +192,7 @@
     "#ia-w-close:hover{color:#fff;background:rgba(255,255,255,.15);}",
 
     // Body scrollable
-    "#ia-w-body{flex:1;overflow-y:auto;background:" + SLATE_50 + ";}",
+    "#ia-w-body{flex:1 1 auto;min-height:0;overflow-y:auto;background:" + SLATE_50 + ";}",
     "#ia-w-body-inner{min-height:100%;display:flex;flex-direction:column;padding:20px 16px;gap:14px;}",
 
     // Hero de seleccion (igual que /chat phase selecting)
@@ -351,6 +361,13 @@
   _loadBranding();
 
   // ── Events ──────────────────────────────────────────────────────────────────
+  function _isMobile() { return window.matchMedia("(max-width:640px)").matches; }
+  function _lockBody(on) {
+    var v = on ? "hidden" : "";
+    document.documentElement.style.overflow = v;
+    document.body.style.overflow = v;
+  }
+
   btn.addEventListener("click", function () {
     panel.classList.toggle("open");
     var isOpen = panel.classList.contains("open");
@@ -360,9 +377,12 @@
     btn.style.display = isOpen ? "none" : "flex";
     if (isOpen) {
       badge.style.display = "none";
+      // Mobile: bloquear el scroll de la web de fondo (evita scroll bleed / jank).
+      if (_isMobile()) _lockBody(true);
       if (conversationId) { /* ya en chat */ }
       else if (rememberedSector) { _enterChat(rememberedSector); }
-      else { _showHero(); inputEl.focus(); }
+      // Mobile: NO auto-focus — abrir el teclado durante la animación causa jank.
+      else { _showHero(); if (!_isMobile()) inputEl.focus(); }
     }
   });
 
@@ -374,26 +394,39 @@
     setTimeout(function () {
       panel.classList.remove("open", "closing");
       panel.style.height = "";
+      panel.style.transform = "";
+      _lockBody(false);
       btn.style.display = "flex";
       btn.style.animation = "ia-fab-in .25s cubic-bezier(.16,1,.3,1)";
       setTimeout(function () { btn.style.animation = ""; }, 280);
     }, 200);
   });
 
-  // Mobile: al aparecer el teclado el viewport visible se achica. Ajustamos el
-  // alto del panel al área realmente visible para que el input no quede tapado
-  // (100dvh no siempre alcanza en iOS). Se resetea al cerrar o en escritorio.
+  // Mobile: al aparecer el teclado, en iOS el viewport visible se ACHICA y se
+  // DESPLAZA (offsetTop). Ajustamos alto + lo anclamos al área visible para que
+  // el input no quede tapado. Coalescido con requestAnimationFrame y con guard
+  // de no-cambio para no tildar (evita layout thrashing durante la animación).
   if (window.visualViewport) {
-    var _vv = window.visualViewport;
+    var _vv = window.visualViewport, _vvRaf = 0, _lastH = -1;
     var _syncViewport = function () {
-      if (window.innerWidth <= 640 && panel.classList.contains("open")) {
-        panel.style.height = _vv.height + "px";
-        _scrollBottom();
-      } else if (window.innerWidth > 640) {
-        panel.style.height = "";
-      }
+      if (_vvRaf) return;
+      _vvRaf = requestAnimationFrame(function () {
+        _vvRaf = 0;
+        if (window.innerWidth <= 640 && panel.classList.contains("open")) {
+          var h = Math.round(_vv.height);
+          if (h !== _lastH) { panel.style.height = h + "px"; _lastH = h; }
+          panel.style.transform = "translateY(" + (_vv.offsetTop || 0) + "px)";
+          requestAnimationFrame(_scrollBottom);
+        } else if (window.innerWidth > 640) {
+          if (_lastH !== 0) { panel.style.height = ""; panel.style.transform = ""; _lastH = 0; }
+        }
+      });
     };
     _vv.addEventListener("resize", _syncViewport);
+    _vv.addEventListener("scroll", _syncViewport);
+    // El teclado se asienta con delay variable en iOS → doble sync tras focus.
+    inputEl.addEventListener("focus", function () { setTimeout(_syncViewport, 100); setTimeout(_syncViewport, 350); });
+    inputEl.addEventListener("blur", function () { setTimeout(_syncViewport, 100); });
   }
 
   backBtn.addEventListener("click", function () {
@@ -417,6 +450,7 @@
     this.style.height = Math.min(this.scrollHeight, 96) + "px";
     // Sin scrollbar mientras el texto crece; aparece solo al tocar el máximo (96px).
     this.style.overflowY = this.scrollHeight > 96 ? "auto" : "hidden";
+    _scrollBottom();
   });
   inputEl.addEventListener("keydown", function (e) {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); _onSubmit(); }
@@ -511,7 +545,7 @@
     titleEl.textContent = sector.nombre;
     bodyInner.innerHTML = "";
     inputEl.placeholder = "Escribí tu mensaje…";
-    inputEl.focus();
+    if (!_isMobile()) inputEl.focus();
     _fetchOperatorsOnline(sector.id);
     _startConversation(sector.id, pendingMessage);
   }
@@ -620,7 +654,7 @@
         werr("[IA Widget] send:", err);
       })
       .finally(function () {
-        sendBtn.disabled = false; inputEl.disabled = false; inputEl.focus();
+        sendBtn.disabled = false; inputEl.disabled = false; if (!_isMobile()) inputEl.focus();
       });
   }
 
