@@ -330,6 +330,23 @@ async def relay_to_whatsapp(tenant_id: str, conversation_id: str, content: str) 
         if not account or not account.enabled:
             logger.warning("whatsapp_relay_skipped tenant=%s conv=%s (cuenta no activa)", tenant_id, conversation_id)
             return
-        await send_text(account, row["external_id"], content)
+        wamid = await send_text(account, row["external_id"], content)
+        if wamid is None:
+            # El envío a Meta falló (típico: ventana de 24 h cerrada o token vencido).
+            # Insertamos un aviso visible para que el operador NO crea que el cliente
+            # lo recibió. send_text ya logueó el detalle.
+            import uuid as _uuid
+            notice = ("⚠️ Este mensaje no pudo entregarse por WhatsApp. Suele pasar cuando pasaron "
+                      "más de 24 h sin que el cliente escriba (límite de WhatsApp) o venció el token.")
+            async with get_pg_session(tenant_id) as session:
+                await session.execute(text(
+                    "INSERT INTO mensajes (id, conversation_id, sender_type, content) "
+                    "VALUES (:id, :cid, 'system', :c)"
+                ), {"id": str(_uuid.uuid4()), "cid": conversation_id, "c": notice})
+            try:
+                from api.v1.attachments import _publish_event
+                await _publish_event(tenant_id, "new_message", {"conversation_id": conversation_id})
+            except Exception:
+                pass
     except Exception:
         logger.exception("whatsapp_relay_error tenant=%s conv=%s", tenant_id, conversation_id)

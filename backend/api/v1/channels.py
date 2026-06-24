@@ -306,12 +306,17 @@ async def toggle_whatsapp(
     tenant_id = _own_tenant(current_user)
     async with get_pg_session() as session:
         row = (await session.execute(text(
-            "SELECT status FROM public.whatsapp_accounts WHERE tenant_id = :tid"
-        ), {"tid": tenant_id})).fetchone()
+            "SELECT status, app_secret_enc FROM public.whatsapp_accounts WHERE tenant_id = :tid"
+        ), {"tid": tenant_id})).mappings().fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="WhatsApp no está configurado.")
-        if body.enabled and row[0] != "active":
+        if body.enabled and row["status"] != "active":
             raise HTTPException(status_code=400, detail="Probá la conexión antes de activar el canal.")
+        if body.enabled and not row["app_secret_enc"]:
+            raise HTTPException(
+                status_code=400,
+                detail="Configurá el App Secret antes de activar: es obligatorio para validar la firma de los mensajes de WhatsApp (sin él se rechazan todos).",
+            )
         await session.execute(text(
             "UPDATE public.whatsapp_accounts SET enabled = :en, updated_at = NOW() WHERE tenant_id = :tid"
         ), {"en": body.enabled, "tid": tenant_id})

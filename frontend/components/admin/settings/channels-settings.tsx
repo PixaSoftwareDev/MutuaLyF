@@ -366,8 +366,12 @@ function WhatsAppCard({ channels, onChanged }: { channels: ChannelsState; onChan
                 size="sm"
                 variant={wa.enabled ? "outline" : "default"}
                 onClick={() => toggleM.mutate()}
-                disabled={toggleM.isPending || (!wa.enabled && wa.status !== "active")}
-                title={!wa.enabled && wa.status !== "active" ? "Probá la conexión antes de activar" : undefined}
+                disabled={toggleM.isPending || (!wa.enabled && (wa.status !== "active" || !wa.has_app_secret))}
+                title={
+                  !wa.enabled && wa.status !== "active" ? "Probá la conexión antes de activar"
+                  : !wa.enabled && !wa.has_app_secret ? "Configurá el App Secret antes de activar (es obligatorio)"
+                  : undefined
+                }
               >
                 {toggleM.isPending
                   ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
