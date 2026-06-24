@@ -98,6 +98,30 @@ async def _validate_and_store(file: UploadFile, tenant_id: str, conversation_id:
     return {"key": key, "name": safe_name, "mime": real_mime, "size": len(content)}
 
 
+async def store_attachment_bytes(
+    content: bytes, filename: str, tenant_id: str, conversation_id: str
+) -> dict | None:
+    """Variante de _validate_and_store para binarios YA descargados (canales como
+    WhatsApp que reciben el archivo, no un UploadFile). Valida magic bytes + tamaño
+    y sube a MinIO. Devuelve los metadatos, o None si no pasa la validación (no lanza)."""
+    if not content or len(content) > _MAX_ATTACHMENT_BYTES:
+        return None
+    real_mime = _sniff_mime(content)
+    if real_mime is None:
+        return None
+    safe_name = re.sub(r"[^\w\-.]", "_", filename or "archivo")[:200]
+    key = f"{tenant_id}/attachments/{conversation_id}/{uuid.uuid4().hex}_{safe_name}"
+
+    def _upload() -> None:
+        client = get_minio_client()
+        client.put_object(
+            settings.minio_bucket, key, io.BytesIO(content),
+            length=len(content), content_type=real_mime,
+        )
+    await asyncio.to_thread(_upload)
+    return {"key": key, "name": safe_name, "mime": real_mime, "size": len(content)}
+
+
 async def _insert_attachment_message(tenant_id: str, conversation_id: str, sender_type: str, meta: dict) -> str:
     """Inserta un mensaje con adjunto (content vacío) y toca la conversación."""
     msg_id = str(uuid.uuid4())

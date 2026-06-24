@@ -104,6 +104,26 @@ async def get_account_by_phone_number_id(phone_number_id: str) -> WhatsAppAccoun
     return _row_to_account(row) if row else None
 
 
+async def download_media(account: "WhatsAppAccount", media_id: str) -> bytes | None:
+    """Descarga un media entrante de WhatsApp. Meta no manda el binario en el
+    webhook: manda un media_id → primero se pide la URL temporal, luego se baja
+    el binario (ambos con el Bearer del tenant). None si falla (best-effort)."""
+    client = _get_client()
+    headers = {"Authorization": f"Bearer {account.access_token}"}
+    try:
+        meta = await client.get(f"{GRAPH_BASE}/{media_id}", headers=headers)
+        meta.raise_for_status()
+        url = (meta.json() or {}).get("url")
+        if not url:
+            return None
+        binary = await client.get(url, headers=headers, timeout=30.0)
+        binary.raise_for_status()
+        return binary.content
+    except Exception as exc:
+        logger.warning("whatsapp_media_download_failed media_id=%s error=%s", media_id, exc)
+        return None
+
+
 async def find_account_by_verify_token(verify_token: str) -> bool:
     """GET de verificación del webhook: Meta manda hub.verify_token; cada
     tenant configura el suyo (se lo mostramos en el panel)."""

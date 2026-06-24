@@ -149,7 +149,7 @@ async def list_conversations(
 
         conv_result = await session.execute(text(f"""
             SELECT
-                c.id, c.widget_session_id, c.status, c.sector_id,
+                c.id, c.widget_session_id, c.status, c.sector_id, c.channel, c.external_id,
                 c.afiliado_nombre, c.afiliado_email, c.afiliado_dni, c.afiliado_ip, c.is_test,
                 c.created_at, c.updated_at, c.handoff_requested_at,
                 s.nombre AS sector_nombre,
@@ -188,6 +188,8 @@ async def list_conversations(
                 "afiliado_dni":    conv["afiliado_dni"],
                 "afiliado_ip":     conv["afiliado_ip"],
                 "is_test":        conv["is_test"],
+                "channel":        conv["channel"],
+                "external_id":    conv["external_id"],
                 "sector_id":       sid,
                 "sector_nombre":   conv["sector_nombre"],
                 "operator_name":   conv["operator_name"],
@@ -385,6 +387,8 @@ async def get_conversation(
         "afiliado_dni": conv["afiliado_dni"],
         "afiliado_ip": conv["afiliado_ip"],
         "is_test": conv["is_test"],
+        "channel": conv.get("channel"),
+        "external_id": conv.get("external_id"),
         "sector_id": str(conv["sector_id"]) if conv["sector_id"] else None,
         "created_at": conv["created_at"].isoformat(),
         "handoff_requested_at": conv["handoff_requested_at"].isoformat() if conv.get("handoff_requested_at") else None,

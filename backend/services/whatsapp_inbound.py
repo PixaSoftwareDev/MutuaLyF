@@ -293,13 +293,33 @@ async def process_incoming_message(account: WhatsAppAccount, value: dict, messag
             # Un toque a un menú viejo con la conversación ya abierta no aplica.
             return
 
-        # Solo texto en el MVP. Media (imágenes/audio) es fase siguiente:
-        # avisamos al cliente en vez de ignorar en silencio.
+        # Media entrante (imagen/PDF): descargar de Meta, guardar en MinIO reusando
+        # la infra de adjuntos e insertar como mensaje del cliente. El bot no "lee"
+        # el archivo (es texto) → acusa recibo y deja que lo revise un operador.
         if msg_type != "text":
+            media = message.get("image") or message.get("document")
+            if msg_type in ("image", "document") and media and media.get("id"):
+                from services.whatsapp import download_media
+                from api.v1.attachments import (
+                    store_attachment_bytes, _insert_attachment_message, _publish_event,
+                )
+                binary = await download_media(account, media["id"])
+                meta = await store_attachment_bytes(
+                    binary, media.get("filename") or (msg_type + ".jpg"), tenant_id, conv["id"],
+                ) if binary else None
+                if meta:
+                    await _insert_attachment_message(tenant_id, conv["id"], "user", meta)
+                    await _publish_event(tenant_id, "new_message", {"conversation_id": conv["id"]})
+                    if conv["status"] == ConvStatus.HUMAN_ATTENDING:
+                        return  # el operador lo ve en la bandeja y responde desde ahí
+                    await send_text(account, wa_id,
+                                    "Recibí tu archivo 📎. Si querés que un agente lo revise, escribí *OPERADOR*.")
+                    return
+            # Audio, video, sticker, ubicación o media que no validó (no es imagen/PDF)
             note = "[El cliente envió un adjunto no soportado todavía por este canal]"
             await _insert_message(tenant_id, conv["id"], "user", note)
             await send_text(account, wa_id,
-                            "Por ahora solo puedo leer mensajes de texto. ¿Me escribís tu consulta?")
+                            "Por ahora puedo recibir texto, imágenes y PDF. ¿Me escribís tu consulta?")
             return
 
         if not content:
