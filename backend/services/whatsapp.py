@@ -311,7 +311,7 @@ async def fetch_phone_info(phone_number_id: str, access_token: str) -> dict:
 
 # ── Relay saliente desde el panel (operador / mensajes de sistema) ────────────
 
-async def relay_to_whatsapp(tenant_id: str, conversation_id: str, content: str) -> None:
+async def relay_to_whatsapp(tenant_id: str, conversation_id: str, content: str, message_id: str | None = None) -> None:
     """Si la conversación es de canal WhatsApp, reenvía `content` al afiliado.
 
     No-op silencioso para conversaciones del widget. Pensado para usarse con
@@ -348,5 +348,36 @@ async def relay_to_whatsapp(tenant_id: str, conversation_id: str, content: str) 
                 await _publish_event(tenant_id, "new_message", {"conversation_id": conversation_id})
             except Exception:
                 pass
+        elif message_id:
+            # Guardar el wamid del mensaje del operador para matchear los webhooks
+            # de estado (ticks: sent/delivered/read).
+            async with get_pg_session(tenant_id) as session:
+                await session.execute(text(
+                    "UPDATE mensajes SET external_message_id = :w, delivery_status = 'sent' WHERE id = :id"
+                ), {"w": wamid, "id": message_id})
     except Exception:
         logger.exception("whatsapp_relay_error tenant=%s conv=%s", tenant_id, conversation_id)
+
+
+_STATUS_RANK = {"sent": 1, "delivered": 2, "read": 3, "failed": 1}
+
+
+async def update_message_statuses(account: WhatsAppAccount, statuses: list) -> None:
+    """Procesa los webhooks de estado de WhatsApp (sent/delivered/read/failed) y
+    actualiza delivery_status del mensaje saliente. Solo AVANZA el estado (no pisa
+    'read' con un 'delivered' que llegue tarde/desordenado). Best-effort."""
+    for st in statuses or []:
+        wamid = st.get("id")
+        status = st.get("status")
+        if not wamid or status not in _STATUS_RANK:
+            continue
+        try:
+            async with get_pg_session(account.tenant_id) as session:
+                await session.execute(text("""
+                    UPDATE mensajes SET delivery_status = :s
+                    WHERE external_message_id = :w
+                      AND (delivery_status IS NULL OR :rank > CASE delivery_status
+                            WHEN 'read' THEN 3 WHEN 'delivered' THEN 2 ELSE 1 END)
+                """), {"s": status, "w": wamid, "rank": _STATUS_RANK[status]})
+        except Exception:
+            logger.exception("whatsapp_status_update_failed wamid=%s", wamid)

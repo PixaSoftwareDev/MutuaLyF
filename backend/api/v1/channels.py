@@ -75,8 +75,9 @@ async def whatsapp_webhook(request: Request):
         for change in entry.get("changes") or []:
             value = change.get("value") or {}
             messages = value.get("messages") or []
-            if not messages:
-                continue  # estados de entrega/lectura: fase 2
+            statuses = value.get("statuses") or []
+            if not messages and not statuses:
+                continue
 
             phone_number_id = (value.get("metadata") or {}).get("phone_number_id")
             if not phone_number_id:
@@ -109,12 +110,15 @@ async def whatsapp_webhook(request: Request):
                 logger.warning("whatsapp_webhook_bad_signature tenant=%s", account.tenant_id)
                 continue
 
-            from services.whatsapp_inbound import process_incoming_message
-            for message in messages:
-                fire_and_log(
-                    process_incoming_message(account, value, message),
-                    context="whatsapp.inbound",
-                )
+            if messages:
+                from services.whatsapp_inbound import process_incoming_message
+                for message in messages:
+                    fire_and_log(
+                        process_incoming_message(account, value, message),
+                        context="whatsapp.inbound",
+                    )
+            if statuses:
+                fire_and_log(wa.update_message_statuses(account, statuses), context="whatsapp.status")
 
     return {"status": "received"}
 

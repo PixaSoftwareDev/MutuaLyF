@@ -311,7 +311,8 @@ export interface ConversationRow {
 
 export interface ConversationDetail extends ConversationRow {
   messages: Array<{ id: string; sender_type: string; content: string; created_at: string;
-                    attachment_name?: string | null; attachment_mime?: string | null; attachment_size?: number | null }>;
+                    attachment_name?: string | null; attachment_mime?: string | null; attachment_size?: number | null;
+                    delivery_status?: string | null }>;
 }
 
 export interface ConversationHistoryRow {

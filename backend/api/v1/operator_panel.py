@@ -5,6 +5,7 @@ Admins see all sectors and can transfer conversations between them.
 """
 
 import logging
+import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
@@ -365,7 +366,7 @@ async def get_conversation(
             raise HTTPException(status_code=404, detail="La conversación no existe o ya no está disponible.")
 
         msg_result = await session.execute(text("""
-            SELECT id, sender_type, content, read_at, created_at,
+            SELECT id, sender_type, content, read_at, created_at, delivery_status,
                    attachment_key, attachment_name, attachment_mime, attachment_size
             FROM mensajes WHERE conversation_id = :id ORDER BY created_at ASC
         """), {"id": conversation_id})
@@ -402,6 +403,7 @@ async def get_conversation(
                 "attachment_name": m.get("attachment_name"),
                 "attachment_mime": m.get("attachment_mime"),
                 "attachment_size": m.get("attachment_size"),
+                "delivery_status": m.get("delivery_status"),
             }
             for m in messages
         ],
@@ -517,10 +519,11 @@ async def reply(
                 detail="El afiliado lleva más de 12 horas inactivo. La conversación se considera abandonada.",
             )
 
+        op_msg_id = str(uuid.uuid4())
         await session.execute(text("""
-            INSERT INTO mensajes (conversation_id, sender_type, content)
-            VALUES (:cid, 'operator', :content)
-        """), {"cid": conversation_id, "content": body.content})
+            INSERT INTO mensajes (id, conversation_id, sender_type, content)
+            VALUES (:id, :cid, 'operator', :content)
+        """), {"id": op_msg_id, "cid": conversation_id, "content": body.content})
         await session.execute(text(
             "UPDATE conversaciones SET updated_at = NOW() WHERE id = :id"
         ), {"id": conversation_id})
@@ -533,7 +536,7 @@ async def reply(
     # API (no-op para canal widget). Fire-and-forget: la entrega al panel no
     # depende de Meta.
     from services.whatsapp import relay_to_whatsapp
-    fire_and_log(relay_to_whatsapp(tenant_id, conversation_id, body.content), "whatsapp.relay")
+    fire_and_log(relay_to_whatsapp(tenant_id, conversation_id, body.content, op_msg_id), "whatsapp.relay")
     return {"status": "sent"}
 
 

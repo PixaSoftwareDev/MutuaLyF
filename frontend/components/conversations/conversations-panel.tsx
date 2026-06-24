@@ -1166,9 +1166,24 @@ function AttachmentView({ conversationId, messageId, name, mime }:
   );
 }
 
+// Ticks de entrega para mensajes del operador en WhatsApp: ✓ enviado, ✓✓ entregado,
+// ✓✓ azul leído, ! no entregado. delivery_status null (widget, o WA viejo) → sin tick.
+function WaTicks({ status }: { status: string }) {
+  if (status === "failed") return <span title="No se pudo entregar" className="text-destructive font-semibold">!</span>;
+  const read = status === "read";
+  const double = read || status === "delivered";
+  return (
+    <span title={read ? "Leído" : double ? "Entregado" : "Enviado"}
+          className={cn("font-semibold leading-none", read && "text-sky-500")}>
+      {double ? "✓✓" : "✓"}
+    </span>
+  );
+}
+
 export function MessageBubble({ msg, conversationId }:
   { msg: { id: string; sender_type: string; content: string; created_at: string;
-           attachment_name?: string | null; attachment_mime?: string | null; pending?: boolean }; conversationId: string }) {
+           attachment_name?: string | null; attachment_mime?: string | null; pending?: boolean;
+           delivery_status?: string | null }; conversationId: string }) {
   const isUser     = msg.sender_type === "user";
   const isSystem   = msg.sender_type === "system";
   const isOperator = msg.sender_type === "operator";
@@ -1212,6 +1227,7 @@ export function MessageBubble({ msg, conversationId }:
           )}
           <p className={cn("text-[11px] mt-1 opacity-60 flex items-center gap-1", isUser ? "justify-end" : "justify-start")}>
             {msg.pending ? <><Loader2 className="h-2.5 w-2.5 animate-spin" /> enviando…</> : time}
+            {!msg.pending && isOperator && msg.delivery_status && <WaTicks status={msg.delivery_status} />}
           </p>
         </div>
       </div>
