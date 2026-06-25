@@ -324,7 +324,7 @@ function SectorCard({
         </div>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button size="icon" variant="ghost" className="h-8 w-8 -mr-1 -mt-0.5 shrink-0 text-muted-foreground" aria-label="Acciones">
+            <Button size="icon" variant="ghost" className="h-8 w-8 max-sm:h-10 max-sm:w-10 -mt-0.5 shrink-0 text-muted-foreground" aria-label="Acciones">
               <MoreVertical className="h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>
