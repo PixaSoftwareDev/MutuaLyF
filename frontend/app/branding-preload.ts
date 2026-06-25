@@ -23,19 +23,29 @@ export const BRANDING_PRELOAD_SCRIPT = `
     var tenantId = params.get('tenant') || localStorage.getItem('tenant_id');
     if (!tenantId || tenantId === '__platform__') return;
 
-    var raw = localStorage.getItem('tenant_branding_cache');
-    if (!raw) return;
-
-    var map = JSON.parse(raw);
-    // Backward-compat con la forma vieja del cache (v1: { tenant_id, branding })
-    if (map && map.tenant_id && map.branding) {
-      var tmp = {}; tmp[map.tenant_id] = map.branding; map = tmp;
+    // Prioridad: ?brand= en la URL (lo pasa "Probar chat" y cualquier link que ya
+    // conozca el color) — disponible al instante, sin depender del cache. Si no,
+    // el cache de localStorage (cargas posteriores). Sin ninguno no pinta y quedan
+    // los defaults: solo pasa en la primerísima visita pública sin cache.
+    var primaryColor = null;
+    var brandParam = params.get('brand');
+    if (brandParam) {
+      primaryColor = brandParam.charAt(0) === '#' ? brandParam : '#' + brandParam;
+    } else {
+      var raw = localStorage.getItem('tenant_branding_cache');
+      if (raw) {
+        var map = JSON.parse(raw);
+        // Backward-compat con la forma vieja del cache (v1: { tenant_id, branding })
+        if (map && map.tenant_id && map.branding) {
+          var tmp = {}; tmp[map.tenant_id] = map.branding; map = tmp;
+        }
+        var b = map[tenantId];
+        if (b && b.primary_color) primaryColor = b.primary_color;
+      }
     }
+    if (!primaryColor) return;
 
-    var b = map[tenantId];
-    if (!b || !b.primary_color) return;
-
-    var hex = b.primary_color.replace('#', '');
+    var hex = primaryColor.replace('#', '');
     if (hex.length !== 6) return;
 
     var r = parseInt(hex.slice(0, 2), 16) / 255;
@@ -62,7 +72,7 @@ export const BRANDING_PRELOAD_SCRIPT = `
     root.style.setProperty('--brand',         tuple(lPct));
     root.style.setProperty('--brand-dark',    tuple(clamp(lPct - 15)));
     root.style.setProperty('--brand-light',   tuple(clamp(lPct + 15)));
-    root.style.setProperty('--brand-primary', b.primary_color);
+    root.style.setProperty('--brand-primary', primaryColor);
 
     // Texto legible sobre el fondo de marca (WCAG): blanco si el primary es
     // oscuro, slate-900 si es claro. Debe ser tupla HSL (tailwind usa hsl()).

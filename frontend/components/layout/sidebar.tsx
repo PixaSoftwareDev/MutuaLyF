@@ -173,7 +173,10 @@ export function Sidebar() {
     if (!tenantId) return;
     try {
       const data = await api.tenants.generateWidgetToken(tenantId);
-      const url = `/chat?token=${encodeURIComponent(data.widget_token)}&tenant=${encodeURIComponent(tenantId)}&test=1`;
+      // Pasamos el color de marca en la URL → el preload lo aplica antes del primer
+      // paint (sin esperar el fetch del branding) → sin flash del color default.
+      const brand = branding.primary_color ? `&brand=${encodeURIComponent(branding.primary_color)}` : "";
+      const url = `/chat?token=${encodeURIComponent(data.widget_token)}&tenant=${encodeURIComponent(tenantId)}&test=1${brand}`;
       window.open(url, "_blank", "noopener");
     } catch {
       toast({ title: "No se pudo generar el link de prueba", variant: "destructive" });
