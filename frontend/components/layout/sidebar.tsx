@@ -436,8 +436,8 @@ export function Sidebar() {
                   <div className="w-8 h-8 flex items-center justify-center shrink-0 rounded-lg bg-action/10 text-action ring-1 ring-action/15 font-bold text-xs">
                     {userInitial}
                   </div>
-                  <div className={cn("min-w-0 leading-tight", collapsed && "lg:hidden")}>
-                    <p className="text-[13px] font-semibold text-foreground truncate">{userName}</p>
+                  <div className={cn("min-w-0 flex-1 leading-tight", collapsed && "lg:hidden")}>
+                    <p className="text-[13px] font-semibold text-foreground truncate" title={userEmail || undefined}>{userName}</p>
                     {roleLabel && <p className="text-[11px] text-slate-500 truncate">{roleLabel}</p>}
                   </div>
                 </>

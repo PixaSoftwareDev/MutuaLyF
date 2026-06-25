@@ -352,12 +352,14 @@ function SectorCard({
         </DropdownMenu>
       </div>
 
-      {/* Descripción — condicional, sin alto mínimo: las cards respiran según su
-          contenido real. El mt-auto del footer mantiene los pies alineados. */}
-      {sector.descripcion && (
+      {/* Descripción — placeholder tenue si no hay, para que el divisor del footer
+          no quede flotando sobre un hueco vacío. El mt-auto alinea los pies. */}
+      {sector.descripcion ? (
         <p className="text-sm text-muted-foreground mt-3 line-clamp-2">
           {sector.descripcion}
         </p>
+      ) : (
+        <p className="text-sm text-muted-foreground/50 italic mt-3">Sin descripción</p>
       )}
 
       {/* Footer: operadores asignados */}
