@@ -363,7 +363,7 @@ function OperatorCard({
           ) : assignedSectors.length === 0 ? (
             <p className="text-xs text-warning flex items-center gap-1.5">
               <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-              Sin sectores asignados — solo recibe consultas de "Consultas Generales".
+              Sin sectores — solo "Consultas Generales".
             </p>
           ) : (
             <>
