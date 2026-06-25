@@ -162,13 +162,7 @@ export default function OperatorsPage() {
         <EmptyState
           icon={Users}
           title="No hay operadores activos"
-          description="Creá el primero para empezar a asignar sectores y atender consultas."
-          action={
-            <Button size="sm" onClick={() => setShowCreate(true)}>
-              <Plus className="h-4 w-4 mr-1" />
-              Nuevo operador
-            </Button>
-          }
+          description="Creá el primero con 'Nuevo operador' (arriba) para asignar sectores y atender consultas."
         />
       ) : (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">

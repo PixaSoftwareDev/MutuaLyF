@@ -109,13 +109,7 @@ export default function SectorsPage() {
         <EmptyState
           icon={Folder}
           title="No hay sectores activos"
-          description="Creá el primero para que los usuarios puedan elegir un área al consultar."
-          action={
-            <Button size="sm" onClick={() => setShowCreate(true)}>
-              <Plus className="h-4 w-4 mr-1" />
-              Nuevo sector
-            </Button>
-          }
+          description="Creá el primero con 'Nuevo sector' (arriba) para que los usuarios puedan elegir un área al consultar."
         />
       ) : (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
