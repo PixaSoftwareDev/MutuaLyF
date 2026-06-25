@@ -1077,7 +1077,9 @@ function ConvCard({ conv, now, selected, readOnly, onlineNames, onSelect, onAcce
             <span className="truncate min-w-0">{conv.afiliado_nombre || (conv.channel === "whatsapp" && conv.external_id ? formatWaNumber(conv.external_id) : (conv.afiliado_ip ? `IP ${conv.afiliado_ip}` : "Anónimo"))}</span>
             {conv.channel === "whatsapp"
               ? <span aria-label="WhatsApp" className="shrink-0 inline-flex items-center gap-0.5 text-[10px] font-semibold bg-green-600/10 text-green-700 rounded px-1.5 py-0.5"><MessageCircle className="h-2.5 w-2.5" />WA</span>
-              : <span aria-label="Web" className="shrink-0 inline-flex items-center gap-0.5 text-[10px] font-medium text-muted-foreground"><Globe className="h-2.5 w-2.5" />Web</span>}
+              : !conv.afiliado_nombre
+                ? <span aria-label="Web" className="shrink-0 inline-flex items-center gap-0.5 text-[10px] font-medium text-muted-foreground"><Globe className="h-2.5 w-2.5" />Web</span>
+                : null}
           </p>
           <p className="text-[11px] text-muted-foreground truncate mt-0.5">
             {conv.sector_nombre || "Sin sector"}
