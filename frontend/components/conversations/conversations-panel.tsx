@@ -870,7 +870,7 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
                         handleSend();
                       }
                     }}
-                    className="flex-1 resize-none rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary min-h-[60px] max-h-40"
+                    className="flex-1 resize-none rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:border-ring min-h-[60px] max-h-40"
                   />
                   <Button
                     className="h-10 px-3 shrink-0"
@@ -1058,7 +1058,7 @@ function ConvCard({ conv, now, selected, readOnly, onlineNames, onSelect, onAcce
     <div
       className={cn(
         "rounded-xl border shadow-sm transition-colors group",
-        selected ? "bg-primary/10 ring-2 ring-primary/50 border-primary/50" : cardBg,
+        selected ? "bg-accent ring-2 ring-ring/50 border-ring/40" : cardBg,
       )}
     >
       <div className="flex items-center gap-2.5 px-3 py-2.5">
