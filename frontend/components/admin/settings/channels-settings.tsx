@@ -186,7 +186,7 @@ function WidgetCard({ channels, onChanged }: { channels: ChannelsState; onChange
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
-        <div className="flex items-center justify-between gap-4 rounded-xl border bg-muted/30 px-4 py-3">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-xl border bg-muted/30 px-4 py-3">
           <div className="min-w-0">
             <p className="text-sm font-medium flex items-center gap-1.5">
               <Key className="h-4 w-4 text-muted-foreground" /> Token e instalación
@@ -195,7 +195,7 @@ function WidgetCard({ channels, onChanged }: { channels: ChannelsState; onChange
               Generá el token y pegá el snippet en tu web para incrustar el asistente.
             </p>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto">
             {channels.widget.has_token && !widgetToken && (
               <Button
                 size="sm" variant="default"

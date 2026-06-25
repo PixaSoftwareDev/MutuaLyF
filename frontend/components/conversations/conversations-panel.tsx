@@ -1070,10 +1070,10 @@ function ConvCard({ conv, now, selected, readOnly, onlineNames, onSelect, onAcce
         />
 
         <button onClick={onSelect} className="flex-1 min-w-0 text-left">
-          <p className="text-sm font-medium truncate leading-tight flex items-center gap-1.5">
+          <p className="text-sm font-medium leading-tight flex items-center gap-1.5 min-w-0">
             {conv.is_test && <span aria-label="Conversación de prueba" className="shrink-0 text-[10px] font-bold bg-primary/10 text-primary rounded px-1 py-0.5 uppercase tracking-wide">TEST</span>}
             {conv.channel === "whatsapp" && <span aria-label="WhatsApp" className="shrink-0 text-[10px] font-semibold bg-green-600/10 text-green-700 rounded px-1.5 py-0.5">WhatsApp</span>}
-            {conv.afiliado_nombre || (conv.channel === "whatsapp" && conv.external_id ? `+${conv.external_id}` : (conv.afiliado_ip ? `IP ${conv.afiliado_ip}` : "Anónimo"))}
+            <span className="truncate min-w-0">{conv.afiliado_nombre || (conv.channel === "whatsapp" && conv.external_id ? `+${conv.external_id}` : (conv.afiliado_ip ? `IP ${conv.afiliado_ip}` : "Anónimo"))}</span>
           </p>
           <p className="text-[11px] text-muted-foreground truncate mt-0.5">
             {conv.sector_nombre || "Sin sector"}

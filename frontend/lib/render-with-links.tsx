@@ -68,10 +68,8 @@ function buildLinks(
   return parts;
 }
 
-export function renderWithLinks(text: string): React.ReactNode[] {
-  // 0. Markdown links primero (consume [etiqueta](url) enteros).
-  // 1/2. Sobre los segmentos de texto restantes (no sobre los <a> ya creados):
-  //      URLs con protocolo, luego dominios sin protocolo.
+// Aplica links (md-link, URL con protocolo, dominio suelto) sobre un string.
+function linkify(text: string): React.ReactNode[] {
   const result: React.ReactNode[] = [];
   for (const mdNode of buildMarkdownLinks(text)) {
     if (typeof mdNode !== "string") { result.push(mdNode); continue; }
@@ -80,5 +78,38 @@ export function renderWithLinks(text: string): React.ReactNode[] {
       result.push(...buildLinks(protoNode, BARE_DOMAIN_REGEX, (u) => `https://${u}`, "b"));
     }
   }
-  return result.length > 0 ? result : [text];
+  return result;
+}
+
+// Negrita **texto** → <strong>; el resto pasa por linkify.
+function applyBold(text: string, keyBase: string): React.ReactNode[] {
+  const out: React.ReactNode[] = [];
+  const BOLD = /\*\*([^*]+)\*\*/g;
+  let last = 0, idx = 0;
+  let m: RegExpExecArray | null;
+  BOLD.lastIndex = 0;
+  while ((m = BOLD.exec(text)) !== null) {
+    if (m.index > last) out.push(...linkify(text.slice(last, m.index)));
+    out.push(<strong key={`${keyBase}-b${idx++}`}>{linkify(m[1])}</strong>);
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) out.push(...linkify(text.slice(last)));
+  return out;
+}
+
+/**
+ * Renderiza el texto del bot con Markdown básico: **negrita**, listas con -/*,
+ * saltos de línea, y links. El LLM responde en Markdown; sin esto se veían los
+ * asteriscos y guiones crudos. Mismo criterio que el widget embebido.
+ */
+export function renderWithLinks(text: string): React.ReactNode[] {
+  const lines = String(text ?? "").split("\n");
+  const out: React.ReactNode[] = [];
+  lines.forEach((line, i) => {
+    if (i > 0) out.push(<br key={`br-${i}`} />);
+    const bullet = line.match(/^\s*[-*]\s+(.*)$/);
+    if (bullet) out.push("• ");
+    out.push(...applyBold(bullet ? bullet[1] : line, `l${i}`));
+  });
+  return out.length > 0 ? out : [text];
 }
