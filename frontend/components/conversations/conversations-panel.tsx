@@ -656,7 +656,7 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
                   <p className="text-xs text-muted-foreground truncate mt-0.5">
                     {[
                       detail.sector_nombre,
-                      detail.channel === "whatsapp" && detail.external_id ? `WhatsApp +${detail.external_id}` : null,
+                      detail.channel === "whatsapp" && detail.external_id ? `WhatsApp ${formatWaNumber(detail.external_id)}` : null,
                       detail.afiliado_dni   && `DNI ${detail.afiliado_dni}`,
                       detail.afiliado_email,
                       // IP solo si ya mostramos un nombre arriba (si no, el nombre YA es la IP)
@@ -1074,7 +1074,7 @@ function ConvCard({ conv, now, selected, readOnly, onlineNames, onSelect, onAcce
         <button onClick={onSelect} className="flex-1 min-w-0 text-left">
           <p className="text-sm font-medium leading-tight flex items-center gap-1.5 min-w-0">
             {conv.is_test && <span aria-label="Conversación de prueba" className="shrink-0 text-[10px] font-bold bg-primary/10 text-primary rounded px-1 py-0.5 uppercase tracking-wide">TEST</span>}
-            <span className="truncate min-w-0">{conv.afiliado_nombre || (conv.channel === "whatsapp" && conv.external_id ? `+${conv.external_id}` : (conv.afiliado_ip ? `IP ${conv.afiliado_ip}` : "Anónimo"))}</span>
+            <span className="truncate min-w-0">{conv.afiliado_nombre || (conv.channel === "whatsapp" && conv.external_id ? formatWaNumber(conv.external_id) : (conv.afiliado_ip ? `IP ${conv.afiliado_ip}` : "Anónimo"))}</span>
             {conv.channel === "whatsapp" && <span aria-label="WhatsApp" className="shrink-0 inline-flex items-center gap-0.5 text-[10px] font-semibold bg-green-600/10 text-green-700 rounded px-1.5 py-0.5"><MessageCircle className="h-2.5 w-2.5" />WA</span>}
           </p>
           <p className="text-[11px] text-muted-foreground truncate mt-0.5">
@@ -1238,6 +1238,15 @@ export function MessageBubble({ msg, conversationId }:
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
+
+// Formatea el wa_id de WhatsApp legible. AR móvil (549…): "+54 9 3400 154493".
+function formatWaNumber(id: string | null | undefined): string {
+  const d = (id ?? "").replace(/\D/g, "");
+  if (!d) return "";
+  if (d.startsWith("549") && d.length >= 9) return `+54 9 ${d.slice(3, 7)} ${d.slice(7)}`;
+  if (d.startsWith("54") && d.length >= 8) return `+54 ${d.slice(2, 6)} ${d.slice(6)}`;
+  return "+" + d;
+}
 
 function segmentAndSort(convs: ConversationRow[], now: number): Record<SectionKey, ConversationRow[]> {
   const out: Record<SectionKey, ConversationRow[]> = {
