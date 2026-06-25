@@ -23,12 +23,10 @@ export default function ChatPage() {
   return (
     <Suspense fallback={
       <div className="h-screen flex items-center justify-center bg-muted/40">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-brand-light to-brand-dark flex items-center justify-center shadow-lg shadow-black/20">
-            <Bot className="h-7 w-7 text-brand-foreground" />
-          </div>
-          <Loader2 className="h-5 w-5 animate-spin text-brand" />
-        </div>
+        {/* Spinner NEUTRO a propósito: el avatar con gradient de marca dependía del
+            branding (que aún no cargó) y el ícono parpadeaba violeta + trazo negro
+            antes de aplicar el color. Gris fijo = cero flash en el arranque. */}
+        <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
       </div>
     }>
       <ChatInner />
