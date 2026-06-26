@@ -243,26 +243,28 @@ async def list_conversations_history(
 
         sector_ids = [str(r[0]) for r in sector_result.all()]
 
-        if not sector_ids and not is_admin:
-            return {"items": [], "total": 0, "page": page, "page_size": page_size}
-
         where_clauses = []
         params: dict = {}
 
-        if sector_ids:
-            placeholders = ", ".join(f":sid_{i}" for i in range(len(sector_ids)))
-            where_clauses.append(f"c.sector_id::text IN ({placeholders})")
-            for i, sid in enumerate(sector_ids):
-                params[f"sid_{i}"] = sid
+        if is_admin:
+            # Admin: scope por sus sectores activos (todo el tenant).
+            if sector_ids:
+                placeholders = ", ".join(f":sid_{i}" for i in range(len(sector_ids)))
+                where_clauses.append(f"c.sector_id::text IN ({placeholders})")
+                for i, sid in enumerate(sector_ids):
+                    params[f"sid_{i}"] = sid
+        else:
+            # Operador: el historial es por PARTICIPACIÓN, no por asignación actual
+            # ni por sector actual. Así una conversación que atendió NO desaparece al
+            # volver al bot, soltarla, transferirla a otro sector o darlo de baja.
+            where_clauses.append(
+                "c.id IN (SELECT conversation_id FROM conversacion_operadores WHERE operador_id = :op_id)"
+            )
+            params["op_id"] = current_user.user_id
 
         if status_filter:
             where_clauses.append("c.status = :status")
             params["status"] = status_filter
-
-        # Operators see only their own conversations in history
-        if not is_admin:
-            where_clauses.append("c.assigned_operator_id = :op_id")
-            params["op_id"] = current_user.user_id
 
         if sector_id:
             where_clauses.append("c.sector_id = :sector_id")
@@ -350,15 +352,26 @@ async def get_conversation(
     current_user: CurrentUser = Depends(require_operator),
 ):
     """Full conversation history for the operator."""
-    scope_sql, scope_params = _operator_sector_scope(current_user, "c.sector_id")
+    # Acceso al detalle: conversaciones de su sector actual (para tomar de la cola)
+    # O en las que participó históricamente (aunque hoy estén en otro sector, con el
+    # bot o cerradas). Sin el OR de participación, el historial mostraría items que
+    # al abrirlos darían 404. Admins/super-admins ven todo el tenant (sin filtro).
+    if current_user.role in (Role.ADMIN, Role.SUPER_ADMIN):
+        access_sql, access_params = "", {}
+    else:
+        access_sql = (
+            " AND (c.sector_id IN (SELECT sector_id FROM operador_sectores WHERE operador_id = :op_id)"
+            " OR c.id IN (SELECT conversation_id FROM conversacion_operadores WHERE operador_id = :op_id))"
+        )
+        access_params = {"op_id": current_user.user_id}
     async with get_pg_session(tenant_id) as session:
         result = await session.execute(text(f"""
             SELECT c.*, s.nombre AS sector_nombre, u.name AS operator_name
             FROM conversaciones c
             LEFT JOIN sectores s ON s.id = c.sector_id
             LEFT JOIN usuarios u ON u.id = c.assigned_operator_id
-            WHERE c.id = :id{scope_sql}
-        """), {"id": conversation_id, **scope_params})
+            WHERE c.id = :id{access_sql}
+        """), {"id": conversation_id, **access_params})
         conv = result.mappings().fetchone()
         if not conv:
             # 404 (no 403) a propósito: no revelamos que la conversación existe en
@@ -450,6 +463,17 @@ async def accept_handoff(
             INSERT INTO mensajes (conversation_id, sender_type, content)
             VALUES (:cid, 'system', :msg)
         """), {"cid": conversation_id, "msg": msg})
+
+        # Registro histórico de participación (misma tx): esta fila NUNCA se borra,
+        # así la conversación queda en el historial del operador aunque después
+        # vuelva al bot, la suelte, se transfiera o lo den de baja. Idempotente:
+        # si re-acepta una que había soltado, reabre el tramo (last_released_at=NULL)
+        # conservando el first_assigned_at original.
+        await session.execute(text("""
+            INSERT INTO conversacion_operadores (conversation_id, operador_id, first_assigned_at, last_released_at)
+            VALUES (:cid, :op_id, NOW(), NULL)
+            ON CONFLICT (conversation_id, operador_id) DO UPDATE SET last_released_at = NULL
+        """), {"cid": conversation_id, "op_id": current_user.user_id})
 
     from services.handoff import reset_handoff_signals
     await reset_handoff_signals(conversation_id, tenant_id)
@@ -588,6 +612,14 @@ async def transfer(
                 detail="No se puede transferir: está cerrada, ya está en ese sector, no existe o no pertenece a tus sectores.",
             )
 
+        # Cierra el tramo del operador asignado (si current_user lo era) en el
+        # registro histórico. La conversación cambia de sector pero sigue en el
+        # historial de quien la atendió. No afecta a su historial.
+        await session.execute(text("""
+            UPDATE conversacion_operadores SET last_released_at = NOW()
+            WHERE conversation_id = :cid AND operador_id = :op_id AND last_released_at IS NULL
+        """), {"cid": conversation_id, "op_id": current_user.user_id})
+
         msg = body.message or config["transition_messages"].get("sector_transferred") or "Tu consulta fue derivada al área correspondiente."
         await session.execute(text("""
             INSERT INTO mensajes (conversation_id, sender_type, content)
@@ -647,6 +679,13 @@ async def release_to_queue(
         if not result.fetchone():
             raise HTTPException(status_code=400, detail="Conversation not assigned to this operator")
 
+        # Cierra el tramo de atención de este operador en el registro histórico
+        # (la fila persiste; sólo marcamos cuándo soltó). No afecta a su historial.
+        await session.execute(text("""
+            UPDATE conversacion_operadores SET last_released_at = NOW()
+            WHERE conversation_id = :cid AND operador_id = :op_id AND last_released_at IS NULL
+        """), {"cid": conversation_id, "op_id": current_user.user_id})
+
         # Reuse the same "connecting to an operator" message the user already
         # saw when they first entered the queue, to avoid surprise.
         msg = config["transition_messages"].get("handoff_auto") or "Te conectamos con un operador."
@@ -705,6 +744,13 @@ async def return_to_bot(
                 status_code=400,
                 detail="La conversación no está asignada a este operador o no está en atención humana.",
             )
+
+        # Cierra el tramo de atención de este operador en el registro histórico
+        # (la fila persiste; sólo marcamos cuándo soltó). No afecta a su historial.
+        await session.execute(text("""
+            UPDATE conversacion_operadores SET last_released_at = NOW()
+            WHERE conversation_id = :cid AND operador_id = :op_id AND last_released_at IS NULL
+        """), {"cid": conversation_id, "op_id": current_user.user_id})
 
         # Mensaje para el afiliado: el bot vuelve a estar disponible.
         # Hardcoded de momento — si en el futuro el admin quiere personalizarlo,

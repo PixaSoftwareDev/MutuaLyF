@@ -139,6 +139,20 @@ CREATE INDEX IF NOT EXISTS ix_conversaciones_status  ON conversaciones (status, 
 CREATE INDEX IF NOT EXISTS ix_conversaciones_sector  ON conversaciones (sector_id, status);
 CREATE INDEX IF NOT EXISTS ix_conversaciones_channel_ext ON conversaciones (channel, external_id) WHERE external_id IS NOT NULL;
 
+-- Registro histórico de participación operador↔conversación. Una fila por cada
+-- operador que ATENDIÓ la conversación; inmutable e independiente del estado actual
+-- (assigned_operator_id es routing "ahora", esto es historial "quién atendió").
+-- Sin esto, volver al bot / soltar / transferir / dar de baja al operador borraba
+-- la conversación del historial de quien la atendió.
+CREATE TABLE IF NOT EXISTS conversacion_operadores (
+    conversation_id   UUID NOT NULL REFERENCES conversaciones(id) ON DELETE CASCADE,
+    operador_id       UUID NOT NULL REFERENCES usuarios(id),
+    first_assigned_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),  -- cuándo la tomó por 1ª vez
+    last_released_at  TIMESTAMPTZ,                          -- cuándo la soltó (NULL = sigue atendiéndola)
+    PRIMARY KEY (conversation_id, operador_id)
+);
+CREATE INDEX IF NOT EXISTS ix_conv_operadores_operador ON conversacion_operadores (operador_id, first_assigned_at DESC);
+
 CREATE TABLE IF NOT EXISTS mensajes (
     id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     conversation_id  UUID NOT NULL REFERENCES conversaciones(id) ON DELETE CASCADE,
