@@ -746,7 +746,7 @@ function ChatInner() {
                 if (m.role === "system")   return <SystemBubble   key={m.id} content={m.content} />;
                 return                            <BotBubble      key={m.id} content={m.content} />;
               })}
-              {sending && <TypingIndicator />}
+              {sending && status === "bot_active" && <TypingIndicator />}
             </>
           )}
 

@@ -620,7 +620,8 @@
   function _sendMessage(question) {
     _appendMessage("user", question);
     sendBtn.disabled = true; inputEl.disabled = true;
-    _showTyping();
+    // El typing es del bot: solo si el bot va a responder (no cuando atiende un operador).
+    if (convStatus === "bot_active") _showTyping();
 
     fetch(API_BASE + "/api/v1/widget/conversation/" + conversationId + "/message", {
       method: "POST", headers: _headers(),
