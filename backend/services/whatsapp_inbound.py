@@ -409,11 +409,10 @@ async def process_incoming_message(account: WhatsAppAccount, value: dict, messag
                 bot_answer = "Lo siento, ocurrió un error. Intentá de nuevo en un momento."
                 sources = []
 
-        await _insert_message(tenant_id, conv_id, "bot", bot_answer)
-        await send_text(account, wa_id, bot_answer)
-
-        # Evaluación de derivación — misma regla que el widget. En WhatsApp la
-        # oferta es texto plano y se confirma respondiendo "OPERADOR".
+        # Evaluación de derivación — misma regla que el widget. Se evalúa ANTES de
+        # enviar el bot_answer: si se va a mostrar la oferta de operador, el genérico
+        # ("no pude / fuera de mi área") es redundante con la oferta y no se envía.
+        # En WhatsApp la oferta es texto plano y se confirma respondiendo "OPERADOR".
         signal = await evaluate_handoff(
             conversation_id=conv_id,
             tenant_id=tenant_id,
@@ -421,14 +420,22 @@ async def process_incoming_message(account: WhatsAppAccount, value: dict, messag
             sources=sources,
             bot_answer=bot_answer,
         )
-        if signal.trigger != HandoffTrigger.NONE:
-            from services.handoff import has_online_operators, build_no_operators_message, _get_handoff_config, _mark_offer_pending
-            if await has_online_operators(tenant_id, conv_sector_id):
-                offer = f"{signal.offer_message}\n\nRespondé *OPERADOR* para hablar con una persona."
-                await _insert_message(tenant_id, conv_id, "system", offer, is_handoff_offer=True)
-                await send_text(account, wa_id, offer)
-                await _mark_offer_pending(conv_id)  # cooldown 90s SOLO al mostrar el cartel
-            else:
+        from services.handoff import has_online_operators, build_no_operators_message, _get_handoff_config, _mark_offer_pending
+        offer_with_operators = (
+            signal.trigger != HandoffTrigger.NONE
+            and await has_online_operators(tenant_id, conv_sector_id)
+        )
+        if offer_with_operators:
+            # Oferta de operador: el bot_answer genérico es redundante → no se envía.
+            offer = f"{signal.offer_message}\n\nRespondé *OPERADOR* para hablar con una persona."
+            await _insert_message(tenant_id, conv_id, "system", offer, is_handoff_offer=True)
+            await send_text(account, wa_id, offer)
+            await _mark_offer_pending(conv_id)  # cooldown 90s SOLO al mostrar el cartel
+        else:
+            await _insert_message(tenant_id, conv_id, "bot", bot_answer)
+            await send_text(account, wa_id, bot_answer)
+            if signal.trigger != HandoffTrigger.NONE:
+                # Deriva pero sin operadores: el genérico aporta contexto al aviso.
                 cfg = await _get_handoff_config(tenant_id)
                 msg = build_no_operators_message(cfg)
                 await _insert_message(tenant_id, conv_id, "system", msg)

@@ -315,14 +315,9 @@ async def send_message(
             bot_answer = "Lo siento, ocurrió un error. Intentá de nuevo en un momento."
             sources = []
 
-    bot_msg_id = str(uuid.uuid4())
-    async with get_pg_session(tenant_id) as session:
-        await session.execute(text("""
-            INSERT INTO mensajes (id, conversation_id, sender_type, content)
-            VALUES (:id, :cid, 'bot', :content)
-        """), {"id": bot_msg_id, "cid": conversation_id, "content": bot_answer})
-    await _publish_event(tenant_id, "new_message", {"conversation_id": conversation_id})
-
+    # Se evalúa el handoff ANTES de persistir la respuesta del bot: si se va a
+    # mostrar la oferta de operador, el bot_answer genérico ("no pude / fuera de
+    # mi área") es redundante con la oferta y NO se inserta ni se devuelve.
     signal = await evaluate_handoff(
         conversation_id=conversation_id,
         tenant_id=tenant_id,
@@ -331,22 +326,43 @@ async def send_message(
         bot_answer=bot_answer,
     )
 
+    bot_msg_id = None
     handoff_message = None
     handoff_offered = False
-    if signal.trigger != HandoffTrigger.NONE:
-        from services.handoff import has_online_operators, build_no_operators_message, _get_handoff_config, _mark_offer_pending
-        if await has_online_operators(tenant_id, conv_sector_id):
-            # Hay operadores conectados → ofrecer derivación (cartel con botón).
-            async with get_pg_session(tenant_id) as session:
-                await session.execute(text("""
-                    INSERT INTO mensajes (conversation_id, sender_type, content, is_handoff_offer)
-                    VALUES (:cid, 'system', :msg, TRUE)
-                """), {"cid": conversation_id, "msg": signal.offer_message})
-            await _publish_event(tenant_id, "new_message", {"conversation_id": conversation_id})
-            await _mark_offer_pending(conversation_id)  # cooldown 90s SOLO al mostrar el cartel
-            handoff_message = signal.offer_message
-            handoff_offered = True
-        else:
+    suppress_bot = False  # se suprime el genérico SOLO cuando se muestra la oferta
+
+    from services.handoff import (
+        has_online_operators, build_no_operators_message, _get_handoff_config, _mark_offer_pending,
+    )
+    offer_with_operators = (
+        signal.trigger != HandoffTrigger.NONE
+        and await has_online_operators(tenant_id, conv_sector_id)
+    )
+
+    if offer_with_operators:
+        # Hay operadores conectados → cartel con botón. El bot_answer no se persiste.
+        async with get_pg_session(tenant_id) as session:
+            await session.execute(text("""
+                INSERT INTO mensajes (conversation_id, sender_type, content, is_handoff_offer)
+                VALUES (:cid, 'system', :msg, TRUE)
+            """), {"cid": conversation_id, "msg": signal.offer_message})
+        await _publish_event(tenant_id, "new_message", {"conversation_id": conversation_id})
+        await _mark_offer_pending(conversation_id)  # cooldown 90s SOLO al mostrar el cartel
+        handoff_message = signal.offer_message
+        handoff_offered = True
+        suppress_bot = True
+    else:
+        # Respuesta normal del bot. Incluye el caso "deriva pero sin operadores":
+        # ahí el genérico sí aporta contexto al aviso de no-disponibilidad.
+        bot_msg_id = str(uuid.uuid4())
+        async with get_pg_session(tenant_id) as session:
+            await session.execute(text("""
+                INSERT INTO mensajes (id, conversation_id, sender_type, content)
+                VALUES (:id, :cid, 'bot', :content)
+            """), {"id": bot_msg_id, "cid": conversation_id, "content": bot_answer})
+        await _publish_event(tenant_id, "new_message", {"conversation_id": conversation_id})
+
+        if signal.trigger != HandoffTrigger.NONE:
             # Sin operadores online → no derivar a una cola vacía. Avisar y, si está
             # configurado, indicar el horario de atención del tenant.
             cfg = await _get_handoff_config(tenant_id)
@@ -361,7 +377,7 @@ async def send_message(
     return {
         "message_id": bot_msg_id,
         "status": conv_status,
-        "bot_response": bot_answer,
+        "bot_response": None if suppress_bot else bot_answer,
         "sources_count": len(sources),
         "handoff_offered": handoff_offered,
         "handoff_activated": False,  # nunca auto-activa — el afiliado siempre confirma
