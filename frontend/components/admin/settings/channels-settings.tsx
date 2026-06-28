@@ -1,10 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Loader2, Copy, Check, RefreshCw, Key, Globe, MessageCircle,
-  PlugZap, Pause, Play, Trash2, AlertTriangle, MoreVertical, Pencil,
+  PlugZap, Pause, Play, Trash2, AlertTriangle, MoreVertical, Pencil, Eye, EyeOff,
 } from "lucide-react";
 import { api, type ChannelsState } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
@@ -52,6 +52,50 @@ function CopyField({ label, value }: { label: string; value: string }) {
       <Label>{label}</Label>
       <div className="flex items-center gap-2">
         <code className="flex-1 text-xs bg-muted rounded-lg px-3 py-2 break-all font-mono">{value}</code>
+        <Button
+          size="icon" variant="outline" className="h-8 w-8 shrink-0"
+          aria-label={`Copiar ${label}`}
+          onClick={() => {
+            navigator.clipboard.writeText(value);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+            toast({ title: "Copiado al portapapeles", variant: "success" });
+          }}
+        >
+          {copied ? <Check className="h-3.5 w-3.5 text-success" /> : <Copy className="h-3.5 w-3.5" />}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// Campo sensible: enmascarado por defecto, se revela un rato (auto-oculta a los
+// 20s) y se puede copiar SIN revelar. El enmascarado es protección anti-mirada,
+// no seguridad real (el valor igual viaja al cliente).
+function SecretField({ label, value }: { label: string; value: string }) {
+  const [revealed, setRevealed] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (!revealed) return;
+    const t = setTimeout(() => setRevealed(false), 20_000);
+    return () => clearTimeout(t);
+  }, [revealed]);
+
+  return (
+    <div className="space-y-1.5">
+      <Label>{label}</Label>
+      <div className="flex items-center gap-2">
+        <code className="flex-1 text-xs bg-muted rounded-lg px-3 py-2 break-all font-mono">
+          {revealed ? value : "•".repeat(24)}
+        </code>
+        <Button
+          size="icon" variant="outline" className="h-8 w-8 shrink-0"
+          aria-label={revealed ? "Ocultar" : "Revelar"}
+          onClick={() => setRevealed(v => !v)}
+        >
+          {revealed ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+        </Button>
         <Button
           size="icon" variant="outline" className="h-8 w-8 shrink-0"
           aria-label={`Copiar ${label}`}
@@ -469,7 +513,7 @@ function WhatsAppCard({ channels, onChanged }: { channels: ChannelsState; onChan
             {/* Datos para configurar el webhook en Meta */}
             <div className="grid gap-4 sm:grid-cols-2">
               <CopyField label="URL del webhook (pegala en Meta)" value={channels.webhook_url} />
-              <CopyField label="Verify token" value={wa.verify_token} />
+              <SecretField label="Verify token" value={wa.verify_token} />
             </div>
 
             <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-xs text-muted-foreground">
