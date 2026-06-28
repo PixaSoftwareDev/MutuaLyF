@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Loader2, Copy, Check, RefreshCw, Key, Globe, MessageCircle,
-  PlugZap, Pause, Play, Trash2, AlertTriangle, MoreVertical, Pencil, Eye, EyeOff,
+  PlugZap, Pause, Play, Trash2, AlertTriangle, MoreVertical, Pencil, Eye, EyeOff, Lock,
 } from "lucide-react";
 import { api, type ChannelsState } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
@@ -110,6 +110,15 @@ function SecretField({ label, value }: { label: string; value: string }) {
         </Button>
       </div>
     </div>
+  );
+}
+
+// Badge para un secreto ya cargado: comunica "está guardado, oculto por seguridad".
+function SavedBadge({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/50 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+      <Lock className="h-2.5 w-2.5" /> {children}
+    </span>
   );
 }
 
@@ -484,24 +493,29 @@ function WhatsAppCard({ channels, onChanged }: { channels: ChannelsState; onChan
                        placeholder="ID de la cuenta de WhatsApp Business" className="font-mono" />
               </div>
               <div className="space-y-1.5 sm:col-span-2">
-                <Label htmlFor="wa-token">
+                <Label htmlFor="wa-token" className="flex items-center gap-2">
                   Token de acceso permanente
-                  {editing && <span className="font-normal text-muted-foreground"> — dejá vacío para mantener el actual</span>}
+                  {editing && <SavedBadge>Guardado</SavedBadge>}
                 </Label>
                 <Input id="wa-token" type="password" value={accessToken} onChange={e => setAccessToken(e.target.value)}
-                       placeholder={editing ? "•••••••••• (guardado)" : "EAAG…"} autoComplete="off" className="font-mono" />
+                       placeholder={editing ? "••••••••••••••••" : "EAAG…"} autoComplete="off" className="font-mono" />
               </div>
               <div className="space-y-1.5 sm:col-span-2">
-                <Label htmlFor="wa-secret">
-                  App secret <span className="font-normal text-muted-foreground">
-                    (recomendado — firma los webhooks){editing && wa?.has_app_secret && " — dejá vacío para mantener la actual"}
-                  </span>
+                <Label htmlFor="wa-secret" className="flex items-center gap-2 flex-wrap">
+                  <span>App secret <span className="font-normal text-muted-foreground">(recomendado — firma los webhooks)</span></span>
+                  {editing && wa?.has_app_secret && <SavedBadge>Guardada</SavedBadge>}
                 </Label>
                 <Input id="wa-secret" type="password" value={appSecret} onChange={e => setAppSecret(e.target.value)}
-                       placeholder={editing && wa?.has_app_secret ? "•••••••••• (guardada)" : "Configuración de la app → Básica → Clave secreta"}
+                       placeholder={editing && wa?.has_app_secret ? "••••••••••••••••" : "Configuración de la app → Básica → Clave secreta"}
                        autoComplete="off" className="font-mono" />
               </div>
             </div>
+
+            {editing && (
+              <p className="text-[11px] text-muted-foreground">
+                Los valores guardados se ocultan por seguridad. Dejá el campo vacío para conservarlos.
+              </p>
+            )}
 
             <div className="flex justify-end gap-2">
               {editing && (
