@@ -498,16 +498,18 @@ function WhatsAppCard({ channels, onChanged }: { channels: ChannelsState; onChan
                   {editing && <SavedBadge>Guardado</SavedBadge>}
                 </Label>
                 <Input id="wa-token" type="password" value={accessToken} onChange={e => setAccessToken(e.target.value)}
-                       placeholder={editing ? "••••••••••••••••" : "EAAG…"} autoComplete="off" className="font-mono" />
+                       placeholder={editing ? "••••••••••••••••••••" : "EAAG…"} autoComplete="off"
+                       className={cn("font-mono", editing && "placeholder:text-foreground/75 placeholder:tracking-wider")} />
               </div>
               <div className="space-y-1.5 sm:col-span-2">
                 <Label htmlFor="wa-secret" className="flex items-center gap-2 flex-wrap">
-                  <span>App secret <span className="font-normal text-muted-foreground">(recomendado — firma los webhooks)</span></span>
+                  App secret
                   {editing && wa?.has_app_secret && <SavedBadge>Guardada</SavedBadge>}
                 </Label>
                 <Input id="wa-secret" type="password" value={appSecret} onChange={e => setAppSecret(e.target.value)}
-                       placeholder={editing && wa?.has_app_secret ? "••••••••••••••••" : "Configuración de la app → Básica → Clave secreta"}
-                       autoComplete="off" className="font-mono" />
+                       placeholder={editing && wa?.has_app_secret ? "••••••••••••••••••••" : "Configuración de la app → Básica → Clave secreta"}
+                       autoComplete="off"
+                       className={cn("font-mono", editing && wa?.has_app_secret && "placeholder:text-foreground/75 placeholder:tracking-wider")} />
               </div>
             </div>
 
