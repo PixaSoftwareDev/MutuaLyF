@@ -4,11 +4,15 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Loader2, Copy, Check, RefreshCw, Key, Globe, MessageCircle,
-  PlugZap, Pause, Play, Trash2, AlertTriangle,
+  PlugZap, Pause, Play, Trash2, AlertTriangle, MoreVertical, Pencil,
 } from "lucide-react";
 import { api, type ChannelsState } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent,
+  DropdownMenuItem, DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -173,56 +177,47 @@ function WidgetCard({ channels, onChanged }: { channels: ChannelsState; onChange
               </p>
             </div>
           </div>
-          <Button
-            variant="outline" size="sm" className="shrink-0"
-            onClick={() => toggleM.mutate()}
-            disabled={toggleM.isPending}
-          >
-            {toggleM.isPending
-              ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
-              : enabled ? <Pause className="h-4 w-4 mr-1.5" /> : <Play className="h-4 w-4 mr-1.5" />}
-            {enabled ? "Desactivar" : "Activar"}
-          </Button>
+          <div className="flex items-center gap-2 shrink-0">
+            <Button
+              variant="outline" size="sm"
+              onClick={() => toggleM.mutate()}
+              disabled={toggleM.isPending}
+            >
+              {toggleM.isPending
+                ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+                : enabled ? <Pause className="h-4 w-4 mr-1.5" /> : <Play className="h-4 w-4 mr-1.5" />}
+              {enabled ? "Desactivar" : "Activar"}
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0" aria-label="Acciones del canal">
+                  <MoreVertical className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-52">
+                {channels.widget.has_token && !widgetToken && (
+                  <DropdownMenuItem onSelect={() => showM.mutate()} disabled={showM.isPending}>
+                    <Copy className="h-4 w-4 mr-2" /> Mostrar token
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuItem onSelect={() => tokenM.mutate()} disabled={tokenM.isPending}>
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                  {widgetToken || channels.widget.has_token ? "Regenerar token" : "Generar token"}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-xl border bg-muted/30 px-4 py-3">
-          <div className="min-w-0">
-            <p className="text-sm font-medium flex items-center gap-1.5">
-              <Key className="h-4 w-4 text-muted-foreground" /> Token e instalación
-            </p>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Generá el token y pegá el snippet en tu web para incrustar el asistente.
+        {!widgetToken && (
+          <div className="flex items-center gap-3 rounded-xl border bg-muted/30 px-4 py-3">
+            <Key className="h-4 w-4 text-muted-foreground shrink-0" />
+            <p className="text-xs text-muted-foreground">
+              Generá o mostrá el token desde el menú <span className="font-medium text-foreground/70">⋮</span> y pegá el snippet en tu web para incrustar el asistente.
             </p>
           </div>
-          <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto">
-            {channels.widget.has_token && !widgetToken && (
-              <Button
-                size="sm" variant="default"
-                onClick={() => showM.mutate()}
-                disabled={showM.isPending}
-                className="group"
-              >
-                {showM.isPending
-                  ? <Loader2 className="h-4 w-4 animate-spin mr-1" />
-                  : <Copy className="h-4 w-4 mr-1" />}
-                Mostrar token
-              </Button>
-            )}
-            <Button
-              size="sm"
-              variant={(widgetToken || channels.widget.has_token) ? "outline" : "default"}
-              onClick={() => tokenM.mutate()}
-              disabled={tokenM.isPending}
-              className="group"
-            >
-              {tokenM.isPending
-                ? <Loader2 className="h-4 w-4 animate-spin mr-1" />
-                : <RefreshCw className="h-4 w-4 mr-1 transition-transform duration-500 group-hover:rotate-180" />}
-              {widgetToken || channels.widget.has_token ? "Regenerar token" : "Generar token"}
-            </Button>
-          </div>
-        </div>
+        )}
 
         {widgetToken && widgetScript && (
           <>
@@ -336,6 +331,19 @@ function WhatsAppCard({ channels, onChanged }: { channels: ChannelsState; onChan
     ? <StatePill tone="destructive">Error</StatePill>
     : <StatePill tone="warning">Pendiente de prueba</StatePill>;
 
+  // Mientras el canal no esté probado (pendiente/error), "Probar conexión" es el
+  // paso previo obligatorio para activar → queda visible afuera (no escondido en el
+  // menú), para no romper el onboarding. Una vez probado, pasa al menú ⋮.
+  const needsTest = !!wa && !wa.enabled && wa.status !== "active";
+
+  const startEditing = () => {
+    if (!wa) return;
+    setPhoneNumberId(wa.phone_number_id);
+    setWabaId(wa.waba_id ?? "");
+    setAccessToken(""); setAppSecret("");
+    setEditing(true);
+  };
+
   return (
     <Card className="rounded-2xl">
       <CardHeader className="pb-3">
@@ -358,10 +366,12 @@ function WhatsAppCard({ channels, onChanged }: { channels: ChannelsState; onChan
           </div>
           {wa && !showForm && (
             <div className="flex items-center gap-2 shrink-0">
-              <Button variant="outline" size="sm" onClick={() => testM.mutate()} disabled={testM.isPending}>
-                {testM.isPending ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <PlugZap className="h-4 w-4 mr-1.5" />}
-                Probar conexión
-              </Button>
+              {needsTest && (
+                <Button variant="outline" size="sm" onClick={() => testM.mutate()} disabled={testM.isPending}>
+                  {testM.isPending ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <PlugZap className="h-4 w-4 mr-1.5" />}
+                  Probar conexión
+                </Button>
+              )}
               <Button
                 size="sm"
                 variant={wa.enabled ? "outline" : "default"}
@@ -378,6 +388,30 @@ function WhatsAppCard({ channels, onChanged }: { channels: ChannelsState; onChan
                   : wa.enabled ? <Pause className="h-4 w-4 mr-1.5" /> : <Play className="h-4 w-4 mr-1.5" />}
                 {wa.enabled ? "Pausar" : "Activar"}
               </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0" aria-label="Acciones del canal">
+                    <MoreVertical className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56">
+                  {!needsTest && (
+                    <DropdownMenuItem onSelect={() => testM.mutate()} disabled={testM.isPending}>
+                      <PlugZap className="h-4 w-4 mr-2" /> Probar conexión
+                    </DropdownMenuItem>
+                  )}
+                  <DropdownMenuItem onSelect={startEditing}>
+                    <Pencil className="h-4 w-4 mr-2" /> Editar credenciales
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onSelect={() => setConfirmDelete(true)}
+                    className="text-destructive focus:text-destructive"
+                  >
+                    <Trash2 className="h-4 w-4 mr-2" /> Eliminar configuración
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           )}
         </div>
@@ -449,24 +483,6 @@ function WhatsAppCard({ channels, onChanged }: { channels: ChannelsState; onChan
                   <AlertTriangle className="h-3.5 w-3.5" /> Sin app secret: los webhooks no se validan por firma.
                 </span>
               )}
-            </div>
-
-            <div className="flex items-center justify-between gap-4 pt-1 border-t border-border/60">
-              <Button
-                variant="ghost" size="sm"
-                className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                onClick={() => setConfirmDelete(true)}
-              >
-                <Trash2 className="h-4 w-4 mr-1.5" /> Eliminar configuración
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => {
-                setPhoneNumberId(wa.phone_number_id);
-                setWabaId(wa.waba_id ?? "");
-                setAccessToken(""); setAppSecret("");
-                setEditing(true);
-              }}>
-                Editar credenciales
-              </Button>
             </div>
           </>
         )}
