@@ -1145,7 +1145,7 @@ function ConvCard({ conv, now, selected, readOnly, onlineNames, onSelect, onAcce
           </span>
 
           {showUnread && (
-            <span className="bg-foreground/85 text-background rounded-full text-[10px] min-w-4 h-4 px-1 flex items-center justify-center font-semibold">
+            <span className="bg-action text-action-foreground rounded-full text-[10px] min-w-4 h-4 px-1 flex items-center justify-center font-semibold">
               {conv.unread_count > 9 ? "9+" : conv.unread_count}
             </span>
           )}
