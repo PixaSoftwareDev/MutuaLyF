@@ -37,6 +37,27 @@ const SECTION_DEFS: Array<{ key: SectionKey; label: string; tone: string; badge:
 
 export type ConversationsPanelMode = "operator" | "admin-readonly";
 
+// ── Sonidos de notificación (Web Audio) ───────────────────────────────────────
+// Se libera el AudioContext al terminar: el browser limita ~6 simultáneos; sin
+// cerrarlos, tras varias notificaciones el beep deja de sonar.
+function _playTone(steps: Array<[number, number]>, peak: number, durationS: number) {
+  try {
+    const ctx  = new AudioContext();
+    const osc  = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    steps.forEach(([freq, at]) => osc.frequency.setValueAtTime(freq, ctx.currentTime + at));
+    gain.gain.setValueAtTime(peak, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + durationS);
+    osc.start(); osc.stop(ctx.currentTime + durationS);
+    osc.onended = () => { ctx.close().catch(() => {}); };
+  } catch { /* bloqueado hasta que haya interacción del usuario */ }
+}
+// Nueva derivación entrante: dos tonos, más presente.
+function playHandoffBeep() { _playTone([[880, 0], [660, 0.12]], 0.25, 0.45); }
+// Mensaje nuevo en una conversación que ya atendés: un solo tono, corto y suave.
+function playMessageBeep() { _playTone([[520, 0]], 0.10, 0.16); }
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
@@ -54,6 +75,11 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
   const textareaRef    = useRef<HTMLTextAreaElement>(null);
   const fileInputRef   = useRef<HTMLInputElement>(null);
   const handoffIds     = useRef<Set<string>>(new Set());
+  // Último unread_count visto por conversación atendida, para detectar mensajes
+  // nuevos y sonar aunque el operador no la tenga abierta. unreadInit evita sonar
+  // por el estado inicial al cargar la página.
+  const unreadSeen     = useRef<Map<string, number>>(new Map());
+  const unreadInit     = useRef(false);
   const readOnly = mode === "admin-readonly";
 
   // Adjunto pendiente: el operador elige el archivo y lo PREVISUALIZA antes de
@@ -176,25 +202,42 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
           tag: c.id,
         });
       }
-      try {
-        const ctx  = new AudioContext();
-        const osc  = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.connect(gain); gain.connect(ctx.destination);
-        osc.frequency.setValueAtTime(880, ctx.currentTime);
-        osc.frequency.setValueAtTime(660, ctx.currentTime + 0.12);
-        gain.gain.setValueAtTime(0.25, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.45);
-        osc.start(); osc.stop(ctx.currentTime + 0.45);
-        // Liberar el contexto al terminar: el browser limita ~6 AudioContext
-        // simultaneos; sin cerrar, tras varias derivaciones el beep deja de sonar.
-        osc.onended = () => { ctx.close().catch(() => {}); };
-      } catch { /* blocked until user interaction */ }
+      playHandoffBeep();
     });
 
     const activeIds = new Set(waiting.map(c => c.id));
     handoffIds.current.forEach(id => { if (!activeIds.has(id)) handoffIds.current.delete(id); });
   }, [data, mode]);
+
+  // ── Sonido en mensaje nuevo de una conversación que atendés pero no tenés abierta ──
+
+  useEffect(() => {
+    if (mode !== "operator") return;
+    const all: ConversationRow[] = data?.sectors.flatMap((s: any) => s.conversations) ?? [];
+    const attending = all.filter(c => c.status === "human_attending");
+
+    if (unreadInit.current) {
+      attending.forEach(c => {
+        const prev = unreadSeen.current.get(c.id) ?? 0;
+        // Mensaje nuevo (subió el no-leído) en una conversación que NO es la abierta.
+        if (c.unread_count > prev && c.id !== selectedId) {
+          if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+            new Notification("Nuevo mensaje", {
+              body: `${c.afiliado_nombre || "Usuario"} te escribió`,
+              icon: "/favicon.ico",
+              tag: c.id,
+            });
+          }
+          playMessageBeep();
+        }
+      });
+    }
+
+    const next = new Map<string, number>();
+    attending.forEach(c => next.set(c.id, c.unread_count));
+    unreadSeen.current = next;
+    unreadInit.current = true;
+  }, [data, mode, selectedId]);
 
   // ── Mutations ──────────────────────────────────────────────────────────────
 
