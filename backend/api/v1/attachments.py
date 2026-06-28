@@ -95,7 +95,9 @@ async def _validate_and_store(file: UploadFile, tenant_id: str, conversation_id:
         )
     await asyncio.to_thread(_upload)
 
-    return {"key": key, "name": safe_name, "mime": real_mime, "size": len(content)}
+    # `content` se incluye para poder reenviar el adjunto a canales salientes
+    # (WhatsApp) sin re-bajarlo de MinIO. Los callers que no lo usan lo ignoran.
+    return {"key": key, "name": safe_name, "mime": real_mime, "size": len(content), "content": content}
 
 
 async def store_attachment_bytes(
@@ -229,6 +231,18 @@ async def operator_upload_attachment(
     meta = await _validate_and_store(file, tenant_id, conversation_id)
     msg_id = await _insert_attachment_message(tenant_id, conversation_id, "operator", meta)
     await _publish_event(tenant_id, "new_message", {"conversation_id": conversation_id, "sender": "operator"})
+
+    # Si la conversación es de WhatsApp, reenviar el adjunto al cliente por Meta.
+    # Fire-and-forget: la entrega al panel no depende de que Meta responda (espeja
+    # al relay de texto en el endpoint de reply del operador).
+    from services.whatsapp import relay_attachment_to_whatsapp
+    from core.audit import fire_and_log
+    fire_and_log(
+        relay_attachment_to_whatsapp(
+            tenant_id, conversation_id, meta["content"], meta["name"], meta["mime"], msg_id,
+        ),
+        "whatsapp.relay_attachment",
+    )
     return {"message_id": msg_id, "attachment_name": meta["name"], "attachment_mime": meta["mime"]}
 
 

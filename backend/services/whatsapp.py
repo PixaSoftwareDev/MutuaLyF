@@ -359,6 +359,96 @@ async def relay_to_whatsapp(tenant_id: str, conversation_id: str, content: str, 
         logger.exception("whatsapp_relay_error tenant=%s conv=%s", tenant_id, conversation_id)
 
 
+# ── Media saliente (operador → cliente) ───────────────────────────────────────
+
+async def upload_media(account: "WhatsAppAccount", content: bytes, filename: str, mime: str) -> str | None:
+    """Sube un archivo a Meta (POST /{phone_number_id}/media) y devuelve el media_id,
+    o None si falla. El media_id es de un solo uso y vive ~30 días en Meta."""
+    url = f"{GRAPH_BASE}/{account.phone_number_id}/media"
+    headers = {"Authorization": f"Bearer {account.access_token}"}
+    try:
+        resp = await _get_client().post(
+            url, headers=headers,
+            data={"messaging_product": "whatsapp", "type": mime},
+            files={"file": (filename or "archivo", content, mime)},
+            timeout=30.0,  # subir hasta 10 MB puede tardar más que un mensaje de texto
+        )
+    except httpx.HTTPError as exc:
+        logger.error("whatsapp_upload_media_failed tenant=%s error=%r", account.tenant_id, exc)
+        return None
+    if resp.status_code >= 300:
+        logger.error("whatsapp_upload_media_failed tenant=%s http=%s body=%s",
+                     account.tenant_id, resp.status_code, resp.text[:300])
+        return None
+    return (resp.json() or {}).get("id")
+
+
+async def send_media(account: "WhatsAppAccount", to_wa_id: str, media_id: str,
+                     mime: str, filename: str | None = None) -> str | None:
+    """Envía un media ya subido (media_id). Imagen → type 'image'; PDF → 'document'
+    (con filename para que el cliente vea el nombre). Devuelve el wamid o None."""
+    to = _normalize_recipient(to_wa_id)
+    if mime.startswith("image/"):
+        payload = {
+            "messaging_product": "whatsapp", "recipient_type": "individual",
+            "to": to, "type": "image", "image": {"id": media_id},
+        }
+    else:  # application/pdf y demás → documento
+        payload = {
+            "messaging_product": "whatsapp", "recipient_type": "individual",
+            "to": to, "type": "document",
+            "document": {"id": media_id, "filename": filename or "archivo"},
+        }
+    return await _post_message(account, payload)
+
+
+async def relay_attachment_to_whatsapp(
+    tenant_id: str, conversation_id: str, content: bytes, filename: str, mime: str,
+    message_id: str | None = None,
+) -> None:
+    """Reenvía un adjunto del operador al cliente por WhatsApp (sube a Meta + envía).
+    No-op silencioso si la conversación no es de WhatsApp. Espeja a relay_to_whatsapp:
+    si Meta falla, deja un aviso visible para que el operador no crea que llegó."""
+    try:
+        async with get_pg_session(tenant_id) as session:
+            row = (await session.execute(
+                text("SELECT channel, external_id FROM conversaciones WHERE id = :cid"),
+                {"cid": conversation_id},
+            )).mappings().fetchone()
+        if not row or row["channel"] != "whatsapp" or not row["external_id"]:
+            return
+        account = await get_account_by_tenant(tenant_id)
+        if not account or not account.enabled:
+            logger.warning("whatsapp_relay_attachment_skipped tenant=%s conv=%s (cuenta no activa)",
+                           tenant_id, conversation_id)
+            return
+
+        media_id = await upload_media(account, content, filename, mime)
+        wamid = await send_media(account, row["external_id"], media_id, mime, filename) if media_id else None
+
+        if wamid is None:
+            import uuid as _uuid
+            notice = ("⚠️ Este archivo no pudo entregarse por WhatsApp. Suele pasar cuando pasaron "
+                      "más de 24 h sin que el cliente escriba (límite de WhatsApp) o venció el token.")
+            async with get_pg_session(tenant_id) as session:
+                await session.execute(text(
+                    "INSERT INTO mensajes (id, conversation_id, sender_type, content) "
+                    "VALUES (:id, :cid, 'system', :c)"
+                ), {"id": str(_uuid.uuid4()), "cid": conversation_id, "c": notice})
+            try:
+                from api.v1.attachments import _publish_event
+                await _publish_event(tenant_id, "new_message", {"conversation_id": conversation_id})
+            except Exception:
+                pass
+        elif message_id:
+            async with get_pg_session(tenant_id) as session:
+                await session.execute(text(
+                    "UPDATE mensajes SET external_message_id = :w, delivery_status = 'sent' WHERE id = :id"
+                ), {"w": wamid, "id": message_id})
+    except Exception:
+        logger.exception("whatsapp_relay_attachment_error tenant=%s conv=%s", tenant_id, conversation_id)
+
+
 _STATUS_RANK = {"sent": 1, "delivered": 2, "read": 3, "failed": 1}
 
 
