@@ -1105,8 +1105,8 @@ export const api = {
     saveWhatsApp: async (payload: {
       phone_number_id: string;
       waba_id?: string | null;
-      access_token: string;
-      app_secret?: string | null;
+      access_token?: string | null;  // vacío en edición = mantener el guardado
+      app_secret?: string | null;    // vacío = mantener el guardado
     }): Promise<{ status: string; verify_token: string; webhook_url: string }> => {
       const { data } = await apiClient.put("/admin/channels/whatsapp", payload);
       return data;

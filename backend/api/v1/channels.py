@@ -196,7 +196,9 @@ async def toggle_widget(
 class WhatsAppCredentials(BaseModel):
     phone_number_id: str = Field(..., min_length=5, max_length=50)
     waba_id: str | None = Field(default=None, max_length=50)
-    access_token: str = Field(..., min_length=20, max_length=1000)
+    # Opcionales en EDICIÓN: vacío = mantener el secreto ya guardado (COALESCE).
+    # En el alta nueva el access_token es obligatorio — se valida en el handler.
+    access_token: str | None = Field(default=None, min_length=20, max_length=1000)
     app_secret: str | None = Field(default=None, min_length=10, max_length=200)
 
 
@@ -219,6 +221,15 @@ async def upsert_whatsapp(
         if clash:
             raise HTTPException(status_code=409, detail="Ese phone_number_id ya está registrado por otra organización.")
 
+        # En el alta nueva el token es obligatorio; en edición puede venir vacío
+        # (= mantener el guardado vía COALESCE). Sin esto, una cuenta nueva sin
+        # token quedaría con access_token_enc NULL e inservible.
+        exists = (await session.execute(text(
+            "SELECT 1 FROM public.whatsapp_accounts WHERE tenant_id = :tid"
+        ), {"tid": tenant_id})).fetchone()
+        if not exists and not body.access_token:
+            raise HTTPException(status_code=422, detail="El token de acceso es obligatorio al configurar el canal por primera vez.")
+
         verify_token = secrets.token_urlsafe(24)
         await session.execute(text("""
             INSERT INTO public.whatsapp_accounts
@@ -228,7 +239,7 @@ async def upsert_whatsapp(
             ON CONFLICT (tenant_id) DO UPDATE SET
               phone_number_id = EXCLUDED.phone_number_id,
               waba_id         = EXCLUDED.waba_id,
-              access_token_enc = EXCLUDED.access_token_enc,
+              access_token_enc = COALESCE(EXCLUDED.access_token_enc, public.whatsapp_accounts.access_token_enc),
               app_secret_enc  = COALESCE(EXCLUDED.app_secret_enc, public.whatsapp_accounts.app_secret_enc),
               enabled         = FALSE,
               status          = 'pending',
@@ -237,7 +248,7 @@ async def upsert_whatsapp(
             "tid": tenant_id,
             "pid": pnid,
             "waba": body.waba_id.strip() if body.waba_id else None,
-            "tok": encrypt_secret(body.access_token.strip()),
+            "tok": encrypt_secret(body.access_token.strip()) if body.access_token else None,
             "sec": encrypt_secret(body.app_secret.strip()) if body.app_secret else None,
             "vt": verify_token,
         })

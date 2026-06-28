@@ -318,8 +318,8 @@ function WhatsAppCard({ channels, onChanged }: { channels: ChannelsState; onChan
     mutationFn: () => api.channels.saveWhatsApp({
       phone_number_id: phoneNumberId.trim(),
       waba_id: wabaId.trim() || null,
-      access_token: accessToken.trim(),
-      app_secret: appSecret.trim() || null,
+      access_token: accessToken.trim() || null,  // vacío en edición = mantener el guardado
+      app_secret: appSecret.trim() || null,      // vacío = mantener el guardado
     }),
     onSuccess: () => {
       onChanged();
@@ -484,14 +484,22 @@ function WhatsAppCard({ channels, onChanged }: { channels: ChannelsState; onChan
                        placeholder="ID de la cuenta de WhatsApp Business" className="font-mono" />
               </div>
               <div className="space-y-1.5 sm:col-span-2">
-                <Label htmlFor="wa-token">Token de acceso permanente</Label>
+                <Label htmlFor="wa-token">
+                  Token de acceso permanente
+                  {editing && <span className="font-normal text-muted-foreground"> — dejá vacío para mantener el actual</span>}
+                </Label>
                 <Input id="wa-token" type="password" value={accessToken} onChange={e => setAccessToken(e.target.value)}
-                       placeholder="EAAG…" autoComplete="off" className="font-mono" />
+                       placeholder={editing ? "•••••••••• (guardado)" : "EAAG…"} autoComplete="off" className="font-mono" />
               </div>
               <div className="space-y-1.5 sm:col-span-2">
-                <Label htmlFor="wa-secret">App secret <span className="font-normal text-muted-foreground">(recomendado — firma los webhooks)</span></Label>
+                <Label htmlFor="wa-secret">
+                  App secret <span className="font-normal text-muted-foreground">
+                    (recomendado — firma los webhooks){editing && wa?.has_app_secret && " — dejá vacío para mantener la actual"}
+                  </span>
+                </Label>
                 <Input id="wa-secret" type="password" value={appSecret} onChange={e => setAppSecret(e.target.value)}
-                       placeholder="Configuración de la app → Básica → Clave secreta" autoComplete="off" className="font-mono" />
+                       placeholder={editing && wa?.has_app_secret ? "•••••••••• (guardada)" : "Configuración de la app → Básica → Clave secreta"}
+                       autoComplete="off" className="font-mono" />
               </div>
             </div>
 
@@ -501,7 +509,12 @@ function WhatsAppCard({ channels, onChanged }: { channels: ChannelsState; onChan
               )}
               <Button
                 onClick={() => saveM.mutate()}
-                disabled={!phoneNumberId.trim() || accessToken.trim().length < 20 || saveM.isPending}
+                disabled={
+                  !phoneNumberId.trim()
+                  || (!editing && accessToken.trim().length < 20)
+                  || (accessToken.trim().length > 0 && accessToken.trim().length < 20)
+                  || saveM.isPending
+                }
               >
                 {saveM.isPending && <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />}
                 Guardar credenciales
