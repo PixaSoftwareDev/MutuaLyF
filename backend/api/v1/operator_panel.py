@@ -456,9 +456,21 @@ async def accept_handoff(
                 detail="Conversación no disponible (ya fue tomada o no pertenece a tus sectores).",
             )
 
-        # human_assigned es key legacy que sacamos del panel admin pero algunos
-        # tenants la tienen en DB y otros no. .get() con fallback evita KeyError.
-        msg = config["transition_messages"].get("human_assigned") or "Un operador se unió a la conversación."
+        # Nombre del operador para anunciarlo al afiliado. En WhatsApp no hay header
+        # con el nombre (como sí en el widget), así que va en el texto del mensaje.
+        # human_assigned es key legacy/personalizable: si trae el placeholder
+        # {operador} se reemplaza por el nombre; si el tenant puso un texto propio
+        # sin placeholder se respeta; si no hay config, default CON nombre.
+        op_name = (await session.execute(
+            text("SELECT name FROM usuarios WHERE id = :id"), {"id": current_user.user_id}
+        )).scalar() or "Un operador"
+        template = config["transition_messages"].get("human_assigned")
+        if template and "{operador}" in template:
+            msg = template.replace("{operador}", op_name)
+        elif template:
+            msg = template
+        else:
+            msg = f"{op_name} se unió a la conversación."
         await session.execute(text("""
             INSERT INTO mensajes (conversation_id, sender_type, content)
             VALUES (:cid, 'system', :msg)
@@ -639,6 +651,8 @@ async def transfer(
     fire_and_log(publish(tenant_id, "conversation_updated", {
         "conversation_id": conversation_id, "status": ConvStatus.HANDOFF_REQUESTED,
     }))
+    from services.whatsapp import relay_to_whatsapp
+    fire_and_log(relay_to_whatsapp(tenant_id, conversation_id, msg), "whatsapp.relay")
     return {"status": ConvStatus.HANDOFF_REQUESTED, "system_message": msg}
 
 
@@ -707,6 +721,8 @@ async def release_to_queue(
     fire_and_log(publish(tenant_id, "conversation_updated", {
         "conversation_id": conversation_id, "status": ConvStatus.HANDOFF_REQUESTED,
     }))
+    from services.whatsapp import relay_to_whatsapp
+    fire_and_log(relay_to_whatsapp(tenant_id, conversation_id, msg), "whatsapp.relay")
     return {"status": ConvStatus.HANDOFF_REQUESTED, "system_message": msg}
 
 
@@ -778,6 +794,8 @@ async def return_to_bot(
     fire_and_log(publish(tenant_id, "conversation_updated", {
         "conversation_id": conversation_id, "status": ConvStatus.BOT_ACTIVE,
     }))
+    from services.whatsapp import relay_to_whatsapp
+    fire_and_log(relay_to_whatsapp(tenant_id, conversation_id, msg), "whatsapp.relay")
     return {"status": ConvStatus.BOT_ACTIVE, "system_message": msg}
 
 
