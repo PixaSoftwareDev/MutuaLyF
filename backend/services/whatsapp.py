@@ -449,6 +449,40 @@ async def relay_attachment_to_whatsapp(
         logger.exception("whatsapp_relay_attachment_error tenant=%s conv=%s", tenant_id, conversation_id)
 
 
+async def relay_system_to_whatsapp_worker(session, tenant_id: str, conv_ids: list[str], content: str) -> None:
+    """Relay de un mensaje de sistema (content) a las conversaciones de WhatsApp
+    entre conv_ids, desde un worker Celery (crons de inactividad / auto-cierre).
+
+    Usa la `session` worker provista (NullPool) en vez de get_pg_session, que no
+    es seguro tras el fork del worker. Best-effort: un fallo de Meta en una conv
+    no corta el resto ni el batch del cron. No-op si ninguna es de WhatsApp.
+    """
+    if not conv_ids:
+        return
+    placeholders = ", ".join(f":id_{i}" for i in range(len(conv_ids)))
+    params = {f"id_{i}": cid for i, cid in enumerate(conv_ids)}
+    rows = (await session.execute(text(f"""
+        SELECT id, external_id FROM conversaciones
+        WHERE id::text IN ({placeholders})
+          AND channel = 'whatsapp' AND external_id IS NOT NULL
+    """), params)).mappings().fetchall()
+    if not rows:
+        return
+    acc = (await session.execute(text(
+        f"SELECT {_SELECT_COLS} FROM public.whatsapp_accounts WHERE tenant_id = :tid"
+    ), {"tid": tenant_id})).mappings().fetchone()
+    if not acc:
+        return
+    account = _row_to_account(acc)
+    if not account.enabled:
+        return
+    for r in rows:
+        try:
+            await send_text(account, r["external_id"], content)
+        except Exception:
+            logger.exception("whatsapp_worker_relay_failed tenant=%s conv=%s", tenant_id, r["id"])
+
+
 _STATUS_RANK = {"sent": 1, "delivered": 2, "read": 3, "failed": 1}
 
 

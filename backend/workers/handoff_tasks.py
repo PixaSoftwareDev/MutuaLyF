@@ -87,6 +87,13 @@ async def _check_tenant(tenant_id: str) -> int:
             """), {"cid": conv_id, "msg": alert_msg})
             logger.info("inactivity_alert_sent conversation_id=%s tenant=%s", conv_id, tenant_id)
 
+    # Relay de la alerta de cola al cliente de WhatsApp (nueva session worker tras
+    # commit). El widget la ve por poll; WhatsApp necesita el envio a Meta.
+    if stale_ids:
+        from services.whatsapp import relay_system_to_whatsapp_worker
+        async with get_worker_pg_session(tenant_id) as session:
+            await relay_system_to_whatsapp_worker(session, tenant_id, stale_ids, alert_msg)
+
     return len(stale_ids)
 
 
@@ -202,6 +209,19 @@ async def _close_stale_tenant(tenant_id: str) -> int:
             "conversation_id": cid,
             "status": "closed",
         }))
+
+    # Relay del aviso de cierre al cliente de WhatsApp (el widget lo ve por poll;
+    # WhatsApp necesita el envio explicito a Meta). Worker-safe + best-effort.
+    groups = [
+        (bot_ids,     _TIMEOUT_MESSAGES["bot_active"]),
+        (handoff_ids, _TIMEOUT_MESSAGES["handoff_requested"]),
+        (human_ids,   _TIMEOUT_MESSAGES["human_attending"]),
+    ]
+    if any(ids for ids, _ in groups):
+        from services.whatsapp import relay_system_to_whatsapp_worker
+        async with get_worker_pg_session(tenant_id) as session:
+            for ids, close_msg in groups:
+                await relay_system_to_whatsapp_worker(session, tenant_id, ids, close_msg)
 
     total = len(bot_ids) + len(handoff_ids) + len(human_ids)
     if total:

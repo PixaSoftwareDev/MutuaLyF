@@ -153,6 +153,23 @@ async def _get_greeting(tenant_id: str) -> str | None:
     return row["greeting_message"] if row else None
 
 
+async def _welcome_message(tenant_id: str) -> str | None:
+    """Saludo de bienvenida para el primer contacto SIN menú de áreas (tenant de
+    0/1 sector). Paridad con el widget, que siempre saluda al abrir: greeting_message
+    custom si está configurado; si no, default con el bot_name."""
+    async with get_pg_session() as session:
+        row = (await session.execute(
+            text("SELECT greeting_message, bot_name FROM tenants WHERE id = :tid"), {"tid": tenant_id},
+        )).mappings().fetchone()
+    if not row:
+        return None
+    custom = (row["greeting_message"] or "").strip()
+    if custom:
+        return custom
+    bot_name = (row["bot_name"] or "el asistente").strip()
+    return f"¡Hola! Soy {bot_name}. ¿En qué te puedo ayudar?"
+
+
 def _extract_interactive_id(message: dict) -> str | None:
     """Id del botón/fila que tocó el afiliado (interactive reply de Meta)."""
     inter = message.get("interactive") or {}
@@ -240,6 +257,12 @@ async def _onboard_sector(account: WhatsAppAccount, tenant_id: str, wa_id: str,
     default_sid = await get_default_sector_id(tenant_id)
     conv = await _create_conversation(tenant_id, wa_id, profile_name, default_sid)
     await _clear_menu_flag(tenant_id, wa_id)
+    # Saludo de bienvenida antes de la primera respuesta del bot (paridad con el
+    # widget). Solo en primer contacto sin menú; va una vez por conversación nueva.
+    welcome = await _welcome_message(tenant_id)
+    if welcome:
+        await _insert_message(tenant_id, conv["id"], "system", welcome)
+        await send_text(account, wa_id, welcome)
     return {"done": False, "conv": conv}
 
 
