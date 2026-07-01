@@ -285,17 +285,29 @@ async def send_message(
         for r in history_rows
         if r["content"] != body.content or r["sender_type"] != "user"
     ]
+    # Si el afiliado abre y su PRIMER mensaje es solo un saludo, el greeting de
+    # bienvenida (ya mostrado al abrir) cumple ese rol: no dejamos que el bot
+    # re-salude. Ack breve sin volver a saludar y sin gastar RAG/cuota.
+    from services.handoff import _is_chitchat
+    greeted = any(r["sender_type"] == "bot" for r in history_rows)
+    user_count = sum(1 for r in history_rows if r["sender_type"] == "user")
+    first_greeting_chitchat = greeted and user_count == 1 and _is_chitchat(body.content)
+
     # Cuota mensual del plan del tenant. Si está agotada, NO corremos el RAG (lo
     # caro) y devolvemos un mensaje neutral al afiliado en vez de un 429 crudo.
     # Es per-tenant (facturación), no afecta a un usuario individual.
     from core.plan_limits import enforce_query_limit
-    try:
-        await enforce_query_limit(tenant_id)
-        over_quota = False
-    except HTTPException:
-        over_quota = True
+    over_quota = False
+    if not first_greeting_chitchat:
+        try:
+            await enforce_query_limit(tenant_id)
+        except HTTPException:
+            over_quota = True
 
-    if over_quota:
+    if first_greeting_chitchat:
+        bot_answer = "😊 Contame, ¿qué necesitás?"
+        sources = []
+    elif over_quota:
         bot_answer = ("El asistente no está disponible en este momento. "
                       "Por favor, comunicate directamente con la organización.")
         sources = []
