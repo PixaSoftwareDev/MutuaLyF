@@ -227,7 +227,7 @@ async def _send_sector_menu(account: WhatsAppAccount, wa_id: str,
 
 async def _onboard_sector(account: WhatsAppAccount, tenant_id: str, wa_id: str,
                           profile_name: str | None, selected_id: str | None,
-                          has_text: bool) -> dict:
+                          has_text: bool, first_message: str = "") -> dict:
     """Primer contacto sin conversación: ofrece el menú de áreas o resuelve la
     elección. Devuelve {done: bool, conv: dict|None}.
       - done=True  → ya se respondió (menú enviado o sector confirmado); cortar.
@@ -263,6 +263,12 @@ async def _onboard_sector(account: WhatsAppAccount, tenant_id: str, wa_id: str,
     if welcome:
         await _insert_message(tenant_id, conv["id"], "system", welcome)
         await send_text(account, wa_id, welcome)
+    # Si el primer mensaje es solo un saludo ("hola", "buenas"), el welcome YA lo
+    # responde: cortamos (done=True) para que el bot no agregue un segundo saludo.
+    # Una consulta real sigue (done=False) → welcome + respuesta del bot.
+    from services.handoff import _is_chitchat
+    if welcome and _is_chitchat(first_message):
+        return {"done": True, "conv": conv}
     return {"done": False, "conv": conv}
 
 
@@ -307,7 +313,8 @@ async def process_incoming_message(account: WhatsAppAccount, value: dict, messag
         # la elección. Si done=True ya respondimos (menú enviado o sector elegido).
         if conv is None:
             result = await _onboard_sector(
-                account, tenant_id, wa_id, profile_name, selected_id, has_text=bool(content),
+                account, tenant_id, wa_id, profile_name, selected_id,
+                has_text=bool(content), first_message=content,
             )
             if result["done"]:
                 return
