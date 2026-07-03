@@ -467,6 +467,12 @@ async def handle_query(
         system_parts.append(ambiguity_note)
     system_parts.append(anti_hallucination.strip())
     system_parts.append(context_block)
+    system_parts.append(
+        "FORMATO DE ENLACES: escribí las URLs completas en texto plano "
+        "(por ejemplo https://www.ejemplo.com/pagina). NUNCA uses formato Markdown "
+        "de enlaces como [texto](url): no se renderiza en WhatsApp ni en el chat y "
+        "queda con corchetes y paréntesis a la vista."
+    )
     system_parts.append(f"Respondé en {language}.")
 
     system_prompt = "\n\n".join(system_parts)
