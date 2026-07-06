@@ -5,11 +5,12 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   MessageSquare, Loader2, Send, UserCheck, UserMinus, XCircle, User, Bot,
   Info, ChevronDown, ChevronLeft, Search, ArrowRightLeft, Eye, Wifi, WifiOff,
-  RotateCcw, MoreVertical, Paperclip, X, MessageCircle, Globe,
+  RotateCcw, MoreVertical, Paperclip, X, Globe,
 } from "lucide-react";
 import { api, type ConversationRow } from "@/lib/api";
 import { extractErrorMessage } from "@/lib/errors";
 import { renderWithLinks } from "@/lib/render-with-links";
+import { WhatsAppIcon } from "@/components/ui/whatsapp-icon";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -694,7 +695,7 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
                   <div className="flex items-center gap-2 min-w-0">
                     <p className="font-semibold text-sm truncate">{detail.afiliado_nombre || (detail.afiliado_ip ? `IP ${detail.afiliado_ip}` : "Afiliado anónimo")}</p>
                     <StatusBadge status={detail.status} />
-                    {detail.channel === "whatsapp" && <span aria-label="WhatsApp" className="shrink-0 text-[10px] font-semibold bg-green-600/10 text-green-700 rounded px-1.5 py-0.5">WhatsApp</span>}
+                    {detail.channel === "whatsapp" && <span aria-label="WhatsApp" className="shrink-0 inline-flex items-center gap-1 text-[10px] font-semibold bg-green-600/10 text-green-700 rounded px-1.5 py-0.5"><WhatsAppIcon className="h-2.5 w-2.5" />WhatsApp</span>}
                   </div>
                   <p className="text-xs text-muted-foreground truncate mt-0.5">
                     {[
@@ -1119,7 +1120,7 @@ function ConvCard({ conv, now, selected, readOnly, onlineNames, onSelect, onAcce
             {conv.is_test && <span aria-label="Conversación de prueba" className="shrink-0 text-[10px] font-bold bg-primary/10 text-primary rounded px-1 py-0.5 uppercase tracking-wide">TEST</span>}
             <span className="truncate min-w-0">{conv.afiliado_nombre || (conv.channel === "whatsapp" && conv.external_id ? formatWaNumber(conv.external_id) : (conv.afiliado_ip ? `IP ${conv.afiliado_ip}` : "Anónimo"))}</span>
             {conv.channel === "whatsapp"
-              ? <span aria-label="WhatsApp" className="shrink-0 inline-flex items-center gap-0.5 text-[10px] font-semibold bg-green-600/10 text-green-700 rounded px-1.5 py-0.5"><MessageCircle className="h-2.5 w-2.5" />WA</span>
+              ? <span aria-label="WhatsApp" className="shrink-0 inline-flex items-center gap-0.5 text-[10px] font-semibold bg-green-600/10 text-green-700 rounded px-1.5 py-0.5"><WhatsAppIcon className="h-2.5 w-2.5" />WA</span>
               : !conv.afiliado_nombre
                 ? <span aria-label="Web" className="shrink-0 inline-flex items-center gap-0.5 text-[10px] font-medium text-muted-foreground"><Globe className="h-2.5 w-2.5" />Web</span>
                 : null}
