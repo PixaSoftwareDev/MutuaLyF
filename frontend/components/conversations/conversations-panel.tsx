@@ -591,7 +591,7 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
             Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-16 rounded-lg" />)
           ) : error ? (
             <p className="text-xs text-destructive text-center py-8">Error al cargar</p>
-          ) : allConvs.length === 0 && !search && sectorFilter === "all" && !readOnly ? (
+          ) : (data?.sectors?.length ?? 0) === 0 && !readOnly ? (
             <div className="text-center py-12 px-4 text-muted-foreground space-y-2">
               <MessageSquare className="h-8 w-8 mx-auto opacity-20" />
               <p className="text-sm font-medium text-foreground/70">Sin sectores asignados</p>
