@@ -1,0 +1,240 @@
+# ============================================================================
+# docker-compose.local.yml — Ambiente de DESARROLLO LOCAL, aislado de todo.
+#
+# Objetivo: correr backend + frontend + bases de datos en TU PC, poder hacer
+# migraciones y romper lo que quieras, SIN tocar producción ni el VPS.
+#
+# Diferencias con el stack de prod (docker-compose.yml):
+#   - Proyecto Docker propio (name: mutualyf_local) → contenedores, red y
+#     volúmenes namespaced. No colisiona con otros proyectos de tu máquina.
+#   - Puertos en un rango propio (54xx/63xx/73xx/83xx/90xx) para no chocar con
+#     los otros postgres/redis que ya tenés corriendo (lasmarias/ecuestre/pixs).
+#   - SIN observability (Prometheus/Grafana/Loki/Jaeger/exporters/cadvisor).
+#   - SIN TEI reranker (RERANKER_ENABLED=false en .env.local).
+#   - SIN pgbackrest / nginx (backend y frontend se exponen directo).
+#   - Backend y frontend con hot-reload (uvicorn --reload / next dev).
+#   - celery_worker es OPCIONAL (profile "workers") para ahorrar RAM.
+#
+# Uso:
+#   ./scripts/dev-local.sh up          # levanta el stack liviano
+#   ./scripts/dev-local.sh up-workers  # + celery (para probar ingesta)
+#   ./scripts/dev-local.sh down        # baja todo (conserva datos)
+#   ./scripts/dev-local.sh nuke        # baja y BORRA los volúmenes locales
+#
+# Nunca uses este archivo contra el VPS. Es 100% local.
+# ============================================================================
+
+name: mutualyf_local
+
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+
+  # ─── Bases de datos (locales, volúmenes propios) ──────────────────────────
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: local_postgres
+    restart: unless-stopped
+    command:
+      - "postgres"
+      - "-c"
+      - "max_connections=100"
+      - "-c"
+      - "shared_buffers=256MB"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - local_postgres_data:/var/lib/postgresql/data
+      - ./backend/db/init:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "127.0.0.1:5440:5432"
+    networks: [internal]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *default-logging
+
+  neo4j:
+    image: neo4j:5.18-community
+    container_name: local_neo4j
+    restart: unless-stopped
+    environment:
+      NEO4J_AUTH: ${NEO4J_USER}/${NEO4J_PASSWORD}
+      NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_dbms_security_procedures_unrestricted: apoc.*
+      NEO4J_server_memory_heap_initial__size: 256m
+      NEO4J_server_memory_heap_max__size: 512m
+      NEO4J_server_memory_pagecache_size: 256m
+    volumes:
+      - local_neo4j_data:/data
+      - local_neo4j_logs:/logs
+    ports:
+      - "127.0.0.1:7475:7474"
+      - "127.0.0.1:7688:7687"
+    networks: [internal]
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/7474' 2>/dev/null"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+    logging: *default-logging
+
+  qdrant:
+    image: qdrant/qdrant:v1.9.2
+    container_name: local_qdrant
+    restart: unless-stopped
+    volumes:
+      - local_qdrant_data:/qdrant/storage
+    ports:
+      - "127.0.0.1:6340:6333"
+    networks: [internal]
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/6333' 2>/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *default-logging
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: local_redis
+    restart: unless-stopped
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - local_redis_data:/data
+    ports:
+      - "127.0.0.1:6390:6379"
+    networks: [internal]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *default-logging
+
+  minio:
+    image: minio/minio:RELEASE.2024-05-10T01-41-38Z
+    container_name: local_minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - local_minio_data:/data
+    ports:
+      - "127.0.0.1:9010:9000"
+      - "127.0.0.1:9011:9001"
+    networks: [internal]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9000/minio/health/live"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    logging: *default-logging
+
+  # ─── Backend (hot-reload + migraciones automáticas al arrancar) ───────────
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: local_backend
+    restart: unless-stopped
+    # Corre migraciones globales y arranca uvicorn con --reload.
+    entrypoint: ["sh", "-c", "python -m alembic -c db/alembic.ini upgrade head && exec uvicorn main:app --host 0.0.0.0 --port 8000 --reload"]
+    command: []
+    env_file: .env.local
+    ports:
+      - "127.0.0.1:8010:8000"
+    volumes:
+      - ./backend:/app
+      - local_models_cache:/root/.cache/huggingface
+      - local_uploads:/tmp/ia_ingest
+      - local_branding:/uploads
+    depends_on:
+      postgres: { condition: service_healthy }
+      neo4j: { condition: service_healthy }
+      qdrant: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    networks: [internal]
+    logging: *default-logging
+    mem_limit: 4g
+
+  # ─── Celery worker (OPCIONAL — solo para probar ingesta) ──────────────────
+  # Se levanta con: ./scripts/dev-local.sh up-workers
+  # Carga otra copia de GLiNER (~1.5GB), por eso no arranca por default.
+  celery_worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: local_celery_worker
+    restart: unless-stopped
+    profiles: ["workers"]
+    command: celery -A workers.celery_app worker --loglevel=info --pool=solo -Q ingest,clustering,training,default
+    env_file: .env.local
+    environment:
+      PYTHONPATH: /app
+    volumes:
+      - ./backend:/app
+      - local_models_cache:/root/.cache/huggingface
+      - local_uploads:/tmp/ia_ingest
+    depends_on:
+      redis: { condition: service_healthy }
+      postgres: { condition: service_healthy }
+    networks: [internal]
+    logging: *default-logging
+    mem_limit: 3g
+
+  # ─── Frontend (next dev, hot-reload) ──────────────────────────────────────
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: local_frontend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      NEXT_PUBLIC_API_URL: http://localhost:8010
+      PORT: "3000"
+      HOSTNAME: 0.0.0.0
+    ports:
+      - "127.0.0.1:3010:3000"
+    volumes:
+      - ./frontend:/app
+      - local_frontend_nm:/app/node_modules
+      - /app/.next
+    depends_on:
+      - backend
+    networks: [internal]
+    logging: *default-logging
+
+networks:
+  internal:
+    driver: bridge
+
+volumes:
+  local_postgres_data:
+  local_neo4j_data:
+  local_neo4j_logs:
+  local_qdrant_data:
+  local_redis_data:
+  local_minio_data:
+  local_models_cache:
+  local_uploads:
+  local_branding:
+  local_frontend_nm:
