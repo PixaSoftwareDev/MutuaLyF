@@ -527,7 +527,7 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
 
       {/* ── LEFT: queue ──────────────────────────────────────────────────── */}
       <div className={cn(
-        "border-r flex flex-col shrink-0 bg-card",
+        "border-r border-slate-100 flex flex-col shrink-0 bg-slate-50/40",
         "w-full sm:w-80",
         selectedId ? "hidden sm:flex" : "flex"
       )}>
@@ -546,7 +546,7 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
                 placeholder="Buscar…"
                 value={search}
                 onChange={e => setSearch(e.target.value)}
-                className="w-full h-8 pl-8 pr-3 rounded-md border border-input bg-background text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="w-full h-9 pl-8 pr-3 rounded-lg bg-slate-100/80 text-xs placeholder:text-slate-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-action/40 transition"
               />
             </div>
             {!readOnly && (
@@ -570,10 +570,10 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
                 aria-label="Filtrar por sector"
                 onChange={e => setSectorFilter(e.target.value)}
                 className={cn(
-                  "w-full h-8 pl-3 pr-8 rounded-md border bg-background text-xs cursor-pointer appearance-none focus:outline-none focus-visible:ring-2 focus-visible:ring-ring transition-colors",
+                  "w-full h-9 pl-3 pr-8 rounded-lg text-xs cursor-pointer appearance-none focus:outline-none focus-visible:ring-2 focus-visible:ring-action/40 transition",
                   sectorFilter === "all"
-                    ? "border-input text-muted-foreground"
-                    : "border-primary/60 text-foreground font-medium"
+                    ? "bg-slate-100/80 text-muted-foreground"
+                    : "bg-action/[0.08] text-foreground font-medium"
                 )}
               >
                 <option value="all">Todos los sectores</option>
@@ -656,12 +656,10 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
       )}>
         {!selectedId ? (
           <div className="flex-1 flex items-center justify-center text-muted-foreground">
-            <div className="text-center px-10">
-              <div className="w-16 h-16 rounded-2xl bg-action/10 text-action flex items-center justify-center mb-4 mx-auto">
-                <MessageSquare className="h-7 w-7" />
-              </div>
-              <p className="text-base font-semibold text-foreground">Elegí una conversación</p>
-              <p className="text-sm mt-1 max-w-xs leading-relaxed">
+            <div className="text-center space-y-2 px-10">
+              <MessageSquare className="h-10 w-10 mx-auto opacity-15" />
+              <p className="text-sm">Elegí una conversación</p>
+              <p className="text-xs opacity-70 max-w-xs mx-auto leading-relaxed">
                 Seleccioná una conversación de la lista para ver los mensajes y atenderla.
               </p>
             </div>
@@ -670,10 +668,10 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
           // Skeleton de chat (no un panel vacío): al saltar entre conversaciones
           // el operador ve la estructura cargando, no un parpadeo en blanco.
           <div className="flex-1 flex flex-col">
-            <div className="px-4 py-3 border-b bg-card">
+            <div className="px-4 py-3 border-b border-slate-100 bg-white">
               <Skeleton className="h-4 w-40" />
             </div>
-            <div className="flex-1 p-4 space-y-3 bg-muted/30">
+            <div className="flex-1 p-4 space-y-3 bg-slate-50/50">
               <Skeleton className="h-12 w-2/3 rounded-2xl" />
               <Skeleton className="h-12 w-1/2 rounded-2xl ml-auto" />
               <Skeleton className="h-10 w-3/5 rounded-2xl" />
@@ -682,7 +680,7 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
         ) : detail ? (
           <>
             {/* ── Header ── */}
-            <div className="px-4 py-3 border-b flex items-center justify-between gap-3 bg-card">
+            <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between gap-3 bg-white">
               <div className="flex items-center gap-2 min-w-0">
                 <button
                   onClick={() => setSelectedId(null)}
