@@ -7,6 +7,7 @@ import {
   X, UserCheck, MessageCircle, History as HistoryIcon, Filter,
 } from "lucide-react";
 import { api, type ConversationHistoryFilters } from "@/lib/api";
+import { WhatsAppIcon } from "@/components/ui/whatsapp-icon";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -340,6 +341,7 @@ function HistoryCard({
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium truncate leading-tight flex items-center gap-1.5">
               {row.is_test && <span className="shrink-0 text-[9px] font-bold bg-violet-100 text-violet-700 rounded px-1 py-0.5 uppercase tracking-wide">TEST</span>}
+              {row.channel === "whatsapp" && <span aria-label="WhatsApp" className="shrink-0 inline-flex items-center gap-0.5 text-[9px] font-semibold bg-green-600/10 text-green-700 rounded px-1 py-0.5"><WhatsAppIcon className="h-2.5 w-2.5" />WA</span>}
               {row.afiliado_nombre || (row.afiliado_ip ? `IP ${row.afiliado_ip}` : "Anónimo")}
             </p>
             <p className="text-[11px] text-muted-foreground truncate mt-0.5">{row.sector_nombre || "Sin sector"}</p>

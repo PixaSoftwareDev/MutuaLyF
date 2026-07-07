@@ -320,6 +320,8 @@ export interface ConversationHistoryRow {
   status: "bot_active" | "handoff_requested" | "human_attending" | "closed";
   sector_id: string | null;
   sector_nombre: string | null;
+  channel: string | null;
+  external_id: string | null;
   afiliado_nombre: string | null;
   afiliado_email: string | null;
   afiliado_dni: string | null;

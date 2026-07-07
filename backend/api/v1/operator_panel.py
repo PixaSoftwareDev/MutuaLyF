@@ -300,7 +300,7 @@ async def list_conversations_history(
 
         rows_result = await session.execute(text(f"""
             SELECT
-                c.id, c.status, c.sector_id,
+                c.id, c.status, c.sector_id, c.channel, c.external_id,
                 c.afiliado_nombre, c.afiliado_email, c.afiliado_dni, c.afiliado_ip, c.is_test,
                 c.created_at, c.updated_at, c.closed_at,
                 s.nombre AS sector_nombre,
@@ -322,6 +322,8 @@ async def list_conversations_history(
                 "status":           r["status"],
                 "sector_id":        str(r["sector_id"]) if r["sector_id"] else None,
                 "sector_nombre":    r["sector_nombre"],
+                "channel":          r["channel"],
+                "external_id":      r["external_id"],
                 "afiliado_nombre":  r["afiliado_nombre"],
                 "afiliado_email":   r["afiliado_email"],
                 "afiliado_dni":     r["afiliado_dni"],
