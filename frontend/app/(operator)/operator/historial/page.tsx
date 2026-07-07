@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Search, ChevronLeft, ChevronRight, ChevronDown, Loader2, MessageSquare,
-  X, UserCheck, MessageCircle, History as HistoryIcon, Filter,
+  X, UserCheck, MessageCircle, Filter,
 } from "lucide-react";
 import { api, type ConversationHistoryFilters } from "@/lib/api";
 import { WhatsAppIcon } from "@/components/ui/whatsapp-icon";
@@ -83,44 +83,41 @@ export default function OperatorHistoryPage() {
         "w-full sm:w-80",
         selectedId ? "hidden sm:flex" : "flex"
       )}>
-        {/* Header */}
-        <div className="h-16 px-4 flex items-center justify-between shrink-0">
-          <h1 className="font-semibold text-sm flex items-center gap-2">
-            <HistoryIcon className="h-4 w-4 text-primary" />
-            Historial
-          </h1>
-          <button
-            onClick={() => setFiltersOpen(v => !v)}
-            className={cn(
-              "flex items-center gap-1 text-[10px] px-2 py-1 rounded-md transition-colors",
-              activeFiltersCount > 0
-                ? "bg-primary/10 text-primary"
-                : "text-muted-foreground hover:bg-muted",
-            )}
-          >
-            <Filter className="h-3 w-3" />
-            Filtros
-            {activeFiltersCount > 0 && (
-              <span className="bg-primary text-primary-foreground rounded-full text-[10px] w-4 h-4 flex items-center justify-center font-bold">
-                {activeFiltersCount}
-              </span>
-            )}
-          </button>
-        </div>
-
-        {/* Search + filters */}
+        {/* Buscador + Filtros arriba, a la misma altura que el buscador de la
+            bandeja. El header "Historial" se quitó: el topbar ya indica la vista
+            y así se recupera espacio y se unifica con la bandeja. */}
         <div className="px-4 pt-3 pb-3 space-y-2">
-          <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-            <input
-              type="text"
-              placeholder="Buscar afiliado…"
-              value={searchInput}
-              onChange={e => setSearchInput(e.target.value)}
-              onKeyDown={e => { if (e.key === "Enter") applySearch(); }}
-              onBlur={applySearch}
-              className="w-full h-9 pl-8 pr-3 rounded-lg bg-slate-100/80 text-xs placeholder:text-slate-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-action/40 transition"
-            />
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+              <input
+                type="text"
+                placeholder="Buscar afiliado…"
+                value={searchInput}
+                onChange={e => setSearchInput(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter") applySearch(); }}
+                onBlur={applySearch}
+                className="w-full h-9 pl-8 pr-3 rounded-lg bg-slate-100/80 text-xs placeholder:text-slate-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-action/40 transition"
+              />
+            </div>
+            <button
+              onClick={() => setFiltersOpen(v => !v)}
+              title="Filtros"
+              className={cn(
+                "flex items-center gap-1 text-[11px] h-9 px-2.5 rounded-lg shrink-0 transition-colors",
+                activeFiltersCount > 0
+                  ? "bg-action/[0.08] text-action font-medium"
+                  : "text-muted-foreground hover:bg-slate-100",
+              )}
+            >
+              <Filter className="h-3.5 w-3.5" />
+              <span className="hidden min-[360px]:inline">Filtros</span>
+              {activeFiltersCount > 0 && (
+                <span className="bg-action text-action-foreground rounded-full text-[10px] w-4 h-4 flex items-center justify-center font-bold">
+                  {activeFiltersCount}
+                </span>
+              )}
+            </button>
           </div>
 
           {filtersOpen && (
@@ -249,7 +246,8 @@ export default function OperatorHistoryPage() {
         ) : detail ? (
           <>
             {/* Header */}
-            <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between gap-3 bg-white">
+            <div className="px-4 py-3 border-b border-slate-100 bg-white">
+              <div className="max-w-4xl mx-auto w-full flex items-center justify-between gap-3">
               <div className="flex items-center gap-2 min-w-0">
                 <button
                   onClick={() => setSelectedId(null)}
@@ -270,10 +268,12 @@ export default function OperatorHistoryPage() {
               <div className="flex items-center gap-2 shrink-0">
                 <StatusBadge status={detail.status} />
               </div>
+              </div>
             </div>
 
             {/* Messages */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+            <div className="flex-1 overflow-y-auto p-4">
+              <div className="max-w-4xl mx-auto w-full space-y-3">
               {botMessages.map(m => <MessageBubble key={m.id} msg={m} conversationId={detail.id} />)}
               {operatorMessages.length > 0 && botMessages.length > 0 && (
                 <div className="flex items-center gap-2 py-1">
@@ -289,6 +289,7 @@ export default function OperatorHistoryPage() {
                 <p className="text-center text-sm text-muted-foreground py-10">Conversación sin mensajes</p>
               )}
               <div ref={messagesEndRef} />
+              </div>
             </div>
 
             {/* Footer: read-only notice */}

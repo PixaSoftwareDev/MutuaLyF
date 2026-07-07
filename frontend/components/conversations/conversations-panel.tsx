@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   MessageSquare, Loader2, Send, UserCheck, UserMinus, XCircle, User, Bot,
-  Info, ChevronDown, ChevronLeft, Search, ArrowRightLeft, Eye, Wifi, WifiOff,
+  Info, ChevronDown, ChevronLeft, Search, ArrowRightLeft, Eye,
   RotateCcw, MoreVertical, Paperclip, X, Globe,
 } from "lucide-react";
 import { api, type ConversationRow } from "@/lib/api";
@@ -536,30 +536,19 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
             quitaron: el topbar ya identifica la vista y los headers de sección
             ya traen los números — era el mismo dato tres veces. */}
         <div className="px-4 pt-3 pb-3 space-y-3">
-          {/* Search + estado de conexión en tiempo real */}
-          <div className="flex items-center gap-2">
-            <div className="relative flex-1">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-              <input
-                type="text"
-                aria-label="Buscar conversaciones"
-                placeholder="Buscar…"
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                className="w-full h-9 pl-8 pr-3 rounded-lg bg-slate-100/80 text-xs placeholder:text-slate-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-action/40 transition"
-              />
-            </div>
-            {!readOnly && (
-              <div
-                className="flex items-center gap-1 shrink-0"
-                title={sseConnected ? "Tiempo real activo" : "Reconectando..."}
-              >
-                {sseConnected
-                  ? <Wifi    className="h-3.5 w-3.5 text-success" />
-                  : <WifiOff className="h-3.5 w-3.5 text-muted-foreground animate-pulse motion-reduce:animate-none" />}
-                <span className="text-[11px] text-muted-foreground hidden sm:inline">{sseConnected ? "En vivo" : "Reconectando"}</span>
-              </div>
-            )}
+          {/* Buscador a ancho completo. El estado del SSE en tiempo real sigue
+              activo por debajo (con respaldo de polling); antes se mostraba un
+              indicador Wifi que confundía sin aportar. */}
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+            <input
+              type="text"
+              aria-label="Buscar conversaciones"
+              placeholder="Buscar…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="w-full h-9 pl-8 pr-3 rounded-lg bg-slate-100/80 text-xs placeholder:text-slate-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-action/40 transition"
+            />
           </div>
 
           {/* Sector filter — dropdown */}
@@ -680,7 +669,8 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
         ) : detail ? (
           <>
             {/* ── Header ── */}
-            <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between gap-3 bg-white">
+            <div className="px-4 py-3 border-b border-slate-100 bg-white">
+              <div className="max-w-4xl mx-auto w-full flex items-center justify-between gap-3">
               <div className="flex items-center gap-2 min-w-0">
                 <button
                   onClick={() => setSelectedId(null)}
@@ -770,6 +760,7 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
                 )}
                 {readOnly && <Eye className="h-4 w-4 text-muted-foreground" />}
               </div>
+              </div>
             </div>
 
             {/* Transfer panel */}
@@ -800,7 +791,7 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
 
             {/* ── Messages ── */}
             <div className="flex-1 overflow-y-auto scrollbar-slim p-4 bg-muted/30">
-             <div className="max-w-3xl mx-auto w-full space-y-3">
+             <div className="max-w-4xl mx-auto w-full space-y-3">
               {/* Bot phase — shown inline, no collapsible box */}
               {botMessages.map(m => <MessageBubble key={m.id} msg={m} conversationId={detail.id} />)}
 
@@ -870,7 +861,8 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
 
             {/* ── Reply ── */}
             {!readOnly && detail.status === "human_attending" && (
-              <div className="border-t bg-card">
+              <div className="border-t border-slate-100 bg-white">
+                <div className="max-w-4xl mx-auto w-full">
                 {/* Preview del adjunto pendiente — revisar antes de enviar */}
                 {pendingFile && (
                   <div className="px-4 pt-3">
@@ -921,6 +913,7 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
                   >
                     {(replyM.isPending || attachM.isPending) ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                   </Button>
+                </div>
                 </div>
               </div>
             )}

@@ -214,7 +214,7 @@ export default function AdminConversationsPage() {
   );
 
   const pagination = !historyQuery.isLoading && !historyQuery.isError && total > 0 && (
-    <div className="border-t px-3 py-1.5 flex items-center justify-between gap-3 shrink-0">
+    <div className="border-t border-slate-100 px-3 py-1.5 flex items-center justify-between gap-3 shrink-0">
       <span className="text-[11px] text-muted-foreground tabular-nums">
         {((page - 1) * PAGE_SIZE) + 1}–{Math.min(page * PAGE_SIZE, total)} de {total.toLocaleString("es-AR")}
       </span>
@@ -508,13 +508,13 @@ function ConvRow({ conv, selected, onClick }: {
 function EmptyDetail() {
   return (
     <div className="flex flex-col items-center justify-center h-full text-center px-10 text-muted-foreground">
-      <div className="w-16 h-16 rounded-2xl bg-action/10 text-action flex items-center justify-center mb-4">
-        <InboxIcon className="h-7 w-7" />
+      <div className="space-y-2">
+        <InboxIcon className="h-10 w-10 mx-auto opacity-15" />
+        <p className="text-sm">Elegí una conversación</p>
+        <p className="text-xs opacity-70 max-w-xs mx-auto leading-relaxed">
+          Seleccioná una conversación de la lista para ver el detalle y todos los mensajes.
+        </p>
       </div>
-      <p className="text-base font-semibold text-foreground">Elegí una conversación</p>
-      <p className="text-sm mt-1 max-w-xs leading-relaxed">
-        Seleccioná una conversación de la lista para ver el detalle y todos los mensajes.
-      </p>
     </div>
   );
 }
@@ -538,7 +538,7 @@ function ConvDetail({ detail, loading, isError, onRetry, onClose, inline }: {
   return (
     <div className="flex flex-col h-full min-h-0">
       {/* Header */}
-      <div className="shrink-0 px-4 h-12 border-b flex items-center gap-3 bg-card">
+      <div className="shrink-0 px-4 h-12 border-b border-slate-100 flex items-center gap-3 bg-white">
         <button
           onClick={onClose}
           className="flex items-center justify-center w-8 h-8 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -562,7 +562,7 @@ function ConvDetail({ detail, loading, isError, onRetry, onClose, inline }: {
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto scrollbar-slim bg-muted/20 min-h-0">
-        <div className={cn("p-4 space-y-3", inline && "max-w-5xl mx-auto w-full")}>
+        <div className={cn("p-4 space-y-3", inline && "max-w-4xl mx-auto w-full")}>
           {loading ? (
             <div className="space-y-3">
               <Skeleton className="h-12 w-2/3 rounded-2xl" />
