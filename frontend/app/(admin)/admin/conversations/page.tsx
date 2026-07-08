@@ -236,37 +236,14 @@ export default function AdminConversationsPage() {
 
   return (
     <>
-      <PageShell>
+      <PageShell width="wide" className="h-full flex flex-col">
         {/* Cabecera estándar de la app (igual que Temas reconocidos, Documentos…):
-            PageHeader con título + descripción + estado en vivo, y Filtros como
-            acción. Las tabs de estado y la búsqueda van debajo, en el marco. */}
+            PageHeader con título + descripción + estado en vivo. La bandeja de
+            abajo usa flex-1 para llenar el alto sin cálculos frágiles. */}
         <PageHeader
           title="Conversaciones"
-          badge={
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/50 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-              <span className="h-1.5 w-1.5 rounded-full bg-success animate-pulse motion-reduce:animate-none" />
-              En vivo
-            </span>
-          }
-          // En mobile la descripción se oculta: el header ya carga título +
-          // "En vivo" + filtros + tabs + búsqueda; la lista es lo que se viene a ver.
+          // En mobile la descripción se oculta: la lista es lo que se viene a ver.
           description={<span className="hidden sm:inline">Todas las conversaciones del asistente y la atención humana, en tiempo real.</span>}
-          actions={
-            <Button
-              variant={showFilters || hasActiveFilters ? "default" : "outline"}
-              size="sm"
-              className="gap-1.5 h-9 shrink-0"
-              onClick={() => setShowFilters(v => !v)}
-            >
-              <SlidersHorizontal className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Filtros</span>
-              {activeFilterCount > 0 && (
-                <span className="ml-0.5 bg-background/20 text-primary-foreground rounded-full text-[10px] font-bold min-w-[18px] h-[18px] px-1 inline-flex items-center justify-center">
-                  {activeFilterCount}
-                </span>
-              )}
-            </Button>
-          }
         />
 
         {/* Tabs de estado + búsqueda en la MISMA fila (gana espacio vertical).
@@ -305,25 +282,41 @@ export default function AdminConversationsPage() {
             </TabsList>
           </Tabs>
 
-          <div className="relative sm:ml-auto sm:w-64 shrink-0">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-            <Input
-              type="text"
-              aria-label="Buscar conversaciones"
-              placeholder="Buscar por nombre, email, DNI…"
-              value={search}
-              onChange={e => handleSearch(e.target.value)}
-              className="pl-8 h-9"
-            />
-            {search && (
-              <button
-                aria-label="Limpiar búsqueda"
-                onClick={() => { handleSearch(""); setDebouncedSearch(""); }}
-                className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded text-muted-foreground hover:text-foreground"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            )}
+          <div className="flex items-center gap-2 sm:ml-auto shrink-0">
+            <div className="relative flex-1 sm:w-64">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+              <Input
+                type="text"
+                aria-label="Buscar conversaciones"
+                placeholder="Buscar por nombre, email, DNI…"
+                value={search}
+                onChange={e => handleSearch(e.target.value)}
+                className="pl-8 h-9"
+              />
+              {search && (
+                <button
+                  aria-label="Limpiar búsqueda"
+                  onClick={() => { handleSearch(""); setDebouncedSearch(""); }}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded text-muted-foreground hover:text-foreground"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+            <Button
+              variant={showFilters || hasActiveFilters ? "default" : "outline"}
+              size="sm"
+              className="gap-1.5 h-9 shrink-0"
+              onClick={() => setShowFilters(v => !v)}
+            >
+              <SlidersHorizontal className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Filtros</span>
+              {activeFilterCount > 0 && (
+                <span className="ml-0.5 bg-background/20 text-primary-foreground rounded-full text-[10px] font-bold min-w-[18px] h-[18px] px-1 inline-flex items-center justify-center">
+                  {activeFilterCount}
+                </span>
+              )}
+            </Button>
           </div>
         </div>
 
@@ -403,7 +396,7 @@ export default function AdminConversationsPage() {
         {/* Altura completa dentro del marco PageShell (flujo space-y, no h-full):
             mismo recurso que la pestaña Sugeridos de Temas reconocidos. El calc
             descuenta cabecera + tabs + búsqueda; ajustable si hace falta. */}
-        <div className="grid gap-4 lg:grid-cols-[minmax(340px,400px)_1fr] xl:grid-cols-[minmax(380px,440px)_1fr] lg:h-[calc(100dvh-14rem)] lg:min-h-[460px]">
+        <div className="grid gap-4 lg:grid-cols-[minmax(340px,400px)_1fr] xl:grid-cols-[minmax(380px,440px)_1fr] flex-1 min-h-0 lg:min-h-[460px]">
           {/* Lista (scroll propio) */}
           <Card className="overflow-hidden rounded-lg flex flex-col h-full min-h-0">
             <div className="flex-1 overflow-y-auto scrollbar-slim min-h-0 [scrollbar-gutter:stable]">
@@ -536,29 +529,47 @@ function ConvDetail({ detail, loading, isError, onRetry, onClose, inline }: {
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "auto" }); }, [detail?.id]);
 
   return (
-    <div className="flex flex-col h-full min-h-0">
-      {/* Header */}
-      <div className="shrink-0 px-4 h-12 border-b border-slate-100 flex items-center gap-3 bg-white">
+    <div className="flex flex-col h-full min-h-0 relative">
+      {/* Header — solo mobile (Sheet): ahí la lista no se ve, así que el nombre,
+          el estado y el "volver" son necesarios. En desktop (inline) todo eso ya
+          está en la tarjeta seleccionada de la lista → el header solo robaría
+          altura de lectura, así que se oculta (queda la X flotante de abajo). */}
+      {!inline && (
+        <div className="shrink-0 px-4 h-12 border-b border-slate-100 flex items-center gap-3 bg-white">
+          <button
+            onClick={onClose}
+            className="flex items-center justify-center w-8 h-8 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            aria-label="Volver"
+            title="Volver"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+
+          {loading || !detail ? (
+            <Skeleton className="h-4 w-44 flex-1" />
+          ) : (
+            <>
+              <p className="flex-1 min-w-0 font-semibold text-sm truncate">
+                {detail.afiliado_nombre || (detail.afiliado_ip ? `IP ${detail.afiliado_ip}` : "Anónimo")}
+              </p>
+              <StatusBadge status={detail.status} />
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Cerrar (desktop inline) — X discreta y flotante, para deseleccionar sin
+          gastar la franja entera de un header. El nombre/estado viven en la lista. */}
+      {inline && (
         <button
           onClick={onClose}
-          className="flex items-center justify-center w-8 h-8 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          aria-label={inline ? "Cerrar detalle" : "Volver"}
-          title={inline ? "Cerrar detalle" : "Volver"}
+          className="absolute top-2.5 right-2.5 z-10 flex items-center justify-center w-7 h-7 rounded-lg bg-white/70 backdrop-blur text-muted-foreground/70 hover:text-foreground hover:bg-white shadow-sm ring-1 ring-black/5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          aria-label="Cerrar detalle"
+          title="Cerrar detalle"
         >
-          {inline ? <X className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+          <X className="h-4 w-4" />
         </button>
-
-        {loading || !detail ? (
-          <Skeleton className="h-4 w-44 flex-1" />
-        ) : (
-          <>
-            <p className="flex-1 min-w-0 font-semibold text-sm truncate">
-              {detail.afiliado_nombre || (detail.afiliado_ip ? `IP ${detail.afiliado_ip}` : "Anónimo")}
-            </p>
-            <StatusBadge status={detail.status} />
-          </>
-        )}
-      </div>
+      )}
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto scrollbar-slim bg-muted/20 min-h-0">
