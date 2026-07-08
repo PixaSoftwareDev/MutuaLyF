@@ -336,10 +336,10 @@ export function Sidebar() {
                     </div>
                   )}
                   {!group.label && !isFirstVisible && (
-                    <div className="h-px bg-slate-200 my-3 mx-1" />
+                    <div className="h-px bg-slate-100 my-3 mx-1" />
                   )}
                   {collapsed && group.label && !isFirstVisible && (
-                    <div className="h-px bg-slate-200 my-3 mx-1 hidden lg:block" />
+                    <div className="h-px bg-slate-100 my-3 mx-1 hidden lg:block" />
                   )}
                   <div className="space-y-0.5" role="group" aria-label={group.label || undefined}>
                     {showChatTester && (
@@ -406,7 +406,7 @@ export function Sidebar() {
           })()}
         </nav>
 
-        <div className="h-px bg-slate-200 shrink-0" />
+        <div className="h-px bg-slate-100 shrink-0" />
 
         {/* User + logout */}
         <div className={cn("p-3 space-y-1 shrink-0", collapsed && "lg:flex lg:flex-col lg:items-center lg:p-2 lg:space-y-1")}>
@@ -436,7 +436,10 @@ export function Sidebar() {
             {(() => {
               const inner = (
                 <>
-                  <div className="w-8 h-8 flex items-center justify-center shrink-0 rounded-lg bg-action/10 text-action ring-1 ring-action/15 font-bold text-xs">
+                  <div
+                    className="w-8 h-8 flex items-center justify-center shrink-0 rounded-full text-white font-bold text-xs shadow-sm"
+                    style={{ background: "linear-gradient(135deg, #22d3ee 0%, #6366f1 55%, #7A2DFF 100%)" }}
+                  >
                     {userInitial}
                   </div>
                   <div className={cn("min-w-0 flex-1 leading-tight", collapsed && "lg:hidden")}>

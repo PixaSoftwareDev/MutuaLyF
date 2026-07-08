@@ -4,9 +4,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Search, ChevronLeft, ChevronRight, ChevronDown, Loader2, MessageSquare,
-  X, UserCheck, MessageCircle, History as HistoryIcon, Filter,
+  X, UserCheck, MessageCircle, Filter,
 } from "lucide-react";
 import { api, type ConversationHistoryFilters } from "@/lib/api";
+import { WhatsAppIcon } from "@/components/ui/whatsapp-icon";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -78,48 +79,45 @@ export default function OperatorHistoryPage() {
     <div className="flex h-full overflow-hidden">
       {/* ── LEFT: filters + list ──────────────────────────────────────────── */}
       <div className={cn(
-        "border-r flex flex-col shrink-0 bg-card",
+        "border-r border-slate-100 flex flex-col shrink-0 bg-slate-50/40",
         "w-full sm:w-80",
         selectedId ? "hidden sm:flex" : "flex"
       )}>
-        {/* Header */}
-        <div className="h-16 px-4 flex items-center justify-between border-b shrink-0">
-          <h1 className="font-semibold text-sm flex items-center gap-2">
-            <HistoryIcon className="h-4 w-4 text-primary" />
-            Historial
-          </h1>
-          <button
-            onClick={() => setFiltersOpen(v => !v)}
-            className={cn(
-              "flex items-center gap-1 text-[10px] px-2 py-1 rounded-md transition-colors",
-              activeFiltersCount > 0
-                ? "bg-primary/10 text-primary"
-                : "text-muted-foreground hover:bg-muted",
-            )}
-          >
-            <Filter className="h-3 w-3" />
-            Filtros
-            {activeFiltersCount > 0 && (
-              <span className="bg-primary text-primary-foreground rounded-full text-[10px] w-4 h-4 flex items-center justify-center font-bold">
-                {activeFiltersCount}
-              </span>
-            )}
-          </button>
-        </div>
-
-        {/* Search + filters */}
-        <div className="px-4 pt-3 pb-3 space-y-2 border-b">
-          <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-            <input
-              type="text"
-              placeholder="Buscar afiliado…"
-              value={searchInput}
-              onChange={e => setSearchInput(e.target.value)}
-              onKeyDown={e => { if (e.key === "Enter") applySearch(); }}
-              onBlur={applySearch}
-              className="w-full h-8 pl-8 pr-3 rounded-md border border-input bg-background text-xs focus:outline-none focus:ring-1 focus:ring-primary"
-            />
+        {/* Buscador + Filtros arriba, a la misma altura que el buscador de la
+            bandeja. El header "Historial" se quitó: el topbar ya indica la vista
+            y así se recupera espacio y se unifica con la bandeja. */}
+        <div className="px-4 pt-3 pb-3 space-y-2">
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+              <input
+                type="text"
+                placeholder="Buscar afiliado…"
+                value={searchInput}
+                onChange={e => setSearchInput(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter") applySearch(); }}
+                onBlur={applySearch}
+                className="w-full h-9 pl-8 pr-3 rounded-lg bg-slate-100/80 text-xs placeholder:text-slate-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-action/40 transition"
+              />
+            </div>
+            <button
+              onClick={() => setFiltersOpen(v => !v)}
+              title="Filtros"
+              className={cn(
+                "flex items-center gap-1 text-[11px] h-9 px-2.5 rounded-lg shrink-0 transition-colors",
+                activeFiltersCount > 0
+                  ? "bg-action/[0.08] text-action font-medium"
+                  : "text-muted-foreground hover:bg-slate-100",
+              )}
+            >
+              <Filter className="h-3.5 w-3.5" />
+              <span className="hidden min-[360px]:inline">Filtros</span>
+              {activeFiltersCount > 0 && (
+                <span className="bg-action text-action-foreground rounded-full text-[10px] w-4 h-4 flex items-center justify-center font-bold">
+                  {activeFiltersCount}
+                </span>
+              )}
+            </button>
           </div>
 
           {filtersOpen && (
@@ -127,7 +125,7 @@ export default function OperatorHistoryPage() {
               <select
                 value={filters.status ?? ""}
                 onChange={e => setFilters(f => ({ ...f, status: e.target.value || undefined, page: 1 }))}
-                className="w-full h-8 rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+                className="w-full h-9 rounded-lg bg-slate-100/80 px-2 text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-action/40 transition"
               >
                 {STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
@@ -137,7 +135,7 @@ export default function OperatorHistoryPage() {
                   type="date"
                   value={filters.dateFrom ?? ""}
                   onChange={e => setFilters(f => ({ ...f, dateFrom: e.target.value || undefined, page: 1 }))}
-                  className="flex-1 h-8 rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+                  className="flex-1 h-9 rounded-lg bg-slate-100/80 px-2 text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-action/40 transition"
                   placeholder="Desde"
                 />
                 <span className="text-xs text-muted-foreground">→</span>
@@ -145,7 +143,7 @@ export default function OperatorHistoryPage() {
                   type="date"
                   value={filters.dateTo ?? ""}
                   onChange={e => setFilters(f => ({ ...f, dateTo: e.target.value || undefined, page: 1 }))}
-                  className="flex-1 h-8 rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+                  className="flex-1 h-9 rounded-lg bg-slate-100/80 px-2 text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-action/40 transition"
                   placeholder="Hasta"
                 />
               </div>
@@ -194,7 +192,7 @@ export default function OperatorHistoryPage() {
 
         {/* Pagination */}
         {!isLoading && total > 0 && (
-          <div className="px-3 py-2 border-t flex items-center justify-between text-[11px] text-muted-foreground shrink-0">
+          <div className="px-3 py-2 border-t border-slate-100 flex items-center justify-between text-[11px] text-muted-foreground shrink-0">
             <span className="tabular-nums">
               {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, total)} de {total}
             </span>
@@ -236,7 +234,7 @@ export default function OperatorHistoryPage() {
           // Skeleton de chat (no un spinner suelto): coherencia con la bandeja —
           // se ve la estructura cargando, no un parpadeo en blanco.
           <div className="flex-1 flex flex-col">
-            <div className="px-4 py-3 border-b bg-card">
+            <div className="px-4 py-3 border-b border-slate-100 bg-white">
               <Skeleton className="h-4 w-40" />
             </div>
             <div className="flex-1 p-4 space-y-3">
@@ -248,7 +246,8 @@ export default function OperatorHistoryPage() {
         ) : detail ? (
           <>
             {/* Header */}
-            <div className="px-4 py-3 border-b flex items-center justify-between gap-3 bg-card">
+            <div className="px-4 py-3 border-b border-slate-100 bg-white">
+              <div className="max-w-4xl mx-auto w-full flex items-center justify-between gap-3">
               <div className="flex items-center gap-2 min-w-0">
                 <button
                   onClick={() => setSelectedId(null)}
@@ -269,10 +268,12 @@ export default function OperatorHistoryPage() {
               <div className="flex items-center gap-2 shrink-0">
                 <StatusBadge status={detail.status} />
               </div>
+              </div>
             </div>
 
             {/* Messages */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+            <div className="flex-1 overflow-y-auto p-4">
+              <div className="max-w-4xl mx-auto w-full space-y-3">
               {botMessages.map(m => <MessageBubble key={m.id} msg={m} conversationId={detail.id} />)}
               {operatorMessages.length > 0 && botMessages.length > 0 && (
                 <div className="flex items-center gap-2 py-1">
@@ -288,10 +289,11 @@ export default function OperatorHistoryPage() {
                 <p className="text-center text-sm text-muted-foreground py-10">Conversación sin mensajes</p>
               )}
               <div ref={messagesEndRef} />
+              </div>
             </div>
 
             {/* Footer: read-only notice */}
-            <div className="px-4 py-2.5 border-t bg-muted/30 text-center">
+            <div className="px-4 py-2.5 border-t border-slate-100 bg-slate-50/50 text-center">
               <p className="text-[11px] text-muted-foreground flex items-center justify-center gap-1.5">
                 <MessageCircle className="h-3 w-3" />
                 Vista histórica de solo lectura
@@ -340,6 +342,7 @@ function HistoryCard({
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium truncate leading-tight flex items-center gap-1.5">
               {row.is_test && <span className="shrink-0 text-[9px] font-bold bg-violet-100 text-violet-700 rounded px-1 py-0.5 uppercase tracking-wide">TEST</span>}
+              {row.channel === "whatsapp" && <span aria-label="WhatsApp" className="shrink-0 inline-flex items-center gap-0.5 text-[9px] font-semibold bg-green-600/10 text-green-700 rounded px-1 py-0.5"><WhatsAppIcon className="h-2.5 w-2.5" />WA</span>}
               {row.afiliado_nombre || (row.afiliado_ip ? `IP ${row.afiliado_ip}` : "Anónimo")}
             </p>
             <p className="text-[11px] text-muted-foreground truncate mt-0.5">{row.sector_nombre || "Sin sector"}</p>

@@ -4,12 +4,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   MessageSquare, Loader2, Send, UserCheck, UserMinus, XCircle, User, Bot,
-  Info, ChevronDown, ChevronLeft, Search, ArrowRightLeft, Eye, Wifi, WifiOff,
-  RotateCcw, MoreVertical, Paperclip, X, MessageCircle, Globe,
+  Info, ChevronDown, ChevronLeft, Search, ArrowRightLeft, Eye,
+  RotateCcw, MoreVertical, Paperclip, X, Globe,
 } from "lucide-react";
 import { api, type ConversationRow } from "@/lib/api";
 import { extractErrorMessage } from "@/lib/errors";
 import { renderWithLinks } from "@/lib/render-with-links";
+import { WhatsAppIcon } from "@/components/ui/whatsapp-icon";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -526,7 +527,7 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
 
       {/* ── LEFT: queue ──────────────────────────────────────────────────── */}
       <div className={cn(
-        "border-r flex flex-col shrink-0 bg-card",
+        "border-r border-slate-100 flex flex-col shrink-0 bg-slate-50/40",
         "w-full sm:w-80",
         selectedId ? "hidden sm:flex" : "flex"
       )}>
@@ -535,30 +536,19 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
             quitaron: el topbar ya identifica la vista y los headers de sección
             ya traen los números — era el mismo dato tres veces. */}
         <div className="px-4 pt-3 pb-3 space-y-3">
-          {/* Search + estado de conexión en tiempo real */}
-          <div className="flex items-center gap-2">
-            <div className="relative flex-1">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-              <input
-                type="text"
-                aria-label="Buscar conversaciones"
-                placeholder="Buscar…"
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                className="w-full h-8 pl-8 pr-3 rounded-md border border-input bg-background text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              />
-            </div>
-            {!readOnly && (
-              <div
-                className="flex items-center gap-1 shrink-0"
-                title={sseConnected ? "Tiempo real activo" : "Reconectando..."}
-              >
-                {sseConnected
-                  ? <Wifi    className="h-3.5 w-3.5 text-success" />
-                  : <WifiOff className="h-3.5 w-3.5 text-muted-foreground animate-pulse motion-reduce:animate-none" />}
-                <span className="text-[11px] text-muted-foreground hidden sm:inline">{sseConnected ? "En vivo" : "Reconectando"}</span>
-              </div>
-            )}
+          {/* Buscador a ancho completo. El estado del SSE en tiempo real sigue
+              activo por debajo (con respaldo de polling); antes se mostraba un
+              indicador Wifi que confundía sin aportar. */}
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+            <input
+              type="text"
+              aria-label="Buscar conversaciones"
+              placeholder="Buscar…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="w-full h-9 pl-8 pr-3 rounded-lg bg-slate-100/80 text-xs placeholder:text-slate-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-action/40 transition"
+            />
           </div>
 
           {/* Sector filter — dropdown */}
@@ -569,10 +559,10 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
                 aria-label="Filtrar por sector"
                 onChange={e => setSectorFilter(e.target.value)}
                 className={cn(
-                  "w-full h-8 pl-3 pr-8 rounded-md border bg-background text-xs cursor-pointer appearance-none focus:outline-none focus-visible:ring-2 focus-visible:ring-ring transition-colors",
+                  "w-full h-9 pl-3 pr-8 rounded-lg text-xs cursor-pointer appearance-none focus:outline-none focus-visible:ring-2 focus-visible:ring-action/40 transition",
                   sectorFilter === "all"
-                    ? "border-input text-muted-foreground"
-                    : "border-primary/60 text-foreground font-medium"
+                    ? "bg-slate-100/80 text-muted-foreground"
+                    : "bg-action/[0.08] text-foreground font-medium"
                 )}
               >
                 <option value="all">Todos los sectores</option>
@@ -591,7 +581,7 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
             Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-16 rounded-lg" />)
           ) : error ? (
             <p className="text-xs text-destructive text-center py-8">Error al cargar</p>
-          ) : allConvs.length === 0 && !search && sectorFilter === "all" && !readOnly ? (
+          ) : (data?.sectors?.length ?? 0) === 0 && !readOnly ? (
             <div className="text-center py-12 px-4 text-muted-foreground space-y-2">
               <MessageSquare className="h-8 w-8 mx-auto opacity-20" />
               <p className="text-sm font-medium text-foreground/70">Sin sectores asignados</p>
@@ -655,12 +645,10 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
       )}>
         {!selectedId ? (
           <div className="flex-1 flex items-center justify-center text-muted-foreground">
-            <div className="text-center px-10">
-              <div className="w-16 h-16 rounded-2xl bg-action/10 text-action flex items-center justify-center mb-4 mx-auto">
-                <MessageSquare className="h-7 w-7" />
-              </div>
-              <p className="text-base font-semibold text-foreground">Elegí una conversación</p>
-              <p className="text-sm mt-1 max-w-xs leading-relaxed">
+            <div className="text-center space-y-2 px-10">
+              <MessageSquare className="h-10 w-10 mx-auto opacity-15" />
+              <p className="text-sm">Elegí una conversación</p>
+              <p className="text-xs opacity-70 max-w-xs mx-auto leading-relaxed">
                 Seleccioná una conversación de la lista para ver los mensajes y atenderla.
               </p>
             </div>
@@ -669,10 +657,10 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
           // Skeleton de chat (no un panel vacío): al saltar entre conversaciones
           // el operador ve la estructura cargando, no un parpadeo en blanco.
           <div className="flex-1 flex flex-col">
-            <div className="px-4 py-3 border-b bg-card">
+            <div className="px-4 py-3 border-b border-slate-100 bg-white">
               <Skeleton className="h-4 w-40" />
             </div>
-            <div className="flex-1 p-4 space-y-3 bg-muted/30">
+            <div className="flex-1 p-4 space-y-3 bg-slate-50/50">
               <Skeleton className="h-12 w-2/3 rounded-2xl" />
               <Skeleton className="h-12 w-1/2 rounded-2xl ml-auto" />
               <Skeleton className="h-10 w-3/5 rounded-2xl" />
@@ -681,7 +669,8 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
         ) : detail ? (
           <>
             {/* ── Header ── */}
-            <div className="px-4 py-3 border-b flex items-center justify-between gap-3 bg-card">
+            <div className="px-4 py-3 border-b border-slate-100 bg-white">
+              <div className="max-w-4xl mx-auto w-full flex items-center justify-between gap-3">
               <div className="flex items-center gap-2 min-w-0">
                 <button
                   onClick={() => setSelectedId(null)}
@@ -694,7 +683,7 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
                   <div className="flex items-center gap-2 min-w-0">
                     <p className="font-semibold text-sm truncate">{detail.afiliado_nombre || (detail.afiliado_ip ? `IP ${detail.afiliado_ip}` : "Afiliado anónimo")}</p>
                     <StatusBadge status={detail.status} />
-                    {detail.channel === "whatsapp" && <span aria-label="WhatsApp" className="shrink-0 text-[10px] font-semibold bg-green-600/10 text-green-700 rounded px-1.5 py-0.5">WhatsApp</span>}
+                    {detail.channel === "whatsapp" && <span aria-label="WhatsApp" className="shrink-0 inline-flex items-center gap-1 text-[10px] font-semibold bg-green-600/10 text-green-700 rounded px-1.5 py-0.5"><WhatsAppIcon className="h-2.5 w-2.5" />WhatsApp</span>}
                   </div>
                   <p className="text-xs text-muted-foreground truncate mt-0.5">
                     {[
@@ -771,6 +760,7 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
                 )}
                 {readOnly && <Eye className="h-4 w-4 text-muted-foreground" />}
               </div>
+              </div>
             </div>
 
             {/* Transfer panel */}
@@ -801,7 +791,7 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
 
             {/* ── Messages ── */}
             <div className="flex-1 overflow-y-auto scrollbar-slim p-4 bg-muted/30">
-             <div className="max-w-3xl mx-auto w-full space-y-3">
+             <div className="max-w-4xl mx-auto w-full space-y-3">
               {/* Bot phase — shown inline, no collapsible box */}
               {botMessages.map(m => <MessageBubble key={m.id} msg={m} conversationId={detail.id} />)}
 
@@ -871,7 +861,8 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
 
             {/* ── Reply ── */}
             {!readOnly && detail.status === "human_attending" && (
-              <div className="border-t bg-card">
+              <div className="border-t border-slate-100 bg-white">
+                <div className="max-w-4xl mx-auto w-full">
                 {/* Preview del adjunto pendiente — revisar antes de enviar */}
                 {pendingFile && (
                   <div className="px-4 pt-3">
@@ -922,6 +913,7 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
                   >
                     {(replyM.isPending || attachM.isPending) ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                   </Button>
+                </div>
                 </div>
               </div>
             )}
@@ -1119,7 +1111,7 @@ function ConvCard({ conv, now, selected, readOnly, onlineNames, onSelect, onAcce
             {conv.is_test && <span aria-label="Conversación de prueba" className="shrink-0 text-[10px] font-bold bg-primary/10 text-primary rounded px-1 py-0.5 uppercase tracking-wide">TEST</span>}
             <span className="truncate min-w-0">{conv.afiliado_nombre || (conv.channel === "whatsapp" && conv.external_id ? formatWaNumber(conv.external_id) : (conv.afiliado_ip ? `IP ${conv.afiliado_ip}` : "Anónimo"))}</span>
             {conv.channel === "whatsapp"
-              ? <span aria-label="WhatsApp" className="shrink-0 inline-flex items-center gap-0.5 text-[10px] font-semibold bg-green-600/10 text-green-700 rounded px-1.5 py-0.5"><MessageCircle className="h-2.5 w-2.5" />WA</span>
+              ? <span aria-label="WhatsApp" className="shrink-0 inline-flex items-center gap-0.5 text-[10px] font-semibold bg-green-600/10 text-green-700 rounded px-1.5 py-0.5"><WhatsAppIcon className="h-2.5 w-2.5" />WA</span>
               : !conv.afiliado_nombre
                 ? <span aria-label="Web" className="shrink-0 inline-flex items-center gap-0.5 text-[10px] font-medium text-muted-foreground"><Globe className="h-2.5 w-2.5" />Web</span>
                 : null}
