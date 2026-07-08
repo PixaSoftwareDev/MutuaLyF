@@ -52,6 +52,19 @@ case "${1:-help}" in
   psql)
     "${COMPOSE[@]}" exec postgres psql -U platform_user -d platform
     ;;
+  reset-dev-users)
+    # Resetea la contraseña de los usuarios del panel "Acceso rápido" del login
+    # a DEV_QUICK_PASSWORD (.env.local). Útil tras un 'nuke' + re-seed. Solo dev.
+    PWD_DEV="${DEV_QUICK_PASSWORD:-local1234}"
+    HASH=$("${COMPOSE[@]}" exec -T backend python -c "from core.security import hash_password; print(hash_password('$PWD_DEV'))" | tr -d '\r')
+    [ -z "$HASH" ] && { echo "❌ No se pudo generar el hash (¿backend arriba?)"; exit 1; }
+    "${COMPOSE[@]}" exec -T postgres psql -U platform_user -d platform \
+      -c "UPDATE public.platform_users SET hashed_password='$HASH' WHERE email='pixs@gmail.com';" \
+      -c "UPDATE tenant_intellix.usuarios SET hashed_password='$HASH' WHERE email IN ('intellix@gmail.com','alejo_maros@hotmail.com');" \
+      -c "UPDATE tenant_mutualyf.usuarios SET hashed_password='$HASH' WHERE email IN ('mutual@gmail.com','guille@gmail.com');" \
+      -c "UPDATE tenant_nexo.usuarios SET hashed_password='$HASH' WHERE email IN ('admin@nexoconsultora.com.ar','a@gmail.com');"
+    echo "✅ Usuarios de acceso rápido reseteados a: $PWD_DEV"
+    ;;
   *)
     cat <<'HELP'
 Uso: ./scripts/dev-local.sh <comando>
@@ -66,6 +79,7 @@ Uso: ./scripts/dev-local.sh <comando>
   logs [servicio]       Sigue logs (ej: logs backend)
   ps             Estado de los contenedores
   psql           Abre psql contra la DB local
+  reset-dev-users  Resetea las contraseñas del panel "Acceso rápido" del login
 HELP
     ;;
 esac

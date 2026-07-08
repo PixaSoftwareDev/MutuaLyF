@@ -22,18 +22,22 @@ import { cn } from "@/lib/utils";
  * de cada tenant (conversaciones, colas) vive en el panel de ese tenant.
  */
 
-type Tone = "ok" | "warn" | "down";
+// "unknown" = sin monitoreo (Prometheus no está en este entorno). No es ni sano
+// ni caído: no tenemos con qué afirmar el estado → se muestra neutro, sin alarma.
+type Tone = "ok" | "warn" | "down" | "unknown";
 
 const DOT: Record<Tone, string> = {
-  ok:   "bg-success",
-  warn: "bg-warning",
-  down: "bg-destructive animate-pulse motion-reduce:animate-none",
+  ok:      "bg-success",
+  warn:    "bg-warning",
+  down:    "bg-destructive animate-pulse motion-reduce:animate-none",
+  unknown: "bg-muted-foreground/40",
 };
 
 const HERO: Record<Tone, { Icon: typeof CheckCircle2; ring: string; grad: string; glow: string; iconBg: string }> = {
-  ok:   { Icon: CheckCircle2,  ring: "border-success/25",     grad: "from-success/[0.10] via-success/[0.03] to-transparent",         glow: "hsl(var(--success))",     iconBg: "bg-success/15 text-success" },
-  warn: { Icon: AlertTriangle, ring: "border-warning/30",     grad: "from-warning/[0.12] via-warning/[0.04] to-transparent",         glow: "hsl(var(--warning))",     iconBg: "bg-warning/15 text-warning" },
-  down: { Icon: XCircle,       ring: "border-destructive/30", grad: "from-destructive/[0.12] via-destructive/[0.04] to-transparent", glow: "hsl(var(--destructive))", iconBg: "bg-destructive/15 text-destructive" },
+  ok:      { Icon: CheckCircle2,  ring: "border-success/25",     grad: "from-success/[0.10] via-success/[0.03] to-transparent",         glow: "hsl(var(--success))",     iconBg: "bg-success/15 text-success" },
+  warn:    { Icon: AlertTriangle, ring: "border-warning/30",     grad: "from-warning/[0.12] via-warning/[0.04] to-transparent",         glow: "hsl(var(--warning))",     iconBg: "bg-warning/15 text-warning" },
+  down:    { Icon: XCircle,       ring: "border-destructive/30", grad: "from-destructive/[0.12] via-destructive/[0.04] to-transparent", glow: "hsl(var(--destructive))", iconBg: "bg-destructive/15 text-destructive" },
+  unknown: { Icon: CheckCircle2,  ring: "border-border",         grad: "from-muted/[0.10] via-muted/[0.03] to-transparent",             glow: "hsl(var(--muted-foreground))", iconBg: "bg-muted text-muted-foreground" },
 };
 
 /** Chip de dimensión de salud — pulso resumido, el detalle vive en Monitoreo. */
@@ -115,14 +119,20 @@ export default function PlatformHomePage() {
 
   // ── Chequeos de salud de PLATAFORMA (la infra es del super-admin; lo operativo
   //    de cada tenant no entra acá). El detalle de cada uno vive en Monitoreo. ──
+  // ¿Hay stack de monitoreo (Prometheus) en este entorno? En dev local no lo hay,
+  // así que el backend no puede afirmar el estado de Postgres/Redis (up=null).
+  const monitoringAvailable: boolean = system ? (system.monitoring_available ?? true) : true;
+
   const services = system ? [
     { label: "PostgreSQL", up: system.postgres.up },
     { label: "Redis",      up: system.redis.up },
     { label: "Backend",    up: system.backend.up },
     { label: "Groq",       up: system.groq.total_calls === 0 ? true : (system.groq.by_model ?? []).every((m: any) => m.errors === 0 || m.errors < m.total) },
   ] : [];
-  const downServices = services.filter(s => !s.up);
-  const svcTone: Tone = downServices.length > 0 ? "down" : "ok";
+  // Solo cuentan como caídos los que están explícitamente en false; up=null =
+  // "desconocido" (sin monitoreo), nunca dispara alarma.
+  const downServices = services.filter(s => s.up === false);
+  const svcTone: Tone = downServices.length > 0 ? "down" : monitoringAvailable ? "ok" : "unknown";
 
   const alertTone: Tone =
     alerts.some(a => a.severity === "critical") ? "down" :
@@ -133,7 +143,11 @@ export default function PlatformHomePage() {
   const daily   = system?.backups?.daily;
   const weekly  = system?.backups?.weekly;
   const diskPct = system?.storage?.used_pct ?? null;
+  // Sin monitoreo no podemos leer el estado de backups/disco (el volumen tampoco
+  // se monta en dev local) → neutro, no "warn". En prod (monitoringAvailable)
+  // un backups==null sí es un problema real y mantiene el warn.
   const backupTone: Tone =
+    !monitoringAvailable && system?.backups == null ? "unknown" :
     (daily && !daily.healthy) || (diskPct != null && diskPct >= 85) ? "down" :
     (weekly && !weekly.healthy) || (diskPct != null && diskPct >= 70) || system?.backups == null ? "warn" :
     "ok";
@@ -142,17 +156,22 @@ export default function PlatformHomePage() {
   const globalTone: Tone = tones.includes("down") ? "down" : tones.includes("warn") ? "warn" : "ok";
   const globalLabel = globalTone === "ok" ? "Todo en orden" : globalTone === "down" ? "Hay un problema" : "Requiere atención";
 
+  // Solo down/warn generan un ítem de acción; "unknown" (sin monitoreo) no es
+  // accionable, no ensucia la lista.
+  const actionable = (t: Tone) => t === "down" || t === "warn";
   type Issue = { tone: Tone; text: string };
   const issues: Issue[] = [];
-  if (svcTone !== "ok")    issues.push({ tone: svcTone,    text: `Servicio caído: ${downServices.map(s => s.label).join(", ")}` });
-  if (alertTone !== "ok")  issues.push({ tone: alertTone,  text: `${alerts.length} ${alerts.length === 1 ? "alerta activa" : "alertas activas"}${alerts[0]?.name ? ` · ${alerts[0].name}` : ""}` });
-  if (errTone !== "ok")    issues.push({ tone: errTone,    text: `${recentErrors.length} ${recentErrors.length === 1 ? "error" : "errores"} en el backend` });
-  if (backupTone !== "ok") issues.push({ tone: backupTone, text: system?.backups == null ? "Sin acceso al repositorio de backups" : (daily && !daily.healthy ? "Backup diario vencido" : diskPct != null && diskPct >= 70 ? `Disco al ${diskPct.toFixed(0)}%` : "Backup semanal pendiente") });
+  if (actionable(svcTone))    issues.push({ tone: svcTone,    text: `Servicio caído: ${downServices.map(s => s.label).join(", ")}` });
+  if (actionable(alertTone))  issues.push({ tone: alertTone,  text: `${alerts.length} ${alerts.length === 1 ? "alerta activa" : "alertas activas"}${alerts[0]?.name ? ` · ${alerts[0].name}` : ""}` });
+  if (actionable(errTone))    issues.push({ tone: errTone,    text: `${recentErrors.length} ${recentErrors.length === 1 ? "error" : "errores"} en el backend` });
+  if (actionable(backupTone)) issues.push({ tone: backupTone, text: system?.backups == null ? "Sin acceso al repositorio de backups" : (daily && !daily.healthy ? "Backup diario vencido" : diskPct != null && diskPct >= 70 ? `Disco al ${diskPct.toFixed(0)}%` : "Backup semanal pendiente") });
 
   const heroSummary = healthLoading
     ? "Consultando el estado de la plataforma…"
     : globalTone === "ok"
-    ? "Servicios operativos, sin alertas y backups al día."
+    ? (monitoringAvailable
+        ? "Servicios operativos, sin alertas y backups al día."
+        : "Todo operativo. El monitoreo detallado (Prometheus) no está activo en este entorno.")
     : `${issues.length} ${issues.length === 1 ? "cosa requiere" : "cosas requieren"} tu atención ahora.`;
 
   const dims: Array<{ label: string; tone: Tone }> = [

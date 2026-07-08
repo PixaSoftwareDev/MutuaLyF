@@ -78,6 +78,55 @@ def cluster_single_tenant(tenant_id: str) -> dict:
     return result
 
 
+@app.task(
+    name="workers.clustering_tasks.promote_clusters",
+    queue="clustering",
+    max_retries=0,
+    soft_time_limit=900,
+)
+def promote_clusters(tenant_id: str) -> dict:
+    """Auto-promoción de clusters candidatos existentes SIN re-clusterizar.
+
+    Útil para promover candidatos ya detectados (on-demand desde el panel o tras
+    ajustar el umbral) sin pagar el costo de re-embeber todo el corpus.
+    """
+    logger.info("promote_clusters_start tenant_id=%s", tenant_id)
+    from services.intent_promotion import promote_candidate_clusters
+    return asyncio.run(promote_candidate_clusters(tenant_id))
+
+
+@app.task(
+    name="workers.clustering_tasks.promote_all_tenants",
+    queue="clustering",
+    max_retries=0,
+    soft_time_limit=1800,
+)
+def promote_all_tenants() -> dict:
+    """Auto-promoción para todos los tenants activos (respaldo del paso nocturno)."""
+    return asyncio.run(_promote_all())
+
+
+async def _promote_all() -> dict:
+    from core.database import get_worker_pg_session
+    from sqlalchemy import text
+    from services.intent_promotion import promote_candidate_clusters
+
+    async with get_worker_pg_session(None) as session:
+        result = await session.execute(text("SELECT id FROM tenants WHERE status = 'active'"))
+        tenant_ids = [row[0] for row in result.fetchall()]
+
+    results = []
+    for tid in tenant_ids:
+        try:
+            results.append(await promote_candidate_clusters(tid))
+        except Exception as exc:
+            logger.error("promote_all_tenant_error tenant_id=%s error=%s", tid, exc)
+            results.append({"tenant_id": tid, "error": str(exc)})
+    total = sum(r.get("promoted", 0) for r in results)
+    logger.info("promote_all_done tenants=%d promoted=%d", len(tenant_ids), total)
+    return {"tenants_processed": len(tenant_ids), "total_promoted": total, "results": results}
+
+
 def _emit_metrics(summary: dict) -> None:
     """Emit Prometheus counters for clustering results."""
     try:

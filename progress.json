@@ -1,6 +1,6 @@
 {
   "version": "1.9",
-  "last_updated": "2026-05-15T20:30:00Z",
+  "last_updated": "2026-07-08T13:30:00Z",
   "current_stage": "etapa_3",
   "current_step": "completed",
   "overall_status": "etapa_3_complete",
@@ -192,6 +192,11 @@
       "decision": "@radix-ui/react-badge no existe como paquete NPM",
       "reason": "Badge es un componente CVA puro en ShadCN, no usa Radix. Eliminado del package.json.",
       "date": "2026-04-30"
+    },
+    {
+      "decision": "Auto-promoción de clusters coherentes → intenciones (con gate de coherencia Groq)",
+      "reason": "El sistema de intenciones tenía un cold-start: el unico camino cluster→intencion era aprobacion manual, que nunca ocurria (mutualyf: 59 clusters, 0 intenciones). Ahora los clusters coherentes se promueven solos; los incoherentes quedan para revision.",
+      "date": "2026-07-08"
     }
   ],
   "blockers": [],
@@ -319,5 +324,20 @@
       "OTEL_ENABLED=true si hay Jaeger en VPS",
       "Plan B para leak: cron diario que reinicie backend en horario de bajo trafico"
     ]
+  },
+  "session_2026_07_08_intent_pipeline": {
+    "status": "completed",
+    "resumen": "Arreglo integral del pipeline de intenciones para que el bot evolucione.",
+    "fixes": [
+      "BUG: approve_cluster/_promote_pending no poblaban intencion_ejemplos → reentrenador y panel quedaban desconectados. Helper services/intent_examples.py.",
+      "Auto-promocion con gate de coherencia Groq (services/intent_promotion.py) + circuit-breaker ante rate-limit.",
+      "Celery Beat habilitado en local (worker --beat) + schedule nocturno de promocion.",
+      "Reparacion de mojibake en origen (core/text_utils.py) y en data local (256 filas).",
+      "Ids Qdrant deterministas → el retrain hace upsert en vez de duplicar vectores.",
+      "BUG pre-existente: .env.test usaba modelo maverick prohibido → rompia los 102 tests. Corregido a scout.",
+      "Colecciones Qdrant huerfanas mutual_* eliminadas."
+    ],
+    "verificado": "mutualyf: 0→2 intenciones (1 manual, 1 auto), clasificador conf 0.000→0.75 discriminando temas. 102 tests pasan.",
+    "pendiente": "Calibrar umbrales del clasificador (0.95/0.70 altos para e5). Groq free-tier TPD limita la auto-promocion masiva."
   }
 }

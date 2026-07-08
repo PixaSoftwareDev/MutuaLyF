@@ -181,32 +181,66 @@ def _embed_tei(texts: list[str]) -> list[list[float] | None]:
         return [None] * len(texts)
 
 
-def _embed_openai(texts: list[str]) -> list[list[float] | None]:
-    """Send a batch of texts to OpenAI text-embedding-3-small.
+def _is_retryable_embed_error(exc: BaseException) -> bool:
+    """429 (rate-limit) y 5xx transitorios ameritan reintento con backoff.
 
-    OpenAI accepts up to 2048 inputs per call. We strip e5 prefixes before sending.
-    Returns list with same length as input; None per failed item (whole batch fails or none).
+    Sin esto, un throttle de OpenAI bajo carga devuelve None → retrieval vacío →
+    el bot contesta 'no encontré' aunque el dato exista. (Observado en el eval RAG.)
+    """
+    import httpx
+    if isinstance(exc, (httpx.TimeoutException, httpx.ConnectError, httpx.ReadError)):
+        return True
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code in (429, 500, 502, 503, 504)
+    return False
+
+
+_EMBED_RETRIES = 3
+_EMBED_BACKOFF = 0.6  # segundos base; crece exponencial
+_OPENAI_MAX_BATCH = 1000  # OpenAI rechaza (400) arrays > 2048 inputs; margen conservador
+
+
+def _embed_openai(texts: list[str]) -> list[list[float] | None]:
+    """Send texts to OpenAI text-embedding-3-small, chunked al límite de la API.
+
+    OpenAI rechaza (400) arrays de más de 2048 inputs por request. Troceamos en
+    lotes de _OPENAI_MAX_BATCH para no romper con corpus grandes (p.ej. clustering
+    nocturno sobre miles de consultas). Reintenta ante 429/5xx con backoff.
+    Returns list with same length as input; None per failed item.
     """
     if not texts:
         return []
-    client = _get_openai_sync_client()
     cleaned = [_strip_e5_prefix(t) for t in texts]
-    try:
-        r = client.post(
-            "/embeddings",
-            json={
-                "model": settings.openai_embedding_model,
-                "input": cleaned,
-                "dimensions": EMBEDDING_DIM,
-            },
-        )
-        r.raise_for_status()
-        data = r.json()
-        # OpenAI preserves order in data["data"][i].embedding
-        return [item["embedding"] for item in data["data"]]
-    except Exception as exc:
-        logger.error("embed_openai_failed count=%d error=%s", len(texts), exc)
-        return [None] * len(texts)
+    out: list[list[float] | None] = []
+    for start in range(0, len(cleaned), _OPENAI_MAX_BATCH):
+        out.extend(_embed_openai_chunk(cleaned[start:start + _OPENAI_MAX_BATCH]))
+    return out
+
+
+def _embed_openai_chunk(cleaned: list[str]) -> list[list[float] | None]:
+    """Un request a OpenAI para un lote ya troceado (<= _OPENAI_MAX_BATCH)."""
+    import time
+    client = _get_openai_sync_client()
+    for attempt in range(_EMBED_RETRIES):
+        try:
+            r = client.post(
+                "/embeddings",
+                json={
+                    "model": settings.openai_embedding_model,
+                    "input": cleaned,
+                    "dimensions": EMBEDDING_DIM,
+                },
+            )
+            r.raise_for_status()
+            data = r.json()
+            return [item["embedding"] for item in data["data"]]
+        except Exception as exc:
+            if _is_retryable_embed_error(exc) and attempt < _EMBED_RETRIES - 1:
+                time.sleep(_EMBED_BACKOFF * (2 ** attempt))
+                continue
+            logger.error("embed_openai_failed count=%d attempt=%d error=%s", len(cleaned), attempt, exc)
+            return [None] * len(cleaned)
+    return [None] * len(cleaned)
 
 
 # ── Public API (unchanged signatures, sync) ───────────────────────────────────
@@ -338,28 +372,43 @@ async def _aembed_tei(texts: list[str]) -> list[list[float] | None]:
 async def _aembed_openai(texts: list[str]) -> list[list[float] | None]:
     """Async OpenAI embed con semaforo per-worker. Critico para evitar throttling
     de OpenAI: sin semaforo, 20 queries concurrentes mandaban 20 embeds simultaneos
-    a OpenAI → each call passed from 2s to 19s (verified empirically 2026-05-23)."""
+    a OpenAI → each call passed from 2s to 19s (verified empirically 2026-05-23).
+
+    Troceado a _OPENAI_MAX_BATCH: OpenAI rechaza (400) arrays > 2048 inputs."""
     if not texts:
         return []
+    cleaned = [_strip_e5_prefix(t) for t in texts]
+    out: list[list[float] | None] = []
+    for start in range(0, len(cleaned), _OPENAI_MAX_BATCH):
+        out.extend(await _aembed_openai_chunk(cleaned[start:start + _OPENAI_MAX_BATCH]))
+    return out
+
+
+async def _aembed_openai_chunk(cleaned: list[str]) -> list[list[float] | None]:
+    """Un request async a OpenAI para un lote ya troceado (<= _OPENAI_MAX_BATCH)."""
     sem = _get_embedding_semaphore()
     client = _get_openai_async_client()
-    cleaned = [_strip_e5_prefix(t) for t in texts]
     async with sem:
-        try:
-            r = await client.post(
-                "/embeddings",
-                json={
-                    "model": settings.openai_embedding_model,
-                    "input": cleaned,
-                    "dimensions": EMBEDDING_DIM,
-                },
-            )
-            r.raise_for_status()
-            data = r.json()
-            return [item["embedding"] for item in data["data"]]
-        except Exception as exc:
-            logger.error("aembed_openai_failed count=%d error=%s", len(texts), exc)
-            return [None] * len(texts)
+        for attempt in range(_EMBED_RETRIES):
+            try:
+                r = await client.post(
+                    "/embeddings",
+                    json={
+                        "model": settings.openai_embedding_model,
+                        "input": cleaned,
+                        "dimensions": EMBEDDING_DIM,
+                    },
+                )
+                r.raise_for_status()
+                data = r.json()
+                return [item["embedding"] for item in data["data"]]
+            except Exception as exc:
+                if _is_retryable_embed_error(exc) and attempt < _EMBED_RETRIES - 1:
+                    await asyncio.sleep(_EMBED_BACKOFF * (2 ** attempt))
+                    continue
+                logger.error("aembed_openai_failed count=%d attempt=%d error=%s", len(cleaned), attempt, exc)
+                return [None] * len(cleaned)
+    return [None] * len(cleaned)
 
 
 async def aembed_text(text: str) -> list[float] | None:

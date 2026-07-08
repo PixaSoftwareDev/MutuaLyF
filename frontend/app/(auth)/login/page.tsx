@@ -10,7 +10,7 @@ import { useAuthStore } from "@/lib/store";
 import { api, type LookupTenantMatch } from "@/lib/api";
 import { decodeJwtPayload } from "@/lib/jwt";
 import { toSlug } from "@/lib/utils";
-import { Loader2, AlertTriangle, Shield, Eye, EyeOff, ChevronLeft, Lock } from "lucide-react";
+import { Loader2, AlertTriangle, Shield, Eye, EyeOff, ChevronLeft, Lock, Zap, ShieldCheck, User } from "lucide-react";
 
 const PLATFORM_NAME = "Intellix";
 // Paleta basada en el logo de marca: gradient hexagonal cyan→violet.
@@ -29,6 +29,25 @@ const BTN_STYLE = { backgroundImage: BRAND_GRADIENT, color: "#fff" };
 // dominio y hay que pedir la organización a mano.
 type Step = "credentials" | "select" | "org";
 
+// ── Acceso rápido (solo dev/local) ─────────────────────────────────────────
+// Panel de conveniencia para no tipear credenciales en desarrollo. Se muestra
+// ÚNICAMENTE cuando el host es localhost/127.0.0.1 — nunca en producción.
+// Los passwords están reseteados a DEV_PASSWORD en la DB local (ver
+// scripts/dev-local.sh + seed). tenant "" = super admin (platform_users).
+// La contraseña vive en .env.local (DEV_QUICK_PASSWORD) → compose →
+// NEXT_PUBLIC_DEV_QUICK_PASSWORD. Fallback a "local1234" si no está seteada.
+const DEV_PASSWORD = process.env.NEXT_PUBLIC_DEV_QUICK_PASSWORD || "local1234";
+type DevUser = { org: string; label: string; email: string; tenant: string; role: string };
+const DEV_USERS: DevUser[] = [
+  { org: "Plataforma", label: "Super Admin", email: "pixs@gmail.com",              tenant: "",         role: "super_admin" },
+  { org: "Intellix",   label: "Admin",       email: "intellix@gmail.com",          tenant: "intellix", role: "admin" },
+  { org: "Intellix",   label: "Operador",    email: "alejo_maros@hotmail.com",     tenant: "intellix", role: "operator" },
+  { org: "MutuaLyF",   label: "Admin",       email: "mutual@gmail.com",            tenant: "mutualyf", role: "admin" },
+  { org: "MutuaLyF",   label: "Operador",    email: "guille@gmail.com",            tenant: "mutualyf", role: "operator" },
+  { org: "Nexo",       label: "Admin",       email: "admin@nexoconsultora.com.ar", tenant: "nexo",     role: "admin" },
+  { org: "Nexo",       label: "Operador",    email: "a@gmail.com",                 tenant: "nexo",     role: "operator" },
+];
+
 export default function LoginPage() {
   return <Suspense fallback={null}><LoginForm /></Suspense>;
 }
@@ -42,6 +61,9 @@ function LoginForm() {
   // params) y el client (con el param) renderizarían JSX distinto → hydration
   // mismatch. Se inicializa en false y se setea en useEffect tras el mount.
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  // isLocal se setea en useEffect (no en render) para evitar hydration mismatch:
+  // el SSR no conoce el hostname. Gatea el panel de acceso rápido de dev.
+  const [isLocal, setIsLocal]         = useState(false);
   const [step, setStep]               = useState<Step>("credentials");
   const [email, setEmail]             = useState("");
   const [password, setPassword]       = useState("");
@@ -56,6 +78,22 @@ function LoginForm() {
     if (searchParams.get("platform") === "1") setIsSuperAdmin(true);
   }, [searchParams]);
 
+  // Detectar entorno local en el cliente para habilitar el acceso rápido de dev.
+  useEffect(() => {
+    const h = window.location.hostname;
+    setIsLocal(h === "localhost" || h === "127.0.0.1");
+  }, []);
+
+  // Login de un clic para el panel de dev: setea el form (feedback visual) y
+  // dispara doLogin con credenciales explícitas (no espera al setState).
+  const quickLogin = (u: DevUser) => {
+    if (loading) return;
+    setEmail(u.email);
+    setPassword(DEV_PASSWORD);
+    setError(null);
+    doLogin(u.tenant, { email: u.email, password: DEV_PASSWORD });
+  };
+
   // ── Handlers ─────────────────────────────────────────────────────────────
 
   // Validacion minima de email. No usamos zod ni regex pesada — el patron de
@@ -63,17 +101,19 @@ function LoginForm() {
   // haya algo razonable antes de hacer el roundtrip al backend.
   const isValidEmail = (s: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.trim());
 
-  const doLogin = async (effectiveTenant: string) => {
+  const doLogin = async (effectiveTenant: string, creds?: { email: string; password: string }) => {
+    const loginEmail = creds?.email ?? email;
+    const loginPassword = creds?.password ?? password;
     setError(null);
     setLoading(true);
     try {
-      const data = await api.auth.login(email, password, effectiveTenant);
+      const data = await api.auth.login(loginEmail, loginPassword, effectiveTenant);
       const payload = decodeJwtPayload<{ role?: string; tenant_id?: string }>(data.access_token);
       if (!payload?.role || !payload?.tenant_id) throw new Error("Token de sesión inválido");
       const role = payload.role;
       const resolvedTenant = payload.tenant_id;
 
-      setAuth(data.access_token, resolvedTenant, email, role);
+      setAuth(data.access_token, resolvedTenant, loginEmail, role);
       document.cookie = `ia_role=${role}; path=/; SameSite=strict`;
       document.cookie = `ia_tenant=${resolvedTenant}; path=/; SameSite=strict`;
 
@@ -287,6 +327,9 @@ function LoginForm() {
                     {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Ingresar"}
                   </Button>
                 </form>
+
+                {/* ── Acceso rápido (solo local/dev) ──────────────────────── */}
+                {isLocal && <DevQuickAccess onPick={quickLogin} disabled={loading} />}
               </>
             )}
 
@@ -419,6 +462,51 @@ function BackBtn({ onClick }: { onClick: () => void }) {
       <ChevronLeft className="h-3.5 w-3.5 mr-0.5" />
       Volver
     </button>
+  );
+}
+
+// Panel de acceso rápido de desarrollo. Solo se renderiza en localhost (ver
+// gate isLocal). Agrupa los usuarios de dev por organización y loguea de un
+// clic. NUNCA se muestra en producción — no filtra credenciales reales.
+function DevQuickAccess({ onPick, disabled }: { onPick: (u: DevUser) => void; disabled: boolean }) {
+  const orgs = Array.from(new Set(DEV_USERS.map(u => u.org)));
+  return (
+    <div className="mt-6 pt-5 border-t border-dashed border-amber-300/70">
+      <div className="flex items-center gap-2 mb-3">
+        <span className="inline-flex items-center gap-1 rounded-md bg-amber-100 border border-amber-300 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-700">
+          <Zap className="h-3 w-3" /> Dev
+        </span>
+        <span className="text-[12px] text-slate-500">Acceso rápido · contraseña <code className="text-slate-700">{DEV_PASSWORD}</code></span>
+      </div>
+      <div className="space-y-3">
+        {orgs.map(org => (
+          <div key={org}>
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 mb-1.5">{org}</div>
+            <div className="grid grid-cols-2 gap-1.5">
+              {DEV_USERS.filter(u => u.org === org).map(u => {
+                const Icon = u.role === "super_admin" ? ShieldCheck : u.role === "admin" ? Shield : User;
+                return (
+                  <button
+                    key={u.email + u.tenant}
+                    type="button"
+                    onClick={() => onPick(u)}
+                    disabled={disabled}
+                    title={u.email}
+                    className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 hover:border-slate-300 px-2.5 py-2 text-left transition-all disabled:opacity-50"
+                  >
+                    <Icon className={`h-3.5 w-3.5 shrink-0 ${u.role === "super_admin" ? "text-violet-600" : u.role === "admin" ? "text-indigo-600" : "text-slate-400"}`} />
+                    <div className="min-w-0">
+                      <div className="text-[12px] font-medium text-slate-800 leading-tight">{u.label}</div>
+                      <div className="text-[10px] text-slate-400 truncate">{u.email}</div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 

@@ -133,10 +133,14 @@ async def _fetch_pending_examples(tenant_id: str) -> list[dict]:
 
 
 async def _evaluate_accuracy(tenant_id: str) -> float:
-    """Evaluate classifier accuracy on recent high-confidence queries.
+    """Evaluate classifier accuracy against committed ground truth.
 
-    Uses queries where confidence >= 0.95 as pseudo ground truth.
-    Re-runs the live classifier on their question_text and checks label match.
+    C. Gate por medición: usa las consultas ya CLASIFICADAS (cluster_status=
+    'classified', con intent_label asignado por promoción/aprobación) como
+    ground truth real. Antes usaba conf>=0.95 como pseudo-label, pero con e5
+    casi nada llega a 0.95 → siempre retornaba 1.0 y el rollback nunca gateaba.
+
+    Re-corre el clasificador en cada question_text y verifica coincidencia de label.
     Returns accuracy in [0, 1]. Returns 1.0 if not enough samples to evaluate.
     """
     from core.database import get_worker_pg_session
@@ -148,13 +152,11 @@ async def _evaluate_accuracy(tenant_id: str) -> float:
         result = await session.execute(text("""
             SELECT question_text, intent_label
             FROM consultas_log
-            WHERE intent_confidence >= 0.95
+            WHERE cluster_status = 'classified'
               AND intent_label IS NOT NULL
               AND question_text IS NOT NULL
-              AND from_cache = FALSE
-              AND created_at >= NOW() - INTERVAL '30 days'
             ORDER BY RANDOM()
-            LIMIT 100
+            LIMIT 150
         """))
         samples = result.fetchall()
 
@@ -212,9 +214,12 @@ async def _embed_and_upsert(tenant_id: str, examples: list[dict], version_id: st
     loop = asyncio.get_running_loop()
     vectors = await loop.run_in_executor(None, embed_batch, texts, True)
 
+    from services.intent_examples import qdrant_point_id
     valid_points = [
         PointStruct(
-            id=str(uuid.uuid4()),
+            # Id determinista por (intención, texto): el retrain hace UPSERT sobre
+            # el punto que ya creó approve/promote en vez de duplicar el vector.
+            id=qdrant_point_id(int_id, text),
             vector=vec,
             payload={
                 "intention_id": int_id,

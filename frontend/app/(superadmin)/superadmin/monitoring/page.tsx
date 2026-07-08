@@ -140,7 +140,10 @@ export default function MonitoringPage() {
 
         {/* ── Veredicto de salud del sistema ── */}
         {(() => {
-          const down = services.filter(s => !s.up);
+          // Solo cuentan como caídos los explícitamente en false; up=null = sin
+          // monitoreo (Prometheus no está), estado neutro, no dispara alarma.
+          const monitoringAvailable = system.monitoring_available ?? true;
+          const down = services.filter(s => s.up === false);
           const crit = alerts.filter(a => a.severity === "critical").length;
           const tone: "ok" | "warn" | "down" = down.length > 0 || crit > 0 ? "down" : alerts.length > 0 ? "warn" : "ok";
           const Icon = tone === "ok" ? CheckCircle2 : AlertTriangle;
@@ -153,7 +156,11 @@ export default function MonitoringPage() {
           const parts: string[] = [];
           if (down.length) parts.push(`${down.length} ${down.length === 1 ? "servicio caído" : "servicios caídos"}`);
           if (alerts.length) parts.push(`${alerts.length} ${alerts.length === 1 ? "alerta activa" : "alertas activas"}`);
-          const summary = tone === "ok" ? "Servicios operativos y sin alertas activas." : parts.join(" · ");
+          const summary = tone === "ok"
+            ? (monitoringAvailable
+                ? "Servicios operativos y sin alertas activas."
+                : "El stack de monitoreo (Prometheus) no está activo en este entorno.")
+            : parts.join(" · ");
           return (
             <div className={cn("rounded-2xl border bg-gradient-to-br to-transparent p-5", cls)}>
               <div className="flex items-center gap-4">
@@ -169,31 +176,38 @@ export default function MonitoringPage() {
           );
         })()}
 
-        {/* ── Servicios — neutro cuando está bien, rojo solo cuando falla ── */}
+        {/* ── Servicios — tres estados: operativo (neutro), caído (rojo), sin
+             datos (gris, cuando no hay monitoreo y up=null) ── */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
-          {services.map(s => (
+          {services.map(s => {
+            const isDown = s.up === false;
+            const isUnknown = s.up == null;   // sin monitoreo
+            return (
             <div
               key={s.label}
               className={cn(
                 "flex items-center gap-3 rounded-xl border px-4 py-3.5 shadow-sm",
-                s.up ? "bg-card" : "bg-destructive/10 border-destructive/20"
+                isDown ? "bg-destructive/10 border-destructive/20" : "bg-card"
               )}
             >
               <span className={cn(
                 "flex items-center justify-center h-9 w-9 rounded-lg shrink-0",
-                s.up ? "bg-muted text-muted-foreground" : "bg-destructive/15 text-destructive"
+                isDown ? "bg-destructive/15 text-destructive" : "bg-muted text-muted-foreground"
               )}>
                 <s.icon className="h-4 w-4" />
               </span>
               <div className="min-w-0">
                 <p className="text-sm font-semibold truncate">{s.label}</p>
-                <p className={cn("text-xs font-medium flex items-center gap-1.5", s.up ? "text-success" : "text-destructive")}>
-                  <span className={cn("h-1.5 w-1.5 rounded-full", s.up ? "bg-success" : "bg-destructive")} />
-                  {s.up ? "Operativo" : "Caído"}
+                <p className={cn("text-xs font-medium flex items-center gap-1.5",
+                  isDown ? "text-destructive" : isUnknown ? "text-muted-foreground" : "text-success")}>
+                  <span className={cn("h-1.5 w-1.5 rounded-full",
+                    isDown ? "bg-destructive" : isUnknown ? "bg-muted-foreground/40" : "bg-success")} />
+                  {isDown ? "Caído" : isUnknown ? "Sin datos" : "Operativo"}
                 </p>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
 
         {/* ── Alertas activas (Alertmanager) ── */}

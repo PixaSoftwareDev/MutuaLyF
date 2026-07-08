@@ -467,6 +467,11 @@ async def handle_query(
         system_parts.append(ambiguity_note)
     system_parts.append(anti_hallucination.strip())
     system_parts.append(context_block)
+
+    # Datos verificados (resuelve contradicciones de campos: dirección/teléfono)
+    facts_note = await _canonical_facts_note(tenant_id, question, context_parts)
+    if facts_note:
+        system_parts.append(facts_note)
     system_parts.append(
         "FORMATO DE ENLACES: escribí las URLs completas en texto plano "
         "(por ejemplo https://www.ejemplo.com/pagina). NUNCA uses formato Markdown "
@@ -758,6 +763,11 @@ async def _log_query(
     """
     from core.database import get_pg_session
     from sqlalchemy import text
+    from core.text_utils import repair_mojibake
+
+    # Reparar doble-encoding antes de persistir: el texto alimenta clustering y el
+    # panel, y el mojibake fragmenta clusters y ensucia las intenciones aprendidas.
+    question_text = repair_mojibake(question_text) or question_text
 
     auto_learning_blocked = False
 
@@ -1103,6 +1113,71 @@ async def _update_semantic_cache(
                 logger.warning("semantic_cache_write_failed tenant_id=%s error=%s", tenant_id, exc2)
         else:
             logger.debug("semantic_cache_upsert_failed tenant_id=%s error=%s", tenant_id, exc)
+
+
+# Pregunta de dirección en general (¿pregunta por una ubicación?)
+_ADDRESS_TRIGGERS = ["direcc", "dónde", "donde", "ubica", "queda", "domicilio", "llegar", "sede"]
+# Keywords de la consulta → sujeto de la dirección (consciente de entidad).
+_SUBJECT_QUERY_KW = {
+    "centro_medico": ["centro medico", "medico", "medica", "especialidad", "atienden",
+                      "turno", "consultorio", "profesional"],
+    "sede": ["sede", "mutual", "oficina", "administrativa", "autorizacion",
+             "afiliac", "contacto principal", "tramite", "casa central"],
+}
+_SUBJECT_LABEL = {
+    "centro_medico": "del Centro Médico",
+    "sede": "de la Sede administrativa de la mutual",
+    "general": "",
+}
+
+
+async def _canonical_facts_note(tenant_id: str, question: str, context_parts: list[str]) -> str:
+    """Inyecta la dirección verificada del sujeto correcto (centro médico vs sede).
+
+    Un tenant puede tener varias ubicaciones legítimas (mutualyf: centro médico en
+    Junín 2956, sede administrativa en Junín 2961). NO se resuelve por mayoría
+    global — se elige según el sujeto de la consulta. Si es ambigua, se aclaran
+    ambas para que el modelo no adivine. Precomputado (un GET a Redis).
+    """
+    import unicodedata
+    try:
+        from services.contradiction_detector import get_canonical_facts
+        facts = await get_canonical_facts(tenant_id)
+    except Exception:
+        return ""
+    if not facts:
+        return ""
+
+    q = "".join(c for c in unicodedata.normalize("NFD", question.lower())
+                if unicodedata.category(c) != "Mn")
+    if not any(t in q for t in _ADDRESS_TRIGGERS):
+        return ""
+
+    # facts de dirección por sujeto: {"centro_medico": "Junín 2956", "sede": "Junín 2961"}
+    addr = {k.split(":", 1)[1]: v["value"] for k, v in facts.items()
+            if k.startswith("direccion:") and v.get("value")}
+    if not addr:
+        return ""
+
+    matched = [s for s, kws in _SUBJECT_QUERY_KW.items()
+               if s in addr and any(k in q for k in kws)]
+
+    if len(matched) == 1:
+        subj = matched[0]
+        return (f"=== DATO VERIFICADO ===\nLa dirección {_SUBJECT_LABEL[subj]} es "
+                f"{addr[subj]}. Usá este valor; si el contexto muestra otra numeración "
+                f"para lo mismo, es un error de digitalización.")
+
+    if len(addr) >= 2:
+        # Ambigua o múltiples sujetos → aclarar que son ubicaciones distintas.
+        lines = [f"- Dirección {_SUBJECT_LABEL.get(s, '')}: {v}" for s, v in addr.items()]
+        return ("=== DATOS VERIFICADOS (ubicaciones) ===\n"
+                "Esta organización tiene ubicaciones distintas — no las confundas:\n"
+                + "\n".join(lines))
+
+    # Un solo sujeto conocido: inyectarlo.
+    subj, value = next(iter(addr.items()))
+    return f"=== DATO VERIFICADO ===\nLa dirección {_SUBJECT_LABEL.get(subj, '')} es {value}."
 
 
 async def _get_tenant_config(tenant_id: str) -> dict:

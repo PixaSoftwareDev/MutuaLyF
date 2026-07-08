@@ -253,6 +253,17 @@ class Settings(BaseSettings):
     intent_cluster_min_size: int = 15
     intent_cluster_dismiss_days: int = 60
 
+    # ── Auto-promoción de clusters → intenciones (rompe el cold-start) ─────────
+    # Un cluster candidato lo bastante grande Y coherente (validado por Groq) se
+    # convierte en intención sin intervención manual. Los incoherentes quedan
+    # para revisión del admin. Sin esto, el sistema nunca arranca solo: todas las
+    # bandas automáticas (≥95%, 70-94%) requieren una intención preexistente.
+    intent_auto_promote_enabled: bool = True
+    intent_auto_promote_min_size: int = 20   # ≥ intent_cluster_min_size
+    # A. Subdivisión: un cluster incoherente se re-clusteriza fino; cada sub-grupo
+    # con ≥ este tamaño y coherente se promueve (recupera cobertura perdida).
+    intent_subdivide_min_size: int = 6
+
     # ── Email ─────────────────────────────────────────────────────────────────
     smtp_host: str = ""
     smtp_port: int = 587

@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 
+from core.config import settings
 from core.database import get_pg_session
 from core.security import CurrentUser, require_admin
 from core.tenant import get_tenant_id
@@ -84,7 +85,7 @@ async def list_intentions(
             HAVING COUNT(*) >= 3
             ORDER BY query_count DESC
             LIMIT 50
-        """), {"low": 0.70, "high": 0.95})
+        """), {"low": settings.intent_confidence_mid, "high": settings.intent_confidence_high})
         pending_rows = result_pending.mappings().all()
 
         # Auto-learning blocked examples (hit 30% cap)
@@ -351,13 +352,22 @@ async def approve_cluster(
         """), {"cluster_id": cluster_id})
         sample_texts = [r[0] for r in samples.fetchall()]
 
-        # Create the intention
+        # Create the intention. Si el label ya existe (ON CONFLICT), recuperamos su
+        # id real para que los ejemplos y el Qdrant apunten a la intención correcta
+        # (no al UUID nuevo que se descartó por el conflicto).
         intention_id = str(uuid.uuid4())
-        await session.execute(text("""
+        row = await session.execute(text("""
             INSERT INTO intenciones (id, label, example_count, is_active)
             VALUES (:id, :label, :example_count, TRUE)
             ON CONFLICT (label) DO UPDATE SET is_active = TRUE, updated_at = NOW()
+            RETURNING id
         """), {"id": intention_id, "label": body.label, "example_count": len(sample_texts)})
+        intention_id = str(row.scalar())
+
+        # Persistir los ejemplos en intencion_ejemplos — sin esto el reentrenador no
+        # los ve y el panel los lista vacíos (mismo bug que se arregló en create_intention).
+        from services.intent_examples import insert_examples
+        await insert_examples(session, intention_id, sample_texts)
 
         # Mark cluster queries as classified
         await session.execute(text("""
@@ -579,6 +589,26 @@ async def trigger_clustering(
     return {"task_id": task.id, "status": "queued", "message": "Clustering iniciado. El panel se actualizará en unos minutos."}
 
 
+@router.post("/intentions/clusters/auto-promote", status_code=status.HTTP_202_ACCEPTED)
+async def trigger_auto_promote(
+    tenant_id: str = Depends(get_tenant_id),
+    current_user: CurrentUser = Depends(require_admin),
+):
+    """Auto-promueve los clusters candidatos coherentes a intenciones (async).
+
+    Valida coherencia con Groq y convierte los grupos claros sin re-clusterizar.
+    Los incoherentes quedan para revisión manual. Rompe el cold-start del sistema.
+    """
+    from workers.clustering_tasks import promote_clusters
+    task = promote_clusters.apply_async(args=[tenant_id], queue="clustering")
+    logger.info("auto_promote_triggered tenant_id=%s task_id=%s", tenant_id, task.id)
+    return {
+        "task_id": task.id,
+        "status": "queued",
+        "message": "Promoción automática iniciada. Los grupos coherentes se convertirán en intenciones.",
+    }
+
+
 @router.delete("/intentions/{intention_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_intention(
     intention_id: str,
@@ -667,6 +697,11 @@ async def _promote_pending_to_active(tenant_id: str, label: str) -> dict:
                 VALUES (:id, :label, TRUE, :example_count)
             """), {"id": intention_id, "label": label, "example_count": len(sample_texts)})
 
+        # Persistir ejemplos en intencion_ejemplos (igual que approve_cluster) para
+        # que el reentrenador y el panel funcionen.
+        from services.intent_examples import insert_examples
+        await insert_examples(session, intention_id, sample_texts)
+
     # Index example queries in Qdrant so the classifier can match against them
     if sample_texts:
         await _index_examples_in_qdrant(tenant_id, intention_id, label, sample_texts)
@@ -712,9 +747,10 @@ async def _index_examples_in_qdrant(
                 vectors_config=VectorParams(size=1024, distance=Distance.COSINE),
             )
 
+        from services.intent_examples import qdrant_point_id
         points = [
             PointStruct(
-                id=str(uuid.uuid4()),
+                id=qdrant_point_id(intention_id, text),
                 vector=vec,
                 payload={"intention_id": intention_id, "label": label, "text": text},
             )

@@ -45,12 +45,15 @@ async def cluster_tenant(tenant_id: str) -> dict:
     }
 
     try:
-        # ── 1. Fetch unclassified queries with text ───────────────────────────
+        # ── 1. Fetch queries aún sin resolver (unassigned + candidate) ─────────
+        # Incluye 'candidate': los clusters que no se promovieron deben re-evaluarse
+        # cada run (CLAUDE.md), si no quedan atascados para siempre. Los ya
+        # 'classified' o 'dismissed' no se tocan.
         async with get_worker_pg_session(tenant_id) as session:
             result = await session.execute(text("""
                 SELECT id, question_text
                 FROM consultas_log
-                WHERE cluster_status = 'unassigned'
+                WHERE cluster_status IN ('unassigned', 'candidate')
                   AND question_text IS NOT NULL
                   AND question_text != ''
                 ORDER BY created_at DESC
@@ -114,7 +117,19 @@ async def cluster_tenant(tenant_id: str) -> dict:
             if cluster_uuid in candidate_ids:
                 candidates_by_cluster.setdefault(cluster_uuid, []).append(row_id)
 
+        # Reset a 'unassigned' TODO lo re-clusterizado que NO quedó en un cluster
+        # candidato nuevo (ruido + clusters chicos). Sin esto, los 'candidate' viejos
+        # que ya no forman grupo quedarían con estado/cluster_id obsoleto.
+        assigned = {rid for ids_list in candidates_by_cluster.values() for rid in ids_list}
+        to_unassign = [rid for rid in ids if rid not in assigned]
+
         async with get_worker_pg_session(tenant_id) as session:
+            if to_unassign:
+                await session.execute(text("""
+                    UPDATE consultas_log
+                    SET cluster_status = 'unassigned', cluster_candidate_id = NULL
+                    WHERE id = ANY(CAST(:ids AS uuid[]))
+                """), {"ids": to_unassign})
             for cluster_uuid, cluster_row_ids in candidates_by_cluster.items():
                 if not cluster_row_ids:
                     continue
@@ -155,6 +170,19 @@ async def cluster_tenant(tenant_id: str) -> dict:
                   AND created_at < NOW() - INTERVAL ':days days'
             """.replace(":days days", f"{_CLEANUP_DAYS} days")))
             summary["cleaned_up"] = result.rowcount
+
+        # ── 8. Auto-promover clusters coherentes → intenciones ────────────────
+        # Rompe el cold-start: los candidatos coherentes se convierten en
+        # intenciones sin esperar aprobación manual. Best-effort — un fallo acá
+        # no invalida el clustering ya persistido.
+        try:
+            from services.intent_promotion import promote_candidate_clusters
+            promo = await promote_candidate_clusters(tenant_id)
+            summary["promoted"] = promo.get("promoted", 0)
+            summary["promotion_incoherent"] = promo.get("incoherent", 0)
+        except Exception as exc:
+            logger.error("clustering_promotion_failed tenant_id=%s error=%s", tenant_id, exc)
+            summary["promoted"] = 0
 
         logger.info("clustering_complete tenant_id=%s summary=%s", tenant_id, summary)
 

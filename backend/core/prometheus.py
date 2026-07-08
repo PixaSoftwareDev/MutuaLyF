@@ -102,6 +102,11 @@ async def get_system_metrics(now: int) -> dict[str, Any]:
         # Range data for sparklines
         http_rate_range_r,
         ia_query_rate_range_r,
+        # Reachability probe: vector(1) siempre devuelve un valor si Prometheus
+        # responde, sin depender de que exista ningún exporter. Result vacío =
+        # Prometheus inalcanzable (no scrapeando) → distinguimos "sin monitoreo"
+        # de "servicio caído".
+        prom_reachable_r,
     ) = await asyncio.gather(
         _query("pg_up"),
         _query("pg_stat_activity_count{datname='platform'}"),
@@ -130,8 +135,21 @@ async def get_system_metrics(now: int) -> dict[str, Any]:
         _query("sum(ia_quality_gate_total) by (status)"),
         _query_range("sum(rate(http_requests_total[5m]))", window_1h_ago, now, step=120),
         _query_range("sum(rate(ia_queries_total[5m]))", window_1h_ago, now, step=120),
+        _query("vector(1)"),
         return_exceptions=False,
     )
+
+    # ¿Prometheus está scrapeando? Si no responde ni a vector(1), no hay stack de
+    # observabilidad (típico en dev local). En ese caso el estado de los
+    # servicios es "desconocido" (up=None), NO "caído": no tenemos con qué
+    # afirmar que Postgres/Redis están mal.
+    monitoring_available = bool(prom_reachable_r)
+
+    def _svc_up(result: list[dict]) -> bool | None:
+        """True/False según el gauge *_up, o None si no hay monitoreo."""
+        if not monitoring_available:
+            return None
+        return _scalar(result) == 1.0
 
     # PostgreSQL
     pg_hit = _scalar(pg_hit_num_r)
@@ -166,15 +184,16 @@ async def get_system_metrics(now: int) -> dict[str, Any]:
         quality[status] = int(float(r["value"][1]))
 
     return {
+        "monitoring_available": monitoring_available,
         "postgres": {
-            "up":              _scalar(pg_up_r) == 1.0,
+            "up":              _svc_up(pg_up_r),
             "connections":     int(_scalar(pg_conns_r)),
             "db_size_bytes":   int(_scalar(pg_size_r)),
             "cache_hit_rate":  round(pg_hit_rate, 4) if pg_hit_rate is not None else None,
             "deadlocks_total": int(_scalar(pg_deadlocks_r)),
         },
         "redis": {
-            "up":                _scalar(redis_up_r) == 1.0,
+            "up":                _svc_up(redis_up_r),
             "memory_used_bytes": int(_scalar(redis_mem_used_r)),
             "memory_max_bytes":  int(_scalar(redis_mem_max_r)),
             "connected_clients": int(_scalar(redis_clients_r)),

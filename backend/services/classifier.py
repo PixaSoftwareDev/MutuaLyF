@@ -40,6 +40,10 @@ _BAND_LOW = "low"
 _BAND_MID = "mid"
 _BAND_HIGH = "high"
 
+# Peso del boost léxico en el re-rank. Chico a propósito: solo inclina empates
+# cercanos (turno/horario difieren ~0.02-0.05 en coseno), no tapa al embedding.
+_KW_WEIGHT = 0.15
+
 
 async def classify_intent(query: str, tenant_id: str) -> IntentResult:
     """Classify a query against the tenant's known intents.
@@ -61,7 +65,7 @@ async def classify_intent(query: str, tenant_id: str) -> IntentResult:
             results = await qdrant.search(
                 collection_name=collection,
                 query_vector=vector,
-                limit=2,
+                limit=6,   # top-K para re-rankear por keywords
                 with_payload=True,
             )
     except Exception as exc:
@@ -71,17 +75,31 @@ async def classify_intent(query: str, tenant_id: str) -> IntentResult:
     if not results:
         return IntentResult(label=None, confidence=0.0, band=_BAND_UNKNOWN)
 
-    best = results[0]
-    confidence = float(best.score)
-    label: str | None = best.payload.get("label") if best.payload else None
+    # ── Re-rank léxico: coseno + boost de keywords ─────────────────────────────
+    # e5 confunde turno/horario (coseno casi idéntico). La señal léxica del label
+    # desempata los casos cercanos sin afectar los que ganan por coseno amplio.
+    # Se reporta el COSENO del elegido como confianza (semántica de umbral intacta).
+    from services.intent_keywords import keyword_signal
 
-    # Second match (may be absent if collection has < 2 points)
+    ranked = []
+    for r in results:
+        lbl = r.payload.get("label") if r.payload else None
+        cos = float(r.score)
+        sig = keyword_signal(query, lbl)
+        ranked.append((cos + _KW_WEIGHT * sig, cos, lbl, sig))
+    ranked.sort(key=lambda x: x[0], reverse=True)
+
+    _, confidence, label, top_sig = ranked[0]
+
     second_label: str | None = None
     second_confidence: float = 0.0
-    if len(results) >= 2:
-        second = results[1]
-        second_confidence = float(second.score)
-        second_label = second.payload.get("label") if second.payload else None
+    if len(ranked) >= 2:
+        _, second_confidence, second_label, _ = ranked[1]
+
+    cos_top1_label = results[0].payload.get("label") if results[0].payload else None
+    if label != cos_top1_label:
+        logger.info("classifier_rerank tenant_id=%s cos_top1=%s → keyword_pick=%s sig=%.2f",
+                    tenant_id, cos_top1_label, label, top_sig)
 
     if confidence >= settings.intent_confidence_high:
         band = _BAND_HIGH

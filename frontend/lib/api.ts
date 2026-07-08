@@ -752,8 +752,10 @@ export const api = {
     platformSystem: async () => {
       const { data } = await apiClient.get("/tenants/platform/system");
       return data as {
-        postgres: { up: boolean; connections: number; db_size_bytes: number; cache_hit_rate: number | null; deadlocks_total: number };
-        redis: { up: boolean; memory_used_bytes: number; memory_max_bytes: number; connected_clients: number; keyspace_hit_rate: number | null; evicted_keys: number; fragmentation_ratio: number; slowlog_length: number; keys_by_db: Record<string, number> };
+        // up: true = sano, false = caído, null = sin monitoreo (Prometheus no está).
+        monitoring_available?: boolean;
+        postgres: { up: boolean | null; connections: number; db_size_bytes: number; cache_hit_rate: number | null; deadlocks_total: number };
+        redis: { up: boolean | null; memory_used_bytes: number; memory_max_bytes: number; connected_clients: number; keyspace_hit_rate: number | null; evicted_keys: number; fragmentation_ratio: number; slowlog_length: number; keys_by_db: Record<string, number> };
         backend: { up: boolean; total_requests: number; error_rate_5m: number; latency_p95_ms: number | null };
         groq: { by_model: Array<{ model: string; calls: Record<string, number>; total: number; errors: number }>; total_calls: number };
         app: { active_tenants: number; total_queries: number; total_cache_hits: number; total_ingests: number; quality: Record<string, number> };

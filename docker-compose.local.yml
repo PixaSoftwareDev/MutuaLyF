@@ -184,7 +184,11 @@ services:
     container_name: local_celery_worker
     restart: unless-stopped
     profiles: ["workers"]
-    command: celery -A workers.celery_app worker --loglevel=info --pool=solo -Q ingest,clustering,training,default
+    # -B = beat embebido: en local corre el scheduler (clustering/promoción/
+    # retraining nocturnos) dentro del mismo contenedor. En prod, beat va en su
+    # propio proceso; acá lo embebemos para simplicidad y para poder probar el
+    # loop de aprendizaje completo.
+    command: celery -A workers.celery_app worker --beat --loglevel=info --pool=solo -Q ingest,clustering,training,default
     env_file: .env.local
     environment:
       PYTHONPATH: /app
@@ -210,6 +214,8 @@ services:
     environment:
       NODE_ENV: development
       NEXT_PUBLIC_API_URL: http://localhost:8010
+      # Contraseña compartida de los usuarios de acceso rápido del login (solo dev).
+      NEXT_PUBLIC_DEV_QUICK_PASSWORD: ${DEV_QUICK_PASSWORD:-local1234}
       PORT: "3000"
       HOSTNAME: 0.0.0.0
     ports:

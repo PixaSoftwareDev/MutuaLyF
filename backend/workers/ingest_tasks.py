@@ -100,6 +100,15 @@ async def _ingest_with_lifecycle(
                 neo4j_driver=neo4j_driver,
             )
             logger.info("ingest_complete document_id=%s chunks=%d", document_id, result["chunk_count"])
+            # Re-escanear contradicciones de campos: un doc nuevo puede introducir
+            # (o resolver) direcciones/teléfonos en conflicto. Async, no bloquea.
+            if result.get("status") == "ready" and result.get("chunk_count", 0) > 0:
+                try:
+                    from workers.maintenance_tasks import detect_contradictions_task
+                    detect_contradictions_task.apply_async(
+                        args=[tenant_id], queue="clustering", countdown=10)
+                except Exception as exc:
+                    logger.warning("contradiction_enqueue_failed tenant=%s error=%s", tenant_id, exc)
             return result
         except Exception as exc:
             logger.error("ingest_failed document_id=%s error=%s", document_id, exc)

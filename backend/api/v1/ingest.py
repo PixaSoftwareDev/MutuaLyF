@@ -65,6 +65,40 @@ async def document_status(
     }
 
 
+@router.get("/contradictions")
+async def list_contradictions(
+    tenant_id: str = Depends(get_tenant_id),
+    current_user: CurrentUser = Depends(require_admin),
+):
+    """Campos en conflicto detectados en el corpus (direcciones/teléfonos).
+
+    El admin usa esto para encontrar y corregir el chunk erróneo. Incluye el valor
+    canónico (mayoría por sujeto) y las variantes minoritarias (probables errores)."""
+    import json
+    from core.database import get_redis_cache
+    redis = get_redis_cache()
+    try:
+        raw_c = await redis.get(f"{tenant_id}:contradictions")
+        raw_f = await redis.get(f"{tenant_id}:canonical_facts")
+    except Exception:
+        raw_c = raw_f = None
+    return {
+        "contradictions": json.loads(raw_c) if raw_c else [],
+        "canonical_facts": json.loads(raw_f) if raw_f else {},
+    }
+
+
+@router.post("/contradictions/scan", status_code=status.HTTP_202_ACCEPTED)
+async def scan_contradictions(
+    tenant_id: str = Depends(get_tenant_id),
+    current_user: CurrentUser = Depends(require_admin),
+):
+    """Dispara un re-escaneo de contradicciones para el tenant (async)."""
+    from workers.maintenance_tasks import detect_contradictions_task
+    detect_contradictions_task.apply_async(args=[tenant_id], queue="clustering")
+    return {"status": "scan_enqueued", "tenant_id": tenant_id}
+
+
 @router.get("/documents/{document_id}/download")
 async def download_document(
     document_id: uuid.UUID,

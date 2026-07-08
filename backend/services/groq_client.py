@@ -296,6 +296,109 @@ async def suggest_cluster_label(sample_queries: list[str], custom_prompt: str | 
         return ""
 
 
+DEFAULT_PROMPT_CLUSTER_COHERENCE = (
+    "Sos un validador de grupos de consultas para un chatbot institucional. "
+    "Recibís un grupo de consultas que un algoritmo agrupó por similitud. "
+    "Tu tarea: decidir si el grupo representa UNA sola intención de usuario coherente "
+    "(todas piden esencialmente lo mismo), o si mezcla temas distintos. "
+    "También proponé un nombre corto en snake_case (2-4 palabras, sin tildes) que describa "
+    "la necesidad específica. "
+    'Respondé ÚNICAMENTE con JSON válido: '
+    '{"coherent": true/false, "confidence": 0.0-1.0, "label": "snake_case", "reason": "una oración"}. '
+    "Marcá coherent=false si el grupo mezcla intenciones claramente distintas."
+)
+
+
+async def validate_cluster_coherence(
+    sample_queries: list[str],
+    custom_prompt: str | None = None,
+) -> dict[str, Any]:
+    """Valida si un cluster representa UNA intención coherente y propone un label.
+
+    Devuelve {'coherent': bool, 'confidence': float, 'label': str, 'reason': str}.
+    Fail-closed: ante cualquier fallo de Groq devuelve coherent=False para que la
+    auto-promoción NO cree intenciones basura — el cluster queda para revisión manual.
+    """
+    import json as _json
+
+    queries_text = "\n".join(f"- {q}" for q in sample_queries[:12])
+    system_content = custom_prompt.strip() if custom_prompt else DEFAULT_PROMPT_CLUSTER_COHERENCE
+    try:
+        raw = await complete(
+            messages=[
+                {"role": "system", "content": system_content},
+                {"role": "user", "content": f"Consultas del grupo:\n{queries_text}\n\nJSON:"},
+            ],
+            complexity=QueryComplexity.SIMPLE,
+            temperature=0.1,
+            max_tokens=120,
+        )
+        start = raw.find("{")
+        end = raw.rfind("}")
+        if start == -1 or end == -1:
+            raise ValueError(f"sin JSON en respuesta: {raw[:80]!r}")
+        data = _json.loads(raw[start : end + 1])
+
+        label = str(data.get("label", "")).strip().lower().replace(" ", "_")
+        label = "".join(c for c in label if c.isalnum() or c == "_")[:60]
+        return {
+            "coherent": bool(data.get("coherent", False)),
+            "confidence": float(data.get("confidence", 0.0) or 0.0),
+            "label": label,
+            "reason": str(data.get("reason", ""))[:200],
+        }
+    except Exception as exc:
+        logger.warning("validate_cluster_coherence_failed error=%s", exc)
+        return {"coherent": False, "confidence": 0.0, "label": "", "reason": "groq_error"}
+
+
+_PROMPT_MATCH_EXISTING = (
+    "Clasificás un grupo de consultas de usuarios de un chatbot institucional. "
+    "Te doy una lista de intenciones YA existentes. Decidí a cuál pertenece el grupo "
+    "(la misma NECESIDAD), o 'NUEVA' si no encaja claramente en ninguna. "
+    "Variar el médico, la especialidad o el día NO importa: lo que importa es la necesidad "
+    "(ej: '¿cuándo atiende el Dr X?' y '¿atiende pediatría el sábado?' son ambas horarios). "
+    'Respondé SOLO JSON: {"belongs_to": "<nombre_exacto_o_NUEVA>", "confidence": 0.0-1.0}.'
+)
+
+
+async def match_existing_intention(
+    sample_queries: list[str], existing_intentions: list[str],
+) -> dict[str, Any]:
+    """¿El grupo pertenece a una intención existente? Evita fragmentar el espacio de
+    intenciones (ej: crear consulta_dra_marin en vez de absorber en horarios_atencion),
+    algo que el embedding no separa bien pero el LLM sí.
+
+    Devuelve {'belongs_to': str|None, 'confidence': float}. belongs_to solo si el
+    nombre está EXACTO en existing_intentions. Fail-open (belongs_to=None) ante error:
+    peor caso, se crea una intención nueva (comportamiento previo), no rompe nada.
+    """
+    import json as _json
+    if not existing_intentions:
+        return {"belongs_to": None, "confidence": 0.0}
+    queries_text = "\n".join(f"- {q}" for q in sample_queries[:10])
+    listado = ", ".join(existing_intentions[:60])
+    try:
+        raw = await complete(
+            messages=[
+                {"role": "system", "content": _PROMPT_MATCH_EXISTING},
+                {"role": "user", "content": f"Intenciones existentes: {listado}\n\nGrupo:\n{queries_text}\n\nJSON:"},
+            ],
+            complexity=QueryComplexity.SIMPLE,
+            temperature=0.0,
+            max_tokens=40,
+        )
+        start, end = raw.find("{"), raw.rfind("}")
+        data = _json.loads(raw[start:end + 1])
+        cand = str(data.get("belongs_to", "")).strip()
+        conf = float(data.get("confidence", 0.0) or 0.0)
+        belongs_to = cand if cand in existing_intentions else None
+        return {"belongs_to": belongs_to, "confidence": conf}
+    except Exception as exc:
+        logger.warning("match_existing_intention_failed error=%s", exc)
+        return {"belongs_to": None, "confidence": 0.0}
+
+
 async def complete_quality_gate(chunk_text: str, tenant_id: str, custom_prompt: str | None = None) -> dict[str, Any]:
     """Validate a chunk's factual coherence via Groq.
 
