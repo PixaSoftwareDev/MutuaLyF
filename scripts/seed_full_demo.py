@@ -15,6 +15,7 @@ Uso (desde host con .env cargado):
 
 import asyncio
 import hashlib
+import os
 import random
 import sys
 from datetime import datetime, timedelta, timezone
@@ -28,7 +29,7 @@ import asyncpg  # noqa: E402
 from core.config import settings  # noqa: E402
 from core.security import hash_password  # noqa: E402
 
-TENANT_ID = "demo"
+TENANT_ID = os.getenv("SEED_TENANT_ID", "demo")
 SCHEMA = f"tenant_{TENANT_ID}"
 
 # ── Catalogo de usuarios ──────────────────────────────────────────────────────
@@ -252,6 +253,21 @@ CONSULTAS_LOG = [
     ("error al subir documentación",                            None,                    None, 1480, False),
     ("recuperar contraseña del portal",                         "consulta_general",      0.79, 1100, False),
 ]
+
+
+# ── Parametrización por tenant ──────────────────────────────────────────────
+# El dominio de los emails se deriva del tenant (demo.local → {tenant}.local),
+# para que el mismo escenario sirva a cualquier tenant sin duplicar el script.
+if TENANT_ID != "demo":
+    _o, _n = "@demo.local", f"@{TENANT_ID}.local"
+    ADMIN["email"] = ADMIN["email"].replace(_o, _n)
+    for _op in OPERATORS:
+        _op["email"] = _op["email"].replace(_o, _n)
+    OPERATOR_SECTORS = {k.replace(_o, _n): v for k, v in OPERATOR_SECTORS.items()}
+    CONVERSACIONES = [
+        (c[0], c[1], c[2], c[3], c[4].replace(_o, _n) if c[4] else c[4], *c[5:])
+        for c in CONVERSACIONES
+    ]
 
 
 async def main() -> None:
