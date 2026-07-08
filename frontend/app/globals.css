@@ -142,9 +142,16 @@
 
   /* Scrollbar delgada y discreta (estilo Linear/macOS): track transparente,
      thumb fino redondeado que se resalta al hover. Para listas y chat. */
-  .scrollbar-slim {
-    scrollbar-width: thin;
-    scrollbar-color: hsl(var(--border)) transparent;
+  /* Las props estándar (scrollbar-width/color) van SÓLO donde no hay
+     ::-webkit-scrollbar (Firefox). En Chrome/Edge, setear scrollbar-width hace
+     que el navegador IGNORE todo el estilado ::-webkit-scrollbar de abajo —
+     incluido el margin-block que separa el thumb de las esquinas redondeadas de
+     las cards — y dibuje el scrollbar nativo, que sí toca la curva. */
+  @supports not selector(::-webkit-scrollbar) {
+    .scrollbar-slim {
+      scrollbar-width: thin;
+      scrollbar-color: hsl(var(--border)) transparent;
+    }
   }
   .scrollbar-slim::-webkit-scrollbar {
     width: 8px;
@@ -153,10 +160,10 @@
   .scrollbar-slim::-webkit-scrollbar-track {
     background: transparent;
     /* Margen vertical para que el thumb no arranque pegado a las esquinas
-       redondeadas del contenedor. Debe ser ≥ que el radio de las cards
-       (rounded-lg ≈ 14px): con menos, la curva del overflow-hidden corta
-       el extremo del thumb y se ve roto contra el borde curvo. */
-    margin-block: 16px;
+       redondeadas del contenedor. Debe ser > que el radio del contenedor: las
+       cards del sistema usan rounded-2xl (16px), así que 20px deja colchón y el
+       thumb queda por dentro de la curva del overflow-hidden (no se corta). */
+    margin-block: 20px;
   }
   .scrollbar-slim::-webkit-scrollbar-thumb {
     background-color: hsl(var(--border));
