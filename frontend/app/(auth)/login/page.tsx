@@ -30,15 +30,20 @@ const BTN_STYLE = { backgroundImage: BRAND_GRADIENT, color: "#fff" };
 type Step = "credentials" | "select" | "org";
 
 // ── Acceso rápido (solo dev/local) ─────────────────────────────────────────
-// Panel de conveniencia para no tipear credenciales en desarrollo. Se muestra
-// ÚNICAMENTE cuando el host es localhost/127.0.0.1 — nunca en producción.
+// Panel de conveniencia para no tipear credenciales en desarrollo. Doble gate:
+// 1. BUILD-TIME: NEXT_PUBLIC_DEV_QUICK_LOGIN=1 — Next inlinea la constante y
+//    el minificador ELIMINA la lista de usuarios del bundle. Sin esta var
+//    (staging/prod), los emails ni siquiera viajan al navegador.
+// 2. RUNTIME: hostname localhost/127.0.0.1 (isLocal) — no se renderiza fuera
+//    del entorno local aunque el bundle lo tuviera.
 // Los passwords están reseteados a DEV_PASSWORD en la DB local (ver
 // scripts/dev-local.sh + seed). tenant "" = super admin (platform_users).
 // La contraseña vive en .env.local (DEV_QUICK_PASSWORD) → compose →
 // NEXT_PUBLIC_DEV_QUICK_PASSWORD. Fallback a "local1234" si no está seteada.
+const DEV_LOGIN_ENABLED = process.env.NEXT_PUBLIC_DEV_QUICK_LOGIN === "1";
 const DEV_PASSWORD = process.env.NEXT_PUBLIC_DEV_QUICK_PASSWORD || "local1234";
 type DevUser = { org: string; label: string; email: string; tenant: string; role: string };
-const DEV_USERS: DevUser[] = [
+const DEV_USERS: DevUser[] = DEV_LOGIN_ENABLED ? [
   { org: "Plataforma", label: "Super Admin", email: "pixs@gmail.com",              tenant: "",         role: "super_admin" },
   { org: "Intellix",   label: "Admin",       email: "intellix@gmail.com",          tenant: "intellix", role: "admin" },
   { org: "Intellix",   label: "Operador",    email: "alejo_maros@hotmail.com",     tenant: "intellix", role: "operator" },
@@ -46,7 +51,7 @@ const DEV_USERS: DevUser[] = [
   { org: "MutuaLyF",   label: "Operador",    email: "guille@gmail.com",            tenant: "mutualyf", role: "operator" },
   { org: "Nexo",       label: "Admin",       email: "admin@nexoconsultora.com.ar", tenant: "nexo",     role: "admin" },
   { org: "Nexo",       label: "Operador",    email: "a@gmail.com",                 tenant: "nexo",     role: "operator" },
-];
+] : [];
 
 export default function LoginPage() {
   return <Suspense fallback={null}><LoginForm /></Suspense>;
@@ -79,9 +84,10 @@ function LoginForm() {
   }, [searchParams]);
 
   // Detectar entorno local en el cliente para habilitar el acceso rápido de dev.
+  // DEV_LOGIN_ENABLED es el gate de build-time; sin él, isLocal queda false.
   useEffect(() => {
     const h = window.location.hostname;
-    setIsLocal(h === "localhost" || h === "127.0.0.1");
+    setIsLocal(DEV_LOGIN_ENABLED && (h === "localhost" || h === "127.0.0.1"));
   }, []);
 
   // Login de un clic para el panel de dev: setea el form (feedback visual) y

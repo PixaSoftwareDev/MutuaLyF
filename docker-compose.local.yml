@@ -214,7 +214,10 @@ services:
     environment:
       NODE_ENV: development
       NEXT_PUBLIC_API_URL: http://localhost:8010
-      # Contraseña compartida de los usuarios de acceso rápido del login (solo dev).
+      # Acceso rápido del login (solo dev): el flag habilita el panel Y la
+      # inclusión de la lista de usuarios en el bundle (gate de build-time —
+      # staging/prod no lo setean, así los emails no viajan al navegador).
+      NEXT_PUBLIC_DEV_QUICK_LOGIN: "1"
       NEXT_PUBLIC_DEV_QUICK_PASSWORD: ${DEV_QUICK_PASSWORD:-local1234}
       PORT: "3000"
       HOSTNAME: 0.0.0.0
