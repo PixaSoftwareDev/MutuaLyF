@@ -25,8 +25,14 @@ def test_no_named_param_double_colon_cast():
     for d in SCAN_DIRS:
         for f in (BACKEND / d).rglob("*.py"):
             for n, line in enumerate(f.read_text(encoding="utf-8").splitlines(), 1):
-                if LANDMINE.search(line) and "noqa: landmine" not in line:
-                    hits.append(f"{f.relative_to(BACKEND)}:{n}: {line.strip()[:90]}")
+                m = LANDMINE.search(line)
+                if not m or "noqa: landmine" in line:
+                    continue
+                # Ignorar comentarios (los avisos que documentan este mismo bug)
+                hash_pos = line.find("#")
+                if hash_pos != -1 and m.start() > hash_pos:
+                    continue
+                hits.append(f"{f.relative_to(BACKEND)}:{n}: {line.strip()[:90]}")
     assert not hits, (
         "Patrón ':param::tipo' detectado — rompe asyncpg en PREPARE. "
         "Usá CAST(:param AS tipo). Ocurrencias:\n" + "\n".join(hits)
