@@ -79,22 +79,37 @@ async def classify_intent(query: str, tenant_id: str) -> IntentResult:
     # e5 confunde turno/horario (coseno casi idéntico). La señal léxica del label
     # desempata los casos cercanos sin afectar los que ganan por coseno amplio.
     # Se reporta el COSENO del elegido como confianza (semántica de umbral intacta).
+    # Dedup por label: los top-K de Qdrant son EJEMPLOS, y varios puntos de la
+    # misma intención no son ambigüedad — se compite entre labels distintos,
+    # cada uno representado por su mejor punto.
     from services.intent_keywords import keyword_signal
 
-    ranked = []
+    best_by_label: dict[str, tuple[float, float, float]] = {}
     for r in results:
         lbl = r.payload.get("label") if r.payload else None
+        if not lbl:
+            continue
         cos = float(r.score)
         sig = keyword_signal(query, lbl)
-        ranked.append((cos + _KW_WEIGHT * sig, cos, lbl, sig))
-    ranked.sort(key=lambda x: x[0], reverse=True)
+        combined = cos + _KW_WEIGHT * sig
+        prev = best_by_label.get(lbl)
+        if prev is None or combined > prev[0]:
+            best_by_label[lbl] = (combined, cos, sig)
+    if not best_by_label:
+        return IntentResult(label=None, confidence=0.0, band=_BAND_UNKNOWN)
 
-    _, confidence, label, top_sig = ranked[0]
+    ranked = sorted(
+        ((c, cos, lbl, sig) for lbl, (c, cos, sig) in best_by_label.items()),
+        key=lambda x: x[0], reverse=True,
+    )
+
+    combined_top, confidence, label, top_sig = ranked[0]
 
     second_label: str | None = None
     second_confidence: float = 0.0
+    combined_second: float = 0.0
     if len(ranked) >= 2:
-        _, second_confidence, second_label, _ = ranked[1]
+        combined_second, second_confidence, second_label, _ = ranked[1]
 
     cos_top1_label = results[0].payload.get("label") if results[0].payload else None
     if label != cos_top1_label:
@@ -108,12 +123,17 @@ async def classify_intent(query: str, tenant_id: str) -> IntentResult:
     else:
         band = _BAND_LOW
 
-    # Ambiguity: top-1 is reasonable but top-2 is very close
+    # Ambiguity: top-1 is reasonable but top-2 is very close.
+    # El margen se mide en la MISMA escala que ordena (score combinado), nunca
+    # en coseno crudo: si el re-rank léxico invierte el orden, el coseno del
+    # runner-up puede superar al del ganador y un margen de cosenos daría
+    # negativo → is_ambiguous=True por construcción, justo en los casos que el
+    # re-rank resuelve bien.
     _AMBIGUITY_GAP = 0.08
     is_ambiguous = (
         confidence >= settings.intent_confidence_mid
         and second_label is not None
-        and (confidence - second_confidence) < _AMBIGUITY_GAP
+        and (combined_top - combined_second) < _AMBIGUITY_GAP
     )
 
     logger.debug(

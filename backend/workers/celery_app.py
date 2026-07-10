@@ -72,9 +72,10 @@ app.conf.update(
             "task": "workers.clustering_tasks.run_hdbscan_clustering",
             "schedule": crontab(hour=2, minute=0),
         },
-        # Respaldo: el clustering ya promueve inline, pero este paso recupera
-        # candidatos que hayan quedado sin promover (p. ej. si Groq falló durante
-        # el clustering). Corre entre el clustering y el reentrenamiento.
+        # Respaldo del promote inline del clustering. NO-OP salvo que
+        # INTENT_AUTO_PROMOTE_ENABLED=true (default false = modo sugerencia:
+        # el admin aprueba candidatos desde el panel). Se deja agendado para
+        # poder reactivar por env sin tocar código.
         "nightly-auto-promote": {
             "task": "workers.clustering_tasks.promote_all_tenants",
             "schedule": crontab(hour=2, minute=30),

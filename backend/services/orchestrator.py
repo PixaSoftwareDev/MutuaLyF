@@ -469,7 +469,7 @@ async def handle_query(
     system_parts.append(context_block)
 
     # Datos verificados (resuelve contradicciones de campos: dirección/teléfono)
-    facts_note = await _canonical_facts_note(tenant_id, question, context_parts)
+    facts_note = await _canonical_facts_note(tenant_id, question)
     if facts_note:
         system_parts.append(facts_note)
     system_parts.append(
@@ -1131,26 +1131,31 @@ _SUBJECT_LABEL = {
 }
 
 
-async def _canonical_facts_note(tenant_id: str, question: str, context_parts: list[str]) -> str:
+async def _canonical_facts_note(tenant_id: str, question: str) -> str:
     """Inyecta la dirección verificada del sujeto correcto (centro médico vs sede).
 
     Un tenant puede tener varias ubicaciones legítimas (mutualyf: centro médico en
     Junín 2956, sede administrativa en Junín 2961). NO se resuelve por mayoría
     global — se elige según el sujeto de la consulta. Si es ambigua, se aclaran
-    ambas para que el modelo no adivine. Precomputado (un GET a Redis).
+    ambas para que el modelo no adivine.
+
+    El chequeo de triggers (string puro, ~µs) va ANTES del GET a Redis: la
+    mayoría de las consultas no preguntan direcciones y no deben pagar el
+    round-trip por nada.
     """
     import unicodedata
+
+    q = "".join(c for c in unicodedata.normalize("NFD", question.lower())
+                if unicodedata.category(c) != "Mn")
+    if not any(t in q for t in _ADDRESS_TRIGGERS):
+        return ""
+
     try:
         from services.contradiction_detector import get_canonical_facts
         facts = await get_canonical_facts(tenant_id)
     except Exception:
         return ""
     if not facts:
-        return ""
-
-    q = "".join(c for c in unicodedata.normalize("NFD", question.lower())
-                if unicodedata.category(c) != "Mn")
-    if not any(t in q for t in _ADDRESS_TRIGGERS):
         return ""
 
     # facts de dirección por sujeto: {"centro_medico": "Junín 2956", "sede": "Junín 2961"}

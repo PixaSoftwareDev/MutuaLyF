@@ -30,13 +30,19 @@ _MIN_COHERENCE_CONFIDENCE = 0.6
 _SAMPLES_PER_CLUSTER = 20
 
 
-async def promote_candidate_clusters(tenant_id: str, min_size: int | None = None) -> dict:
-    """Promueve clusters candidatos coherentes a intenciones. Devuelve un summary."""
+async def promote_candidate_clusters(
+    tenant_id: str, min_size: int | None = None, *, force: bool = False
+) -> dict:
+    """Promueve clusters candidatos coherentes a intenciones. Devuelve un summary.
+
+    force=True: disparo manual explícito del admin (panel) — corre aunque la
+    promoción automática esté deshabilitada (modo sugerencia).
+    """
     from core.database import get_worker_pg_session
     from sqlalchemy import text
 
-    if not settings.intent_auto_promote_enabled:
-        logger.info("promotion_disabled tenant_id=%s", tenant_id)
+    if not settings.intent_auto_promote_enabled and not force:
+        logger.info("promotion_disabled tenant_id=%s (modo sugerencia)", tenant_id)
         return {"tenant_id": tenant_id, "enabled": False, "promoted": 0}
 
     min_size = min_size or settings.intent_auto_promote_min_size
@@ -573,13 +579,45 @@ async def absorb_fragmented_intentions(tenant_id: str, confidence_min: float = 0
 
 
 async def _uniquify_label(tenant_id: str, label: str) -> str:
-    """Evita colisión con una intención existente distinta agregando un sufijo.
+    """Evita fusionar temas DISTINTOS bajo el mismo label.
 
-    Si el label ya existe lo reusamos tal cual (ON CONFLICT hará merge, que es el
-    comportamiento deseado: dos clusters del mismo tema → una intención). Esta
-    función solo normaliza; la unicidad real la maneja el ON CONFLICT del insert.
+    Este camino corre solo para clusters que la absorción ya descartó ("no
+    pertenece a ninguna intención existente"). Si aun así el label del LLM
+    colisiona con una intención existente, fusionar sería contradictorio: el
+    ON CONFLICT del insert mezclaría ejemplos de dos temas en silencio. En ese
+    caso agregamos sufijo numérico y dejamos el merge (si corresponde) al admin
+    o a consolidate_intentions, que compara centroides antes de fusionar.
     """
-    return label[:100]
+    from core.database import get_worker_pg_session
+    from sqlalchemy import text
+
+    label = label[:90]
+    try:
+        async with get_worker_pg_session(tenant_id) as session:
+            rows = (await session.execute(
+                text("SELECT label FROM intenciones WHERE label LIKE :prefix"),
+                {"prefix": f"{label}%"},
+            )).fetchall()
+    except Exception as exc:
+        # Fail-open al comportamiento previo (merge por ON CONFLICT): peor caso
+        # conocido, pero no bloquea la promoción por un fallo de lectura.
+        logger.warning("uniquify_label_check_failed tenant=%s label=%s error=%s",
+                       tenant_id, label, exc)
+        return label
+
+    existing = {r[0] for r in rows}
+    if label not in existing:
+        return label
+    for i in range(2, 50):
+        candidate = f"{label}_{i}"
+        if candidate not in existing:
+            logger.warning(
+                "promotion_label_collision tenant=%s label=%s → %s "
+                "(la absorción dijo 'tema nuevo' pero el label ya existe)",
+                tenant_id, label, candidate,
+            )
+            return candidate
+    return f"{label}_{uuid.uuid4().hex[:6]}"
 
 
 async def _index_examples_worker(

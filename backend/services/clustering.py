@@ -172,9 +172,10 @@ async def cluster_tenant(tenant_id: str) -> dict:
             summary["cleaned_up"] = result.rowcount
 
         # ── 8. Auto-promover clusters coherentes → intenciones ────────────────
-        # Rompe el cold-start: los candidatos coherentes se convierten en
-        # intenciones sin esperar aprobación manual. Best-effort — un fallo acá
-        # no invalida el clustering ya persistido.
+        # Solo con INTENT_AUTO_PROMOTE_ENABLED=true (default false = modo
+        # sugerencia: los candidatos quedan para aprobación del admin en el
+        # panel). Best-effort — un fallo acá no invalida el clustering ya
+        # persistido.
         try:
             from services.intent_promotion import promote_candidate_clusters
             promo = await promote_candidate_clusters(tenant_id)

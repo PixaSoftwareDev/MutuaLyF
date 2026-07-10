@@ -89,10 +89,12 @@ def promote_clusters(tenant_id: str) -> dict:
 
     Útil para promover candidatos ya detectados (on-demand desde el panel o tras
     ajustar el umbral) sin pagar el costo de re-embeber todo el corpus.
+    force=True: es un disparo manual del admin — corre aunque la promoción
+    automática esté deshabilitada (modo sugerencia).
     """
     logger.info("promote_clusters_start tenant_id=%s", tenant_id)
     from services.intent_promotion import promote_candidate_clusters
-    return asyncio.run(promote_candidate_clusters(tenant_id))
+    return asyncio.run(promote_candidate_clusters(tenant_id, force=True))
 
 
 @app.task(
