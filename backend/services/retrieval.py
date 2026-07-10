@@ -553,21 +553,28 @@ async def _bm25_search(query: str, tenant_id: str, limit: int = 20) -> list[dict
         async with get_pg_session(tenant_id) as session:
             rows = await session.execute(
                 sa_text("""
-                    SELECT id, document_id, text,
-                           ts_rank_cd(ts_body, query) AS rank
-                    FROM parent_chunks,
+                    SELECT pc.id, pc.document_id, pc.text, d.filename,
+                           ts_rank_cd(pc.ts_body, query) AS rank
+                    FROM parent_chunks pc
+                    LEFT JOIN documentos d ON d.id = pc.document_id,
                          to_tsquery('spanish', :tsquery) query
-                    WHERE ts_body @@ query
+                    WHERE pc.ts_body @@ query
                     ORDER BY rank DESC
                     LIMIT :limit
                 """),
                 {"tsquery": tsquery, "limit": limit},
             )
+            # str() en la frontera de PG: asyncpg devuelve UUID objects. Sin el
+            # cast: (1) el response model SourceChunk explota con 500 (espera str),
+            # (2) el cache write falla (UUID no es JSON-serializable), y (3) las
+            # keys del RRF nunca matchean las semánticas (str vs UUID) → BM25
+            # duplicaba parents en vez de boostearlos.
             return [
                 {
-                    "parent_id": row.id,
-                    "document_id": row.document_id,
+                    "parent_id": str(row.id),
+                    "document_id": str(row.document_id),
                     "text": row.text,
+                    "filename": row.filename,
                     "bm25_rank": float(row.rank),
                 }
                 for row in rows
@@ -612,13 +619,16 @@ def _rrf_merge(
         else:
             # BM25-only hit — add as new chunk with parent text
             rrf_scores[pid] = bm25_score
+            md = {"strategy": "bm25"}
+            if hit.get("filename"):
+                md["filename"] = hit["filename"]  # título real en las fuentes
             chunk_by_pid[pid] = RetrievedChunk(
                 chunk_id=pid,
                 document_id=hit["document_id"],
                 text=hit["text"],
                 score=0.0,
                 quality_gate_status="unknown",
-                metadata={"strategy": "bm25"},
+                metadata=md,
                 parent_id=pid,
             )
 
