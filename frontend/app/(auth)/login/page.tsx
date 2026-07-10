@@ -31,16 +31,19 @@ type Step = "credentials" | "select" | "org";
 
 // ── Acceso rápido (solo dev/local) ─────────────────────────────────────────
 // Panel de conveniencia para no tipear credenciales en desarrollo. Doble gate:
-// 1. BUILD-TIME: NEXT_PUBLIC_DEV_QUICK_LOGIN=1 — Next inlinea la constante y
-//    el minificador ELIMINA la lista de usuarios del bundle. Sin esta var
-//    (staging/prod), los emails ni siquiera viajan al navegador.
-// 2. RUNTIME: hostname localhost/127.0.0.1 (isLocal) — no se renderiza fuera
-//    del entorno local aunque el bundle lo tuviera.
+// 1. BUILD-TIME: NODE_ENV === "development" — Next SIEMPRE inlinea NODE_ENV,
+//    así que en `next build` (staging/prod) la condición se resuelve a false
+//    en compilación y el minificador ELIMINA la lista de usuarios del bundle:
+//    los emails ni siquiera viajan al navegador. En `next dev` (local) queda
+//    habilitado. OJO: no usar una var NEXT_PUBLIC_* acá — si la var no existe
+//    en el build, Next NO la inlinea, la condición queda para runtime y el
+//    array sobrevive en el bundle (verificado en staging).
+// 2. RUNTIME: hostname localhost/127.0.0.1 (isLocal) — segunda capa.
 // Los passwords están reseteados a DEV_PASSWORD en la DB local (ver
 // scripts/dev-local.sh + seed). tenant "" = super admin (platform_users).
 // La contraseña vive en .env.local (DEV_QUICK_PASSWORD) → compose →
 // NEXT_PUBLIC_DEV_QUICK_PASSWORD. Fallback a "local1234" si no está seteada.
-const DEV_LOGIN_ENABLED = process.env.NEXT_PUBLIC_DEV_QUICK_LOGIN === "1";
+const DEV_LOGIN_ENABLED = process.env.NODE_ENV === "development";
 const DEV_PASSWORD = process.env.NEXT_PUBLIC_DEV_QUICK_PASSWORD || "local1234";
 type DevUser = { org: string; label: string; email: string; tenant: string; role: string };
 const DEV_USERS: DevUser[] = DEV_LOGIN_ENABLED ? [
