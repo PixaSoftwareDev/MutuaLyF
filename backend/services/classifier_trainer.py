@@ -264,7 +264,7 @@ async def _commit_version(tenant_id: str, new_version_id: str, accuracy: float, 
         await session.execute(text("""
             UPDATE intencion_ejemplos
             SET version_id = :version_id
-            WHERE id = ANY(:ids::uuid[])
+            WHERE id = ANY(CAST(:ids AS uuid[]))
         """), {"version_id": new_version_id, "ids": example_ids})
 
         # Update intenciones: save prev_version for possible future rollback
@@ -276,7 +276,7 @@ async def _commit_version(tenant_id: str, new_version_id: str, accuracy: float, 
                 updated_at = NOW()
             WHERE id IN (
                 SELECT DISTINCT intencion_id FROM intencion_ejemplos
-                WHERE id = ANY(:ids::uuid[])
+                WHERE id = ANY(CAST(:ids AS uuid[]))
             )
         """), {
             "new_version": new_version_id,
