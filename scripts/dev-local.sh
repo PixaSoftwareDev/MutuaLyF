@@ -43,6 +43,9 @@ case "${1:-help}" in
   seed)
     "${COMPOSE[@]}" exec backend python ../scripts/seed_dev.py
     ;;
+  seed-pixs)
+    "${COMPOSE[@]}" exec backend python ../scripts/seed_pixs.py
+    ;;
   logs)
     shift; "${COMPOSE[@]}" logs -f "${@:-}"
     ;;
@@ -75,7 +78,8 @@ Uso: ./scripts/dev-local.sh <comando>
   nuke           Detiene y BORRA los volúmenes locales (reset total)
   migrate        Corre 'alembic upgrade head' en el backend
   makemigration "msg"   Autogenera una migración nueva
-  seed           Corre scripts/seed_dev.py
+  seed           Corre scripts/seed_dev.py (tenant 'demo' vacío)
+  seed-pixs      Crea el tenant 'pixs' y lo puebla con datos de ejemplo
   logs [servicio]       Sigue logs (ej: logs backend)
   ps             Estado de los contenedores
   psql           Abre psql contra la DB local
