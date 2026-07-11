@@ -30,6 +30,13 @@ class Settings(BaseSettings):
     # para inferencia): esta es solo lectura de billing. Si está vacía, el panel
     # muestra el costo como "no configurado".
     openai_admin_api_key: str = ""
+    # Key SEPARADA para evaluaciones/tests (rag_eval, auditorías masivas). Con su
+    # propio hard budget cap en el dashboard de OpenAI, para que una corrida de
+    # pruebas NUNCA drene la cuota que sirve el bot en vivo (incidente 2026-07-10:
+    # una auditoría concurrente agotó la cuota compartida y degradó producción).
+    # El código de eval debe preferir esta key si está seteada; vacía = usa la de
+    # inferencia (comportamiento previo). Ver docs/OPERACION_OPENAI_KEYS_Y_SALDO.md.
+    openai_test_api_key: str = ""
 
     # ── Embedding provider switch (local | openai | tei) ─────────────────────
     # local: multilingual-e5-large CPU-bound EN el proceso uvicorn, ~1.5GB RAM,

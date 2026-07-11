@@ -143,15 +143,20 @@ async def handle_query(
                 sem_cached["from_cache"] = True
                 sem_cached["latency_ms"] = latency_ms
                 asyncio.ensure_future(_log_usage_event_app(tenant_id, "query", 1))
-                asyncio.ensure_future(_log_query(
+                # Un hit semántico sirve la respuesta cacheada de OTRA pregunta
+                # similar, cuyo intent_label puede no ser el de ESTA consulta.
+                # Re-clasificamos en background (el embedding ya está cacheado por
+                # texto → solo cuesta la búsqueda en Qdrant, no re-embebe) para
+                # loguear el label correcto sin sumar latencia a la respuesta.
+                asyncio.ensure_future(_relog_semantic_hit(
                     tenant_id=tenant_id,
                     user_id=user_id,
-                    question_text=question[:500],
+                    question=question,
+                    normalized_question=normalized_question,
                     question_hash=question_hash,
-                    intent_label=sem_cached.get("intent_label"),
-                    intent_confidence=sem_cached.get("intent_confidence", 0.0),
                     latency_ms=latency_ms,
-                    from_cache=True,
+                    fallback_label=sem_cached.get("intent_label"),
+                    fallback_confidence=sem_cached.get("intent_confidence", 0.0),
                 ))
                 return sem_cached
 
@@ -742,6 +747,44 @@ async def _set_cache(question_hash: str, tenant_id: str, response: dict) -> None
         await redis.setex(key, settings.cache_ttl_seconds, json.dumps(cached))
     except Exception as exc:
         logger.warning("cache_write_failed key=%s error=%s", key, exc)
+
+
+async def _relog_semantic_hit(
+    tenant_id: str,
+    user_id: str | None,
+    question: str,
+    normalized_question: str,
+    question_hash: str,
+    latency_ms: int,
+    fallback_label: str | None,
+    fallback_confidence: float | None,
+) -> None:
+    """Loguea una consulta servida por semantic cache con su clasificación ACTUAL.
+
+    El semantic cache devuelve la entrada de una pregunta similar, cuyo label
+    puede no ser el de esta consulta. Re-clasificamos acá (en background, ya
+    fuera del camino de respuesta) para que `consultas_log` — base del análisis
+    de intenciones y del auto-aprendizaje — reciba el label correcto. Si la
+    re-clasificación falla, caemos al label de la entrada cacheada.
+    """
+    label, confidence = fallback_label, fallback_confidence
+    try:
+        from services.classifier import classify_intent
+        result = await classify_intent(normalized_question, tenant_id)
+        if result and result.label:
+            label, confidence = result.label, result.confidence
+    except Exception as exc:
+        logger.debug("relog_reclassify_failed tenant_id=%s error=%s", tenant_id, exc)
+    await _log_query(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        question_text=question[:500],
+        question_hash=question_hash,
+        intent_label=label,
+        intent_confidence=confidence,
+        latency_ms=latency_ms,
+        from_cache=True,
+    )
 
 
 async def _log_query(

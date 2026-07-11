@@ -79,3 +79,29 @@ async def get_costs(days: int = 30) -> dict:
         "total_usd": round(total, 2),
         "daily": daily,
     }
+
+
+async def check_spend_alert(threshold_usd: float, days: int = 30) -> dict:
+    """Alerta de gasto: True si el gasto del período supera `threshold_usd`.
+
+    La Costs API no expone saldo/créditos restantes (OpenAI lo deprecó), así que
+    la única señal accionable es el gasto incurrido. Un cron/beat puede llamar
+    esto y notificar al operador cuando el gasto se acerca al presupuesto,
+    evitando la degradación por cuota agotada (incidente 2026-07-10).
+
+    Returns: {available, breached: bool, total_usd, threshold_usd, pct}.
+    Si el billing no está disponible, breached=False (no alertar sobre datos que
+    no tenemos), pero available=False para que el llamador lo distinga.
+    """
+    costs = await get_costs(days=days)
+    if not costs.get("available"):
+        return {"available": False, "breached": False, "reason": costs.get("reason"),
+                "total_usd": 0.0, "threshold_usd": threshold_usd, "pct": 0.0}
+    total = costs["total_usd"]
+    pct = round(100.0 * total / threshold_usd, 1) if threshold_usd > 0 else 0.0
+    breached = threshold_usd > 0 and total >= threshold_usd
+    if breached:
+        logger.warning("openai_spend_alert total_usd=%.2f threshold_usd=%.2f pct=%.1f",
+                       total, threshold_usd, pct)
+    return {"available": True, "breached": breached, "total_usd": total,
+            "threshold_usd": threshold_usd, "pct": pct}
