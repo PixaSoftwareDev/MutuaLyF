@@ -90,6 +90,13 @@ app.conf.update(
             "task": "workers.maintenance_tasks.detect_contradictions_all_tenants",
             "schedule": crontab(hour=3, minute=30),
         },
+        # Consistencia de datos: repara deriva PG↔Qdrant de ejemplos de
+        # intenciones (si embeddings falló durante el ciclo) y purga puntos
+        # huérfanos del cache semántico. Al final del ciclo nocturno.
+        "nightly-data-consistency": {
+            "task": "workers.maintenance_tasks.data_consistency_all_tenants",
+            "schedule": crontab(hour=4, minute=0),
+        },
         "operator-inactivity-check": {
             "task": "workers.handoff_tasks.check_operator_inactivity",
             "schedule": 60,

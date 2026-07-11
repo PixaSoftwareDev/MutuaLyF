@@ -63,3 +63,50 @@ async def _detect_all() -> dict:
             logger.error("detect_all_tenant_error tenant_id=%s error=%s", tid, exc)
     logger.info("detect_all_done tenants=%d contradictions=%d", len(tenant_ids), total)
     return {"tenants_processed": len(tenant_ids), "total_contradictions": total}
+
+
+@app.task(
+    name="workers.maintenance_tasks.reconcile_intents_task",
+    max_retries=1,
+    default_retry_delay=300,
+    soft_time_limit=1200,
+)
+def reconcile_intents_task(tenant_id: str) -> dict:
+    """Repara la deriva PG↔Qdrant de ejemplos de intenciones de un tenant."""
+    from services.intent_reconcile import reconcile_intent_examples
+    return asyncio.run(reconcile_intent_examples(tenant_id))
+
+
+@app.task(
+    name="workers.maintenance_tasks.data_consistency_all_tenants",
+    soft_time_limit=3600,
+)
+def data_consistency_all_tenants() -> dict:
+    """Consistencia nocturna: reconcilia ejemplos de intenciones (PG↔Qdrant)
+    y purga puntos huérfanos del cache semántico. Corre después del ciclo de
+    aprendizaje (clustering/retrain) para reparar cualquier indexación que
+    haya fallado por rate limits de embeddings.
+    """
+    return asyncio.run(_consistency_all())
+
+
+async def _consistency_all() -> dict:
+    from core.database import get_worker_pg_session
+    from services.intent_reconcile import purge_stale_query_cache, reconcile_intent_examples
+    from sqlalchemy import text
+
+    async with get_worker_pg_session(None) as session:
+        result = await session.execute(text("SELECT id FROM tenants WHERE status = 'active'"))
+        tenant_ids = [row[0] for row in result.fetchall()]
+
+    summary = {"tenants": len(tenant_ids), "indexed": 0, "failed": 0, "cache_purged": 0}
+    for tid in tenant_ids:
+        try:
+            r = await reconcile_intent_examples(tid)
+            summary["indexed"] += r.get("indexed", 0)
+            summary["failed"] += r.get("failed", 0)
+            summary["cache_purged"] += await purge_stale_query_cache(tid)
+        except Exception as exc:
+            logger.error("consistency_tenant_error tenant_id=%s error=%s", tid, exc)
+    logger.info("consistency_all_done %s", summary)
+    return summary
