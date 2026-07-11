@@ -150,6 +150,14 @@ class Settings(BaseSettings):
     connector_auth_lockout_window_s: int = 900  # ventana de 15 min
     # Timeout y circuit breaker del executor HTTP hacia terceros.
     connector_http_timeout_ms: int = 4000
+    # Hosts internos de confianza (CSV) exentos de la verificación de IP privada
+    # del egress_guard — SOLO para servicios mock en dev (ej. "mock_nexa"). Vacío
+    # en producción → protección SSRF intacta.
+    connector_trusted_internal_hosts: str = ""
+
+    @property
+    def trusted_internal_hosts_set(self) -> set[str]:
+        return {h.strip().lower() for h in self.connector_trusted_internal_hosts.split(",") if h.strip()}
 
     # ── JWT ───────────────────────────────────────────────────────────────────
     jwt_secret_key: str

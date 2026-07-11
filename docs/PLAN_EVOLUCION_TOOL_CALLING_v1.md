@@ -138,7 +138,16 @@ Todo el flujo funciona end-to-end contra infra REAL local (Redis DB3 + PG audit 
 
 **ÚLTIMO PASO pendiente (lo que el usuario dejó para el final):**
 1. Restaurar cuota OpenAI → sembrar ejemplos Qdrant de la intención → el clasificador en vivo enruta la pregunta a la tool en el widget.
-2. Recibir de NEXA: Swagger + credenciales + entorno test :4003 → cambiar el conector de `auth_type='stub'` a la config real (base_url + auth_secret_ref) → el executor activa el camino httpx + egress_guard. **Cero código nuevo**, solo filas de config.
+2. Recibir de NEXA: Swagger + credenciales + entorno test :4003 → cambiar el conector para apuntar a NEXA real (base_url + auth_secret_ref) → el executor ya usa httpx + egress_guard. **Cero código nuevo**, solo filas de config.
+
+#### Validación con servicio mock HTTP real (2026-07-11)
+
+Antes de NEXA real, se validó el camino HTTP **real** (httpx + egress_guard + response_map + circuit breaker) contra un servicio propio `mock_nexa` (FastAPI + SQLite, contenedor en `:4003`, datos inventados). 4 rutas: 2 públicas (profesionales por especialidad + horarios, sin login, params extraídos del mensaje) y 2 personales (órdenes + cuenta, login DNI+código validado por HTTP real, `{identity}` de la sesión). Extensiones hechas:
+- `egress_guard.trusted_internal_hosts` (excepción dev explícita para el host interno del mock; SSRF intacto en prod).
+- Tools **públicas** (`identity_kind='publico'`): sin FSM, ejecución directa con extracción determinista de params (enum/pattern, sin LLM).
+- Validación del 2º factor por HTTP real (`validate_second_factor`), no solo stub.
+
+Verificado end-to-end (demo en vivo, HTTP real): las 4 rutas responden; login→órdenes→cuenta en la misma sesión; **BOLA defendido** (pedir la cuenta de otro DNI devuelve la propia). Suite: 180 verde. Seed: `scripts/seed_mock_nexa.py`. Servicio: `mock_nexa/`.
 
 ### FASE 2 — Cobertura completa afiliado + rol profesional (6-8 días, ritmo atado a NEXA)
 

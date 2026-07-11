@@ -30,7 +30,8 @@ from core.database import get_redis_ratelimit, get_redis_session
 from services import session_store
 from services.connectors_dao import get_tool_for_intent
 from services.connector_executor import (
-    AUTH_REQUIRED, EMPTY, FORBIDDEN, OK, UPSTREAM_ERROR, execute_tool,
+    AUTH_REQUIRED, EMPTY, FORBIDDEN, OK, UPSTREAM_ERROR,
+    execute_tool, validate_second_factor,
 )
 
 logger = logging.getLogger(__name__)
@@ -156,25 +157,47 @@ async def _is_locked(tenant_id: str, conv_id: str) -> bool:
 
 
 # ── Formateo de la respuesta de la tool (determinista, sin LLM en F1) ──────────
+def _fmt_horarios(horarios: list) -> str:
+    return "; ".join(f"{h.get('dia')} {h.get('desde')}-{h.get('hasta')}" for h in horarios) or "sin horarios cargados"
+
+
 def _format_tool_answer(tool_slug: str, result, nombre: str | None) -> str:
     saludo = f"{nombre}, " if nombre else ""
     if result.outcome == EMPTY:
-        return f"{saludo}no encontré órdenes pendientes a tu nombre. ✅"
+        if tool_slug == "profesionales_por_especialidad":
+            return "No encontré profesionales para esa especialidad."
+        return f"{saludo}no encontré resultados. ✅"
     if result.outcome == FORBIDDEN:
         return ("No puedo mostrar esa información con los datos de tu sesión. "
                 "Si creés que es un error, comunicate con la Mutual.")
     if result.outcome in (UPSTREAM_ERROR, AUTH_REQUIRED):
         return _msg_upstream()
-    # OK — render simple según la tool.
-    if tool_slug == "ordenes_pendientes" and isinstance(result.data, list):
-        lineas = [
-            f"• {o.get('tipo','(sin detalle)')} — {o.get('prestador','')} "
-            f"(vence {o.get('vence','?')})"
-            for o in result.data
-        ]
-        cuerpo = "\n".join(lineas)
-        return f"{saludo}tenés {len(result.data)} orden(es) pendiente(s):\n{cuerpo}"
-    return f"{saludo}esto es lo que encontré: {json.dumps(result.data, ensure_ascii=False)}"
+
+    data = result.data
+    # ── Tools personales ──────────────────────────────────────────────────────
+    if tool_slug == "ordenes_pendientes" and isinstance(data, list):
+        lineas = [f"• {o.get('tipo','(sin detalle)')} — {o.get('prestador','')} (vence {o.get('vence','?')})"
+                  for o in data]
+        return f"{saludo}tenés {len(data)} orden(es) pendiente(s):\n" + "\n".join(lineas)
+
+    if tool_slug == "cuenta_afiliado" and isinstance(data, dict):
+        if data.get("al_dia"):
+            return f"{saludo}tu cuenta está al día. ✅ {data.get('detalle','')}".strip()
+        return f"{saludo}tenés un saldo pendiente de ${data.get('saldo','?')}. {data.get('detalle','')}".strip()
+
+    # ── Tools públicas ────────────────────────────────────────────────────────
+    if tool_slug == "profesionales_por_especialidad" and isinstance(data, list):
+        lineas = [f"• {p.get('nombre')} ({p.get('consultorio')}) — {_fmt_horarios(p.get('horarios', []))}"
+                  for p in data]
+        return f"Profesionales disponibles:\n" + "\n".join(lineas)
+
+    if tool_slug == "horarios_profesional" and isinstance(data, dict):
+        if not data.get("encontrado", True):
+            return "No encontré un profesional con esa matrícula."
+        return (f"{data.get('nombre')} — {data.get('especialidad')} ({data.get('consultorio')}).\n"
+                f"Horarios: {_fmt_horarios(data.get('horarios', []))}")
+
+    return f"{saludo}esto es lo que encontré: {json.dumps(data, ensure_ascii=False)}"
 
 
 def _resp(answer: str, *, handled: bool = True, outcome: str | None = None) -> dict:
@@ -191,12 +214,37 @@ def _resp(answer: str, *, handled: bool = True, outcome: str | None = None) -> d
     }
 
 
-async def _run_tool_and_format(binding, session: dict) -> dict:
-    """Ejecuta la tool con la identidad de la sesión y arma la respuesta natural."""
+def extract_params(message: str, params_schema: dict) -> dict:
+    """Extracción determinista de params desde el mensaje (sin LLM, que está caído).
+
+    Genérica según params_schema:
+      - propiedad con "enum"    → si algún valor del enum aparece en el mensaje, lo usa.
+      - propiedad con "pattern" → regex-search en el mensaje.
+    Lo que no se puede extraer así, no se pasa (el executor validará required).
+    """
+    out: dict = {}
+    props = (params_schema or {}).get("properties", {})
+    low = (message or "").lower()
+    for key, spec in props.items():
+        if "enum" in spec:
+            for val in spec["enum"]:
+                if str(val).lower() in low:
+                    out[key] = val
+                    break
+        elif "pattern" in spec:
+            m = re.search(spec["pattern"], message or "", re.I)
+            if m:
+                out[key] = m.group(0)
+    return out
+
+
+async def _run_tool_and_format(binding, *, identity: str | None,
+                               nombre: str | None, params: dict | None = None) -> dict:
+    """Ejecuta la tool y arma la respuesta natural. identity=None en tools públicas."""
     from services.connector_audit import record_tool_call  # import tardío (evita ciclo)
-    result = await execute_tool(binding, identity=session["identity"])
-    await record_tool_call(binding, actor_ref=session["identity"], result=result)
-    answer = _format_tool_answer(binding.tool_slug, result, session.get("nombre"))
+    result = await execute_tool(binding, identity=identity or "", params=params or {})
+    await record_tool_call(binding, actor_ref=(identity or "publico"), result=result)
+    answer = _format_tool_answer(binding.tool_slug, result, nombre)
     return _resp(answer, outcome=result.outcome)
 
 
@@ -245,10 +293,19 @@ async def maybe_handle(
     if intent.confidence is not None and intent.confidence < binding.min_confidence:
         return None  # confianza insuficiente para ir a la tool → RAG (fail-safe)
 
-    # ¿Ya hay sesión válida? → ejecutar directo, sin re-pedir auth.
+    # ── Tool PÚBLICA (sin login): ejecutar directo con params del mensaje ──────
+    if binding.identity_kind == "publico":
+        params = extract_params(text, binding.params_schema)
+        required = (binding.params_schema or {}).get("required", [])
+        if any(r not in params for r in required):
+            return None  # falta un dato clave → que el RAG responda genérico
+        return await _run_tool_and_format(binding, identity=None, nombre=None, params=params)
+
+    # ── Tool PERSONAL: ¿ya hay sesión válida? → ejecutar sin re-pedir auth ─────
     session = await session_store.get_session(tenant_id, conv_id)
     if session and session.get("rol") in binding.roles:
-        return await _run_tool_and_format(binding, session)
+        return await _run_tool_and_format(
+            binding, identity=session["identity"], nombre=session.get("nombre"))
 
     # Sin sesión → arrancar FSM para el identity_kind de la tool.
     new_flow = {
@@ -283,9 +340,14 @@ async def _handle_code_input(tenant_id: str, conv_id: str, text: str, flow: dict
     identity = flow.get("identity", "")
     code = _only_digits(text)
 
-    # Validación del 2º factor. En F1 = stub in-process; en prod = NEXA real.
-    from services.nexa_stub import validar_totp
-    verdict = validar_totp(identity, code)
+    # Validación del 2º factor. Resolvemos el binding (necesitamos el conector para
+    # validar por HTTP real, o el stub si el conector es stub).
+    pending = flow.get("pending_intent")
+    binding = await get_tool_for_intent(tenant_id, pending or "")
+    if binding is None:
+        await _clear_flow(tenant_id, conv_id)
+        return _resp(_msg_upstream())
+    verdict = await validate_second_factor(binding, identity, code)
 
     if verdict.get("ok"):
         rol = flow.get("identity_kind", "afiliado")
@@ -293,19 +355,20 @@ async def _handle_code_input(tenant_id: str, conv_id: str, text: str, flow: dict
             tenant_id, conv_id,
             identity=identity, rol=rol, nombre=verdict.get("nombre"),
         )
-        # Resolver y ejecutar la tool que originó el login.
-        pending = flow.get("pending_intent")
         await _clear_flow(tenant_id, conv_id)
-        binding = await get_tool_for_intent(tenant_id, pending or "")
         session = await session_store.get_session(tenant_id, conv_id)
         prefijo = f"✅ Listo, {verdict.get('nombre')}. Ya estás identificado por unos minutos.\n\n"
-        if binding and session:
-            resp = await _run_tool_and_format(binding, session)
+        if session:
+            resp = await _run_tool_and_format(
+                binding, identity=session["identity"], nombre=session.get("nombre"))
             resp["answer"] = prefijo + resp["answer"]
             return resp
         return _resp(prefijo + "¿En qué te ayudo?")
 
     reason = verdict.get("reason")
+    if reason == "upstream":
+        # No pudimos validar (conector caído) → fail-closed, no consumir intento.
+        return _resp(_msg_upstream())
     if reason == "not_found":
         # DNI/afiliado inexistente: mensaje neutro, igual consume un intento.
         n = await _register_attempt(tenant_id, conv_id)

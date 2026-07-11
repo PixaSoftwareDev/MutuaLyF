@@ -174,15 +174,48 @@ async def _invoke_stub(binding, identity: str, query: dict) -> dict | list:
 async def _invoke_http(binding, path: str, query: dict) -> dict | list:
     url = binding.base_url.rstrip("/") + "/" + path.lstrip("/")
     # Anti-SSRF: el host debe estar en la allowlist del conector y no resolver a
-    # una IP interna. En prod exigimos https.
+    # una IP interna. En prod exigimos https. En dev, hosts mock de confianza
+    # (ej. mock_nexa) quedan exentos de la verificación de IP interna.
     allow_http = settings.environment == "development"
-    assert_egress_allowed(url, binding.egress_allow, allow_http=allow_http)
+    assert_egress_allowed(
+        url, binding.egress_allow, allow_http=allow_http,
+        trusted_internal_hosts=settings.trusted_internal_hosts_set,
+    )
 
     timeout = binding.timeout_ms / 1000
     async with httpx.AsyncClient(timeout=timeout) as client:
         resp = await client.request(binding.http_method.upper(), url, params=query or None)
         resp.raise_for_status()
         return resp.json()
+
+
+async def validate_second_factor(binding, identity: str, code: str) -> dict:
+    """Valida el 2º factor (DNI/CUIT + código) contra el conector.
+
+    stub → in-process; conector real → HTTP GET {base_url}/afiliados/{identity}/validar.
+    Devuelve {'ok': bool, 'nombre'?: str, 'reason'?: str}. Fail-closed: cualquier
+    error upstream → ok=False, reason='upstream' (no se autentica ante la duda).
+    """
+    if settings.nexa_stub_enabled and binding.auth_type == "stub":
+        from services.nexa_stub import validar_totp
+        return validar_totp(identity, code)
+
+    # Convención afiliado (Fase 2 la hará config-driven vía columna auth_validate_path).
+    url = binding.base_url.rstrip("/") + f"/afiliados/{identity}/validar"
+    allow_http = settings.environment == "development"
+    try:
+        assert_egress_allowed(
+            url, binding.egress_allow, allow_http=allow_http,
+            trusted_internal_hosts=settings.trusted_internal_hosts_set,
+        )
+        async with httpx.AsyncClient(timeout=binding.timeout_ms / 1000) as client:
+            resp = await client.get(url, params={"codigo": code})
+            resp.raise_for_status()
+            return resp.json()
+    except Exception as exc:
+        logger.warning("second_factor_upstream_error connector=%s error=%s",
+                       binding.connector_slug, exc)
+        return {"ok": False, "reason": "upstream"}
 
 
 async def execute_tool(binding, identity: str, params: dict | None = None) -> ExecResult:

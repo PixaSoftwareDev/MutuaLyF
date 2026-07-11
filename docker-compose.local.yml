@@ -205,6 +205,28 @@ services:
     logging: *default-logging
     mem_limit: 3g
 
+  # ─── Mock NEXA (servicio externo simulado, DB SQLite propia) ──────────────
+  # Imita una obra social médica para probar el camino HTTP REAL del executor
+  # (httpx + egress_guard) sin NEXA real. Puerto 4003 (como el :4003 de NEXA).
+  # Vive en `internal` para que el backend lo alcance por egress.
+  mock_nexa:
+    build:
+      context: ./mock_nexa
+      dockerfile: Dockerfile
+    container_name: local_mock_nexa
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:4003:4003"
+    volumes:
+      - local_mock_nexa_data:/data
+    networks: [internal]
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:4003/health')\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    logging: *default-logging
+
   # ─── Frontend (next dev, hot-reload) ──────────────────────────────────────
 
   frontend:
@@ -256,3 +278,4 @@ volumes:
   local_uploads:
   local_branding:
   local_frontend_nm:
+  local_mock_nexa_data:

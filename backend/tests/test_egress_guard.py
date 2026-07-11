@@ -78,3 +78,23 @@ def test_bloquea_si_dns_no_resuelve(monkeypatch):
     monkeypatch.setattr(socket, "getaddrinfo", _boom)
     with pytest.raises(EgressBlocked, match="resolver"):
         assert_egress_allowed("https://api.nexa.com.ar/x", ALLOW)
+
+
+def test_trusted_internal_host_exento_de_check_ip():
+    # mock_nexa resuelve a IP interna (172.x) pero es host de confianza dev → permitido.
+    # No mockeamos DNS: si intentara resolver mock_nexa fallaría; la excepción
+    # debe cortar ANTES de resolver.
+    assert_egress_allowed(
+        "http://mock_nexa:4003/afiliados/1/ordenes",
+        allowlist={"mock_nexa"}, allow_http=True,
+        trusted_internal_hosts={"mock_nexa"},
+    )
+
+
+def test_trusted_internal_host_igual_debe_estar_en_allowlist():
+    # Ser "trusted" no saltea la allowlist: si no está, se bloquea igual.
+    with pytest.raises(EgressBlocked, match="allowlist"):
+        assert_egress_allowed(
+            "http://mock_nexa:4003/x", allowlist={"otro"}, allow_http=True,
+            trusted_internal_hosts={"mock_nexa"},
+        )

@@ -188,3 +188,57 @@ async def test_feature_flag_off_no_intercepta(wired, monkeypatch):
     monkeypatch.setattr(settings, "connectors_enabled", False)
     r = await _turn("¿tengo órdenes pendientes?")
     assert r is None  # con el flag apagado, todo va al RAG
+
+
+# ── Extracción determinista de params (tools públicas) ─────────────────────────
+def test_extract_params_enum():
+    schema = {"type": "object",
+              "properties": {"especialidad": {"type": "string", "enum": ["Cardiología", "Pediatría"]}},
+              "required": ["especialidad"]}
+    assert connector_router.extract_params("¿quién atiende cardiología?", schema) == {"especialidad": "Cardiología"}
+
+
+def test_extract_params_pattern():
+    schema = {"type": "object", "properties": {"matricula": {"type": "string", "pattern": r"MP-\d+"}}}
+    assert connector_router.extract_params("horarios del MP-1003 por favor", schema) == {"matricula": "MP-1003"}
+
+
+def test_extract_params_no_match():
+    schema = {"type": "object", "properties": {"especialidad": {"type": "string", "enum": ["Cardiología"]}}}
+    assert connector_router.extract_params("hola qué tal", schema) == {}
+
+
+def _public_binding():
+    b = _binding()
+    b.tool_slug = "profesionales_por_especialidad"
+    b.identity_kind = "publico"
+    b.params_schema = {"type": "object",
+                       "properties": {"especialidad": {"type": "string", "enum": ["Cardiología"]}},
+                       "required": ["especialidad"]}
+    b.response_map = {"items_path": "profesionales", "empty_when_empty": True}
+    return b
+
+
+@pytest.mark.asyncio
+async def test_tool_publica_no_pide_login(wired, monkeypatch):
+    from services.classifier import IntentResult
+    from services.connector_executor import ExecResult, OK
+
+    async def _classify(q, tenant_id):
+        return IntentResult(label="buscar_profesional_especialidad", confidence=0.9, band="mid")
+    monkeypatch.setattr("services.classifier.classify_intent", _classify)
+
+    async def _get_tool(t, l):
+        return _public_binding() if l else None
+    monkeypatch.setattr("services.connector_router.get_tool_for_intent", _get_tool)
+
+    async def _exec(binding, identity, params=None):
+        # La tool pública se ejecuta SIN identidad (sin login).
+        assert identity == "" and params == {"especialidad": "Cardiología"}
+        return ExecResult(outcome=OK, data=[{"nombre": "Dra. Ana Gómez", "consultorio": "C3", "horarios": []}],
+                          tool_slug="profesionales_por_especialidad")
+    monkeypatch.setattr("services.connector_router.execute_tool", _exec)
+
+    r = await _turn("¿quién atiende cardiología?")
+    assert r is not None and "DNI" not in r["answer"]
+    assert "Ana Gómez" in r["answer"]

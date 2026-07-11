@@ -54,12 +54,16 @@ def assert_egress_allowed(
     allowlist: set[str] | list[str],
     *,
     allow_http: bool = False,
+    trusted_internal_hosts: set[str] | list[str] | None = None,
 ) -> None:
     """Lanza EgressBlocked si `url` no es un destino externo permitido.
 
     allowlist: hosts (dominios) declarados por el conector del tenant. El host
     de la URL debe estar en la allowlist exactamente o ser subdominio de alguno.
     allow_http: solo True en entornos de test/dev; en prod exigimos https.
+    trusted_internal_hosts: hosts internos permitidos EXPLÍCITAMENTE (p. ej. un
+        servicio mock en la red Docker durante desarrollo). Se saltea SOLO para
+        ellos la verificación de IP privada. Vacío en producción → SSRF intacto.
     """
     if not allowlist:
         raise EgressBlocked("egress denegado: allowlist vacía")
@@ -78,6 +82,11 @@ def assert_egress_allowed(
     allow = {h.lower().lstrip(".") for h in allowlist}
     if not (host in allow or any(host.endswith("." + h) for h in allow)):
         raise EgressBlocked(f"host {host!r} no está en la allowlist del conector")
+
+    # Excepción dev EXPLÍCITA: host interno de confianza (mock) → no verificamos IP.
+    trusted = {h.lower() for h in (trusted_internal_hosts or ())}
+    if host in trusted:
+        return
 
     # Anti-DNS-rebinding / IP directa: resolver y verificar CADA dirección.
     try:
