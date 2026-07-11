@@ -339,5 +339,40 @@
     ],
     "verificado": "mutualyf: 0→2 intenciones (1 manual, 1 auto), clasificador conf 0.000→0.75 discriminando temas. 102 tests pasan.",
     "pendiente": "Calibrar umbrales del clasificador (0.95/0.70 altos para e5). Groq free-tier TPD limita la auto-promocion masiva."
+  },
+  "tool_calling": {
+    "fase_0": {
+      "status": "completed",
+      "fecha": "2026-07-11",
+      "entregables": [
+        "core/egress_guard.py (anti-SSRF, 14 tests)",
+        ".github/workflows/ci.yml",
+        "services/intent_reconcile.py + beat nightly-data-consistency (4:00)",
+        "docs/MIGRACION_031_CONECTORES_DISENO.md",
+        "OPENAI_TEST_API_KEY + check_spend_alert + docs/OPERACION_OPENAI_KEYS_Y_SALDO.md",
+        "_relog_semantic_hit (label fresco en semantic cache)",
+        "docker-compose.local.yml: red data internal:true (DBs sin egress)"
+      ]
+    },
+    "fase_1": {
+      "status": "built_local_pending_live",
+      "fecha": "2026-07-11",
+      "entregables": [
+        "031_connector_framework.py (5 tablas/schema, aplicada en local)",
+        "connectors_dao.py, connector_executor.py, session_store.py, connector_router.py (FSM), nexa_stub.py, connector_audit.py",
+        "Router insertado en widget_conversation.py ANTES del RAG (no en orquestador stateless, evita cache compartido)",
+        "scripts/seed_connectors_demo.py (conector nexa stub + tool ordenes_pendientes + binding)",
+        "18 tests nuevos (flujo login, BOLA, throttle, executor). Suite total 174 verde.",
+        "Demo en vivo verificado: login DNI+codigo(111111) → ordenes → sesion reusada → BOLA defendido → logout"
+      ],
+      "correcciones_diseño": [
+        "Router va en capa de conversacion (conversation_id + estado), no en orquestador stateless: los datos personales NO deben tocar el cache RAG compartido por tenant.",
+        "Sesion keyed por conversation_id en F1; F2 puede keyear por widget_session_id."
+      ],
+      "ultimo_paso_pendiente": [
+        "Restaurar cuota OpenAI (embeddings caidos por 429) → sembrar ejemplos Qdrant de la intencion → el clasificador enruta en vivo en el widget.",
+        "NEXA real: Swagger + credenciales + entorno test :4003 → cambiar conector de auth_type=stub a config real. Cero codigo nuevo, solo filas de config."
+      ]
+    }
   }
 }

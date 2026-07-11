@@ -132,6 +132,24 @@ class Settings(BaseSettings):
     redis_url_broker: str = "redis://redis:6379/0"
     redis_url_cache: str = "redis://redis:6379/1"
     redis_url_ratelimit: str = "redis://redis:6379/2"
+    # DB 3: sesiones autenticadas de conectores (blob Fernet {jwt, identity, rol}).
+    # Efímera (TTL corto); pérdida aceptable = re-login. Separada del cache para
+    # que un flush de cache no tire sesiones ni viceversa.
+    redis_url_session: str = "redis://redis:6379/3"
+
+    # ── Framework de conectores (Tool Calling) ────────────────────────────────
+    # Feature flag maestro: si False, el router de tools ni se evalúa (fail-closed
+    # a nivel sistema — el bot sigue siendo solo-RAG). Se activa por tenant vía la
+    # config de conectores, pero este flag lo apaga globalmente si hace falta.
+    connectors_enabled: bool = False
+    # Stub in-process de NEXA para dev/tests (no llama a NEXA real). Solo en dev.
+    nexa_stub_enabled: bool = False
+    # Sesión autenticada: TTL y throttle del segundo factor.
+    session_ttl_seconds: int = 1800          # 30 min (renovable con actividad)
+    connector_auth_max_attempts: int = 5     # intentos de código antes de bloquear
+    connector_auth_lockout_window_s: int = 900  # ventana de 15 min
+    # Timeout y circuit breaker del executor HTTP hacia terceros.
+    connector_http_timeout_ms: int = 4000
 
     # ── JWT ───────────────────────────────────────────────────────────────────
     jwt_secret_key: str

@@ -117,6 +117,29 @@ La Mutual pide (doc v3) que el bot pase de RAG puro a **RAG + Tool Calling**: re
 
 **Dependencias NEXA (pedir YA, son su ruta crítica — §11.1 del doc):** catálogo Swagger/OpenAPI; credenciales Basic Auth para el chatbot; entorno test :4003 con datos ficticios; confirmación de emails de profesionales (escenario C).
 
+#### Estado de implementación Fase 1 (2026-07-11) — construida en local contra stub
+
+Todo el flujo funciona end-to-end contra infra REAL local (Redis DB3 + PG audit + stub NEXA in-process), verificado con demo en vivo + 18 tests. Falta solo el "último paso": conectar clasificador real (embeddings) + NEXA real.
+
+| Tarea | Estado | Entregable |
+|---|---|---|
+| 1.1 Migración 031 + modelos | ✅ | `031_connector_framework.py` (5 tablas/schema, aplicada local) + `connectors_dao.py` (ToolBinding) |
+| 1.2 Executor HTTP + circuit breaker | ✅ | `connector_executor.py` (validación params sin deps, `{identity}` server-side, egress_guard, breaker patrón Neo4j, response_map→contrato canónico, transporte stub/httpx) |
+| 1.3 FSM login afiliado + stub | ✅ | `connector_router.py` (FSM con mensajes exactos, throttle 5/15min, escapes) + `nexa_stub.py` (code=111111) |
+| 1.4 Session store | ✅ | `session_store.py` (Fernet, Redis DB3, TTL sliding, doble token) |
+| 1.5 Router (fail-closed) | ✅ | insertado en `widget_conversation.py` ANTES del RAG (evita cache compartido); NO en el orquestador stateless — corrección de diseño documentada |
+| 1.6 Tool #1 ordenes_pendientes | ✅ | `seed_connectors_demo.py` + demo en vivo: login→órdenes→sesión reusada→logout |
+| 1.7 Seguridad + BOLA | ✅ | `connector_audit.py` (PII scrubber, `tool_call_audit` actor hasheado) + test BOLA verde (pedir DNI ajeno devuelve datos propios) |
+| 1.8 Intención datos personales | ⏳ parcial | intención `consulta_ordenes_pendientes` sembrada en PG; **ejemplos en Qdrant pendientes** (requiere embeddings = cuota OpenAI, bloqueada) |
+
+**Correcciones de diseño respecto del plan original:**
+- El router NO va en el orquestador (es stateless y su cache RAG es compartido por tenant → un dato personal cacheado se filtraría entre usuarios). Va en la capa `widget_conversation` (tiene `conversation_id` + estado, y no cachea).
+- Sesión keyed por `conversation_id` (Fase 1). Fase 2 puede keyear por `widget_session_id` para persistir login entre conversaciones.
+
+**ÚLTIMO PASO pendiente (lo que el usuario dejó para el final):**
+1. Restaurar cuota OpenAI → sembrar ejemplos Qdrant de la intención → el clasificador en vivo enruta la pregunta a la tool en el widget.
+2. Recibir de NEXA: Swagger + credenciales + entorno test :4003 → cambiar el conector de `auth_type='stub'` a la config real (base_url + auth_secret_ref) → el executor activa el camino httpx + egress_guard. **Cero código nuevo**, solo filas de config.
+
 ### FASE 2 — Cobertura completa afiliado + rol profesional (6-8 días, ritmo atado a NEXA)
 
 | Tarea | Detalle | Est. |
