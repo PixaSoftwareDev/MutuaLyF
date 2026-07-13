@@ -362,6 +362,85 @@ export interface SectorRow {
   open_conversations: number;
 }
 
+// ── Conectores de terceros (pantalla /admin/connectors) ───────────────────────
+export interface ConnectorRow {
+  id: string;
+  slug: string;
+  display_name: string;
+  base_url: string;
+  egress_allow: string[];
+  auth_type: string;
+  auth_validate_path: string | null;
+  is_active: boolean;
+  timeout_ms: number;
+  has_secret: boolean;
+  tool_count: number;
+}
+
+export interface ConnectorBinding {
+  id: string;
+  intencion_id: string;
+  intent_label: string;
+  min_confidence: number;
+  is_active: boolean;
+}
+
+export interface ConnectorTool {
+  id: string;
+  slug: string;
+  display_name: string;
+  http_method: string;
+  path_template: string;
+  params_schema: Record<string, unknown>;
+  response_map: Record<string, unknown>;
+  identity_kind: string;
+  is_read_only: boolean;
+  is_active: boolean;
+  roles: string[];
+  bindings: ConnectorBinding[];
+}
+
+export interface ConnectorDetail extends Omit<ConnectorRow, "tool_count"> {
+  auth_config: Record<string, unknown>;
+  tools: ConnectorTool[];
+}
+
+export interface ConnectorPayload {
+  slug: string;
+  display_name: string;
+  base_url: string;
+  egress_allow: string[];
+  auth_type: string;
+  auth_config?: Record<string, unknown>;
+  auth_validate_path?: string | null;
+  timeout_ms?: number;
+}
+
+export interface ConnectorToolPayload {
+  slug: string;
+  display_name: string;
+  http_method: string;
+  path_template: string;
+  params_schema?: Record<string, unknown>;
+  response_map?: Record<string, unknown>;
+  identity_kind: string;
+  is_read_only?: boolean;
+  roles?: string[];
+}
+
+export interface ConnectorTestResult {
+  url: string;
+  method: string;
+  ok: boolean;
+  status?: number;
+  latency_ms?: number;
+  raw?: unknown;
+  mapped?: { outcome: string; data: unknown };
+  suggested_response_map?: Record<string, unknown>;
+  error?: string;
+  detail?: string;
+}
+
 export interface PublicSector {
   id: string;
   nombre: string;
@@ -709,6 +788,63 @@ export const api = {
     trainingStatus: async () => {
       const { data } = await apiClient.get("/intentions/training/status");
       return data as { intentions: Array<{ label: string; model_version: string | null; last_accuracy: number | null; example_count: number }> };
+    },
+  },
+
+  connectors: {
+    list: async (): Promise<{ connectors: ConnectorRow[] }> => {
+      const { data } = await apiClient.get("/admin/connectors");
+      return data;
+    },
+    get: async (id: string): Promise<ConnectorDetail> => {
+      const { data } = await apiClient.get(`/admin/connectors/${id}`);
+      return data;
+    },
+    create: async (body: ConnectorPayload): Promise<{ id: string }> => {
+      const { data } = await apiClient.post("/admin/connectors", body);
+      return data;
+    },
+    update: async (id: string, body: Partial<ConnectorPayload>) => {
+      const { data } = await apiClient.put(`/admin/connectors/${id}`, body);
+      return data as { ok: boolean; deactivated: boolean };
+    },
+    delete: async (id: string) => {
+      await apiClient.delete(`/admin/connectors/${id}`);
+    },
+    setSecret: async (id: string, secret: string) => {
+      await apiClient.put(`/admin/connectors/${id}/secret`, { secret });
+    },
+    setActive: async (id: string, isActive: boolean) => {
+      const { data } = await apiClient.patch(`/admin/connectors/${id}/active`, { is_active: isActive });
+      return data as { ok: boolean; is_active: boolean };
+    },
+    approvedHosts: async (): Promise<{ hosts: Array<{ host: string; approved_by: string | null; note: string | null }> }> => {
+      const { data } = await apiClient.get("/admin/connectors/approved-hosts");
+      return data;
+    },
+    createTool: async (connectorId: string, body: ConnectorToolPayload): Promise<{ id: string }> => {
+      const { data } = await apiClient.post(`/admin/connectors/${connectorId}/tools`, body);
+      return data;
+    },
+    updateTool: async (toolId: string, body: Partial<ConnectorToolPayload> & { is_active?: boolean }) => {
+      await apiClient.put(`/admin/connectors/tools/${toolId}`, body);
+    },
+    deleteTool: async (toolId: string) => {
+      await apiClient.delete(`/admin/connectors/tools/${toolId}`);
+    },
+    upsertBinding: async (toolId: string, body: {
+      intencion_id?: string; intent_label?: string; intent_description?: string;
+      min_confidence?: number; is_active?: boolean; examples?: string[];
+    }) => {
+      const { data } = await apiClient.put(`/admin/connectors/tools/${toolId}/bindings`, body);
+      return data as { id: string; intencion_id: string; intent_label: string };
+    },
+    deleteBinding: async (bindingId: string) => {
+      await apiClient.delete(`/admin/connectors/bindings/${bindingId}`);
+    },
+    testTool: async (connectorId: string, toolId: string, body: { identity?: string; params?: Record<string, unknown> }) => {
+      const { data } = await apiClient.post(`/admin/connectors/${connectorId}/tools/${toolId}/test`, body);
+      return data as ConnectorTestResult;
     },
   },
 

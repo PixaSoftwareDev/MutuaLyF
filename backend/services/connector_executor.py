@@ -182,9 +182,23 @@ async def _invoke_http(binding, path: str, query: dict) -> dict | list:
         trusted_internal_hosts=settings.trusted_internal_hosts_set,
     )
 
+    # Auth real (Fase 1): none/api_key/bearer/basic. El secreto se descifra acá,
+    # nunca vive en claro fuera de este borde. auth_type='none'/'stub' → sin cambios.
+    from services.connector_secrets import build_auth, open_secret
+    auth_kwargs = build_auth(
+        binding.auth_type,
+        getattr(binding, "auth_config", {}) or {},
+        open_secret(getattr(binding, "auth_secret_enc", None)),
+    )
+
     timeout = binding.timeout_ms / 1000
     async with httpx.AsyncClient(timeout=timeout) as client:
-        resp = await client.request(binding.http_method.upper(), url, params=query or None)
+        resp = await client.request(
+            binding.http_method.upper(), url,
+            params=query or None,
+            headers=auth_kwargs["headers"] or None,
+            auth=auth_kwargs["auth"],
+        )
         resp.raise_for_status()
         return resp.json()
 
