@@ -68,6 +68,19 @@ def _msg_pide_codigo_totp() -> str:
 def _msg_pide_codigo_otp() -> str:
     return "Listo. Te envié un *código a tu email/SMS registrado*. ¿Cuál es?"
 
+def _msg_codigo_enviado(masked: str | None) -> str:
+    # OTP propio de la plataforma. Sin mask (identidad no encontrada) el mensaje
+    # es neutro: no confirmamos ni negamos existencia (anti-enumeración).
+    if masked:
+        return (f"Te enviamos un *código de 6 dígitos* a {masked}. "
+                f"Ingresalo acá (vence en 5 minutos).")
+    return ("Si tus datos están registrados, te va a llegar un *código de 6 dígitos* "
+            "a tu email. Ingresalo acá.")
+
+def _msg_limite_envios() -> str:
+    return ("Ya te enviamos varios códigos. Esperá unos minutos antes de pedir otro, "
+            "o comunicate con la organización si no te están llegando.")
+
 def _msg_codigo_incorrecto(restantes: int) -> str:
     return f"Ese código no coincide. Te quedan *{restantes} intentos*. Revisá y volvé a ingresarlo."
 
@@ -318,6 +331,28 @@ async def maybe_handle(
     return _resp(msg)
 
 
+async def _send_platform_otp(tenant_id: str, conv_id: str, binding, identity: str) -> tuple[str | None, str | None]:
+    """OTP propio: busca el contacto en el proveedor, genera y envía el código.
+
+    Devuelve (masked_contact, nombre). masked=None si la identidad no existe o el
+    envío no se registró — el mensaje al usuario queda neutro (anti-enumeración).
+    """
+    from services import otp
+    from services.connector_executor import lookup_identity
+
+    cfg = getattr(binding, "auth_config", {}) or {}
+    profile = await lookup_identity(binding, identity, cfg)
+    if profile is None:
+        return None, None
+    email = profile.get(cfg.get("contact_email_field", "email"))
+    nombre = profile.get(cfg.get("name_field", "nombre"))
+    code = await otp.generate_and_store(tenant_id, conv_id, identity)
+    if code is None:
+        return None, nombre
+    await otp.send_code(code, email=email)
+    return otp.mask_email(email), nombre
+
+
 async def _handle_id_input(tenant_id: str, conv_id: str, text: str, flow: dict) -> dict:
     kind = flow.get("identity_kind", "afiliado")
     is_prof = kind == "profesional"
@@ -326,28 +361,62 @@ async def _handle_id_input(tenant_id: str, conv_id: str, text: str, flow: dict) 
         return _resp(_msg_cuit_invalido() if is_prof else _msg_dni_invalido())
     flow["identity"] = _only_digits(text)
     flow["stage"] = _PIDIENDO_CODIGO
+
+    # ¿El conector delega la validación al proveedor, o la hace la plataforma?
+    binding = await get_tool_for_intent(tenant_id, flow.get("pending_intent") or "")
+    cfg = (getattr(binding, "auth_config", {}) or {}) if binding else {}
+    if binding is not None and cfg.get("identity_validation") == "platform_otp":
+        from services import otp
+        flow["mode"] = "platform_otp"
+        if not await otp.can_send(tenant_id, conv_id):
+            await _set_flow(tenant_id, conv_id, flow)
+            return _resp(_msg_limite_envios())
+        masked, nombre = await _send_platform_otp(tenant_id, conv_id, binding, flow["identity"])
+        if nombre:
+            flow["nombre"] = nombre
+        await _set_flow(tenant_id, conv_id, flow)
+        return _resp(_msg_codigo_enviado(masked))
+
     await _set_flow(tenant_id, conv_id, flow)
     return _resp(_msg_pide_codigo_otp() if is_prof else _msg_pide_codigo_totp())
 
 
 async def _handle_code_input(tenant_id: str, conv_id: str, text: str, flow: dict) -> dict:
-    if _RESEND_RE.search(text):
-        return _resp(_msg_reenviado())
+    is_platform_otp = flow.get("mode") == "platform_otp"
 
     if await _is_locked(tenant_id, conv_id):
         return _resp(_msg_bloqueado())
 
     identity = flow.get("identity", "")
-    code = _only_digits(text)
 
-    # Validación del 2º factor. Resolvemos el binding (necesitamos el conector para
-    # validar por HTTP real, o el stub si el conector es stub).
+    # Resolvemos el binding (conector para validar por HTTP, stub, o lookup OTP).
     pending = flow.get("pending_intent")
     binding = await get_tool_for_intent(tenant_id, pending or "")
     if binding is None:
         await _clear_flow(tenant_id, conv_id)
         return _resp(_msg_upstream())
-    verdict = await validate_second_factor(binding, identity, code)
+
+    if _RESEND_RE.search(text):
+        if is_platform_otp:
+            from services import otp
+            if not await otp.can_send(tenant_id, conv_id):
+                return _resp(_msg_limite_envios())
+            masked, nombre = await _send_platform_otp(tenant_id, conv_id, binding, identity)
+            if nombre:
+                flow["nombre"] = nombre
+                await _set_flow(tenant_id, conv_id, flow)
+            return _resp(_msg_codigo_enviado(masked))
+        return _resp(_msg_reenviado())
+
+    code = _only_digits(text)
+
+    # Validación del 2º factor: local (OTP propio) o contra el proveedor.
+    if is_platform_otp:
+        from services import otp
+        ok = await otp.validate(tenant_id, conv_id, identity, code)
+        verdict = {"ok": True, "nombre": flow.get("nombre")} if ok else {"ok": False, "reason": "bad_code"}
+    else:
+        verdict = await validate_second_factor(binding, identity, code)
 
     if verdict.get("ok"):
         rol = flow.get("identity_kind", "afiliado")

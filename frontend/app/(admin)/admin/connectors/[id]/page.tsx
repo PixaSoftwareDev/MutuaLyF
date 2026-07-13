@@ -59,6 +59,25 @@ export default function ConnectorDetailPage() {
     onError: (e) => toast({ title: "No se pudo guardar", description: errDetail(e), variant: "destructive" }),
   });
 
+  // ── validación de identidad (quién valida el 2º factor) ───────────────────
+  const [idVal, setIdVal]           = useState<string | null>(null);
+  const [lookupPath, setLookupPath] = useState<string | null>(null);
+  const idValM = useMutation({
+    mutationFn: (vars: { flow: string; lookup: string }) =>
+      api.connectors.update(id, {
+        auth_config: {
+          ...(conn?.auth_config ?? {}),
+          identity_validation: vars.flow,
+          identity_lookup_path: vars.lookup,
+        },
+      } as never),
+    onSuccess: () => {
+      invAll(); setIdVal(null); setLookupPath(null);
+      toast({ title: "Validación de identidad guardada", description: "El conector quedó inactivo por el cambio de config — reactivalo cuando quieras.", variant: "success" });
+    },
+    onError: (e) => toast({ title: "No se pudo guardar", description: errDetail(e), variant: "destructive" }),
+  });
+
   const toggleM = useMutation({
     mutationFn: (active: boolean) => api.connectors.setActive(id, active),
     onSuccess: (_d, active) => { invAll(); toast({ title: active ? "Conector activado" : "Conector desactivado", variant: "success" }); },
@@ -148,6 +167,50 @@ export default function ConnectorDetailPage() {
             </Button>
           </div>
         </div>
+
+        {/* Validación de identidad (2º factor de los datos personales) */}
+        {(() => {
+          const currentFlow = String((conn.auth_config as Record<string, unknown>)?.identity_validation ?? "provider");
+          const currentLookup = String((conn.auth_config as Record<string, unknown>)?.identity_lookup_path ?? "/afiliados/{identity}");
+          const flow = idVal ?? currentFlow;
+          const lookup = lookupPath ?? currentLookup;
+          const dirty = flow !== currentFlow || (flow === "platform_otp" && lookup !== currentLookup);
+          return (
+            <div className="mt-4 pt-4 border-t space-y-3">
+              <Label className="inline-flex items-center gap-1.5">
+                <Lock className="h-3.5 w-3.5" /> Validación de identidad (datos personales)
+              </Label>
+              <div className="flex flex-wrap items-end gap-3">
+                <div className="w-full sm:w-96">
+                  <Select value={flow} onValueChange={setIdVal}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="provider">El proveedor valida el código (tiene endpoint propio)</SelectItem>
+                      <SelectItem value="platform_otp">La plataforma envía y valida el código (OTP propio)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {flow === "platform_otp" && (
+                  <div className="space-y-1.5 flex-1 min-w-[240px]">
+                    <Label className="text-xs">Ruta del perfil del afiliado (de dónde leemos el contacto)</Label>
+                    <Input className="font-mono" value={lookup} onChange={e => setLookupPath(e.target.value)} />
+                  </div>
+                )}
+                {dirty && (
+                  <Button size="sm" disabled={idValM.isPending} onClick={() => idValM.mutate({ flow, lookup })}>
+                    {idValM.isPending && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
+                    Guardar
+                  </Button>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {flow === "platform_otp"
+                  ? "La plataforma lee el email del afiliado desde el proveedor, le envía un código de 6 dígitos y lo valida. El proveedor no necesita construir nada."
+                  : "El backend llama al endpoint de validación del proveedor con DNI + código."}
+              </p>
+            </div>
+          );
+        })()}
 
         {conn.auth_type !== "none" && (
           <div className="mt-4 pt-4 border-t flex flex-wrap items-end gap-3">

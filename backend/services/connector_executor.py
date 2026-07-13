@@ -232,6 +232,36 @@ async def validate_second_factor(binding, identity: str, code: str) -> dict:
         return {"ok": False, "reason": "upstream"}
 
 
+async def lookup_identity(binding, identity: str, cfg: dict | None = None) -> dict | None:
+    """Busca el perfil del afiliado en el proveedor (datos de contacto para el
+    OTP propio). GET {base_url}{identity_lookup_path}. None si no existe o falla
+    (fail-closed: sin perfil no se envía código).
+
+    cfg (de connector.auth_config): identity_lookup_path (default
+    '/afiliados/{identity}'), found_field (default 'encontrado').
+    """
+    cfg = cfg or {}
+    path = (cfg.get("identity_lookup_path") or "/afiliados/{identity}").replace("{identity}", identity)
+    url = binding.base_url.rstrip("/") + path
+    allow_http = settings.environment == "development"
+    try:
+        assert_egress_allowed(
+            url, binding.egress_allow, allow_http=allow_http,
+            trusted_internal_hosts=settings.trusted_internal_hosts_set,
+        )
+        async with httpx.AsyncClient(timeout=binding.timeout_ms / 1000) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            data = resp.json()
+    except Exception as exc:
+        logger.warning("identity_lookup_failed connector=%s error=%s", binding.connector_slug, exc)
+        return None
+    found_field = cfg.get("found_field", "encontrado")
+    if isinstance(data, dict) and found_field in data and not data.get(found_field):
+        return None
+    return data if isinstance(data, dict) else None
+
+
 async def execute_tool(binding, identity: str, params: dict | None = None) -> ExecResult:
     """Ejecuta la tool y devuelve el resultado normalizado al contrato canónico.
 

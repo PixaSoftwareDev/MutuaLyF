@@ -45,7 +45,7 @@ def seed():
 
         CREATE TABLE profesionales (matricula TEXT PRIMARY KEY, nombre TEXT, especialidad TEXT, consultorio TEXT);
         CREATE TABLE horarios (matricula TEXT, dia TEXT, desde TEXT, hasta TEXT);
-        CREATE TABLE afiliados (dni TEXT PRIMARY KEY, nombre TEXT);
+        CREATE TABLE afiliados (dni TEXT PRIMARY KEY, nombre TEXT, email TEXT, celular TEXT);
         CREATE TABLE ordenes (dni TEXT, tipo TEXT, prestador TEXT, estado TEXT, vence TEXT);
         CREATE TABLE cuenta (dni TEXT PRIMARY KEY, saldo REAL, al_dia INTEGER, detalle TEXT);
         """)
@@ -67,7 +67,10 @@ def seed():
             ("MP-1004", "Martes", "14:00", "19:00"), ("MP-1004", "Jueves", "14:00", "19:00"),
             ("MP-1005", "Miércoles", "09:00", "13:00"), ("MP-1005", "Viernes", "09:00", "13:00"),
         ]
-        afiliados = [("30111222", "Guillermo Fernández"), ("27888999", "María López")]
+        afiliados = [
+            ("30111222", "Guillermo Fernández", "guillermo.f@ejemplo.com.ar", "+54 9 351 555-0101"),
+            ("27888999", "María López", "maria.lopez@ejemplo.com.ar", "+54 9 351 555-0202"),
+        ]
         ordenes = [
             ("30111222", "Consulta cardiología", "Dra. Ana Gómez", "pendiente", "2026-08-15"),
             ("30111222", "Laboratorio - análisis de sangre", "Lab Central", "pendiente", "2026-07-30"),
@@ -79,7 +82,7 @@ def seed():
 
         c.executemany("INSERT INTO profesionales VALUES (?,?,?,?)", profesionales)
         c.executemany("INSERT INTO horarios VALUES (?,?,?,?)", horarios)
-        c.executemany("INSERT INTO afiliados VALUES (?,?)", afiliados)
+        c.executemany("INSERT INTO afiliados VALUES (?,?,?,?)", afiliados)
         c.executemany("INSERT INTO ordenes VALUES (?,?,?,?,?)", ordenes)
         c.executemany("INSERT INTO cuenta VALUES (?,?,?,?)", cuenta)
         c.commit()
@@ -131,6 +134,18 @@ def horarios_profesional(matricula: str):
 
 
 # ── PERSONALES ─────────────────────────────────────────────────────────────────
+@app.get("/afiliados/{dni}")
+def perfil_afiliado(dni: str):
+    """Perfil con datos de contacto — lo que la plataforma consulta para enviar
+    su propio OTP (la 'base del cliente' siempre tiene email/celular)."""
+    with closing(_conn()) as c:
+        r = c.execute("SELECT * FROM afiliados WHERE dni=?", (dni,)).fetchone()
+        if not r:
+            return {"afiliado": dni, "encontrado": False}
+        return {"afiliado": dni, "encontrado": True, "nombre": r["nombre"],
+                "email": r["email"], "celular": r["celular"]}
+
+
 @app.get("/afiliados/{dni}/ordenes")
 def ordenes_afiliado(dni: str):
     with closing(_conn()) as c:
