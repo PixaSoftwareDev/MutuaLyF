@@ -441,6 +441,31 @@ export interface ConnectorTestResult {
   detail?: string;
 }
 
+export interface DiscoveryRoute {
+  path: string;
+  include: boolean;
+  discard_reason?: string | null;
+  slug?: string;
+  display_name?: string;
+  http_method?: string;
+  path_template?: string;
+  params_schema?: Record<string, unknown>;
+  response_map?: Record<string, unknown>;
+  identity_kind?: string;
+  is_lookup?: boolean;
+  intent_label?: string | null;
+  intent_description?: string | null;
+  examples?: string[];
+  test?: { ok: boolean; status?: number; latency_ms?: number; url?: string; error?: string };
+}
+
+export interface DiscoveryProposal {
+  spec_found: boolean;
+  spec_url?: string;
+  hint?: string;
+  routes: DiscoveryRoute[];
+}
+
 export interface PublicSector {
   id: string;
   nombre: string;
@@ -845,6 +870,23 @@ export const api = {
     testTool: async (connectorId: string, toolId: string, body: { identity?: string; params?: Record<string, unknown> }) => {
       const { data } = await apiClient.post(`/admin/connectors/${connectorId}/tools/${toolId}/test`, body);
       return data as ConnectorTestResult;
+    },
+    discover: async (connectorId: string, testIdentity: string) => {
+      const { data } = await apiClient.post(`/admin/connectors/${connectorId}/discover`,
+        { test_identity: testIdentity }, { timeout: 90_000 });
+      return data as DiscoveryProposal;
+    },
+    apply: async (connectorId: string, tools: DiscoveryRoute[]) => {
+      const { data } = await apiClient.post(`/admin/connectors/${connectorId}/apply`, {
+        tools: tools.map(t => ({
+          slug: t.slug, display_name: t.display_name, http_method: t.http_method ?? "GET",
+          path_template: t.path_template, params_schema: t.params_schema ?? {},
+          response_map: t.response_map ?? {}, identity_kind: t.identity_kind,
+          is_lookup: t.is_lookup, intent_label: t.intent_label,
+          intent_description: t.intent_description, examples: t.examples ?? [],
+        })),
+      });
+      return data as { created: string[]; identity_lookup_path: string | null };
     },
   },
 

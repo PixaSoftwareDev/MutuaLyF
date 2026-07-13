@@ -19,13 +19,28 @@ depender de NEXA ni de OpenAI.
 
 import sqlite3
 from contextlib import closing
+from typing import Literal
 
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, Request
+from fastapi.responses import JSONResponse
 
 app = FastAPI(title="Mock NEXA", version="0.1")
 
 DB_PATH = "/data/mock_nexa.db"
 VALID_CODE = "111111"
+
+# ── Verificación por API key ───────────────────────────────────────────────────
+# Simula un proveedor real que exige credencial: toda ruta (incluido el catálogo
+# /openapi.json) requiere el header X-API-Key. Solo /health queda público.
+API_KEY = "nexa-demo-key-123"
+PUBLIC_PATHS = {"/health"}
+
+
+@app.middleware("http")
+async def require_api_key(request: Request, call_next):
+    if request.url.path not in PUBLIC_PATHS and request.headers.get("X-API-Key") != API_KEY:
+        return JSONResponse(status_code=401, content={"detail": "API key inválida o ausente"})
+    return await call_next(request)
 
 
 def _conn():
@@ -107,7 +122,9 @@ def _horarios_de(c, matricula: str) -> list[dict]:
 
 # ── PÚBLICAS ───────────────────────────────────────────────────────────────────
 @app.get("/profesionales")
-def profesionales_por_especialidad(especialidad: str = Query(...)):
+def profesionales_por_especialidad(
+    especialidad: Literal["Cardiología", "Pediatría", "Traumatología", "Dermatología"] = Query(...),
+):
     with closing(_conn()) as c:
         rows = c.execute(
             "SELECT * FROM profesionales WHERE lower(especialidad)=lower(?)",

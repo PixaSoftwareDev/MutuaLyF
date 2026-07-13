@@ -6,9 +6,9 @@ import { useParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft, Plus, Plug, Loader2, Trash2, KeyRound, FlaskConical,
-  CheckCircle2, XCircle, Globe, Lock, Link2, Wand2,
+  CheckCircle2, XCircle, Globe, Lock, Link2, Wand2, Sparkles,
 } from "lucide-react";
-import { api, type ConnectorTool, type ConnectorTestResult } from "@/lib/api";
+import { api, type ConnectorTool, type ConnectorTestResult, type DiscoveryProposal } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -82,6 +82,37 @@ export default function ConnectorDetailPage() {
     mutationFn: (active: boolean) => api.connectors.setActive(id, active),
     onSuccess: (_d, active) => { invAll(); toast({ title: active ? "Conector activado" : "Conector desactivado", variant: "success" }); },
     onError: (e) => toast({ title: "No se pudo activar", description: errDetail(e), variant: "destructive" }),
+  });
+
+  // ── wizard: conexión automática con IA ─────────────────────────────────────
+  const [showWizard, setShowWizard]   = useState(false);
+  const [wizIdentity, setWizIdentity] = useState("");
+  const [proposal, setProposal]       = useState<DiscoveryProposal | null>(null);
+  const [selected, setSelected]       = useState<Record<string, boolean>>({});
+  const selectedCount = proposal?.routes.filter(r => r.include && selected[r.path]).length ?? 0;
+
+  const discoverM = useMutation({
+    mutationFn: () => api.connectors.discover(id, wizIdentity.trim()),
+    onSuccess: (p) => {
+      setProposal(p);
+      const sel: Record<string, boolean> = {};
+      p.routes.forEach(r => { if (r.include) sel[r.path] = true; });
+      setSelected(sel);
+    },
+    onError: (e) => toast({ title: "No pude analizar el API", description: errDetail(e), variant: "destructive" }),
+  });
+
+  const applyM = useMutation({
+    mutationFn: () => api.connectors.apply(id, (proposal?.routes ?? []).filter(r => r.include && selected[r.path])),
+    onSuccess: (d) => {
+      invAll(); setShowWizard(false); setProposal(null);
+      toast({
+        title: `${d.created.length} operación(es) creadas`,
+        description: d.identity_lookup_path ? "Validación por código (OTP propio) configurada automáticamente." : undefined,
+        variant: "success",
+      });
+    },
+    onError: (e) => toast({ title: "No se pudo crear", description: errDetail(e), variant: "destructive" }),
   });
 
   // ── nueva operación ────────────────────────────────────────────────────────
@@ -237,10 +268,96 @@ export default function ConnectorDetailPage() {
       {/* Operaciones */}
       <div className="flex items-center justify-between mb-3">
         <h2 className="font-semibold">Operaciones ({conn.tools.length})</h2>
-        <Button size="sm" onClick={() => setShowTool(true)}>
-          <Plus className="h-4 w-4 mr-1" /> Nueva operación
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button size="sm" onClick={() => setShowWizard(s => !s)}>
+            <Sparkles className="h-4 w-4 mr-1" /> Detectar automáticamente
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => setShowTool(true)}>
+            <Plus className="h-4 w-4 mr-1" /> Nueva operación
+          </Button>
+        </div>
       </div>
+
+      {/* Wizard: la IA descubre, clasifica y prueba las rutas del proveedor */}
+      {showWizard && (
+        <div className="rounded-2xl border bg-card p-5 mb-4 space-y-4">
+          <div>
+            <p className="font-semibold inline-flex items-center gap-1.5">
+              <Sparkles className="h-4 w-4 text-primary" /> Conexión automática
+            </p>
+            <p className="text-sm text-muted-foreground mt-1">
+              Leemos el catálogo de rutas del proveedor, las clasificamos, las probamos en vivo
+              y te proponemos las intenciones. Vos solo revisás y confirmás.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="space-y-1.5 w-56">
+              <Label className="text-xs">Identidad de prueba (DNI real de un afiliado)</Label>
+              <Input className="h-9 font-mono" placeholder="30111222" value={wizIdentity}
+                onChange={e => setWizIdentity(e.target.value)} />
+            </div>
+            <Button size="sm" disabled={discoverM.isPending || !wizIdentity.trim()} onClick={() => discoverM.mutate()}>
+              {discoverM.isPending
+                ? <><Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> Analizando el API…</>
+                : <><Sparkles className="h-4 w-4 mr-1.5" /> Detectar</>}
+            </Button>
+          </div>
+
+          {proposal && !proposal.spec_found && (
+            <p className="text-sm text-destructive">{proposal.hint}</p>
+          )}
+
+          {proposal?.spec_found && (
+            <div className="space-y-2">
+              <p className="text-xs text-muted-foreground font-mono">catálogo: {proposal.spec_url}</p>
+              {proposal.routes.map(r => (
+                <div key={r.path} className={cn("rounded-xl border px-4 py-3 flex flex-wrap items-center gap-x-3 gap-y-1",
+                  !r.include && "opacity-50")}>
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 accent-primary"
+                    checked={!!selected[r.path]}
+                    disabled={!r.include}
+                    onChange={e => setSelected(s => ({ ...s, [r.path]: e.target.checked }))}
+                    aria-label={`Incluir ${r.path}`}
+                  />
+                  {r.include ? (
+                    <>
+                      <span className="font-medium">{r.display_name}</span>
+                      <Badge variant="secondary" className="font-mono text-[11px]">GET {r.path_template}</Badge>
+                      <Badge variant="outline" className="inline-flex items-center gap-1">
+                        {r.identity_kind === "publico" ? <Globe className="h-3 w-3" /> : <Lock className="h-3 w-3" />}
+                        {r.is_lookup ? "perfil (para el código)" : r.identity_kind}
+                      </Badge>
+                      {r.test && (r.test.ok
+                        ? <span className="inline-flex items-center gap-1 text-xs text-emerald-600 font-medium">
+                            <CheckCircle2 className="h-3.5 w-3.5" /> probada {r.test.status} · {r.test.latency_ms}ms</span>
+                        : <span className="inline-flex items-center gap-1 text-xs text-destructive font-medium">
+                            <XCircle className="h-3.5 w-3.5" /> falló ({r.test.status ?? r.test.error})</span>)}
+                      {r.intent_label && (
+                        <span className="w-full text-xs text-muted-foreground pl-7">
+                          intención: <code>{r.intent_label}</code> · {(r.examples ?? []).length} frases de ejemplo generadas
+                        </span>
+                      )}
+                    </>
+                  ) : (
+                    <span className="text-sm">
+                      <code className="text-xs">{r.path}</code>
+                      <span className="text-muted-foreground"> — descartada: {r.discard_reason}</span>
+                    </span>
+                  )}
+                </div>
+              ))}
+              <div className="flex justify-end pt-1">
+                <Button disabled={applyM.isPending || selectedCount === 0} onClick={() => applyM.mutate()}>
+                  {applyM.isPending && <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />}
+                  Crear {selectedCount} operación{selectedCount === 1 ? "" : "es"}
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="space-y-4">
         {conn.tools.map(tool => (

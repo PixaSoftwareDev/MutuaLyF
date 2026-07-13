@@ -222,8 +222,14 @@ async def validate_second_factor(binding, identity: str, code: str) -> dict:
             url, binding.egress_allow, allow_http=allow_http,
             trusted_internal_hosts=settings.trusted_internal_hosts_set,
         )
+        from services.connector_secrets import build_auth, open_secret
+        auth_kwargs = build_auth(
+            binding.auth_type, getattr(binding, "auth_config", {}) or {},
+            open_secret(getattr(binding, "auth_secret_enc", None)),
+        )
         async with httpx.AsyncClient(timeout=binding.timeout_ms / 1000) as client:
-            resp = await client.get(url, params={"codigo": code})
+            resp = await client.get(url, params={"codigo": code},
+                                    headers=auth_kwargs["headers"] or None, auth=auth_kwargs["auth"])
             resp.raise_for_status()
             return resp.json()
     except Exception as exc:
@@ -249,8 +255,13 @@ async def lookup_identity(binding, identity: str, cfg: dict | None = None) -> di
             url, binding.egress_allow, allow_http=allow_http,
             trusted_internal_hosts=settings.trusted_internal_hosts_set,
         )
+        from services.connector_secrets import build_auth, open_secret
+        auth_kwargs = build_auth(
+            binding.auth_type, getattr(binding, "auth_config", {}) or {},
+            open_secret(getattr(binding, "auth_secret_enc", None)),
+        )
         async with httpx.AsyncClient(timeout=binding.timeout_ms / 1000) as client:
-            resp = await client.get(url)
+            resp = await client.get(url, headers=auth_kwargs["headers"] or None, auth=auth_kwargs["auth"])
             resp.raise_for_status()
             data = resp.json()
     except Exception as exc:

@@ -418,6 +418,135 @@ async def delete_binding(
     return {"ok": True}
 
 
+# ── Conexión automática: descubrir + aplicar (wizard con IA) ──────────────────
+
+class DiscoverIn(BaseModel):
+    test_identity: str = Field(default="", max_length=40)
+
+
+class ApplyToolIn(BaseModel):
+    slug: str
+    display_name: str
+    http_method: str = "GET"
+    path_template: str
+    params_schema: dict = Field(default_factory=dict)
+    response_map: dict = Field(default_factory=dict)
+    identity_kind: str = "publico"
+    is_lookup: bool = False
+    intent_label: str | None = None
+    intent_description: str | None = None
+    examples: list[str] = Field(default_factory=list, max_length=30)
+
+
+class ApplyIn(BaseModel):
+    tools: list[ApplyToolIn]
+
+
+async def _bind_intent_with_examples(tenant_id: str, tool_id: str, label: str,
+                                     description: str | None, examples: list[str]) -> None:
+    """Crea/reusa la intención, siembra ejemplos (PG + Qdrant) y bindea la tool."""
+    from sqlalchemy import text
+    from core.database import get_pg_session
+
+    async with get_pg_session(tenant_id) as session:
+        intencion_id = (await session.execute(text("""
+            INSERT INTO intenciones (label, description, is_active)
+            VALUES (:l, :d, TRUE)
+            ON CONFLICT (label) DO UPDATE SET is_active = TRUE
+            RETURNING id::text
+        """), {"l": label, "d": description or f"Dispara la tool ({label})"})).scalar()
+        if examples:
+            from services.intent_examples import insert_examples
+            await insert_examples(session, intencion_id, examples)
+        await session.commit()
+
+    if examples:
+        import uuid as _uuid
+        from services.classifier_trainer import _embed_and_upsert
+        rows = [{"question_text": t, "label": label, "intencion_id": intencion_id,
+                 "example_id": str(_uuid.uuid4())} for t in examples if t.strip()]
+        try:
+            await _embed_and_upsert(tenant_id, rows, "auto-discovery")
+        except Exception as exc:
+            logger.warning("discovery_examples_index_failed tenant=%s error=%s", tenant_id, exc)
+
+    await dao.upsert_binding(tenant_id, tool_id, intencion_id, 0.70, True)
+
+
+@router.post("/admin/connectors/{connector_id}/discover")
+async def discover_connector(
+    connector_id: str, body: DiscoverIn, request: Request,
+    current_user: CurrentUser = Depends(require_admin_or_super),
+):
+    """Lee el catálogo OpenAPI del proveedor, clasifica las rutas con IA, las prueba
+    en vivo y devuelve la propuesta completa. NO crea nada: el admin revisa y aplica."""
+    from services.connector_discovery import build_proposal
+
+    tenant_id = _own_tenant(current_user)
+    conn = await dao.get_connector(tenant_id, connector_id)
+    if conn is None:
+        raise HTTPException(status_code=404, detail="Conector no encontrado")
+    secret_enc = await dao.get_connector_secret_enc(tenant_id, connector_id)
+    try:
+        proposal = await build_proposal(conn, secret_enc, tenant_id, body.test_identity.strip())
+    except Exception as exc:
+        logger.warning("discovery_failed connector=%s error=%s", connector_id, exc)
+        raise HTTPException(status_code=502, detail=f"No pude analizar el API del proveedor: {str(exc)[:200]}")
+    _audit(request, current_user, "connector_discovered", connector_id,
+           {"spec_found": proposal.get("spec_found"), "routes": len(proposal.get("routes", []))})
+    return proposal
+
+
+@router.post("/admin/connectors/{connector_id}/apply")
+async def apply_proposal(
+    connector_id: str, body: ApplyIn, request: Request,
+    current_user: CurrentUser = Depends(require_admin_or_super),
+):
+    """Crea en bloque las tools confirmadas por el admin (+roles, intenciones,
+    ejemplos y bindings). Si hay ruta de perfil (is_lookup), configura el OTP
+    propio automáticamente. El conector NO se activa: eso sigue siendo un clic
+    explícito del admin."""
+    tenant_id = _own_tenant(current_user)
+    conn = await dao.get_connector(tenant_id, connector_id)
+    if conn is None:
+        raise HTTPException(status_code=404, detail="Conector no encontrado")
+
+    created, lookup_path = [], None
+    for t in body.tools:
+        _validate_tool_payload(t.http_method, t.identity_kind, t.path_template)
+        if t.is_lookup:
+            lookup_path = t.path_template
+            continue  # el perfil no es una tool de chat: solo config del OTP
+        data = t.model_dump(exclude={"is_lookup", "intent_label", "intent_description", "examples"})
+        data["http_method"] = data["http_method"].upper()
+        data["is_read_only"] = True
+        try:
+            tool_id = await dao.create_tool(tenant_id, connector_id, data)
+        except Exception as exc:
+            if "unique" in str(exc).lower() or "duplicate" in str(exc).lower():
+                logger.info("apply_skip_duplicate slug=%s", t.slug)
+                continue
+            raise
+        roles = ["afiliado"] if t.identity_kind != "publico" else ["publico", "afiliado"]
+        await dao.set_tool_roles(tenant_id, tool_id, roles)
+        await dao.update_tool(tenant_id, tool_id, {"is_active": True})
+        if t.intent_label:
+            await _bind_intent_with_examples(tenant_id, tool_id, t.intent_label,
+                                             t.intent_description, t.examples)
+        created.append(t.slug)
+
+    if lookup_path:
+        await dao.update_connector(tenant_id, connector_id, {"auth_config": {
+            **(conn.get("auth_config") or {}),
+            "identity_validation": "platform_otp",
+            "identity_lookup_path": lookup_path,
+        }})
+
+    _audit(request, current_user, "connector_proposal_applied", connector_id,
+           {"tools": created, "lookup": lookup_path})
+    return {"created": created, "identity_lookup_path": lookup_path}
+
+
 # ── Dry-run (el corazón de la pantalla) ───────────────────────────────────────
 
 def _suggest_response_map(raw) -> dict:
