@@ -18,11 +18,12 @@ es de super-admin. El admin del tenant configura y prueba libremente mientras
 el conector está inactivo.
 """
 
+import asyncio
 import logging
 import time
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
 
 from core.audit import record as audit, fire_and_log
@@ -43,6 +44,14 @@ def _own_tenant(current_user: CurrentUser) -> str:
     if not current_user.tenant_id or current_user.tenant_id == "__platform__":
         raise HTTPException(status_code=400, detail="No tenant context")
     return current_user.tenant_id
+
+
+def _default_egress(base_url: str) -> list[str]:
+    """Allowlist por defecto cuando el admin la deja vacía: el host de la URL
+    base. Es lo que promete la UI — sin esto, la allowlist vacía bloquea todo."""
+    from urllib.parse import urlparse
+    host = (urlparse(base_url).hostname or "").lower()
+    return [host] if host else []
 
 
 def _audit(request: Request, user: CurrentUser, action: str, resource: str, detail: dict | None = None):
@@ -189,6 +198,8 @@ async def create_connector(
     _validate_connector_payload(body.auth_type)
     data = body.model_dump()
     data["egress_allow"] = [h.strip().lower() for h in data["egress_allow"] if h.strip()]
+    if not data["egress_allow"]:
+        data["egress_allow"] = _default_egress(data["base_url"])
     try:
         cid = await dao.create_connector(tenant_id, data)
     except Exception as exc:
@@ -221,6 +232,15 @@ async def update_connector(
     data = {k: v for k, v in body.model_dump().items() if v is not None}
     if "egress_allow" in data:
         data["egress_allow"] = [h.strip().lower() for h in data["egress_allow"] if h.strip()]
+    # Mantener la promesa de la UI también al editar: si la allowlist final
+    # queda vacía, se usa el host de la URL base (la nueva o la existente).
+    if ("egress_allow" in data and not data["egress_allow"]) or "base_url" in data:
+        current = await dao.get_connector(tenant_id, connector_id)
+        if current is None:
+            raise HTTPException(status_code=404, detail="Conector no encontrado")
+        final_egress = data.get("egress_allow", current["egress_allow"])
+        if not final_egress:
+            data["egress_allow"] = _default_egress(data.get("base_url", current["base_url"]))
     if not await dao.update_connector(tenant_id, connector_id, data):
         raise HTTPException(status_code=404, detail="Conector no encontrado")
     # Cambiar la config de un conector activo lo desactiva: hay que re-probar y
@@ -433,6 +453,7 @@ class ApplyToolIn(BaseModel):
     response_map: dict = Field(default_factory=dict)
     identity_kind: str = "publico"
     is_lookup: bool = False
+    identity_param: str | None = None  # nombre del identificador en el API (dni, legajo...)
     intent_label: str | None = None
     intent_description: str | None = None
     examples: list[str] = Field(default_factory=list, max_length=30)
@@ -497,6 +518,98 @@ async def discover_connector(
     return proposal
 
 
+# ── Conexión desde documentación subida (sin OpenAPI en vivo) ──────────────────
+
+_DISCOVER_FILE_MAX_BYTES = 15 * 1024 * 1024  # la doc de un API no debería pesar más
+_DISCOVER_FILE_EXT_MIME = {
+    ".pdf":  "application/pdf",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".txt":  "text/plain",
+    ".md":   "text/plain",
+    ".html": "text/html",
+    ".htm":  "text/html",
+    ".json": "application/json",
+}
+
+
+@router.post("/admin/connectors/{connector_id}/discover-file")
+async def discover_connector_from_file(
+    connector_id: str, request: Request,
+    file: UploadFile = File(...),
+    test_identity: str = Form(default="", max_length=40),
+    current_user: CurrentUser = Depends(require_admin_or_super),
+):
+    """Mismo wizard que /discover, pero las rutas salen de la documentación que
+    subió el admin (PDF/Word/TXT/Markdown/JSON) en vez del OpenAPI en vivo.
+    Si el JSON subido ya ES un OpenAPI, se parsea directo sin LLM."""
+    from services.chunker import extract_text_from_bytes
+    from services.connector_discovery import (
+        parse_openapi, propose_from_routes, routes_from_document,
+    )
+
+    tenant_id = _own_tenant(current_user)
+    conn = await dao.get_connector(tenant_id, connector_id)
+    if conn is None:
+        raise HTTPException(status_code=404, detail="Conector no encontrado")
+
+    filename = file.filename or "documentacion"
+    ext = "." + filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    mime = _DISCOVER_FILE_EXT_MIME.get(ext)
+    if mime is None:
+        raise HTTPException(status_code=415,
+                            detail="Formato no soportado. Subí PDF, Word (docx), TXT, Markdown o JSON.")
+    content = await file.read()
+    if len(content) > _DISCOVER_FILE_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="El archivo supera los 15 MB.")
+    if not content:
+        raise HTTPException(status_code=422, detail="El archivo está vacío.")
+
+    # JSON que ya es un OpenAPI → parseo directo, sin LLM.
+    routes: list[dict] | None = None
+    if mime == "application/json":
+        import json as _json
+        try:
+            spec = _json.loads(content)
+            if isinstance(spec, dict) and "paths" in spec:
+                routes = parse_openapi(spec)
+        except ValueError:
+            pass  # no es JSON válido → sigue como texto libre
+
+    if routes is None:
+        # PDF/docx parsean CPU-bound → executor, igual que en el pipeline de ingesta.
+        loop = asyncio.get_running_loop()
+        text = await loop.run_in_executor(None, extract_text_from_bytes, content, mime, filename)
+        if not text.strip():
+            raise HTTPException(status_code=422,
+                                detail="No pude extraer texto del archivo (¿PDF escaneado sin OCR?).")
+        try:
+            routes = await routes_from_document(text, tenant_id)
+        except Exception as exc:
+            logger.warning("discover_file_extract_failed connector=%s error=%s", connector_id, exc)
+            raise HTTPException(status_code=502,
+                                detail=f"No pude interpretar la documentación: {str(exc)[:200]}")
+
+    if not routes:
+        _audit(request, current_user, "connector_discovered_file", connector_id,
+               {"filename": filename, "routes": 0})
+        return {"spec_found": False, "routes": [],
+                "hint": "No encontré rutas en el archivo. Revisá que la documentación "
+                        "describa los endpoints (método + path) o cargá las rutas a mano."}
+
+    secret_enc = await dao.get_connector_secret_enc(tenant_id, connector_id)
+    try:
+        proposal = await propose_from_routes(conn, secret_enc, tenant_id,
+                                             test_identity.strip(), routes,
+                                             f"archivo: {filename}")
+    except Exception as exc:
+        logger.warning("discover_file_failed connector=%s error=%s", connector_id, exc)
+        raise HTTPException(status_code=502,
+                            detail=f"No pude armar la propuesta: {str(exc)[:200]}")
+    _audit(request, current_user, "connector_discovered_file", connector_id,
+           {"filename": filename, "routes": len(proposal.get("routes", []))})
+    return proposal
+
+
 @router.post("/admin/connectors/{connector_id}/apply")
 async def apply_proposal(
     connector_id: str, body: ApplyIn, request: Request,
@@ -511,13 +624,15 @@ async def apply_proposal(
     if conn is None:
         raise HTTPException(status_code=404, detail="Conector no encontrado")
 
-    created, lookup_path = [], None
+    created, lookup_path, lookup_param = [], None, None
     for t in body.tools:
         _validate_tool_payload(t.http_method, t.identity_kind, t.path_template)
         if t.is_lookup:
             lookup_path = t.path_template
+            lookup_param = t.identity_param
             continue  # el perfil no es una tool de chat: solo config del OTP
-        data = t.model_dump(exclude={"is_lookup", "intent_label", "intent_description", "examples"})
+        data = t.model_dump(exclude={"is_lookup", "identity_param", "intent_label",
+                                     "intent_description", "examples"})
         data["http_method"] = data["http_method"].upper()
         data["is_read_only"] = True
         try:
@@ -536,11 +651,16 @@ async def apply_proposal(
         created.append(t.slug)
 
     if lookup_path:
-        await dao.update_connector(tenant_id, connector_id, {"auth_config": {
+        new_cfg = {
             **(conn.get("auth_config") or {}),
             "identity_validation": "platform_otp",
             "identity_lookup_path": lookup_path,
-        }})
+        }
+        # Si el proveedor identifica por otro dato (legajo, nro de socio...), el
+        # FSM del chat lo pide con ese nombre en vez del default "DNI".
+        if lookup_param and lookup_param.strip().lower() not in ("dni", "identity"):
+            new_cfg["identity_label"] = lookup_param.strip()
+        await dao.update_connector(tenant_id, connector_id, {"auth_config": new_cfg})
 
     _audit(request, current_user, "connector_proposal_applied", connector_id,
            {"tools": created, "lookup": lookup_path})

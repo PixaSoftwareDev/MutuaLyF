@@ -54,24 +54,33 @@ stateDiagram-v2
 
 ## Catálogo de mensajes exactos
 
+Los mensajes se arman desde una plantilla parametrizada por el **identificador del
+conector** (`identity_spec` en `connector_router.py`). Por default: afiliado → DNI
+(7-8 dígitos), profesional → CUIT (11). Un conector cuyo proveedor identifica por
+otro dato (legajo, nro de socio…) lo configura en `auth_config`: `identity_label`
+(+ opcionales `identity_min_digits` / `identity_max_digits`; sin ellos, un label
+custom acepta 3-12 dígitos). El wizard de conexión automática lo detecta solo desde
+el nombre del parámetro en el API, y también se edita en `/admin/connectors/{id}`.
+
 ### Entrada al FSM
 
 **Disparado por una tool que necesita identidad (identity_kind conocido → afiliado):**
-> Para darte esa información necesito identificarte primero. ¿Me pasás tu **DNI** (sin puntos)?
+> Para darte esa información necesito identificarte primero. ¿Me pasás tu **DNI** (7 u 8 números, sin puntos)?
+
+_(con identificador custom: "… ¿Me pasás tu **legajo** (entre 4 y 6 números, solo números)?")_
 
 **Disparado por "quiero loguearme" sin contexto de rol → ELIGIENDO_ROL:**
 > Perfecto. ¿Ingresás como **afiliado** o como **profesional**?
 > _(chips sugeridos: [Afiliado] [Profesional])_
 
 **Rol = profesional → PIDIENDO_ID:**
-> Genial. ¿Me pasás tu **CUIT** (11 dígitos, sin guiones)?
+> Para darte esa información necesito identificarte primero. ¿Me pasás tu **CUIT** (11 números, sin guiones)?
 
 ### Estado PIDIENDO_ID
 
 | Situación | Mensaje del bot |
 |---|---|
-| Formato inválido (DNI no es 7-8 díg.) | Ese DNI no parece válido. Debería tener 7 u 8 números, sin puntos. ¿Lo intentás de nuevo? |
-| Formato inválido (CUIT ≠ 11 díg.) | El CUIT debe tener 11 números, sin guiones (ej. 20304050607). ¿Me lo repetís? |
+| Formato inválido (fuera del rango de dígitos) | Ese {DNI/CUIT/legajo…} no parece válido. Debería tener {7 u 8 / 11 / …} números, {sin puntos/…}. ¿Lo intentás de nuevo? |
 | Formato OK → pide 2º factor (afiliado/TOTP) | Gracias. Ahora ingresá el **código de 6 dígitos** de tu app de autenticación. |
 | Formato OK → pide 2º factor (profesional/OTP) | Listo. Te envié un **código a tu email/SMS registrado**. ¿Cuál es? |
 

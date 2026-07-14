@@ -10,6 +10,11 @@ Pipeline (docs/PANTALLA_CONECTORES_PLAN.md → wizard):
                          sugiere el response_map desde la respuesta.
   5. build_proposal()  — arma todo para que el admin revise y confirme en 1 clic.
 
+Segunda puerta de entrada al MISMO pipeline: cuando el proveedor no publica
+OpenAPI, el admin sube su documentación como archivo (PDF/Word/TXT/JSON) y
+routes_from_document() extrae las rutas con el LLM. Desde ahí el flujo
+(clasificar → probar → proponer) es idéntico — ver propose_from_routes().
+
 Nada se crea ni activa acá: este módulo solo PROPONE. La creación la hace el
 endpoint /apply con confirmación explícita del admin (fail-closed intacto).
 """
@@ -104,9 +109,10 @@ y devolvés SOLO un JSON array (sin markdown, sin explicación) con un objeto po
  "slug": "snake_case_corto",
  "display_name": "Nombre humano en español",
  "identity_kind": "publico"|"afiliado",  // afiliado si la ruta expone datos de UNA persona
-                                 // identificada por DNI/nro de afiliado en el path
- "identity_param": "dni"|null,   // qué parámetro del path identifica a la persona (se
-                                 // reemplaza por la identidad de la sesión, NUNCA la elige el bot)
+                                 // identificada por DNI/legajo/nro de socio en el path
+ "identity_param": "dni"|"legajo"|null,  // NOMBRE EXACTO del parámetro del path que identifica
+                                 // a la persona, tal cual figura en el API (se reemplaza por la
+                                 // identidad de la sesión, NUNCA la elige el bot)
  "is_lookup": true|false,        // true SOLO para la ruta que devuelve el perfil/datos de
                                  // contacto del afiliado (sirve para enviar el código OTP)
  "intent_label": "snake_case",   // intención de chat que dispara esta ruta (null si is_lookup
@@ -119,7 +125,22 @@ y devolvés SOLO un JSON array (sin markdown, sin explicación) con un objeto po
 }
 Reglas: rutas que muestran listados generales (profesionales, sucursales, horarios) son "publico".
 Rutas con el documento de la persona en el path son "afiliado". La ruta de perfil del afiliado
-(datos de contacto) marcala is_lookup=true e include=true pero sin intención."""
+(datos de contacto) marcala is_lookup=true e include=true pero sin intención.
+IMPORTANTE: que una ruta devuelva información sensible o privada de la persona (finanzas, cuenta,
+historia clínica) NO es motivo de descarte — es el caso de uso central: incluila con
+identity_kind="afiliado" (la plataforma la protege con login + código de verificación).
+Descartá ÚNICAMENTE infraestructura (health/metrics/docs) y validación de códigos/OTP."""
+
+
+def _parse_llm_json_array(raw: str) -> list[dict]:
+    """Parseo defensivo del output del LLM: puede envolver en ```json ... ```."""
+    text = raw.strip()
+    text = re.sub(r"^```(?:json)?\s*", "", text)
+    text = re.sub(r"\s*```$", "", text)
+    start, end = text.find("["), text.rfind("]")
+    if start == -1 or end == -1:
+        raise ValueError(f"LLM no devolvió un JSON array: {raw[:200]}")
+    return json.loads(text[start:end + 1])
 
 
 async def classify_routes(routes: list[dict], tenant_id: str) -> list[dict]:
@@ -130,14 +151,64 @@ async def classify_routes(routes: list[dict], tenant_id: str) -> list[dict]:
          {"role": "user", "content": f"Rutas del proveedor:\n{payload}"}],
         temperature=0.1, max_tokens=3000, tenant_id=tenant_id,
     )
-    # Parseo defensivo: el modelo puede envolver en ```json ... ```
-    text = raw.strip()
-    text = re.sub(r"^```(?:json)?\s*", "", text)
-    text = re.sub(r"\s*```$", "", text)
-    start, end = text.find("["), text.rfind("]")
-    if start == -1 or end == -1:
-        raise ValueError(f"LLM no devolvió un JSON array: {raw[:200]}")
-    return json.loads(text[start:end + 1])
+    return _parse_llm_json_array(raw)
+
+
+# ── 3b. Extracción de rutas desde documentación subida (PDF/Word/TXT/JSON) ─────
+
+# Techo de texto que le pasamos al LLM. La doc de un API cabe holgada; si el
+# admin sube un manual gigante, el excedente casi seguro no describe rutas.
+_MAX_DOC_CHARS = 30_000
+
+_EXTRACT_ROUTES_SYSTEM = """Sos un parser de documentación de APIs. Te paso el texto de la
+documentación que un proveedor le entregó a su cliente (puede venir de un PDF, Word, TXT o JSON,
+con formato sucio) y devolvés SOLO un JSON array (sin markdown, sin explicación) con las rutas
+HTTP que describe, un objeto por ruta:
+
+{
+ "path": "/ruta/tal/cual/{param}",   // path con sus parámetros entre llaves, sin el host
+ "method": "GET",
+ "summary": "qué devuelve, en 1 línea en español",
+ "params": [{"name": "dni", "in": "path"|"query", "required": true|false,
+             "type": "string"|"integer"|"number"|"boolean", "enum": ["a","b"]|null}]
+}
+
+Reglas:
+- SOLO rutas de LECTURA (GET). Ignorá POST/PUT/PATCH/DELETE salvo rutas de login/token, que
+  también ignorás (la credencial ya está configurada en la plataforma).
+- Si la doc muestra la URL completa (https://api.x.com/v1/clientes), quedate con el path (/v1/clientes).
+- Parámetros entre llaves o marcados como :param en el path van con "in": "path" y required=true.
+- No inventes rutas que el texto no menciona. Si no hay ninguna ruta, devolvé []."""
+
+
+async def routes_from_document(doc_text: str, tenant_id: str) -> list[dict]:
+    """Extrae rutas GET desde documentación en texto libre. Misma forma que parse_openapi()."""
+    from services.groq_client import complete
+    raw = await complete(
+        [{"role": "system", "content": _EXTRACT_ROUTES_SYSTEM},
+         {"role": "user", "content": f"Documentación del API:\n{doc_text[:_MAX_DOC_CHARS]}"}],
+        temperature=0.0, max_tokens=3000, tenant_id=tenant_id,
+    )
+    routes = _parse_llm_json_array(raw)
+    # Normalizar a la forma de parse_openapi y filtrar basura del LLM.
+    out: list[dict] = []
+    for r in routes:
+        path = (r.get("path") or "").strip()
+        if not path.startswith("/") or (r.get("method") or "GET").upper() != "GET":
+            continue
+        params = []
+        for p in r.get("params") or []:
+            if not p.get("name"):
+                continue
+            params.append({
+                "name": p["name"], "in": p.get("in", "query"),
+                "required": bool(p.get("required")),
+                "type": p.get("type") or "string",
+                "enum": p.get("enum"),
+            })
+        out.append({"path": path, "method": "GET", "params": params,
+                    "summary": r.get("summary") or ""})
+    return out
 
 
 # ── 4. Dry-run + sugerencia de response_map ───────────────────────────────────
@@ -218,9 +289,17 @@ async def build_proposal(connector: dict, secret_enc: str | None, tenant_id: str
     if spec is None:
         return {"spec_found": False, "routes": [],
                 "hint": "No encontré un catálogo OpenAPI en las rutas conocidas. "
-                        "Pedile al proveedor la URL de su spec o cargá las rutas a mano."}
+                        "Pedile al proveedor la URL de su spec, subí su documentación "
+                        "como archivo, o cargá las rutas a mano."}
+    return await propose_from_routes(connector, secret_enc, tenant_id, test_identity,
+                                     parse_openapi(spec), spec_url)
 
-    routes = parse_openapi(spec)
+
+async def propose_from_routes(connector: dict, secret_enc: str | None, tenant_id: str,
+                              test_identity: str, routes: list[dict],
+                              source: str | None) -> dict:
+    """Tramo común del wizard: clasifica con IA, prueba en vivo y arma la propuesta.
+    `routes` puede venir del OpenAPI en vivo o de la documentación subida."""
     classified = await classify_routes(routes, tenant_id)
     by_path = {r["path"]: r for r in routes}
 
@@ -229,23 +308,31 @@ async def build_proposal(connector: dict, secret_enc: str | None, tenant_id: str
         route = by_path.get(cls.get("path"))
         if route is None:
             continue
+        # Fallbacks para descartadas: el LLM puede omitir slug/nombre en ellas,
+        # pero la UI permite re-incluirlas → siempre tienen que venir completas.
+        fallback_slug = re.sub(r"[^a-z0-9]+", "_", cls["path"].lower()).strip("_")
         item = {
             "path": cls["path"],
             "include": bool(cls.get("include")),
             "discard_reason": cls.get("discard_reason"),
-            "slug": cls.get("slug"),
-            "display_name": cls.get("display_name"),
+            "slug": cls.get("slug") or fallback_slug,
+            "display_name": cls.get("display_name") or cls["path"],
             "http_method": "GET",
             "identity_kind": cls.get("identity_kind") or "publico",
+            "identity_param": cls.get("identity_param"),
             "is_lookup": bool(cls.get("is_lookup")),
             "intent_label": cls.get("intent_label"),
             "intent_description": cls.get("intent_description"),
             "examples": cls.get("examples") or [],
         }
+        # La config del tool se arma SIEMPRE (también en descartadas, para que el
+        # admin pueda corregir a la IA y re-incluirlas). El dry-run solo corre en
+        # las incluidas — no gastamos llamadas al proveedor en descartes.
+        path_template, params_schema = _build_tool_fields(route, cls)
+        item["path_template"] = path_template
+        item["params_schema"] = params_schema
+        item["response_map"] = {}
         if item["include"]:
-            path_template, params_schema = _build_tool_fields(route, cls)
-            item["path_template"] = path_template
-            item["params_schema"] = params_schema
             # Probar en vivo con los valores de ejemplo del LLM.
             sample = dict(cls.get("sample_params") or {})
             sample.pop(cls.get("identity_param") or "", None)
@@ -256,4 +343,4 @@ async def build_proposal(connector: dict, secret_enc: str | None, tenant_id: str
             item["response_map"] = test.get("suggested_response_map") or {}
         proposal.append(item)
 
-    return {"spec_found": True, "spec_url": spec_url, "routes": proposal}
+    return {"spec_found": True, "spec_url": source, "routes": proposal}

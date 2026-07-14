@@ -67,6 +67,12 @@ def wired(monkeypatch):
     monkeypatch.setattr("services.connector_router.get_redis_session", lambda: fake_session)
     monkeypatch.setattr("services.connector_router.get_redis_ratelimit", lambda: fake_rl)
 
+    # Redacción con LLM anulada: estos tests validan el fallback determinista
+    # (y no deben depender de un LLM vivo — costo, flakiness, CI offline).
+    async def _no_llm(tenant_id, question, data, nombre):
+        return None
+    monkeypatch.setattr("services.connector_router._phrase_with_llm", _no_llm)
+
     # Clasificador (caído en dev por 429) → devolvemos la intención de la tool.
     from services.classifier import IntentResult
 
@@ -242,3 +248,47 @@ async def test_tool_publica_no_pide_login(wired, monkeypatch):
     r = await _turn("¿quién atiende cardiología?")
     assert r is not None and "DNI" not in r["answer"]
     assert "Ana Gómez" in r["answer"]
+
+
+# ── Identificador configurable (DNI por default, legajo/nro de socio por config) ─
+def test_identity_spec_defaults_y_overrides():
+    # Defaults por identity_kind.
+    assert connector_router.identity_spec("afiliado", {}) == \
+        {"label": "DNI", "min": 7, "max": 8, "hint": "sin puntos"}
+    assert connector_router.identity_spec("profesional", {})["label"] == "CUIT"
+    # Label custom: rango amplio 3-12 (no hereda el 7-8 del DNI).
+    spec = connector_router.identity_spec("afiliado", {"identity_label": "legajo"})
+    assert spec["label"] == "legajo" and (spec["min"], spec["max"]) == (3, 12)
+    # Longitudes explícitas pisan el rango.
+    spec = connector_router.identity_spec(
+        "afiliado", {"identity_label": "nro de socio", "identity_min_digits": 4, "identity_max_digits": 6})
+    assert (spec["min"], spec["max"]) == (4, 6)
+    # Config basura no rompe (fail-safe a defaults).
+    spec = connector_router.identity_spec("afiliado", {"identity_min_digits": "x"})
+    assert (spec["min"], spec["max"]) == (7, 8)
+
+
+def _binding_legajo():
+    b = _binding()
+    b.auth_config = {"identity_label": "legajo",
+                     "identity_min_digits": 4, "identity_max_digits": 6}
+    return b
+
+
+@pytest.mark.asyncio
+async def test_fsm_pide_identificador_custom(wired, monkeypatch):
+    async def _get_tool(tenant_id, label):
+        return _binding_legajo() if label == "consulta_ordenes_pendientes" else None
+    monkeypatch.setattr("services.connector_router.get_tool_for_intent", _get_tool)
+
+    # 1) Pregunta personal → pide legajo, no DNI.
+    r = await _turn("¿tengo órdenes pendientes?")
+    assert "legajo" in r["answer"] and "DNI" not in r["answer"]
+
+    # 2) Fuera de rango (4-6 dígitos) → inválido, con el nombre correcto.
+    r = await _turn("30111222")
+    assert "legajo" in r["answer"] and "no parece válido" in r["answer"].lower()
+
+    # 3) Legajo válido → avanza al código.
+    r = await _turn("4521")
+    assert "código" in r["answer"].lower()

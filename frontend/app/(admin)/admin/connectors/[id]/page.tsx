@@ -1,12 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft, Plus, Plug, Loader2, Trash2, KeyRound, FlaskConical,
-  CheckCircle2, XCircle, Globe, Lock, Link2, Wand2, Sparkles,
+  CheckCircle2, XCircle, Globe, Lock, Link2, Wand2, Sparkles, FileUp,
 } from "lucide-react";
 import { api, type ConnectorTool, type ConnectorTestResult, type DiscoveryProposal } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -62,17 +62,19 @@ export default function ConnectorDetailPage() {
   // ── validación de identidad (quién valida el 2º factor) ───────────────────
   const [idVal, setIdVal]           = useState<string | null>(null);
   const [lookupPath, setLookupPath] = useState<string | null>(null);
+  const [idLabel, setIdLabel]       = useState<string | null>(null);
   const idValM = useMutation({
-    mutationFn: (vars: { flow: string; lookup: string }) =>
+    mutationFn: (vars: { flow: string; lookup: string; label: string }) =>
       api.connectors.update(id, {
         auth_config: {
           ...(conn?.auth_config ?? {}),
           identity_validation: vars.flow,
           identity_lookup_path: vars.lookup,
+          identity_label: vars.label.trim(),
         },
       } as never),
     onSuccess: () => {
-      invAll(); setIdVal(null); setLookupPath(null);
+      invAll(); setIdVal(null); setLookupPath(null); setIdLabel(null);
       toast({ title: "Validación de identidad guardada", description: "El conector quedó inactivo por el cambio de config — reactivalo cuando quieras.", variant: "success" });
     },
     onError: (e) => toast({ title: "No se pudo guardar", description: errDetail(e), variant: "destructive" }),
@@ -89,25 +91,42 @@ export default function ConnectorDetailPage() {
   const [wizIdentity, setWizIdentity] = useState("");
   const [proposal, setProposal]       = useState<DiscoveryProposal | null>(null);
   const [selected, setSelected]       = useState<Record<string, boolean>>({});
-  const selectedCount = proposal?.routes.filter(r => r.include && selected[r.path]).length ?? 0;
+  // Cuenta lo tildado (las descartadas por la IA también se pueden re-incluir).
+  // El perfil (is_lookup) se cuenta aparte: no se crea como operación de chat,
+  // se convierte en la config del OTP — el botón lo dice para que el número cierre.
+  const selectedRoutes = (proposal?.routes ?? []).filter(r => selected[r.path] && r.path_template);
+  const selectedCount  = selectedRoutes.filter(r => !r.is_lookup).length;
+  const lookupSelected = selectedRoutes.some(r => r.is_lookup);
+
+  const acceptProposal = (p: DiscoveryProposal) => {
+    setProposal(p);
+    const sel: Record<string, boolean> = {};
+    p.routes.forEach(r => { if (r.include) sel[r.path] = true; });
+    setSelected(sel);
+  };
 
   const discoverM = useMutation({
     mutationFn: () => api.connectors.discover(id, wizIdentity.trim()),
-    onSuccess: (p) => {
-      setProposal(p);
-      const sel: Record<string, boolean> = {};
-      p.routes.forEach(r => { if (r.include) sel[r.path] = true; });
-      setSelected(sel);
-    },
+    onSuccess: acceptProposal,
     onError: (e) => toast({ title: "No pude analizar el API", description: errDetail(e), variant: "destructive" }),
   });
 
+  // Alternativa sin OpenAPI: el admin sube la doc del proveedor (PDF/Word/TXT/JSON)
+  // y el backend extrae las rutas con IA. Desemboca en la MISMA propuesta.
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const discoverFileM = useMutation({
+    mutationFn: (file: File) => api.connectors.discoverFromFile(id, file, wizIdentity.trim()),
+    onSuccess: acceptProposal,
+    onError: (e) => toast({ title: "No pude interpretar el archivo", description: errDetail(e), variant: "destructive" }),
+  });
+  const wizBusy = discoverM.isPending || discoverFileM.isPending;
+
   const applyM = useMutation({
-    mutationFn: () => api.connectors.apply(id, (proposal?.routes ?? []).filter(r => r.include && selected[r.path])),
+    mutationFn: () => api.connectors.apply(id, selectedRoutes),
     onSuccess: (d) => {
       invAll(); setShowWizard(false); setProposal(null);
       toast({
-        title: `${d.created.length} operación(es) creadas`,
+        title: `${d.created.length} ${d.created.length === 1 ? "operación creada" : "operaciones creadas"}`,
         description: d.identity_lookup_path ? "Validación por código (OTP propio) configurada automáticamente." : undefined,
         variant: "success",
       });
@@ -203,9 +222,12 @@ export default function ConnectorDetailPage() {
         {(() => {
           const currentFlow = String((conn.auth_config as Record<string, unknown>)?.identity_validation ?? "provider");
           const currentLookup = String((conn.auth_config as Record<string, unknown>)?.identity_lookup_path ?? "/afiliados/{identity}");
+          const currentLabel = String((conn.auth_config as Record<string, unknown>)?.identity_label ?? "");
           const flow = idVal ?? currentFlow;
           const lookup = lookupPath ?? currentLookup;
-          const dirty = flow !== currentFlow || (flow === "platform_otp" && lookup !== currentLookup);
+          const label = idLabel ?? currentLabel;
+          const dirty = flow !== currentFlow || (flow === "platform_otp" && lookup !== currentLookup)
+            || label.trim() !== currentLabel;
           return (
             <div className="mt-4 pt-4 border-t space-y-3">
               <Label className="inline-flex items-center gap-1.5">
@@ -227,8 +249,12 @@ export default function ConnectorDetailPage() {
                     <Input className="font-mono" value={lookup} onChange={e => setLookupPath(e.target.value)} />
                   </div>
                 )}
+                <div className="space-y-1.5 w-full sm:w-56">
+                  <Label className="text-xs">Identificador que se le pide (vacío = DNI)</Label>
+                  <Input placeholder="DNI · legajo · nro de socio…" value={label} onChange={e => setIdLabel(e.target.value)} />
+                </div>
                 {dirty && (
-                  <Button size="sm" disabled={idValM.isPending} onClick={() => idValM.mutate({ flow, lookup })}>
+                  <Button size="sm" disabled={idValM.isPending} onClick={() => idValM.mutate({ flow, lookup, label })}>
                     {idValM.isPending && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
                     Guardar
                   </Button>
@@ -287,7 +313,8 @@ export default function ConnectorDetailPage() {
             </p>
             <p className="text-sm text-muted-foreground mt-1">
               Leemos el catálogo de rutas del proveedor, las clasificamos, las probamos en vivo
-              y te proponemos las intenciones. Vos solo revisás y confirmás.
+              y te proponemos las intenciones. Vos solo revisás y confirmás. Si el proveedor no
+              publica su catálogo, subí la documentación que te pasó (PDF, Word, TXT o JSON).
             </p>
           </div>
           <div className="flex flex-wrap items-end gap-3">
@@ -296,11 +323,28 @@ export default function ConnectorDetailPage() {
               <Input className="h-9 font-mono" placeholder="30111222" value={wizIdentity}
                 onChange={e => setWizIdentity(e.target.value)} />
             </div>
-            <Button size="sm" disabled={discoverM.isPending || !wizIdentity.trim()} onClick={() => discoverM.mutate()}>
+            <Button size="sm" disabled={wizBusy || !wizIdentity.trim()} onClick={() => discoverM.mutate()}>
               {discoverM.isPending
                 ? <><Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> Analizando el API…</>
                 : <><Sparkles className="h-4 w-4 mr-1.5" /> Detectar</>}
             </Button>
+            <Button size="sm" variant="outline" disabled={wizBusy || !wizIdentity.trim()}
+              onClick={() => fileInputRef.current?.click()}>
+              {discoverFileM.isPending
+                ? <><Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> Leyendo la documentación…</>
+                : <><FileUp className="h-4 w-4 mr-1.5" /> Subir documentación</>}
+            </Button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".pdf,.docx,.txt,.md,.json,.html"
+              className="hidden"
+              onChange={e => {
+                const f = e.target.files?.[0];
+                if (f) discoverFileM.mutate(f);
+                e.target.value = ""; // permite re-subir el mismo archivo
+              }}
+            />
           </div>
 
           {proposal && !proposal.spec_found && (
@@ -309,49 +353,50 @@ export default function ConnectorDetailPage() {
 
           {proposal?.spec_found && (
             <div className="space-y-2">
-              <p className="text-xs text-muted-foreground font-mono">catálogo: {proposal.spec_url}</p>
+              <p className="text-xs text-muted-foreground font-mono">fuente: {proposal.spec_url}</p>
               {proposal.routes.map(r => (
                 <div key={r.path} className={cn("rounded-xl border px-4 py-3 flex flex-wrap items-center gap-x-3 gap-y-1",
-                  !r.include && "opacity-50")}>
+                  !r.include && !selected[r.path] && "opacity-60")}>
                   <input
                     type="checkbox"
                     className="h-4 w-4 accent-primary"
                     checked={!!selected[r.path]}
-                    disabled={!r.include}
+                    disabled={!r.path_template}
                     onChange={e => setSelected(s => ({ ...s, [r.path]: e.target.checked }))}
                     aria-label={`Incluir ${r.path}`}
                   />
-                  {r.include ? (
-                    <>
-                      <span className="font-medium">{r.display_name}</span>
-                      <Badge variant="secondary" className="font-mono text-[11px]">GET {r.path_template}</Badge>
-                      <Badge variant="outline" className="inline-flex items-center gap-1">
-                        {r.identity_kind === "publico" ? <Globe className="h-3 w-3" /> : <Lock className="h-3 w-3" />}
-                        {r.is_lookup ? "perfil (para el código)" : r.identity_kind}
-                      </Badge>
-                      {r.test && (r.test.ok
-                        ? <span className="inline-flex items-center gap-1 text-xs text-emerald-600 font-medium">
-                            <CheckCircle2 className="h-3.5 w-3.5" /> probada {r.test.status} · {r.test.latency_ms}ms</span>
-                        : <span className="inline-flex items-center gap-1 text-xs text-destructive font-medium">
-                            <XCircle className="h-3.5 w-3.5" /> falló ({r.test.status ?? r.test.error})</span>)}
-                      {r.intent_label && (
-                        <span className="w-full text-xs text-muted-foreground pl-7">
-                          intención: <code>{r.intent_label}</code> · {(r.examples ?? []).length} frases de ejemplo generadas
-                        </span>
-                      )}
-                    </>
-                  ) : (
-                    <span className="text-sm">
-                      <code className="text-xs">{r.path}</code>
-                      <span className="text-muted-foreground"> — descartada: {r.discard_reason}</span>
+                  <span className="font-medium">{r.display_name}</span>
+                  <Badge variant="secondary" className="font-mono text-[11px]">GET {r.path_template ?? r.path}</Badge>
+                  <Badge variant="outline" className="inline-flex items-center gap-1">
+                    {r.identity_kind === "publico" ? <Globe className="h-3 w-3" /> : <Lock className="h-3 w-3" />}
+                    {r.is_lookup ? "perfil (para el código)" : r.identity_kind}
+                  </Badge>
+                  {r.test && (r.test.ok
+                    ? <span className="inline-flex items-center gap-1 text-xs text-emerald-600 font-medium">
+                        <CheckCircle2 className="h-3.5 w-3.5" /> probada {r.test.status} · {r.test.latency_ms}ms</span>
+                    : <span className="inline-flex items-center gap-1 text-xs text-destructive font-medium">
+                        <XCircle className="h-3.5 w-3.5" /> falló ({r.test.status ?? r.test.error})</span>)}
+                  {!r.include && (
+                    <span className="w-full text-xs text-amber-600 pl-7">
+                      la IA la descartó: {r.discard_reason} — podés tildarla igual si corresponde
+                    </span>
+                  )}
+                  {r.include && r.intent_label && (
+                    <span className="w-full text-xs text-muted-foreground pl-7">
+                      intención: <code>{r.intent_label}</code> · {(r.examples ?? []).length} frases de ejemplo generadas
                     </span>
                   )}
                 </div>
               ))}
-              <div className="flex justify-end pt-1">
-                <Button disabled={applyM.isPending || selectedCount === 0} onClick={() => applyM.mutate()}>
+              <div className="flex items-center justify-end gap-3 pt-1">
+                {lookupSelected && (
+                  <span className="text-xs text-muted-foreground">
+                    el perfil no cuenta como operación: configura la verificación por código (OTP)
+                  </span>
+                )}
+                <Button disabled={applyM.isPending || selectedRoutes.length === 0} onClick={() => applyM.mutate()}>
                   {applyM.isPending && <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />}
-                  Crear {selectedCount} operación{selectedCount === 1 ? "" : "es"}
+                  Crear {selectedCount} {selectedCount === 1 ? "operación" : "operaciones"}{lookupSelected ? " + OTP" : ""}
                 </Button>
               </div>
             </div>
@@ -377,7 +422,7 @@ export default function ConnectorDetailPage() {
         onOpenChange={setShowTool}
         icon={Link2}
         title="Nueva operación"
-        description="Un endpoint del API del proveedor. {identity} se reemplaza por el DNI/CUIT de la sesión."
+        description="Un endpoint del API del proveedor. {identity} se reemplaza por el identificador de la sesión (DNI, CUIT, legajo…)."
         footer={
           <>
             <Button variant="outline" onClick={() => setShowTool(false)}>Cancelar</Button>

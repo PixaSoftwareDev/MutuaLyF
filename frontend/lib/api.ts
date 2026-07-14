@@ -452,6 +452,7 @@ export interface DiscoveryRoute {
   params_schema?: Record<string, unknown>;
   response_map?: Record<string, unknown>;
   identity_kind?: string;
+  identity_param?: string | null;
   is_lookup?: boolean;
   intent_label?: string | null;
   intent_description?: string | null;
@@ -876,13 +877,24 @@ export const api = {
         { test_identity: testIdentity }, { timeout: 90_000 });
       return data as DiscoveryProposal;
     },
+    /** Mismo wizard pero desde la documentación subida (PDF/Word/TXT/MD/JSON). */
+    discoverFromFile: async (connectorId: string, file: File, testIdentity: string) => {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("test_identity", testIdentity);
+      // multipart explícito: el default "application/json" pisa el boundary del FormData.
+      const { data } = await apiClient.post(`/admin/connectors/${connectorId}/discover-file`, fd, {
+        headers: { "Content-Type": "multipart/form-data" }, timeout: 120_000,
+      });
+      return data as DiscoveryProposal;
+    },
     apply: async (connectorId: string, tools: DiscoveryRoute[]) => {
       const { data } = await apiClient.post(`/admin/connectors/${connectorId}/apply`, {
         tools: tools.map(t => ({
           slug: t.slug, display_name: t.display_name, http_method: t.http_method ?? "GET",
           path_template: t.path_template, params_schema: t.params_schema ?? {},
           response_map: t.response_map ?? {}, identity_kind: t.identity_kind,
-          is_lookup: t.is_lookup, intent_label: t.intent_label,
+          is_lookup: t.is_lookup, identity_param: t.identity_param, intent_label: t.intent_label,
           intent_description: t.intent_description, examples: t.examples ?? [],
         })),
       });
