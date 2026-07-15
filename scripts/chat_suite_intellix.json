@@ -1,0 +1,625 @@
+[
+ {
+  "id": "rag_empresa",
+  "cat": "rag",
+  "turns": [
+   {
+    "say": "Qué es Pixs exactamente?",
+    "expect": [
+     [
+      "estudio",
+      "desarrollo de software",
+      "software studio"
+     ]
+    ]
+   },
+   {
+    "say": "Quiénes son los fundadores?",
+    "expect": [
+     "batistelli",
+     "guillermo",
+     "alejo"
+    ]
+   },
+   {
+    "say": "Cómo los puedo contactar?",
+    "expect": [
+     "hola@pixs.dev"
+    ]
+   },
+   {
+    "say": "En qué horario atienden?",
+    "expect": [
+     [
+      "8",
+      "08:00"
+     ],
+     "viernes"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "rag_proceso",
+  "cat": "rag",
+  "turns": [
+   {
+    "say": "Cuánto tardan en entregar un proyecto?",
+    "expect": [
+     "4 semanas"
+    ]
+   },
+   {
+    "say": "Cómo es el proceso de trabajo de ustedes?",
+    "expect": [
+     "discovery",
+     [
+      "deploy",
+      "monitoreo"
+     ]
+    ]
+   },
+   {
+    "say": "Qué tecnologías usan en el frontend?",
+    "expect": [
+     "next.js",
+     "react"
+    ]
+   },
+   {
+    "say": "Y en el backend?",
+    "expect": [
+     [
+      "node",
+      "python"
+     ]
+    ]
+   }
+  ]
+ },
+ {
+  "id": "rag_intellix",
+  "cat": "rag",
+  "turns": [
+   {
+    "say": "Qué es Intellix?",
+    "expect": [
+     "plataforma",
+     [
+      "conversacional",
+      "inteligencia artificial",
+      " ia "
+     ]
+    ]
+   },
+   {
+    "say": "Qué performance y disponibilidad tiene Intellix?",
+    "expect": [
+     [
+      "1,2",
+      "1.2",
+      "2 a 4"
+     ],
+     [
+      "95",
+      "99,5",
+      "99.5"
+     ]
+    ]
+   },
+   {
+    "say": "En cuántos idiomas puede responder?",
+    "expect": [
+     [
+      "100",
+      "cien"
+     ]
+    ]
+   },
+   {
+    "say": "Cuánto cuesta el plan Enterprise de Intellix?",
+    "expect": [
+     [
+      "no ",
+      "consult",
+      "contact",
+      "comercial"
+     ]
+    ],
+    "forbid": [
+     "usd",
+     "por mes",
+     "mensual cuesta"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "rag_handicapp",
+  "cat": "rag",
+  "turns": [
+   {
+    "say": "Qué es Handicapp?",
+    "expect": [
+     "ecuestre"
+    ]
+   },
+   {
+    "say": "Cuánto dura la prueba gratuita de Handicapp?",
+    "expect": [
+     "14 dias"
+    ]
+   },
+   {
+    "say": "Qué perfiles de usuario maneja?",
+    "expect": [
+     "propietario",
+     "veterinario"
+    ]
+   },
+   {
+    "say": "Cuánto puedo ahorrar usando Handicapp?",
+    "expect": [
+     [
+      "40",
+      "15 horas"
+     ]
+    ]
+   }
+  ]
+ },
+ {
+  "id": "rag_equipo",
+  "cat": "rag",
+  "turns": [
+   {
+    "say": "Qué experiencia previa tiene Enzo?",
+    "expect": [
+     [
+      "nexa",
+      "gerente comercial"
+     ]
+    ]
+   },
+   {
+    "say": "Dónde estudió Guillermo Fernandez?",
+    "expect": [
+     [
+      "misiones",
+      "analista en sistemas"
+     ]
+    ]
+   },
+   {
+    "say": "Dónde trabajaba Alejo antes de Pixs?",
+    "expect": [
+     [
+      "kpmg",
+      "rizobacter",
+      "bayer"
+     ]
+    ]
+   },
+   {
+    "say": "Pixs tiene oficinas en México?",
+    "expect": [
+     [
+      "no",
+      "argentina",
+      "pergamino"
+     ]
+    ],
+    "forbid": [
+     "ciudad de mexico",
+     "cdmx",
+     "si, tenemos oficinas en mexico"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "con_publicas",
+  "cat": "conector",
+  "turns": [
+   {
+    "say": "Qué servicios ofrece el estudio?",
+    "expect": [
+     [
+      "web",
+      "aplicaciones web"
+     ],
+     [
+      "mobile",
+      "ia",
+      "e-commerce",
+      "ecommerce"
+     ]
+    ]
+   },
+   {
+    "say": "Qué proyectos activos tienen ahora?",
+    "expect": [
+     "intellix",
+     "handicapp",
+     [
+      "mutual",
+      "lyf"
+     ]
+    ]
+   },
+   {
+    "say": "Cuáles proyectos ya entregaron?",
+    "expect": [
+     [
+      "agro",
+      "agropecuaria"
+     ],
+     [
+      "clinica",
+      "turnos"
+     ]
+    ]
+   },
+   {
+    "say": "Qué proyectos tienen?",
+    "expect": [
+     [
+      "activo",
+      "entregado",
+      "interesan"
+     ]
+    ]
+   }
+  ]
+ },
+ {
+  "id": "con_login_guillermo",
+  "cat": "conector",
+  "turns": [
+   {
+    "say": "En qué proyectos estoy trabajando yo?",
+    "expect": [
+     "dni"
+    ]
+   },
+   {
+    "say": "34447758",
+    "expect": [
+     "codigo"
+    ]
+   },
+   {
+    "say": "424242",
+    "inject_otp": "34447758",
+    "expect": [
+     "guillermo",
+     "intellix",
+     [
+      "mutual",
+      "chatbot"
+     ]
+    ]
+   },
+   {
+    "say": "Y cuánto facturé este mes?",
+    "expect": [
+     [
+      "3.800.000",
+      "3800000",
+      "3,800,000"
+     ]
+    ]
+   },
+   {
+    "say": "cerrar sesión",
+    "expect": [
+     "sesion"
+    ]
+   },
+   {
+    "say": "cuánto facturé este mes?",
+    "expect": [
+     "dni"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "con_login_enzo",
+  "cat": "conector",
+  "turns": [
+   {
+    "say": "Cuánto facturé este mes?",
+    "expect": [
+     "dni"
+    ]
+   },
+   {
+    "say": "28555666",
+    "expect": [
+     "codigo"
+    ]
+   },
+   {
+    "say": "424242",
+    "inject_otp": "28555666",
+    "expect": [
+     [
+      "4.200.000",
+      "4200000",
+      "4,200,000"
+     ],
+     [
+      "1.500.000",
+      "1500000",
+      "pendiente"
+     ]
+    ]
+   }
+  ]
+ },
+ {
+  "id": "con_login_alejo_bola",
+  "cat": "conector",
+  "turns": [
+   {
+    "say": "Qué proyectos tengo asignados?",
+    "expect": [
+     "dni"
+    ]
+   },
+   {
+    "say": "35777888",
+    "expect": [
+     "codigo"
+    ]
+   },
+   {
+    "say": "424242",
+    "inject_otp": "35777888",
+    "expect": [
+     "handicapp",
+     "intellix"
+    ]
+   },
+   {
+    "say": "Y cuánto facturó Guillermo este mes?",
+    "forbid": [
+     [
+      "3.800.000",
+      "3800000"
+     ]
+    ]
+   }
+  ]
+ },
+ {
+  "id": "con_errores_identidad",
+  "cat": "conector",
+  "turns": [
+   {
+    "say": "Cuánto facturé este mes?",
+    "expect": [
+     "dni"
+    ]
+   },
+   {
+    "say": "123",
+    "expect": [
+     [
+      "no parece valido",
+      "deberia tener"
+     ]
+    ]
+   },
+   {
+    "say": "99887766",
+    "expect": [
+     [
+      "si tus datos estan registrados",
+      "codigo"
+     ]
+    ]
+   },
+   {
+    "say": "111111",
+    "expect": [
+     [
+      "no coincide",
+      "no pude validar"
+     ]
+    ]
+   }
+  ]
+ },
+ {
+  "id": "con_bloqueo",
+  "cat": "conector",
+  "turns": [
+   {
+    "say": "En qué proyectos estoy trabajando yo?",
+    "expect": [
+     "dni"
+    ]
+   },
+   {
+    "say": "34447758",
+    "expect": [
+     "codigo"
+    ]
+   },
+   {
+    "say": "000000",
+    "expect": [
+     "no coincide"
+    ]
+   },
+   {
+    "say": "111111",
+    "expect": [
+     "no coincide"
+    ]
+   },
+   {
+    "say": "222222",
+    "expect": [
+     "no coincide"
+    ]
+   },
+   {
+    "say": "333333",
+    "expect": [
+     "no coincide"
+    ]
+   },
+   {
+    "say": "444444",
+    "expect": [
+     [
+      "bloquee",
+      "15 min"
+     ]
+    ]
+   }
+  ]
+ },
+ {
+  "id": "con_cambio_tema",
+  "cat": "conector",
+  "turns": [
+   {
+    "say": "Cuánto facturé este mes?",
+    "expect": [
+     "dni"
+    ]
+   },
+   {
+    "say": "mejor contame qué servicios ofrecen ustedes",
+    "expect": [
+     [
+      "web",
+      "servicios",
+      "aplicaciones"
+     ]
+    ]
+   },
+   {
+    "say": "Cuánto facturé este mes?",
+    "expect": [
+     "dni"
+    ]
+   },
+   {
+    "say": "cancelar"
+   }
+  ]
+ },
+ {
+  "id": "con_reenvio",
+  "cat": "conector",
+  "turns": [
+   {
+    "say": "Cuánto facturé este mes?",
+    "expect": [
+     "dni"
+    ]
+   },
+   {
+    "say": "34447758",
+    "expect": [
+     "codigo"
+    ]
+   },
+   {
+    "say": "no me llegó nada",
+    "expect": [
+     "codigo"
+    ]
+   },
+   {
+    "say": "424242",
+    "inject_otp": "34447758",
+    "expect": [
+     [
+      "3.800.000",
+      "3800000",
+      "3,800,000"
+     ]
+    ]
+   }
+  ]
+ },
+ {
+  "id": "con_huerfana_nexa",
+  "cat": "conector",
+  "turns": [
+   {
+    "say": "Qué órdenes pendientes tengo?",
+    "forbid": [
+     "orden(es) pendiente(s):",
+     "vence 2026"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "con_flexion_enum",
+  "cat": "conector",
+  "turns": [
+   {
+    "say": "Qué proyectos entregaron hasta ahora?",
+    "expect": [
+     [
+      "agro",
+      "agropecuaria",
+      "clinica"
+     ]
+    ]
+   }
+  ]
+ },
+ {
+  "id": "con_correccion_dni",
+  "cat": "conector",
+  "turns": [
+   {
+    "say": "Cuánto facturé este mes?",
+    "expect": [
+     "dni"
+    ]
+   },
+   {
+    "say": "34447758",
+    "expect": [
+     "codigo"
+    ]
+   },
+   {
+    "say": "28555666",
+    "expect": [
+     "codigo"
+    ],
+    "forbid": [
+     "no coincide"
+    ]
+   },
+   {
+    "say": "424242",
+    "inject_otp": "28555666",
+    "expect": [
+     [
+      "4.200.000",
+      "4200000",
+      "4,200,000"
+     ]
+    ],
+    "forbid": [
+     [
+      "3.800.000",
+      "3800000"
+     ]
+    ]
+   }
+  ]
+ }
+]

@@ -170,6 +170,35 @@ async def test_throttle_bloquea_tras_max_intentos(wired):
 
 
 @pytest.mark.asyncio
+async def test_correccion_de_identidad_en_etapa_codigo(wired):
+    await _turn("¿tengo órdenes pendientes?")
+    await _turn("30111222")
+    # Se equivocó de DNI y manda otro (8 dígitos — no puede ser un código de 6):
+    # se reinicia el pedido de código con la identidad corregida, sin quemar intento.
+    r = await _turn("27888999")
+    assert "código" in r["answer"].lower()
+    assert "no coincide" not in r["answer"].lower()
+    # El código correcto autentica contra la identidad CORREGIDA (27888999: 0 órdenes).
+    r = await _turn("111111")
+    assert r["connector_outcome"] in ("ok", "empty")
+    assert "2 orden" not in r["answer"]
+
+
+@pytest.mark.asyncio
+async def test_reenvio_no_cancela_el_login(wired):
+    await _turn("¿tengo órdenes pendientes?")
+    await _turn("30111222")
+    # "no me llegó nada" contiene "nada" (matchea _CANCEL_RE): debe tratarse como
+    # pedido de reenvío, no como cancelación del login.
+    r = await _turn("no me llegó nada")
+    assert r is not None
+    assert "reenvi" in r["answer"].lower() or "código" in r["answer"].lower()
+    # El FSM sigue vivo: el código correcto autentica.
+    r = await _turn("111111")
+    assert r["connector_outcome"] == "ok"
+
+
+@pytest.mark.asyncio
 async def test_cambio_de_tema_abandona_el_fsm(wired):
     await _turn("¿tengo órdenes pendientes?")  # entra al FSM (pide DNI)
     # En vez del DNI, pregunta otra cosa → abandona el FSM y cae al RAG (None).

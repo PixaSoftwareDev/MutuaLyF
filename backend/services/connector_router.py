@@ -392,6 +392,12 @@ async def maybe_handle(
 
     # ── ¿Estamos en medio del FSM? (no clasificar) ────────────────────────────
     if flow and flow.get("stage") in (_PIDIENDO_ID, _PIDIENDO_CODIGO):
+        # El pedido de reenvío se atiende ANTES que cancelar/cambio de tema:
+        # "no me llegó nada" matchea "nada" en _CANCEL_RE y tiraba el login
+        # justo cuando el usuario pedía otro código.
+        if flow["stage"] == _PIDIENDO_CODIGO and _RESEND_RE.search(text):
+            return await _handle_code_input(tenant_id, conv_id, text, flow)
+
         # Escape: cancelar o cambiar de tema abandona el login (no quedar trabado).
         if _CANCEL_RE.search(text) or looks_like_topic_change(text):
             await _clear_flow(tenant_id, conv_id)
@@ -404,7 +410,11 @@ async def maybe_handle(
 
     # ── No hay FSM activo: clasificar y ver si la intención dispara una tool ───
     from services.classifier import classify_intent
-    intent = await classify_intent(text, tenant_id)
+    from services.query_normalizer import normalize_query
+    # Se clasifica la query NORMALIZADA (misma forma canónica que usa el RAG):
+    # así la clasificación queda memoizada y el turno que sigue al RAG no paga
+    # una segunda búsqueda en Qdrant.
+    intent = await classify_intent(normalize_query(text), tenant_id)
     binding = await get_tool_for_intent(tenant_id, intent.label or "")
     if binding is None:
         return None  # no es datos personales → RAG
@@ -528,6 +538,17 @@ async def _handle_code_input(tenant_id: str, conv_id: str, text: str, flow: dict
         return _resp(_msg_reenviado())
 
     code = _only_digits(text)
+
+    # Corrección de identidad a mitad de flujo: un input con formato de
+    # identificador que NO puede ser un código (los códigos son de 6 dígitos)
+    # es el usuario corrigiendo su DNI/legajo — se reinicia el pedido de código
+    # con la nueva identidad, en vez de quemarle un intento como "código malo"
+    # y dejarlo trabado (antes la única salida era escribir "cancelar").
+    spec = identity_spec(flow.get("identity_kind", "afiliado"),
+                         getattr(binding, "auth_config", {}) or {})
+    if len(code) != 6 and _valid_identity(text, spec):
+        flow["stage"] = _PIDIENDO_ID
+        return await _handle_id_input(tenant_id, conv_id, text, flow)
 
     # Validación del 2º factor: local (OTP propio) o contra el proveedor.
     if is_platform_otp:
