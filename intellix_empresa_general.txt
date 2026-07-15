@@ -1,0 +1,382 @@
+════════════════════════════════════════════════════════════════
+INTELLIX — PLATAFORMA DE GESTIÓN DEL CONOCIMIENTO INSTITUCIONAL
+Documento: Información General de la Empresa
+Versión: 1.0 — Junio 2026
+════════════════════════════════════════════════════════════════
+
+---CHUNK---
+
+1. QUIÉNES SOMOS
+
+Intellix es una empresa argentina de tecnología fundada en 2025, especializada en el desarrollo e implementación de plataformas de gestión del conocimiento institucional para organizaciones con trayectoria. Nacimos con una convicción clara: el conocimiento acumulado durante décadas dentro de una organización es uno de sus activos más valiosos, y sin embargo, también es uno de los más difíciles de preservar y transferir.
+
+Nuestro equipo está formado por profesionales con experiencia en desarrollo de software, inteligencia artificial y gestión comercial. Combinamos tecnología de última generación con un enfoque profundamente humano del problema del conocimiento organizacional.
+
+Operamos de manera 100% remota, con presencia en Argentina, y atendemos clientes en toda América Latina. Nuestras oficinas administrativas se encuentran en la ciudad de Córdoba, Argentina.
+
+---CHUNK---
+
+2. NUESTRA MISIÓN
+
+La misión de Intellix es transformar el conocimiento implícito de las organizaciones en un activo digital disponible, accesible y persistente para todos sus colaboradores, sin importar su antigüedad, ubicación geográfica o área de trabajo.
+
+Creemos que las organizaciones más sólidas no son las que tienen más información, sino las que logran que el conocimiento acumulado durante décadas permanezca disponible para las próximas generaciones de colaboradores.
+
+Trabajamos para que cada nuevo empleado tenga acceso al mismo nivel de conocimiento que un profesional con veinte años de experiencia en la organización, desde el primer día de trabajo.
+
+---CHUNK---
+
+3. NUESTRA VISIÓN
+
+Ser la plataforma de referencia en América Latina para la gestión del conocimiento institucional, reconocida por transformar la manera en que las organizaciones preservan, transfieren y evolucionan su capital intelectual.
+
+En los próximos cinco años, proyectamos estar presentes en más de 200 organizaciones de Argentina, Uruguay, Chile y México, abarcando sectores como mutuales, cooperativas, empresas de servicios, organismos públicos, instituciones educativas y corporaciones multinacionales.
+
+Nuestra visión es un mundo donde ninguna organización pierda conocimiento crítico por falta de herramientas para capturarlo y transferirlo.
+
+---CHUNK---
+
+4. EL PROBLEMA QUE RESOLVEMOS
+
+Las organizaciones enfrentan un problema silencioso pero costoso: el conocimiento crítico vive en la cabeza de las personas, no en los sistemas.
+
+Cuando un colaborador experimentado se jubila, cambia de función o abandona la organización, se lleva consigo años de aprendizaje, criterios de decisión, procedimientos informales y contexto histórico que ningún manual puede capturar completamente.
+
+Este fenómeno genera cinco costos invisibles que afectan la operación diaria:
+
+Primero, consultas repetitivas: las mismas preguntas se responden una y otra vez en distintos sectores y sucursales, consumiendo tiempo de los referentes más capacitados.
+
+Segundo, dependencia de personas clave: determinados colaboradores concentran conocimiento crítico para la operación diaria, creando un riesgo operacional cuando no están disponibles.
+
+Tercero, capacitación informal: el aprendizaje depende principalmente de la experiencia y acompañamiento de otros colaboradores, haciendo que la calidad de la formación sea inconsistente entre sectores y sucursales.
+
+Cuarto, diferencias de criterio: una misma situación puede resolverse de forma distinta según quién la atienda, generando inconsistencias de cara a los usuarios o clientes.
+
+Quinto, búsqueda de información: parte significativa del tiempo operativo se destina a localizar documentos, procedimientos o antecedentes en sistemas dispersos.
+
+---CHUNK---
+
+5. NUESTRA SOLUCIÓN: LA PLATAFORMA INTELLIX
+
+Intellix es una plataforma SaaS (Software como Servicio) que permite a las organizaciones capturar, organizar y disponibilizar su conocimiento institucional a través de un asistente de inteligencia artificial entrenado con sus propios documentos, procedimientos y reglamentos.
+
+El proceso es simple en tres pasos:
+
+Paso 1 — Carga de documentos: la organización sube sus reglamentos, manuales, procedimientos, resoluciones, FAQs y cualquier documento relevante a la plataforma. El sistema acepta formatos PDF, Word (DOCX) y texto plano (TXT).
+
+Paso 2 — Procesamiento con IA: el sistema procesa y analiza los documentos automáticamente, extrae el conocimiento contenido en ellos y lo organiza en una base de conocimiento vectorial optimizada para consultas en lenguaje natural.
+
+Paso 3 — Consulta en lenguaje natural: los colaboradores realizan preguntas en lenguaje cotidiano, como si le preguntaran a un colega experimentado, y el asistente responde con información precisa extraída directamente de los documentos de la organización, indicando la fuente.
+
+---CHUNK---
+
+6. FUNCIONALIDADES PRINCIPALES
+
+6.1 Asistente de consultas operativas
+El asistente responde preguntas sobre procedimientos, reglamentos, beneficios, requisitos y cualquier información contenida en los documentos cargados. Responde en segundos, las 24 horas del día, sin necesidad de interrumpir a un colega o referente.
+
+6.2 Soporte para capacitación
+Los colaboradores nuevos pueden consultar al asistente desde el primer día para entender procesos, conocer la organización y resolver dudas de incorporación, reduciendo significativamente el tiempo que los colaboradores experimentados dedican a la inducción.
+
+6.3 Soporte a sucursales y equipos distribuidos
+En organizaciones con múltiples sucursales o equipos remotos, el asistente garantiza que todos accedan al mismo conocimiento y con el mismo criterio, independientemente de su ubicación geográfica.
+
+6.4 Panel de administración
+Los administradores de la organización tienen acceso a un panel completo donde pueden gestionar documentos, ver estadísticas de uso, administrar usuarios y operadores, y configurar el comportamiento del asistente.
+
+6.5 Handoff a operador humano
+Cuando una consulta requiere atención personalizada, el asistente puede transferir la conversación a un operador humano en tiempo real, manteniendo el historial completo de la conversación para que el operador tenga contexto inmediato.
+
+6.6 Widget embebible
+Las organizaciones pueden integrar el asistente en sus sitios web, intranets o portales de autogestión mediante un widget JavaScript que se instala en minutos, sin necesidad de conocimientos técnicos.
+
+---CHUNK---
+
+7. SECTORES A LOS QUE SERVIMOS
+
+Intellix está diseñado para cualquier organización con conocimiento institucional acumulado que necesite preservar y transferir. Nuestros principales sectores de aplicación son:
+
+Mutuales y cooperativas: gestión de reglamentos de beneficios, prestaciones, requisitos de afiliación y procedimientos administrativos.
+
+Organismos públicos: disponibilización de normativas, resoluciones, procedimientos internos y atención ciudadana.
+
+Empresas de servicios: protocolos de atención, manuales de producto, procedimientos de soporte y políticas comerciales.
+
+Instituciones educativas: reglamentos académicos, calendarios, procedimientos de inscripción y soporte a alumnos.
+
+Empresas de salud y obras sociales: prestaciones, cartilla médica, procedimientos de autorización y cobertura.
+
+Corporaciones con múltiples sucursales: homogeneización del conocimiento y criterio en toda la red de puntos de atención.
+
+---CHUNK---
+
+8. PLANES Y PRECIOS
+
+Intellix ofrece tres planes pensados para organizaciones de diferente tamaño y volumen de operación. Todos los planes incluyen soporte técnico y actualizaciones de la plataforma.
+
+Plan Starter
+Precio: consultar con el equipo comercial.
+Incluye: hasta 5 usuarios, hasta 500 documentos, hasta 5.000 consultas por mes, documentos de hasta 10 MB, hasta 10 intenciones configuradas, SLA del 99%.
+Ideal para: organizaciones pequeñas o proyectos piloto.
+
+Plan Professional
+Precio: consultar con el equipo comercial.
+Incluye: hasta 50 usuarios, hasta 10.000 documentos, hasta 100.000 consultas por mes, documentos de hasta 50 MB, hasta 100 intenciones configuradas, SLA del 99,5%.
+Ideal para: organizaciones medianas con operación distribuida.
+
+Plan Enterprise
+Precio: a convenir según volumen y requerimientos.
+Incluye: usuarios ilimitados, documentos ilimitados, consultas ilimitadas, documentos de hasta 200 MB, intenciones ilimitadas, SLA del 99,9%, implementación asistida, capacitación del equipo y soporte prioritario.
+Ideal para: corporaciones, organismos públicos o instituciones con alta demanda.
+
+Todos los planes incluyen un período de prueba de 14 días sin costo ni necesidad de tarjeta de crédito.
+
+---CHUNK---
+
+9. PROCESO DE IMPLEMENTACIÓN
+
+El proceso de implementación de Intellix está diseñado para ser rápido, no invasivo y orientado a resultados concretos desde el primer día.
+
+Etapa 1 — Discovery (1 a 2 semanas)
+Nuestro equipo trabaja junto a los referentes de la organización para identificar el conocimiento más crítico: los procedimientos más consultados, los problemas más frecuentes, los documentos más relevantes. Esta etapa define el alcance y las prioridades del proyecto.
+
+Etapa 2 — Curaduría (1 a 3 semanas)
+Se organiza, revisa y prepara la base documental que alimentará al asistente. Nuestro equipo asesora sobre cómo estructurar los documentos para maximizar la calidad de las respuestas. Se definen los criterios de actualización y mantenimiento.
+
+Etapa 3 — Implementación (1 semana)
+Se configura la plataforma para la organización: perfil del asistente, tono de comunicación, temas habilitados y restricciones. Se realiza una prueba piloto con un grupo reducido de usuarios para validar la calidad de las respuestas antes del lanzamiento general.
+
+Etapa 4 — Evolución continua (ongoing)
+Una vez en operación, el sistema aprende de las consultas reales de los usuarios. Las nuevas preguntas que no tienen respuesta en los documentos se identifican automáticamente y se presentan al administrador para que decida si incorporar nuevo conocimiento. El sistema mejora continuamente sin intervención técnica.
+
+---CHUNK---
+
+10. SEGURIDAD Y PRIVACIDAD DE LOS DATOS
+
+La seguridad de la información es una prioridad fundamental en Intellix. Toda la información cargada por cada organización está completamente aislada de las demás.
+
+Aislamiento de datos: cada cliente opera en un entorno completamente separado (multitenancy con aislamiento a nivel de base de datos). Es técnicamente imposible que los datos de una organización sean accedidos por otra.
+
+Cifrado: todos los datos se cifran en tránsito (TLS 1.3) y en reposo (AES-256).
+
+Acceso controlado: sistema de roles y permisos (administrador, operador, usuario). Cada usuario accede únicamente a lo que su rol le permite.
+
+Sin entrenamiento con datos del cliente: los datos cargados por la organización no son utilizados para entrenar modelos de inteligencia artificial de terceros ni de Intellix.
+
+Backups automáticos: respaldo diario de toda la información con capacidad de recuperación ante incidentes.
+
+Infraestructura en servidores dedicados: la plataforma corre en servidores propios con acceso restringido, no en infraestructura compartida de nube pública.
+
+---CHUNK---
+
+11. PREGUNTAS FRECUENTES SOBRE LA PLATAFORMA
+
+¿Qué tipos de documentos acepta el sistema?
+El sistema acepta archivos en formato PDF (con texto seleccionable, no escaneados), Word (DOCX), y texto plano (TXT). Los documentos con texto seleccionable y estructura clara (títulos, secciones) obtienen los mejores resultados. Los PDFs escaneados (imágenes) no son compatibles actualmente.
+
+¿En cuánto tiempo está operativo el asistente?
+Una vez cargados los documentos, el procesamiento tarda entre unos minutos y algunas horas dependiendo del volumen. Para un set inicial de 10 a 20 documentos, el asistente está operativo en menos de 30 minutos.
+
+¿Qué pasa si el asistente no sabe responder algo?
+Cuando el asistente no encuentra información suficiente en los documentos, lo indica explícitamente y puede derivar la consulta a un operador humano o proporcionar información de contacto. Nunca inventa respuestas.
+
+¿Puede el asistente responder en idiomas distintos al español?
+Sí. La plataforma soporta más de 100 idiomas. El asistente detecta automáticamente el idioma de la consulta y responde en el mismo idioma, siempre que la información esté disponible en los documentos.
+
+¿Cómo se mantiene actualizado el conocimiento?
+Los administradores pueden agregar, modificar o eliminar documentos en cualquier momento desde el panel de administración. Los cambios se reflejan en el asistente en minutos, sin necesidad de intervención técnica.
+
+---CHUNK---
+
+12. DIFERENCIADORES CLAVE DE INTELLIX
+
+Lo que distingue a Intellix de otras soluciones del mercado:
+
+Entrenado con el conocimiento propio de la organización: a diferencia de los asistentes de inteligencia artificial genéricos (como ChatGPT), Intellix responde únicamente con información de los documentos de la organización. No inventa, no generaliza, no mezcla con información externa.
+
+Sin conocimientos técnicos requeridos: la administración del sistema está diseñada para que cualquier persona pueda gestionar documentos, usuarios y configuraciones sin necesidad de conocimientos de programación o bases de datos.
+
+Implementación en días, no en meses: la plataforma está lista para usar en cuestión de días desde la contratación. No hay desarrollos a medida ni integraciones complejas para la implementación base.
+
+Multilenguaje nativo: el sistema fue diseñado desde cero para soportar organizaciones en español y otros idiomas, con modelos de inteligencia artificial optimizados para el procesamiento semántico en español latinoamericano.
+
+Escalable sin costo de infraestructura: el cliente paga por su uso, no por servidores. A medida que la organización crece, la plataforma crece con ella sin necesidad de gestionar infraestructura tecnológica.
+
+---CHUNK---
+
+13. CASOS DE USO TÍPICOS
+
+Caso 1 — Mutual de empleados
+Una mutual con 15.000 socios y 8 sucursales implementa Intellix para que sus empleados de atención al público puedan consultar en tiempo real los requisitos de cada beneficio, los trámites disponibles, los montos vigentes y los procedimientos de autorización. Resultado: reducción del 60% en el tiempo de atención por consulta y eliminación de errores por información desactualizada.
+
+Caso 2 — Empresa de servicios con red de franquicias
+Una empresa con 40 franquicias distribuidas en todo el país implementa Intellix para homogeneizar los protocolos de atención al cliente y los procedimientos operativos. El asistente garantiza que todos los franquiciados trabajen con el mismo criterio, independientemente de cuándo se incorporaron.
+
+Caso 3 — Institución educativa
+Una universidad privada implementa Intellix para brindar soporte automático a consultas de alumnos sobre inscripciones, becas, calendario académico y reglamentos. El asistente atiende el 80% de las consultas de forma autónoma, liberando al personal administrativo para tareas de mayor complejidad.
+
+Caso 4 — Organismo público
+Un municipio implementa Intellix para su servicio de atención ciudadana, integrando el widget en su portal web. Los vecinos pueden consultar procedimientos de trámites, requisitos de documentación y horarios de atención de manera inmediata, sin necesidad de llamar por teléfono.
+
+---CHUNK---
+
+14. TECNOLOGÍA QUE RESPALDA LA PLATAFORMA
+
+Intellix está construida sobre tecnología de inteligencia artificial de última generación:
+
+Modelos de lenguaje (LLM): utilizamos modelos de la familia Llama de Meta, ejecutados sobre la infraestructura de Groq, reconocida globalmente por ofrecer la menor latencia de inferencia del mercado. Esto garantiza respuestas en menos de 2 segundos en el 95% de los casos.
+
+Embeddings multilingües: el sistema procesa el contenido semántico de los documentos utilizando modelos de embeddings multilingües optimizados para español, lo que permite encontrar información relevante aunque el usuario no use exactamente las mismas palabras que aparecen en el documento.
+
+Base de datos vectorial: el conocimiento se almacena en una base de datos vectorial de alta performance (Qdrant), que permite búsquedas semánticas en milisegundos sobre bases de conocimiento de miles de documentos.
+
+Reranking de resultados: antes de generar la respuesta, el sistema aplica un modelo de reranking que selecciona los fragmentos de información más relevantes para cada consulta específica, maximizando la precisión.
+
+Procesamiento paralelo: el sistema realiza múltiples búsquedas en paralelo para garantizar que ninguna fuente de información relevante quede fuera de la respuesta.
+
+---CHUNK---
+
+15. INTEGRACIONES DISPONIBLES
+
+Intellix puede integrarse con los sistemas existentes de la organización:
+
+Widget web: código JavaScript de una línea que se instala en cualquier sitio web, intranet o portal. No requiere conocimientos técnicos avanzados.
+
+API REST: para organizaciones que desean integrar Intellix con sus propios sistemas (CRMs, ERPs, portales de autogestión), ofrecemos una API documentada con autenticación por token.
+
+Autenticación SSO: soporte para Single Sign-On (inicio de sesión único) mediante OAuth 2.0 y OpenID Connect, compatible con Google Workspace, Microsoft Azure AD y otros proveedores de identidad corporativos.
+
+Webhooks: notificaciones en tiempo real ante eventos específicos (nueva conversación, escalado a operador, etc.) para integración con sistemas de notificación o CRMs.
+
+Las integraciones avanzadas están disponibles a partir del plan Professional. El equipo técnico de Intellix acompaña el proceso de integración sin costo adicional durante la implementación inicial.
+
+---CHUNK---
+
+16. HISTORIA Y TRAYECTORIA DE INTELLIX
+
+Intellix nació de la observación directa de un problema real: en cada organización con la que trabajamos, encontrábamos la misma situación. El conocimiento institucional crítico — los procedimientos, los criterios, las excepciones históricas, los aprendizajes — vivía distribuido entre correos electrónicos, archivos de escritorio, documentos sin versionar y, principalmente, en la experiencia personal de los colaboradores más antiguos.
+
+Cuando esos colaboradores se iban, el conocimiento se iba con ellos.
+
+Fundamos Intellix convencidos de que la inteligencia artificial, aplicada específicamente a este problema, podía ofrecer una solución práctica, accesible y sostenible para organizaciones de cualquier tamaño. No se trata de reemplazar el conocimiento humano, sino de preservarlo y multiplicarlo.
+
+Desde nuestro primer cliente, aprendimos que el verdadero desafío no es técnico: es cultural. Por eso nuestro proceso de implementación pone tanto énfasis en el acompañamiento a las personas que gestionan el conocimiento, no solo en la configuración del sistema.
+
+Hoy, con clientes en operación y una plataforma probada en producción, seguimos trabajando con la misma convicción del primer día.
+
+---CHUNK---
+
+17. MODELO DE SOPORTE Y ATENCIÓN
+
+El soporte a clientes es parte central de nuestra propuesta de valor. Ofrecemos tres niveles de atención:
+
+Soporte estándar (todos los planes)
+Atención por correo electrónico y formulario de soporte. Tiempo de respuesta: hasta 24 horas hábiles. Documentación en línea disponible 24/7 en nuestro centro de ayuda.
+
+Soporte prioritario (Plan Professional y Enterprise)
+Atención por correo electrónico con respuesta garantizada en 4 horas hábiles. Canal de WhatsApp para consultas urgentes. Reuniones de seguimiento mensuales con el equipo de Customer Success.
+
+Soporte dedicado (Plan Enterprise)
+Gerente de cuenta asignado. Línea directa de atención. Tiempo de respuesta garantizado en 1 hora. Reuniones de seguimiento semanales. Soporte en la gestión de documentos y actualización del conocimiento.
+
+Para todos los planes, las incidencias críticas (plataforma inaccesible) tienen un tiempo de respuesta máximo de 2 horas, independientemente del plan contratado.
+
+---CHUNK---
+
+18. POLÍTICAS DE ACTUALIZACIÓN Y MANTENIMIENTO
+
+La plataforma Intellix se actualiza de manera continua con nuevas funcionalidades, mejoras de performance y correcciones. Las actualizaciones se realizan de manera transparente para el cliente, sin interrupciones del servicio.
+
+Política de actualizaciones:
+Las actualizaciones menores (mejoras y correcciones) se aplican automáticamente sin aviso previo, fuera del horario de mayor uso (entre las 2 y las 5 de la madrugada, hora de Argentina).
+
+Las actualizaciones mayores (nuevas funcionalidades significativas o cambios en la interfaz) se comunican con al menos 7 días de anticipación por correo electrónico al administrador de la organización.
+
+Los cambios que puedan afectar integraciones existentes (cambios en la API) se comunican con al menos 30 días de anticipación y se mantiene la versión anterior disponible durante un período de transición de 60 días.
+
+Mantenimiento programado:
+Las ventanas de mantenimiento programado, cuando son necesarias, se realizan los domingos entre las 2 y las 6 de la madrugada, hora de Argentina. Se comunican con al menos 48 horas de anticipación.
+
+El SLA de disponibilidad (99% / 99,5% / 99,9% según plan) no incluye las ventanas de mantenimiento programado comunicadas con anticipación.
+
+---CHUNK---
+
+19. RESPONSABILIDAD SOBRE EL CONTENIDO
+
+Es importante entender la responsabilidad de cada parte sobre el conocimiento gestionado en la plataforma.
+
+Intellix es responsable de:
+— La disponibilidad y correcto funcionamiento de la plataforma.
+— La seguridad y privacidad de los datos almacenados.
+— La calidad del procesamiento técnico de los documentos.
+— La precisión de las respuestas en relación al contenido de los documentos cargados.
+
+El cliente es responsable de:
+— La veracidad, vigencia y exactitud del contenido de los documentos cargados.
+— La actualización oportuna de los documentos cuando la información cambia.
+— La definición de qué conocimiento se incorpora a la plataforma y cuál no.
+— El uso de la plataforma dentro de los términos del contrato.
+
+El asistente de Intellix responde basándose exclusivamente en los documentos cargados por el cliente. Si un documento contiene información incorrecta u desactualizada, el asistente la reproducirá. La responsabilidad por la vigencia del contenido es siempre del cliente.
+
+---CHUNK---
+
+20. CÓMO CONTRATAR INTELLIX
+
+El proceso de contratación de Intellix es simple y sin compromisos iniciales:
+
+Paso 1 — Contacto inicial
+Completar el formulario en nuestro sitio web (intellix.com.ar) o escribir directamente al equipo comercial. Un miembro de nuestro equipo se comunica en menos de 24 horas hábiles para coordinar una primera reunión.
+
+Paso 2 — Demo personalizada
+Realizamos una demostración personalizada de la plataforma, adaptada al sector y necesidades específicas de la organización. La demo dura aproximadamente 45 minutos e incluye una sesión de preguntas y respuestas.
+
+Paso 3 — Prueba gratuita
+Habilitamos un entorno de prueba con los documentos de la organización durante 14 días sin costo. Al finalizar el período de prueba, el cliente decide si continúa o no, sin ningún tipo de compromiso.
+
+Paso 4 — Contratación y onboarding
+Si la organización decide contratar, el equipo de Intellix acompaña el proceso de onboarding completo: carga y organización de documentos, configuración del asistente, capacitación del equipo administrador y lanzamiento a los usuarios finales.
+
+Contacto comercial:
+Email: enzo@intellix.com.ar
+WhatsApp: +54 9 351 XXX-XXXX
+Formulario web: intellix.com.ar/contacto
+
+---CHUNK---
+
+21. TÉRMINOS Y CONDICIONES GENERALES
+
+El servicio de Intellix se presta bajo las siguientes condiciones generales:
+
+Facturación: el servicio se factura mensualmente por adelantado. El primer pago se realiza al momento de la activación del plan contratado.
+
+Cancelación: el cliente puede cancelar el servicio en cualquier momento con un preaviso de 30 días corridos. No se aplican penalidades por cancelación anticipada, salvo en planes Enterprise con términos específicos negociados.
+
+Exportación de datos: el cliente tiene derecho a solicitar la exportación completa de sus datos (documentos y logs de consultas) en cualquier momento y ante cualquier circunstancia, incluyendo la cancelación del servicio. Intellix entregará los datos en un plazo máximo de 10 días hábiles desde la solicitud.
+
+Propiedad de los datos: toda la información cargada por el cliente es de su exclusiva propiedad. Intellix no tiene derecho a utilizar, comercializar ni compartir esos datos con terceros bajo ninguna circunstancia.
+
+Confidencialidad: ambas partes se comprometen a mantener confidencialidad sobre la información del contrato y los detalles de la implementación.
+
+Los términos y condiciones completos están disponibles en intellix.com.ar/terminos.
+
+---CHUNK---
+
+22. GARANTÍAS DE CALIDAD
+
+Intellix garantiza la calidad del servicio a través de los siguientes compromisos:
+
+SLA de disponibilidad: garantizamos una disponibilidad mínima del 99% (Starter), 99,5% (Professional) o 99,9% (Enterprise) medida mensualmente. En caso de incumplimiento, se aplica un crédito proporcional al tiempo de inactividad en la factura del mes siguiente.
+
+Precisión de respuestas: el sistema está diseñado para no responder cuando no tiene información suficiente, en lugar de generar respuestas incorrectas. La tasa de respuestas halladas sobre preguntas formuladas (recall) objetivo es superior al 95% para bases de conocimiento bien estructuradas.
+
+Latencia de respuesta: el 95% de las consultas se responden en menos de 3 segundos. Las consultas más complejas que requieren síntesis de múltiples fuentes pueden tardar hasta 8 segundos.
+
+Tiempo de procesamiento de documentos: los documentos nuevos cargados al sistema quedan disponibles para consulta en un plazo máximo de 60 minutos desde su carga (normalmente en menos de 10 minutos).
+
+Soporte técnico: los tiempos de respuesta del soporte están garantizados según el plan contratado y se miden en horas hábiles (lunes a viernes de 9 a 18 hs, hora de Argentina).
+
+════════════════════════════════════════════════════════════════
+FIN DEL DOCUMENTO — INTELLIX INFORMACIÓN GENERAL
+Consultas: info@intellix.com.ar | intellix.com.ar
+════════════════════════════════════════════════════════════════
