@@ -10,7 +10,7 @@ import { useAuthStore } from "@/lib/store";
 import { api, type LookupTenantMatch } from "@/lib/api";
 import { decodeJwtPayload } from "@/lib/jwt";
 import { toSlug } from "@/lib/utils";
-import { Loader2, AlertTriangle, Shield, Eye, EyeOff, ChevronLeft, Lock, Zap, ShieldCheck, User } from "lucide-react";
+import { Loader2, AlertTriangle, Shield, Eye, EyeOff, ChevronLeft, ChevronDown, Lock, ShieldCheck, User } from "lucide-react";
 
 const PLATFORM_NAME = "Intellix";
 // Paleta basada en el logo de marca: gradient hexagonal cyan→violet.
@@ -46,14 +46,15 @@ type Step = "credentials" | "select" | "org";
 const DEV_LOGIN_ENABLED = process.env.NODE_ENV === "development";
 const DEV_PASSWORD = process.env.NEXT_PUBLIC_DEV_QUICK_PASSWORD || "local1234";
 type DevUser = { org: string; label: string; email: string; tenant: string; role: string };
+// Usuarios que EXISTEN en la base local clonada (solo tenants con schema:
+// nexo y pixs — intellix/mutualyf no se clonaron). Passwords reseteadas a
+// DEV_PASSWORD en la DB local para que los botones logueen de un clic.
 const DEV_USERS: DevUser[] = DEV_LOGIN_ENABLED ? [
-  { org: "Plataforma", label: "Super Admin", email: "pixs@gmail.com",              tenant: "",         role: "super_admin" },
-  { org: "Intellix",   label: "Admin",       email: "intellix@gmail.com",          tenant: "intellix", role: "admin" },
-  { org: "Intellix",   label: "Operador",    email: "alejo_maros@hotmail.com",     tenant: "intellix", role: "operator" },
-  { org: "MutuaLyF",   label: "Admin",       email: "mutual@gmail.com",            tenant: "mutualyf", role: "admin" },
-  { org: "MutuaLyF",   label: "Operador",    email: "guille@gmail.com",            tenant: "mutualyf", role: "operator" },
-  { org: "Nexo",       label: "Admin",       email: "admin@nexoconsultora.com.ar", tenant: "nexo",     role: "admin" },
-  { org: "Nexo",       label: "Operador",    email: "a@gmail.com",                 tenant: "nexo",     role: "operator" },
+  { org: "Plataforma", label: "Super Admin", email: "pixs@gmail.com",              tenant: "",     role: "super_admin" },
+  { org: "Pixs",       label: "Admin",       email: "admin@pixs.local",            tenant: "pixs", role: "admin" },
+  { org: "Pixs",       label: "Operador",    email: "sofia.perez@pixs.local",      tenant: "pixs", role: "operator" },
+  { org: "Nexo",       label: "Admin",       email: "admin@nexoconsultora.com.ar", tenant: "nexo", role: "admin" },
+  { org: "Nexo",       label: "Operador",    email: "pedro@gmail.com",             tenant: "nexo", role: "operator" },
 ] : [];
 
 export default function LoginPage() {
@@ -475,46 +476,62 @@ function BackBtn({ onClick }: { onClick: () => void }) {
 }
 
 // Panel de acceso rápido de desarrollo. Solo se renderiza en localhost (ver
-// gate isLocal). Agrupa los usuarios de dev por organización y loguea de un
-// clic. NUNCA se muestra en producción — no filtra credenciales reales.
+// gate isLocal). Desplegable colapsado por defecto: un único trigger que abre
+// una lista compacta de usuarios y loguea de un clic. Va inline (no flotante)
+// porque el card padre tiene overflow-hidden y recortaría un dropdown absoluto.
+// NUNCA se muestra en producción — no filtra credenciales reales.
 function DevQuickAccess({ onPick, disabled }: { onPick: (u: DevUser) => void; disabled: boolean }) {
-  const orgs = Array.from(new Set(DEV_USERS.map(u => u.org)));
+  const [open, setOpen] = useState(false);
   return (
-    <div className="mt-6 pt-5 border-t border-dashed border-amber-300/70">
-      <div className="flex items-center gap-2 mb-3">
-        <span className="inline-flex items-center gap-1 rounded-md bg-amber-100 border border-amber-300 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-700">
-          <Zap className="h-3 w-3" /> Dev
+    <div className="mt-6 pt-5 border-t border-slate-100">
+      {/* Trigger del desplegable */}
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        aria-expanded={open}
+        className="w-full flex items-center gap-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 hover:border-slate-300 px-3 py-2.5 transition-colors"
+      >
+        <span className="flex-1 text-left min-w-0">
+          <span className="block text-[13px] font-medium text-slate-700 leading-tight">Acceso rápido</span>
+          <span className="block text-[11px] text-slate-400 leading-tight">Solo desarrollo · {DEV_USERS.length} usuarios</span>
         </span>
-        <span className="text-[12px] text-slate-500">Acceso rápido · contraseña <code className="text-slate-700">{DEV_PASSWORD}</code></span>
-      </div>
-      <div className="space-y-3">
-        {orgs.map(org => (
-          <div key={org}>
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 mb-1.5">{org}</div>
-            <div className="grid grid-cols-2 gap-1.5">
-              {DEV_USERS.filter(u => u.org === org).map(u => {
-                const Icon = u.role === "super_admin" ? ShieldCheck : u.role === "admin" ? Shield : User;
-                return (
-                  <button
-                    key={u.email + u.tenant}
-                    type="button"
-                    onClick={() => onPick(u)}
-                    disabled={disabled}
-                    title={u.email}
-                    className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 hover:border-slate-300 px-2.5 py-2 text-left transition-all disabled:opacity-50"
-                  >
-                    <Icon className={`h-3.5 w-3.5 shrink-0 ${u.role === "super_admin" ? "text-violet-600" : u.role === "admin" ? "text-indigo-600" : "text-slate-400"}`} />
-                    <div className="min-w-0">
-                      <div className="text-[12px] font-medium text-slate-800 leading-tight">{u.label}</div>
-                      <div className="text-[10px] text-slate-400 truncate">{u.email}</div>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
+        <ChevronDown className={`h-4 w-4 text-slate-400 shrink-0 transition-transform duration-200 ${open ? "rotate-180" : ""}`} />
+      </button>
+
+      {/* Panel desplegado — altura máxima con scroll para no estirar el card */}
+      {open && (
+        <div className="mt-2 rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+          <div className="max-h-[220px] overflow-y-auto divide-y divide-slate-100">
+          {DEV_USERS.map(u => {
+            const Icon = u.role === "super_admin" ? ShieldCheck : u.role === "admin" ? Shield : User;
+            const roleLabel = u.role === "super_admin" ? "Super Admin" : u.role === "admin" ? "Admin" : "Operador";
+            const iconColor = u.role === "super_admin" ? "text-violet-500" : u.role === "admin" ? "text-indigo-500" : "text-slate-400";
+            return (
+              <button
+                key={u.email + u.tenant}
+                type="button"
+                onClick={() => onPick(u)}
+                disabled={disabled}
+                title={u.email}
+                className="w-full group flex items-center gap-2.5 px-3 py-2 text-left hover:bg-slate-50 transition-colors disabled:opacity-50"
+              >
+                <Icon className={`h-4 w-4 shrink-0 ${iconColor}`} />
+                <span className="flex-1 min-w-0">
+                  <span className="block text-[12.5px] font-medium text-slate-800 leading-tight truncate">
+                    {u.org} <span className="text-slate-400 font-normal">· {roleLabel}</span>
+                  </span>
+                  <span className="block text-[10.5px] text-slate-400 truncate">{u.email}</span>
+                </span>
+                <span className="text-[10px] text-slate-300 group-hover:text-indigo-500 transition-colors shrink-0">Entrar →</span>
+              </button>
+            );
+          })}
           </div>
-        ))}
-      </div>
+          <div className="px-3 py-1.5 bg-slate-50/60 border-t border-slate-100 text-[10.5px] text-slate-400 text-center">
+            Contraseña <code className="text-slate-500">{DEV_PASSWORD}</code>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

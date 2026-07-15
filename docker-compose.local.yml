@@ -55,7 +55,7 @@ services:
       - ./backend/db/init:/docker-entrypoint-initdb.d:ro
     ports:
       - "127.0.0.1:5440:5432"
-    networks: [internal]
+    networks: [data]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
@@ -80,7 +80,7 @@ services:
     ports:
       - "127.0.0.1:7475:7474"
       - "127.0.0.1:7688:7687"
-    networks: [internal]
+    networks: [data]
     healthcheck:
       test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/7474' 2>/dev/null"]
       interval: 15s
@@ -96,7 +96,7 @@ services:
       - local_qdrant_data:/qdrant/storage
     ports:
       - "127.0.0.1:6340:6333"
-    networks: [internal]
+    networks: [data]
     ulimits:
       nofile:
         soft: 65536
@@ -117,7 +117,7 @@ services:
       - local_redis_data:/data
     ports:
       - "127.0.0.1:6390:6379"
-    networks: [internal]
+    networks: [data]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -138,7 +138,7 @@ services:
     ports:
       - "127.0.0.1:9010:9000"
       - "127.0.0.1:9011:9001"
-    networks: [internal]
+    networks: [data]
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:9000/minio/health/live"]
       interval: 15s
@@ -170,7 +170,9 @@ services:
       neo4j: { condition: service_healthy }
       qdrant: { condition: service_healthy }
       redis: { condition: service_healthy }
-    networks: [internal]
+    # data: para hablar con las DBs (red interna sin salida). internal: para el
+    # egress a internet (OpenAI/Groq/WhatsApp). Las DBs NO están en internal.
+    networks: [data, internal]
     logging: *default-logging
     mem_limit: 4g
 
@@ -199,9 +201,32 @@ services:
     depends_on:
       redis: { condition: service_healthy }
       postgres: { condition: service_healthy }
-    networks: [internal]
+    networks: [data, internal]
     logging: *default-logging
     mem_limit: 3g
+
+  # ─── Base de datos Pixs (servicio externo simulado, DB SQLite propia) ──────
+  # Simula el sistema interno de Pixs con datos reales del tenant intellix
+  # (servicios, proyectos, 3 socios). Auth JWT (POST /auth/token). Prueba el
+  # camino HTTP REAL del executor (httpx + egress_guard). Puerto 4003.
+  # Vive en `internal` para que el backend lo alcance por egress.
+  mock_pixs:
+    build:
+      context: ./mock_pixs
+      dockerfile: Dockerfile
+    container_name: local_mock_pixs
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:4003:4003"
+    volumes:
+      - local_mock_pixs_data:/data
+    networks: [internal]
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:4003/health')\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    logging: *default-logging
 
   # ─── Frontend (next dev, hot-reload) ──────────────────────────────────────
 
@@ -219,6 +244,12 @@ services:
       NEXT_PUBLIC_DEV_QUICK_PASSWORD: ${DEV_QUICK_PASSWORD:-local1234}
       PORT: "3000"
       HOSTNAME: 0.0.0.0
+      # HMR sobre bind mount en Docker/Windows: los eventos de filesystem no
+      # atraviesan el mount, así que el watcher de Next no ve los cambios. El
+      # polling los detecta cada ~1s y habilita hot-reload sin reiniciar el
+      # contenedor. Solo local (costo de CPU aceptable en dev).
+      WATCHPACK_POLLING: "true"
+      CHOKIDAR_USEPOLLING: "true"
     ports:
       - "127.0.0.1:3010:3000"
     volumes:
@@ -231,8 +262,17 @@ services:
     logging: *default-logging
 
 networks:
+  # Red de borde: tiene salida a internet. Backend/worker/frontend la usan para
+  # egress (OpenAI/Groq) y para exponerse. Las DBs NO están acá.
   internal:
     driver: bridge
+  # Red de datos: internal:true → sin gateway a internet. Solo backend/worker
+  # (que también están en `internal`) pueden alcanzar las DBs. Aísla un eventual
+  # compromiso de una DB de exfiltrar hacia afuera. Los puertos publicados (5440,
+  # 6390, …) siguen funcionando: son DNAT del host, no dependen del egress de red.
+  data:
+    driver: bridge
+    internal: true
 
 volumes:
   local_postgres_data:
@@ -245,3 +285,4 @@ volumes:
   local_uploads:
   local_branding:
   local_frontend_nm:
+  local_mock_pixs_data:

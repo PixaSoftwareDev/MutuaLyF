@@ -13,6 +13,16 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _clear_classifier_memo():
+    """El clasificador memoiza por (tenant, query) y los tests comparten ambos:
+    sin limpiar, un test recibe el resultado memoizado del anterior."""
+    from services import classifier
+    classifier._memo.clear()
+    yield
+    classifier._memo.clear()
+
+
 class _FakeHit:
     def __init__(self, label: str, score: float):
         self.payload = {"label": label}

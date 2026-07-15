@@ -9,6 +9,7 @@ Flow:
 
 import asyncio
 import logging
+import time
 
 from core.config import settings
 from core.database import get_qdrant_client
@@ -44,6 +45,31 @@ _BAND_HIGH = "high"
 # cercanos (turno/horario difieren ~0.02-0.05 en coseno), no tapa al embedding.
 _KW_WEIGHT = 0.15
 
+# Memo in-process por (tenant, query): el router de conectores y el orquestador
+# clasifican el MISMO turno uno detrás del otro; sin esto cada mensaje del
+# widget paga dos búsquedas en Qdrant. TTL corto: las intenciones cambian por
+# acción del admin, 20s de staleness no afectan.
+_MEMO_TTL_S = 20.0
+_MEMO_MAX = 512
+_memo: dict[tuple[str, str], tuple[float, "IntentResult"]] = {}
+
+
+def _memo_get(key: tuple[str, str]) -> "IntentResult | None":
+    hit = _memo.get(key)
+    if hit is None:
+        return None
+    if (time.monotonic() - hit[0]) >= _MEMO_TTL_S:
+        _memo.pop(key, None)
+        return None
+    return hit[1]
+
+
+def _memo_put(key: tuple[str, str], result: "IntentResult") -> None:
+    if len(_memo) >= _MEMO_MAX:
+        for k in list(_memo)[: _MEMO_MAX // 4]:  # dict preserva orden de inserción
+            _memo.pop(k, None)
+    _memo[key] = (time.monotonic(), result)
+
 
 async def classify_intent(query: str, tenant_id: str) -> IntentResult:
     """Classify a query against the tenant's known intents.
@@ -51,6 +77,11 @@ async def classify_intent(query: str, tenant_id: str) -> IntentResult:
     Returns an IntentResult with the closest matching label and confidence.
     If no intents exist yet or Qdrant fails, returns band='unknown'.
     """
+    memo_key = (tenant_id, query)
+    memoized = _memo_get(memo_key)
+    if memoized is not None:
+        return memoized
+
     from services.embedding_cache import embed_query_cached
     # Uses Redis cache (24h TTL) — avoids re-embedding identical or similar queries
     vector = await embed_query_cached(query)
@@ -142,7 +173,7 @@ async def classify_intent(query: str, tenant_id: str) -> IntentResult:
         tenant_id, label, confidence, band,
         is_ambiguous, second_label, second_confidence,
     )
-    return IntentResult(
+    result = IntentResult(
         label=label,
         confidence=confidence,
         band=band,
@@ -150,3 +181,7 @@ async def classify_intent(query: str, tenant_id: str) -> IntentResult:
         second_label=second_label,
         second_confidence=second_confidence,
     )
+    # Solo se memoizan clasificaciones exitosas (los returns tempranos por error
+    # de Qdrant/embedding no llegan acá y se reintentan en la próxima llamada).
+    _memo_put(memo_key, result)
+    return result

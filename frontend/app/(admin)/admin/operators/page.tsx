@@ -2,9 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Check, Loader2, Plus, Trash2, MoreVertical, Pencil, AlertTriangle, Users, UserPlus, User } from "lucide-react";
+import { Check, Loader2, Plus, Trash2, MoreVertical, Pencil, AlertTriangle, Users, UserPlus, SearchX } from "lucide-react";
 import { PageShell } from "@/components/layout/page-shell";
-import { PageHeader, CountChip } from "@/components/layout/page-header";
+import { PageHeader } from "@/components/layout/page-header";
 import { FormSheet } from "@/components/layout/form-sheet";
 import { api, apiClient, type SectorRow } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -21,7 +22,9 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { toast } from "@/components/ui/toast";
 import { EmptyState } from "@/components/ui/empty-state";
-import { cn } from "@/lib/utils";
+import { cn, initials } from "@/lib/utils";
+import { ListToolbar } from "@/components/admin/list-toolbar";
+import { useViewMode } from "@/lib/use-view-mode";
 
 interface OperatorUser {
   id: string;
@@ -46,6 +49,8 @@ export default function OperatorsPage() {
   // desde el enlace — además verifica que el email esté bien escrito.
   const [inviteMode, setInviteMode]       = useState(true);
   const [createSectors, setCreateSectors] = useState<Set<string>>(new Set());
+  const [search, setSearch]               = useState("");
+  const [view, setView]                   = useViewMode("operators");
 
   const { data: operators = [], isLoading: loadingOps } = useQuery({
     queryKey: ["operators"],
@@ -133,27 +138,39 @@ export default function OperatorsPage() {
     .filter(o => o.role === "operator" && o.is_active)
     .sort((a, b) => (onlineIds.has(b.id) ? 1 : 0) - (onlineIds.has(a.id) ? 1 : 0));
 
-  const onlineCount = operatorsFiltered.filter(o => onlineIds.has(o.id)).length;
+  const visibleOperators = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return operatorsFiltered;
+    return operatorsFiltered.filter(o =>
+      o.name.toLowerCase().includes(q) || o.email.toLowerCase().includes(q));
+  }, [operatorsFiltered, search]);
 
   return (
-    <PageShell>
+    <PageShell width="wide">
       <PageHeader
         title="Operadores"
-        badge={!loadingOps ? (
-          <CountChip>
-            {operatorsFiltered.length} {operatorsFiltered.length === 1 ? "activo" : "activos"}
-            {onlineCount > 0 && <span className="text-success"> · {onlineCount} en línea</span>}
-          </CountChip>
-        ) : undefined}
         description="Creá operadores y asignales los sectores que pueden atender."
-        actions={
-          <Button onClick={() => setShowCreate(true)} className="shrink-0">
-            <Plus className="h-[18px] w-[18px] mr-1.5" /> Nuevo operador
-          </Button>
-        }
       />
 
-      {/* Grid de operadores — misma anatomía de card que Sectores */}
+      {/* Barra de utilidades: buscador · toggle · CTA. Siempre presente tras
+          cargar; sin datos deja solo el botón "Nuevo operador". */}
+      {!(loadingOps || loadingSectors) && (
+        <ListToolbar
+          search={search}
+          onSearch={setSearch}
+          placeholder="Buscar operador…"
+          view={view}
+          onView={setView}
+          controls={operatorsFiltered.length > 0}
+          action={
+            <Button onClick={() => setShowCreate(true)} className="shrink-0">
+              <Plus className="h-[18px] w-[18px] mr-1.5" /> Nuevo operador
+            </Button>
+          }
+        />
+      )}
+
+      {/* Contenido — misma anatomía de card que Sectores */}
       {loadingOps || loadingSectors ? (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {[1, 2, 3].map(i => <Skeleton key={i} className="h-44 rounded-2xl" />)}
@@ -164,11 +181,18 @@ export default function OperatorsPage() {
           title="No hay operadores activos"
           description="Creá el primero para empezar a asignar sectores y atender consultas."
         />
-      ) : (
+      ) : visibleOperators.length === 0 ? (
+        <EmptyState
+          icon={SearchX}
+          title="Sin resultados"
+          description={`Ningún operador coincide con "${search}".`}
+        />
+      ) : view === "cards" ? (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {operatorsFiltered.map(op => (
-            <OperatorCard
+          {visibleOperators.map(op => (
+            <OperatorItem
               key={op.id}
+              view="cards"
               operator={op}
               sectors={sectors}
               assignedSectors={sectorsMap[op.id] ?? []}
@@ -177,6 +201,33 @@ export default function OperatorsPage() {
               onDeleted={() => qc.invalidateQueries({ queryKey: ["operators"] })}
             />
           ))}
+        </div>
+      ) : (
+        <div className="rounded-2xl border bg-card shadow-sm overflow-hidden">
+          <Table>
+            <TableHeader>
+              <TableRow className="hover:bg-transparent">
+                <TableHead>Operador</TableHead>
+                <TableHead className="hidden md:table-cell">Estado</TableHead>
+                <TableHead>Sectores que atiende</TableHead>
+                <TableHead className="w-10" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {visibleOperators.map(op => (
+                <OperatorItem
+                  key={op.id}
+                  view="list"
+                  operator={op}
+                  sectors={sectors}
+                  assignedSectors={sectorsMap[op.id] ?? []}
+                  assignedLoading={loadingSectorsMap}
+                  isOnline={onlineIds.has(op.id)}
+                  onDeleted={() => qc.invalidateQueries({ queryKey: ["operators"] })}
+                />
+              ))}
+            </TableBody>
+          </Table>
         </div>
       )}
 
@@ -284,14 +335,15 @@ export default function OperatorsPage() {
   );
 }
 
-// ── Card de operador ─────────────────────────────────────────────────────────
-// Misma anatomía que la card de Sectores: tile + menú arriba, nombre + pill de
-// estado, texto secundario y footer con la info clave. Una sola vía de
-// acciones (el menú de 3 puntos) — sin botones que aparecen al hover.
+// ── Item de operador (card o fila de tabla según `view`) ─────────────────────
+// Card: misma anatomía que Sectores (avatar + menú arriba, estado, email, y
+// footer con sectores). List: fila de tabla densa. Ambas comparten avatar,
+// pill de estado y menú de acciones, y montan los mismos paneles laterales.
 
-function OperatorCard({
-  operator, sectors, assignedSectors, assignedLoading, isOnline, onDeleted,
+function OperatorItem({
+  view, operator, sectors, assignedSectors, assignedLoading, isOnline, onDeleted,
 }: {
+  view: "cards" | "list";
   operator: OperatorUser;
   sectors: SectorRow[];
   assignedSectors: Array<{ id: string; nombre: string }>;
@@ -304,87 +356,16 @@ function OperatorCard({
   const [showEdit, setShowEdit]             = useState(false);
   const [showDeactivate, setShowDeactivate] = useState(false);
 
-  return (
+  const menu = (
+    <OperatorMenu
+      onEditData={() => setShowEditData(true)}
+      onEditSectors={() => setShowEdit(true)}
+      onDeactivate={() => setShowDeactivate(true)}
+    />
+  );
+
+  const sheets = (
     <>
-      <div className="group flex flex-col rounded-2xl border bg-card p-5 shadow-sm transition-all duration-200 hover:shadow-md hover:-translate-y-0.5 hover:border-action/25">
-        {/* Identidad al lado del tile (layout clásico de card de persona) + menú */}
-        <div className="flex items-start justify-between gap-2">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-action-gradient-soft">
-              <User className="h-5 w-5 text-action" />
-            </div>
-            <div className="flex flex-wrap items-center gap-2 min-w-0">
-              <h3 className="font-semibold text-[15px] tracking-tight text-foreground truncate">{operator.name}</h3>
-              {isOnline ? (
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-success/30 bg-success/[0.08] px-2 py-0.5 text-[11px] font-semibold text-success shrink-0">
-                  <span className="h-1.5 w-1.5 rounded-full bg-success" /> En línea
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/50 px-2 py-0.5 text-[11px] font-semibold text-muted-foreground shrink-0">
-                  <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/40" /> Desconectado
-                </span>
-              )}
-            </div>
-          </div>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button size="icon" variant="ghost" className="h-8 w-8 max-sm:h-10 max-sm:w-10 -mt-0.5 shrink-0 text-muted-foreground" aria-label="Acciones">
-                <MoreVertical className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-44">
-              <DropdownMenuItem onSelect={() => setShowEditData(true)}>
-                <Pencil className="h-4 w-4 mr-2" />
-                Editar datos
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => setShowEdit(true)}>
-                <Users className="h-4 w-4 mr-2" />
-                Editar sectores
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onSelect={() => setShowDeactivate(true)}
-                className="text-destructive focus:text-destructive"
-              >
-                <Trash2 className="h-4 w-4 mr-2" />
-                Eliminar
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-
-        {/* Email — debajo del header, a lo ancho (como la descripción en Sectores) */}
-        <p className="text-sm text-muted-foreground mt-3 truncate">{operator.email}</p>
-
-        {/* Footer: sectores asignados */}
-        <div className="mt-auto pt-4 border-t border-border/70">
-          {assignedLoading ? (
-            <Skeleton className="h-5 w-36 rounded-full" />
-          ) : assignedSectors.length === 0 ? (
-            <p className="text-xs text-warning flex items-center gap-1.5">
-              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-              Sin sectores — solo "Consultas Generales".
-            </p>
-          ) : (
-            <>
-              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70 mb-1.5">
-                Sectores que atiende
-              </p>
-              <div className="flex flex-wrap gap-1.5">
-                {assignedSectors.map(s => (
-                  <span
-                    key={s.id}
-                    className="inline-flex items-center rounded-full border border-border bg-muted/50 px-2.5 py-0.5 text-xs font-medium text-foreground/70"
-                  >
-                    {s.nombre}
-                  </span>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
-      </div>
-
       <EditUserSheet
         open={showEditData}
         onOpenChange={setShowEditData}
@@ -407,6 +388,190 @@ function OperatorCard({
         onDeactivated={onDeleted}
       />
     </>
+  );
+
+  // ── Vista Lista (fila de tabla) ──────────────────────────────────────────
+  if (view === "list") {
+    return (
+      <>
+        <TableRow>
+          <TableCell>
+            <div className="flex items-center gap-3 min-w-0">
+              <OperatorAvatar name={operator.name} isOnline={isOnline} size="sm" showPresence />
+              <span className="font-medium text-foreground truncate">{operator.name}</span>
+            </div>
+            <span className="block text-xs text-muted-foreground truncate mt-0.5 pl-11 md:hidden">{operator.email}</span>
+          </TableCell>
+          <TableCell className="hidden md:table-cell whitespace-nowrap"><StatusPill isOnline={isOnline} /></TableCell>
+          <TableCell>
+            {assignedLoading
+              ? <Skeleton className="h-5 w-36 rounded-full" />
+              : <SectorTags assignedSectors={assignedSectors} compact />}
+          </TableCell>
+          <TableCell className="text-right">{menu}</TableCell>
+        </TableRow>
+        {sheets}
+      </>
+    );
+  }
+
+  // ── Vista Tarjetas ───────────────────────────────────────────────────────
+  return (
+    <>
+      <div className="group rounded-2xl border bg-card p-5 shadow-sm transition-shadow duration-200 hover:shadow-md hover:border-action/25">
+        {/* Header: avatar + (nombre / estado como subtítulo) + menú */}
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex items-center gap-3 min-w-0">
+            <OperatorAvatar name={operator.name} isOnline={isOnline} />
+            <div className="min-w-0">
+              <h3 className="font-semibold text-[15px] tracking-tight text-foreground truncate">{operator.name}</h3>
+              <StatusLine isOnline={isOnline} />
+            </div>
+          </div>
+          {menu}
+        </div>
+
+        {/* Cuerpo: email + sectores asignados */}
+        <div className="mt-4 space-y-3">
+          <p className="text-sm text-muted-foreground truncate">{operator.email}</p>
+          {assignedLoading ? (
+            <Skeleton className="h-5 w-36 rounded-full" />
+          ) : assignedSectors.length === 0 ? (
+            <p className="text-xs text-warning flex items-center gap-1.5">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+              Sin sectores — solo "Consultas Generales".
+            </p>
+          ) : (
+            <div>
+              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70 mb-1.5">
+                Sectores que atiende
+              </p>
+              <SectorTags assignedSectors={assignedSectors} />
+            </div>
+          )}
+        </div>
+      </div>
+      {sheets}
+    </>
+  );
+}
+
+function StatusLine({ isOnline }: { isOnline: boolean }) {
+  return (
+    <div className="mt-0.5 flex items-center gap-1.5 text-[13px]">
+      <span className={cn("h-1.5 w-1.5 rounded-full", isOnline ? "bg-success" : "bg-muted-foreground/40")} />
+      <span className={isOnline ? "text-success font-medium" : "text-muted-foreground"}>
+        {isOnline ? "En línea" : "Desconectado"}
+      </span>
+    </div>
+  );
+}
+
+// ── Piezas compartidas por card y row de operador ────────────────────────────
+
+function OperatorAvatar({
+  name, isOnline, size = "md", showPresence = false,
+}: {
+  name: string;
+  isOnline: boolean;
+  size?: "sm" | "md";
+  // Punto de presencia sobre el avatar. Off por defecto: en la card el estado
+  // ya lo dice la StatusLine debajo del nombre (evita el indicador doble). Se
+  // enciende en la tabla, donde la columna "Estado" se oculta en mobile.
+  showPresence?: boolean;
+}) {
+  const dim = size === "sm" ? "h-8 w-8 text-[11px]" : "h-10 w-10 text-[13px]";
+  return (
+    <div className="relative shrink-0">
+      <div className={cn("flex items-center justify-center rounded-xl bg-action-gradient-soft font-semibold text-action", dim)}>
+        {initials(name)}
+      </div>
+      {showPresence && (
+        <span
+          className={cn(
+            "absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-card",
+            isOnline ? "bg-success" : "bg-muted-foreground/30",
+          )}
+          aria-hidden="true"
+        />
+      )}
+    </div>
+  );
+}
+
+function StatusPill({ isOnline }: { isOnline: boolean }) {
+  return isOnline ? (
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-success/30 bg-success/[0.08] px-2 py-0.5 text-[11px] font-semibold text-success shrink-0">
+      <span className="h-1.5 w-1.5 rounded-full bg-success" /> En línea
+    </span>
+  ) : (
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/50 px-2 py-0.5 text-[11px] font-semibold text-muted-foreground shrink-0">
+      <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/40" /> Desconectado
+    </span>
+  );
+}
+
+function SectorTags({ assignedSectors, compact }: { assignedSectors: Array<{ id: string; nombre: string }>; compact?: boolean }) {
+  if (assignedSectors.length === 0) {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-xs text-warning">
+        <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+        Sin sectores
+      </span>
+    );
+  }
+  // En modo compacto (tabla) mostramos hasta 3 y un "+N" para no romper la fila.
+  const shown = compact ? assignedSectors.slice(0, 3) : assignedSectors;
+  const rest = assignedSectors.length - shown.length;
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {shown.map(s => (
+        <span
+          key={s.id}
+          className="inline-flex items-center rounded-full border border-border bg-muted/50 px-2.5 py-0.5 text-xs font-medium text-foreground/70"
+        >
+          {s.nombre}
+        </span>
+      ))}
+      {rest > 0 && (
+        <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium text-muted-foreground">
+          +{rest}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function OperatorMenu({
+  onEditData, onEditSectors, onDeactivate,
+}: {
+  onEditData: () => void;
+  onEditSectors: () => void;
+  onDeactivate: () => void;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button size="icon" variant="ghost" className="h-8 w-8 max-sm:h-10 max-sm:w-10 -mt-0.5 shrink-0 text-muted-foreground" aria-label="Acciones">
+          <MoreVertical className="h-4 w-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-44">
+        <DropdownMenuItem onSelect={onEditData}>
+          <Pencil className="h-4 w-4 mr-2" />
+          Editar datos
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={onEditSectors}>
+          <Users className="h-4 w-4 mr-2" />
+          Editar sectores
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={onDeactivate} className="text-destructive focus:text-destructive">
+          <Trash2 className="h-4 w-4 mr-2" />
+          Eliminar
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

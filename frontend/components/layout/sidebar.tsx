@@ -6,7 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import Image from "next/image";
 import {
   Inbox, FileText, Tags, Settings, LogOut, PanelLeftClose,
-  Home, Building2, GitMerge, Users, ExternalLink, BotMessageSquare, ClipboardList, Bot, Network, X, ChevronRight, Layers,
+  Home, Building2, GitMerge, Users, ExternalLink, BotMessageSquare, ClipboardList, Bot, Network, X, ChevronRight, Layers, Plug,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore, useUIStore } from "@/lib/store";
@@ -67,6 +67,8 @@ const navGroups: NavGroup[] = [
   {
     label: "Sistema",
     items: [
+      { href: "/admin/connectors", label: "Conectores", icon: Plug, adminOnly: true,
+        tooltip: "APIs de terceros que el asistente puede consultar (datos personales o públicos)." },
       { href: "/admin/settings", label: "Configuración", icon: Settings, adminOnly: true,
         tooltip: "Identidad, apariencia y comportamiento del asistente, y reglas de derivación." },
       { href: "/admin/audit",    label: "Auditoría",     icon: ClipboardList, adminOnly: true,

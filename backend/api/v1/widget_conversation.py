@@ -25,7 +25,7 @@ from core.rate_limit import check_widget_rate_limit
 from core.security import CurrentUser, TokenScope, get_widget_or_chat_user
 from core.tenant import get_tenant_id
 from services.handoff import (
-    ConvStatus, HandoffTrigger,
+    ConvStatus, HandoffTrigger, HandoffSignal,
     evaluate_handoff, request_handoff, get_default_sector_id,
 )
 from services.events import publish as _publish_event
@@ -304,7 +304,28 @@ async def send_message(
         except HTTPException:
             over_quota = True
 
-    if first_greeting_chitchat:
+    # Router de conectores (Tool Calling): si el turno es de datos personales
+    # (FSM de login en curso, o intención que dispara una tool), lo maneja acá y
+    # NO pasa por el RAG ni por su cache compartido (los datos personales no se
+    # cachean cruzados entre usuarios). Si devuelve None, sigue el flujo RAG normal.
+    connector_result = None
+    if not first_greeting_chitchat and not over_quota:
+        try:
+            from services.connector_router import maybe_handle
+            connector_result = await maybe_handle(
+                tenant_id=tenant_id,
+                conversation_id=conversation_id,
+                message=body.content,
+            )
+        except Exception as exc:
+            # Fail-closed hacia el RAG: si el router falla, no rompemos la conversación.
+            logger.error("connector_router_failed conversation_id=%s error=%s", conversation_id, exc)
+            connector_result = None
+
+    if connector_result is not None:
+        bot_answer = connector_result["answer"]
+        sources = []
+    elif first_greeting_chitchat:
         bot_answer = "😊 Contame, ¿qué necesitás?"
         sources = []
     elif over_quota:
@@ -330,13 +351,19 @@ async def send_message(
     # Se evalúa el handoff ANTES de persistir la respuesta del bot: si se va a
     # mostrar la oferta de operador, el bot_answer genérico ("no pude / fuera de
     # mi área") es redundante con la oferta y NO se inserta ni se devuelve.
-    signal = await evaluate_handoff(
-        conversation_id=conversation_id,
-        tenant_id=tenant_id,
-        user_message=body.content,
-        sources=sources,
-        bot_answer=bot_answer,
-    )
+    # Excepción: si el router de conectores manejó el turno (FSM de login o dato
+    # personal), NO evaluamos handoff — un "pasame tu DNI" o "tenés 2 órdenes" no
+    # es una respuesta insuficiente y no debe ofrecer operador humano.
+    if connector_result is not None:
+        signal = HandoffSignal(trigger=HandoffTrigger.NONE, auto_activate=False, offer_message="")
+    else:
+        signal = await evaluate_handoff(
+            conversation_id=conversation_id,
+            tenant_id=tenant_id,
+            user_message=body.content,
+            sources=sources,
+            bot_answer=bot_answer,
+        )
 
     bot_msg_id = None
     handoff_message = None

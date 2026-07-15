@@ -234,6 +234,7 @@ async def close_qdrant_client() -> None:
 
 _redis_cache: aioredis.Redis | None = None
 _redis_ratelimit: aioredis.Redis | None = None
+_redis_session: aioredis.Redis | None = None
 
 
 def get_redis_cache() -> aioredis.Redis:
@@ -264,6 +265,24 @@ def get_redis_ratelimit() -> aioredis.Redis:
     return _redis_ratelimit
 
 
+def get_redis_session() -> aioredis.Redis:
+    """Cliente Redis (DB 3) para sesiones autenticadas de conectores.
+
+    Separado del cache: un flush de cache no debe tirar sesiones de usuarios
+    logueados, ni al revés. Guarda blobs cifrados con Fernet (ver session_store).
+    """
+    global _redis_session
+    if _redis_session is None:
+        _redis_session = aioredis.from_url(
+            settings.redis_url_session,
+            decode_responses=True,
+            socket_timeout=settings.redis_timeout_ms / 1000,
+            socket_connect_timeout=0.1,
+            max_connections=50,
+        )
+    return _redis_session
+
+
 def new_redis_pubsub_connection() -> aioredis.Redis:
     """Create a NEW dedicated Redis connection for pubsub.
 
@@ -281,13 +300,16 @@ def new_redis_pubsub_connection() -> aioredis.Redis:
 
 
 async def close_redis_connections() -> None:
-    global _redis_cache, _redis_ratelimit
+    global _redis_cache, _redis_ratelimit, _redis_session
     if _redis_cache:
         await _redis_cache.aclose()
         _redis_cache = None
     if _redis_ratelimit:
         await _redis_ratelimit.aclose()
         _redis_ratelimit = None
+    if _redis_session:
+        await _redis_session.aclose()
+        _redis_session = None
     logger.info("Redis connections closed")
 
 
@@ -300,6 +322,7 @@ async def connect_all() -> None:
     get_qdrant_client()
     get_redis_cache()
     get_redis_ratelimit()
+    get_redis_session()
     logger.info("All database connections initialized")
 
 

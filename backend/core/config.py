@@ -30,6 +30,13 @@ class Settings(BaseSettings):
     # para inferencia): esta es solo lectura de billing. Si está vacía, el panel
     # muestra el costo como "no configurado".
     openai_admin_api_key: str = ""
+    # Key SEPARADA para evaluaciones/tests (rag_eval, auditorías masivas). Con su
+    # propio hard budget cap en el dashboard de OpenAI, para que una corrida de
+    # pruebas NUNCA drene la cuota que sirve el bot en vivo (incidente 2026-07-10:
+    # una auditoría concurrente agotó la cuota compartida y degradó producción).
+    # El código de eval debe preferir esta key si está seteada; vacía = usa la de
+    # inferencia (comportamiento previo). Ver docs/OPERACION_OPENAI_KEYS_Y_SALDO.md.
+    openai_test_api_key: str = ""
 
     # ── Embedding provider switch (local | openai | tei) ─────────────────────
     # local: multilingual-e5-large CPU-bound EN el proceso uvicorn, ~1.5GB RAM,
@@ -125,6 +132,32 @@ class Settings(BaseSettings):
     redis_url_broker: str = "redis://redis:6379/0"
     redis_url_cache: str = "redis://redis:6379/1"
     redis_url_ratelimit: str = "redis://redis:6379/2"
+    # DB 3: sesiones autenticadas de conectores (blob Fernet {jwt, identity, rol}).
+    # Efímera (TTL corto); pérdida aceptable = re-login. Separada del cache para
+    # que un flush de cache no tire sesiones ni viceversa.
+    redis_url_session: str = "redis://redis:6379/3"
+
+    # ── Framework de conectores (Tool Calling) ────────────────────────────────
+    # Feature flag maestro: si False, el router de tools ni se evalúa (fail-closed
+    # a nivel sistema — el bot sigue siendo solo-RAG). Se activa por tenant vía la
+    # config de conectores, pero este flag lo apaga globalmente si hace falta.
+    connectors_enabled: bool = False
+    # Stub in-process de NEXA para dev/tests (no llama a NEXA real). Solo en dev.
+    nexa_stub_enabled: bool = False
+    # Sesión autenticada: TTL y throttle del segundo factor.
+    session_ttl_seconds: int = 1800          # 30 min (renovable con actividad)
+    connector_auth_max_attempts: int = 5     # intentos de código antes de bloquear
+    connector_auth_lockout_window_s: int = 900  # ventana de 15 min
+    # Timeout y circuit breaker del executor HTTP hacia terceros.
+    connector_http_timeout_ms: int = 4000
+    # Hosts internos de confianza (CSV) exentos de la verificación de IP privada
+    # del egress_guard — SOLO para servicios mock en dev (ej. "mock_nexa"). Vacío
+    # en producción → protección SSRF intacta.
+    connector_trusted_internal_hosts: str = ""
+
+    @property
+    def trusted_internal_hosts_set(self) -> set[str]:
+        return {h.strip().lower() for h in self.connector_trusted_internal_hosts.split(",") if h.strip()}
 
     # ── JWT ───────────────────────────────────────────────────────────────────
     jwt_secret_key: str

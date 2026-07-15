@@ -437,11 +437,24 @@ async def consolidate_intentions(tenant_id: str, threshold: float = _MERGE_SIM) 
         return summary
     cent = {l: np.mean(np.array(v), axis=0) for l, v in by_label.items()}
 
-    # 2. Conteo de ejemplos por intención (para elegir a quién conservar).
+    # 2. Conteo de ejemplos por intención (para elegir a quién conservar) y
+    #    labels con tool de conector bindeada: una intención bindeada nunca debe
+    #    ser el lado que se borra — el ON DELETE CASCADE de
+    #    connector_intent_bindings eliminaría el binding en silencio y la tool
+    #    dejaría de dispararse.
+    bound_labels: set[str] = set()
     async with get_worker_pg_session(tenant_id) as s:
         rows = (await s.execute(text(
             "SELECT label, example_count FROM intenciones WHERE is_active = TRUE"
         ))).fetchall()
+        if (await s.execute(text(
+            "SELECT to_regclass('connector_intent_bindings') IS NOT NULL"
+        ))).scalar():
+            bound_labels = {r[0] for r in (await s.execute(text(
+                "SELECT i.label FROM intenciones i "
+                "JOIN connector_intent_bindings b ON b.intencion_id = i.id "
+                "WHERE b.is_active = TRUE"
+            ))).fetchall()}
     ex_count = {r[0]: (r[1] or 0) for r in rows}
 
     def cos(a, b):
@@ -467,8 +480,14 @@ async def consolidate_intentions(tenant_id: str, threshold: float = _MERGE_SIM) 
     for sim, a, b in pairs:
         if a in merged or b in merged:
             continue
-        # keep = el de más ejemplos; ante empate, el nombre más corto (más general).
-        keep, drop = (a, b) if (ex_count.get(a, 0), -len(a)) >= (ex_count.get(b, 0), -len(b)) else (b, a)
+        if a in bound_labels and b in bound_labels:
+            continue  # ambas disparan tools (quizás distintas): no fusionar automáticamente
+        if a in bound_labels or b in bound_labels:
+            # La bindeada SIEMPRE se conserva, aunque tenga menos ejemplos.
+            keep, drop = (a, b) if a in bound_labels else (b, a)
+        else:
+            # keep = el de más ejemplos; ante empate, el nombre más corto (más general).
+            keep, drop = (a, b) if (ex_count.get(a, 0), -len(a)) >= (ex_count.get(b, 0), -len(b)) else (b, a)
         await _merge_intention(tenant_id, keep, drop, coll)
         merged.add(drop)
         summary["merges"].append({"keep": keep, "drop": drop, "sim": round(sim, 3)})
@@ -502,6 +521,18 @@ async def _merge_intention(tenant_id: str, keep: str, drop: str, coll: str) -> N
             "UPDATE intenciones SET example_count=(SELECT COUNT(*) FROM intencion_ejemplos "
             "WHERE intencion_id=:k AND is_auto_learned=FALSE), updated_at=NOW() WHERE id=:k"
         ), {"k": keep_id})
+        # Re-apuntar bindings de conectores del perdedor al conservado (si el
+        # conservado no tiene ya un binding para esa misma tool). Sin esto, el
+        # ON DELETE CASCADE borra el binding en silencio y la tool se apaga.
+        if (await s.execute(text(
+            "SELECT to_regclass('connector_intent_bindings') IS NOT NULL"
+        ))).scalar():
+            await s.execute(text(
+                "UPDATE connector_intent_bindings cb SET intencion_id=:k "
+                "WHERE cb.intencion_id=:d AND NOT EXISTS ("
+                "  SELECT 1 FROM connector_intent_bindings kb "
+                "  WHERE kb.intencion_id=:k AND kb.tool_id=cb.tool_id)"
+            ), {"k": keep_id, "d": drop_id})
         # Borrar la intención perdedora.
         await s.execute(text("DELETE FROM intenciones WHERE id=:d"), {"d": drop_id})
 

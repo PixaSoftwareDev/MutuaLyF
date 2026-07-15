@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main, dev, dev-local]
+  pull_request:
+    branches: [main, dev]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      # torch CPU-only: la wheel CUDA por defecto pesa >2GB y el CI no tiene GPU.
+      - name: Install dependencies (torch CPU)
+        run: |
+          pip install torch==2.3.1 --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements.txt
+
+      - name: Run test suite
+        env:
+          # Los tests están 100% mockeados (ver conftest.py) — estos valores
+          # solo satisfacen la validación de settings al importar la app.
+          GROQ_API_KEY: test_key
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          NEO4J_PASSWORD: test
+          JWT_SECRET_KEY: ci_secret_key_at_least_32_chars_long!!
+        run: python -m pytest tests/ -q --tb=short
+
+  # Job semanal informativo de calidad RAG (requiere API key con crédito).
+  # No bloquea merges: la calidad se gatea en el retrain nocturno del sistema.
+  rag-eval:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Placeholder
+        run: echo "rag_eval corre contra un entorno vivo — ejecutar via scripts/rag_eval.py en staging"

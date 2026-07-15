@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 import { Loader2, Send, Bot, ChevronLeft, UserCheck, AlertTriangle, Paperclip } from "lucide-react";
@@ -286,12 +286,16 @@ function ChatInner() {
   const isTest   = params.get("test") === "1";
 
   const [sectors, setSectors]               = useState<Sector[]>([]);
-  // Inicializamos el branding desde el cache sincronicamente para evitar
-  // el flash al refrescar (el fetch a /public/tenant-branding tarda
-  // ~100-300ms y mientras tanto se veia el rojo default + "Asistente").
-  const [branding, setBranding]             = useState<TenantBranding | null>(() =>
-    tenantId ? readCachedBranding(tenantId) : null
-  );
+  // El branding arranca null y el cache se lee en useLayoutEffect (post-mount,
+  // pre-paint). Leerlo en el initializer del useState rompía la hidratación:
+  // el SSR no tiene localStorage y renderizaba "Asistente" mientras el cliente
+  // renderizaba el bot_name cacheado → "Text content does not match". Con el
+  // layout effect no hay flash visible (corre antes del primer paint) y el
+  // HTML del server y del cliente coinciden.
+  const [branding, setBranding]             = useState<TenantBranding | null>(null);
+  useLayoutEffect(() => {
+    if (tenantId) setBranding(prev => prev ?? readCachedBranding(tenantId));
+  }, [tenantId]);
   const [greeting, setGreeting]             = useState<string>("¡Hola! 👋 Soy tu asistente virtual. ¿En qué área puedo ayudarte?");
   const [sectorsLoading, setSectorsLoading] = useState(true);
   const [selectedSector, setSelectedSector] = useState<Sector | null>(null);

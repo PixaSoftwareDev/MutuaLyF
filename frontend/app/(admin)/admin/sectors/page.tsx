@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Edit2, Loader2, Star, MoreVertical, Users, Folder, Trash2, AlertTriangle } from "lucide-react";
+import { Plus, Edit2, Loader2, Star, MoreVertical, Users, Headset, Trash2, AlertTriangle, SearchX } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -11,6 +11,7 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api, type SectorRow } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -21,8 +22,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { toast } from "@/components/ui/toast";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageShell } from "@/components/layout/page-shell";
-import { PageHeader, CountChip } from "@/components/layout/page-header";
+import { PageHeader } from "@/components/layout/page-header";
 import { FormSheet } from "@/components/layout/form-sheet";
+import { ListToolbar } from "@/components/admin/list-toolbar";
+import { useViewMode } from "@/lib/use-view-mode";
 
 export default function SectorsPage() {
   const qc = useQueryClient();
@@ -37,6 +40,9 @@ export default function SectorsPage() {
   const [editDesc, setEditDesc]       = useState("");
 
   const [deleting, setDeleting]       = useState<SectorRow | null>(null);
+
+  const [search, setSearch]           = useState("");
+  const [view, setView]               = useViewMode("sectors");
 
   const { data: sectors = [], isLoading } = useQuery({
     queryKey: ["sectors"],
@@ -83,37 +89,61 @@ export default function SectorsPage() {
   };
 
   const activeSectors = sectors.filter(s => s.is_active);
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return activeSectors;
+    return activeSectors.filter(s =>
+      s.nombre.toLowerCase().includes(q) || (s.descripcion ?? "").toLowerCase().includes(q));
+  }, [activeSectors, search]);
 
   return (
-    <PageShell>
+    <PageShell width="wide">
       <PageHeader
         title="Sectores de atención"
-        badge={!isLoading ? <CountChip>{activeSectors.length} {activeSectors.length === 1 ? "activo" : "activos"}</CountChip> : undefined}
         description={
           <>Las áreas que el afiliado elige al consultar. El sector{" "}
           <span className="font-semibold text-foreground">predeterminado</span> se asigna cuando no elige ninguno.</>
         }
-        actions={
-          <Button onClick={() => setShowCreate(true)} className="shrink-0">
-            <Plus className="h-[18px] w-[18px] mr-1.5" /> Nuevo sector
-          </Button>
-        }
       />
 
-      {/* Grid de sectores */}
+      {/* Barra de utilidades: buscador · toggle · CTA. Siempre presente tras
+          cargar; sin datos deja solo el botón "Nuevo sector". */}
+      {!isLoading && (
+        <ListToolbar
+          search={search}
+          onSearch={setSearch}
+          placeholder="Buscar sector…"
+          view={view}
+          onView={setView}
+          controls={activeSectors.length > 0}
+          action={
+            <Button onClick={() => setShowCreate(true)} className="shrink-0">
+              <Plus className="h-[18px] w-[18px] mr-1.5" /> Nuevo sector
+            </Button>
+          }
+        />
+      )}
+
+      {/* Contenido */}
       {isLoading ? (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {[1, 2, 3].map(i => <Skeleton key={i} className="h-44 rounded-2xl" />)}
         </div>
       ) : activeSectors.length === 0 ? (
         <EmptyState
-          icon={Folder}
+          icon={Headset}
           title="No hay sectores activos"
           description="Creá el primero para que los usuarios puedan elegir un área al consultar."
         />
-      ) : (
+      ) : filtered.length === 0 ? (
+        <EmptyState
+          icon={SearchX}
+          title="Sin resultados"
+          description={`Ningún sector coincide con "${search}".`}
+        />
+      ) : view === "cards" ? (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {activeSectors.map(s => (
+          {filtered.map(s => (
             <SectorCard
               key={s.id}
               sector={s}
@@ -124,13 +154,38 @@ export default function SectorsPage() {
             />
           ))}
         </div>
+      ) : (
+        <div className="rounded-2xl border bg-card shadow-sm overflow-hidden">
+          <Table>
+            <TableHeader>
+              <TableRow className="hover:bg-transparent">
+                <TableHead>Sector</TableHead>
+                <TableHead className="hidden md:table-cell">Descripción</TableHead>
+                <TableHead className="text-right whitespace-nowrap">Operadores</TableHead>
+                <TableHead className="w-10" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filtered.map(s => (
+                <SectorRowItem
+                  key={s.id}
+                  sector={s}
+                  onEdit={() => startEdit(s)}
+                  onSetDefault={() => defaultM.mutate(s.id)}
+                  onDelete={() => setDeleting(s)}
+                  defaultBusy={defaultM.isPending}
+                />
+              ))}
+            </TableBody>
+          </Table>
+        </div>
       )}
 
       {/* Panel crear */}
       <FormSheet
         open={showCreate}
         onOpenChange={setShowCreate}
-        icon={Folder}
+        icon={Headset}
         title="Nuevo sector"
         description="Áreas que el usuario puede elegir en el chat."
         footer={
@@ -295,73 +350,138 @@ function SectorCard({
 }) {
   return (
     <div className={cn(
-      "group flex flex-col rounded-2xl border bg-card p-5 shadow-sm transition-all duration-200 hover:shadow-md hover:-translate-y-0.5",
+      "group rounded-2xl border bg-card p-5 shadow-sm transition-shadow duration-200 hover:shadow-md",
       // El predeterminado se reconoce de un vistazo: encuadre con el acento de marca.
       sector.is_default
         ? "border-action/40 ring-1 ring-action/20"
         : "hover:border-action/25",
     )}>
-      {/* Nombre al lado del tile (misma estructura que la card de Operadores) + menú */}
+      {/* Header: tile + (nombre / contador de operadores como subtítulo) + menú */}
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-3 min-w-0">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-action-gradient-soft">
-            <Folder className="h-5 w-5 text-action" />
+            <Headset className="h-5 w-5 text-action" />
           </div>
-          <div className="min-w-0 flex flex-wrap items-center gap-2">
-            <h3 className="font-semibold text-[15px] tracking-tight text-foreground truncate">{sector.nombre}</h3>
-            {sector.is_default && (
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-action/30 bg-action/[0.06] px-2 py-0.5 text-[11px] font-semibold text-action shrink-0">
-                <span className="h-1.5 w-1.5 rounded-full bg-action-gradient" /> Predeterminado
-              </span>
-            )}
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="font-semibold text-[15px] tracking-tight text-foreground truncate">{sector.nombre}</h3>
+              {sector.is_default && <DefaultBadge />}
+            </div>
+            <OperatorCountLine count={sector.operator_count} />
           </div>
         </div>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button size="icon" variant="ghost" className="h-8 w-8 max-sm:h-10 max-sm:w-10 -mt-0.5 shrink-0 text-muted-foreground" aria-label="Acciones">
-              <MoreVertical className="h-4 w-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-52">
-            <DropdownMenuItem onSelect={onEdit}>
-              <Edit2 className="h-4 w-4 mr-2" />
-              Editar
-            </DropdownMenuItem>
-            {!sector.is_default && (
-              <DropdownMenuItem onSelect={onSetDefault} disabled={defaultBusy}>
-                <Star className="h-4 w-4 mr-2" />
-                Predeterminado
-              </DropdownMenuItem>
-            )}
-            {!sector.is_default && (
-              <>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onSelect={onDelete} className="text-destructive focus:text-destructive">
-                  <Trash2 className="h-4 w-4 mr-2" />
-                  Eliminar
-                </DropdownMenuItem>
-              </>
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <SectorMenu sector={sector} onEdit={onEdit} onSetDefault={onSetDefault} onDelete={onDelete} defaultBusy={defaultBusy} />
       </div>
 
-      {/* Descripción — placeholder tenue si no hay, para que el divisor del footer
-          no quede flotando sobre un hueco vacío. El mt-auto alinea los pies. */}
-      {sector.descripcion ? (
-        <p className="text-sm text-muted-foreground mt-3 line-clamp-2">
+      {/* Cuerpo: descripción (si hay). Sin descripción no dejamos hueco muerto. */}
+      {sector.descripcion && (
+        <p className="text-sm text-muted-foreground mt-4 line-clamp-2">
           {sector.descripcion}
         </p>
-      ) : (
-        <p className="text-sm text-muted-foreground/50 italic mt-3">Sin descripción</p>
       )}
-
-      {/* Footer: operadores asignados */}
-      <div className="mt-auto pt-4 border-t border-border/70 flex items-center gap-1.5 text-[13px] text-muted-foreground">
-        <Users className="h-4 w-4 text-muted-foreground/70" />
-        <span className="font-semibold text-foreground tabular-nums">{sector.operator_count}</span>
-        {sector.operator_count === 1 ? "operador" : "operadores"}
-      </div>
     </div>
+  );
+}
+
+function OperatorCountLine({ count }: { count: number }) {
+  return (
+    <div className="mt-0.5 flex items-center gap-1.5 text-[13px] text-muted-foreground">
+      <Users className="h-3.5 w-3.5 text-muted-foreground/60" />
+      <span className="font-semibold text-foreground tabular-nums">{count}</span>
+      {count === 1 ? "operador" : "operadores"}
+    </div>
+  );
+}
+
+// ── Sector row (vista Lista / tabla) ─────────────────────────────────────────
+
+function SectorRowItem({
+  sector, onEdit, onSetDefault, onDelete, defaultBusy,
+}: {
+  sector: SectorRow;
+  onEdit: () => void;
+  onSetDefault: () => void;
+  onDelete: () => void;
+  defaultBusy: boolean;
+}) {
+  return (
+    <TableRow className={cn(sector.is_default && "bg-action/[0.03]")}>
+      <TableCell>
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-action-gradient-soft">
+            <Headset className="h-4 w-4 text-action" />
+          </div>
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="font-medium text-foreground truncate">{sector.nombre}</span>
+            {sector.is_default && <DefaultBadge />}
+          </div>
+        </div>
+      </TableCell>
+      <TableCell className="hidden md:table-cell max-w-md">
+        {sector.descripcion
+          ? <span className="text-muted-foreground line-clamp-1">{sector.descripcion}</span>
+          : <span className="text-muted-foreground/50 italic">Sin descripción</span>}
+      </TableCell>
+      <TableCell className="text-right whitespace-nowrap">
+        <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+          <Users className="h-4 w-4 text-muted-foreground/70" />
+          <span className="font-semibold text-foreground tabular-nums">{sector.operator_count}</span>
+        </span>
+      </TableCell>
+      <TableCell className="text-right">
+        <SectorMenu sector={sector} onEdit={onEdit} onSetDefault={onSetDefault} onDelete={onDelete} defaultBusy={defaultBusy} />
+      </TableCell>
+    </TableRow>
+  );
+}
+
+// ── Piezas compartidas por card y row ────────────────────────────────────────
+
+function DefaultBadge() {
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-action/30 bg-action/[0.06] px-2 py-0.5 text-[11px] font-semibold text-action shrink-0">
+      <span className="h-1.5 w-1.5 rounded-full bg-action-gradient" /> Predeterminado
+    </span>
+  );
+}
+
+function SectorMenu({
+  sector, onEdit, onSetDefault, onDelete, defaultBusy,
+}: {
+  sector: SectorRow;
+  onEdit: () => void;
+  onSetDefault: () => void;
+  onDelete: () => void;
+  defaultBusy: boolean;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button size="icon" variant="ghost" className="h-8 w-8 max-sm:h-10 max-sm:w-10 -mt-0.5 shrink-0 text-muted-foreground" aria-label="Acciones">
+          <MoreVertical className="h-4 w-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-52">
+        <DropdownMenuItem onSelect={onEdit}>
+          <Edit2 className="h-4 w-4 mr-2" />
+          Editar
+        </DropdownMenuItem>
+        {!sector.is_default && (
+          <DropdownMenuItem onSelect={onSetDefault} disabled={defaultBusy}>
+            <Star className="h-4 w-4 mr-2" />
+            Predeterminado
+          </DropdownMenuItem>
+        )}
+        {!sector.is_default && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={onDelete} className="text-destructive focus:text-destructive">
+              <Trash2 className="h-4 w-4 mr-2" />
+              Eliminar
+            </DropdownMenuItem>
+          </>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

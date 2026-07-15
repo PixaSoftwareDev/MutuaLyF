@@ -1,0 +1,495 @@
+════════════════════════════════════════════════════════════════
+INTELLIX — EQUIPO, ROLES Y HORARIOS DE ATENCIÓN
+Documento: Directorio de Personal y Disponibilidad
+Versión: 1.0 — Junio 2026
+════════════════════════════════════════════════════════════════
+
+---CHUNK---
+
+1. ESTRUCTURA DEL EQUIPO INTELLIX
+
+Intellix es una empresa de estructura horizontal compuesta por tres roles principales: comercial, desarrollo backend y desarrollo frontend. El equipo trabaja de manera coordinada y cada integrante tiene un área de responsabilidad primaria, aunque colabora activamente en las otras áreas cuando el proyecto lo requiere.
+
+El equipo fundador está compuesto por tres profesionales:
+
+— Enzo Pérez: Sales & Comercial. Responsable de la relación con clientes, la estrategia comercial y el proceso de implementación con nuevas organizaciones.
+
+— Guillermo Fernández: Desarrollo Frontend & Producto. Responsable de la interfaz de usuario, la experiencia del cliente y la evolución del producto.
+
+— Alejo Maros: Desarrollo Backend & Infraestructura. Responsable de la arquitectura del sistema, los modelos de inteligencia artificial y la infraestructura tecnológica.
+
+El equipo opera de manera remota y distribuida. Todos los integrantes tienen base en Argentina y trabajan en el huso horario GMT-3 (hora de Argentina, sin cambio de horario estacional).
+
+---CHUNK---
+
+2. ENZO PÉREZ — SALES & COMERCIAL
+
+Cargo: Sales Developer / Responsable Comercial
+Email: enzo@intellix.com.ar
+WhatsApp de trabajo: +54 9 351 XXX-XXXX (disponible en horario laboral)
+LinkedIn: linkedin.com/in/enzoperez-intellix
+
+Descripción del rol:
+Enzo es la primera persona de contacto para todas las organizaciones interesadas en conocer o contratar Intellix. Gestiona el proceso comercial completo: desde el primer contacto hasta la firma del contrato, y acompaña el proceso de onboarding inicial para asegurarse de que la implementación comience de la mejor manera posible.
+
+Responsabilidades principales:
+— Atención de consultas comerciales entrantes por todos los canales.
+— Realización de demos personalizadas de la plataforma para organizaciones interesadas.
+— Elaboración de propuestas comerciales y negociación de contratos.
+— Acompañamiento del proceso de onboarding para nuevos clientes.
+— Gestión de la relación con clientes activos: renovaciones, upgrades y resolución de inquietudes comerciales.
+— Identificación de oportunidades de mejora del producto basadas en el feedback de los clientes.
+
+---CHUNK---
+
+3. HORARIO DE ATENCIÓN DE ENZO PÉREZ
+
+Horario laboral estándar:
+Lunes a viernes de 9:00 a 18:00 hs (hora de Argentina, GMT-3)
+Sábados de 9:00 a 13:00 hs para casos urgentes previamente coordinados.
+Domingos y feriados nacionales: sin atención.
+
+Disponibilidad por canal:
+— Email (enzo@intellix.com.ar): respuesta dentro de las 4 horas hábiles.
+— WhatsApp laboral: respuesta dentro de 2 horas en horario laboral.
+— Reuniones por videollamada (Google Meet / Zoom): agendamiento con al menos 24 horas de anticipación. Horarios disponibles para reuniones: lunes a viernes de 10:00 a 17:00 hs.
+— Llamadas telefónicas: por coordinación previa.
+
+Ausencias planificadas:
+Enzo comunica sus períodos de vacaciones con al menos dos semanas de anticipación a todos los clientes activos. Durante sus ausencias, las consultas urgentes son atendidas por el equipo completo mediante el canal de soporte general (soporte@intellix.com.ar).
+
+Reuniones de seguimiento con clientes:
+Los clientes del plan Professional y Enterprise tienen asignada una reunión mensual de seguimiento con Enzo. Estas reuniones se agendan los primeros 10 días de cada mes y duran aproximadamente 30 minutos.
+
+Para coordinar una demo o reunión comercial: enzo@intellix.com.ar o formulario en intellix.com.ar/contacto.
+
+---CHUNK---
+
+4. GUILLERMO FERNÁNDEZ — DESARROLLO FRONTEND & PRODUCTO
+
+Cargo: Developer Frontend / Product Developer
+Email: guillermo@intellix.com.ar
+Email personal de contacto: guille.fernandeeez@gmail.com
+GitHub: github.com/guillermofe (referencia técnica)
+
+Descripción del rol:
+Guillermo es el responsable de todo lo que los usuarios ven e interactúan en la plataforma: el panel de administración, la interfaz del asistente, el widget embebible, la experiencia de onboarding y la experiencia del operador en el panel de atención. También participa activamente en la definición del producto, traduciendo las necesidades de los clientes en funcionalidades concretas.
+
+Responsabilidades principales:
+— Desarrollo y mantenimiento del frontend de la plataforma (panel admin, panel operador, interfaz de consulta).
+— Desarrollo y evolución del widget JavaScript embebible.
+— Diseño de la experiencia de usuario (UX) para todas las interfaces de la plataforma.
+— Definición de producto: especificación de nuevas funcionalidades y mejoras.
+— Revisión de feedback de usuarios y traducción en mejoras de interfaz.
+— Documentación técnica para integradores del widget.
+
+Stack tecnológico:
+Next.js 14, React 18, TypeScript, Tailwind CSS, ShadCN UI, Zustand, React Query.
+
+---CHUNK---
+
+5. HORARIO DE ATENCIÓN DE GUILLERMO FERNÁNDEZ
+
+Horario laboral estándar:
+Lunes a viernes de 9:00 a 19:00 hs (hora de Argentina, GMT-3).
+Horario extendido habitual hasta las 21:00 hs durante sprints de desarrollo o lanzamientos.
+Sábados: trabajo ocasional, sin atención a clientes.
+Domingos y feriados: sin atención.
+
+Disponibilidad por canal:
+— Email (guillermo@intellix.com.ar): respuesta dentro de las 8 horas hábiles.
+— Consultas técnicas de integración (widget): respuesta dentro de las 4 horas hábiles en días de semana.
+— Reuniones técnicas: disponible lunes, miércoles y viernes de 14:00 a 17:00 hs para revisiones de integración o consultas de producto.
+
+Consultas a Guillermo:
+Guillermo atiende consultas relacionadas con:
+— Integración del widget en sitios web o intranets.
+— Comportamiento de la interfaz de usuario.
+— Reporte de bugs visuales o de usabilidad.
+— Sugerencias de mejora de producto.
+— Acceso al panel de administración o configuración de la cuenta.
+
+Para consultas comerciales, dirigirse a Enzo. Para consultas de infraestructura o API, dirigirse a Alejo.
+
+---CHUNK---
+
+6. ALEJO MAROS — DESARROLLO BACKEND & INFRAESTRUCTURA
+
+Cargo: Developer Backend / Tech Lead
+Email: alejo@intellix.com.ar
+Email personal: alejo_maros@hotmail.com
+
+Descripción del rol:
+Alejo es el responsable de la arquitectura técnica de la plataforma, los modelos de inteligencia artificial, la infraestructura de servidores y la API que conecta todos los componentes del sistema. Su trabajo garantiza que la plataforma sea rápida, segura, escalable y confiable.
+
+Responsabilidades principales:
+— Diseño y mantenimiento de la arquitectura del sistema (API, bases de datos, servicios de IA).
+— Implementación y optimización de los modelos de procesamiento de lenguaje natural.
+— Gestión de la infraestructura de servidores y servicios en la nube.
+— Desarrollo y documentación de la API REST para integraciones externas.
+— Monitoreo de performance, disponibilidad y seguridad de la plataforma.
+— Gestión de backups y planes de recuperación ante desastres.
+— Implementación de nuevas funcionalidades del backend.
+
+Stack tecnológico:
+Python, FastAPI, PostgreSQL, pgvector, Neo4j, Qdrant, Redis, Celery, Docker, Nginx. Modelos: Llama 3.3, multilingual-e5-large, bge-reranker.
+
+---CHUNK---
+
+7. HORARIO DE ATENCIÓN DE ALEJO MAROS
+
+Horario laboral estándar:
+Lunes a viernes de 10:00 a 19:00 hs (hora de Argentina, GMT-3).
+Disponibilidad extendida hasta las 22:00 hs en días de sprint o incidentes de producción.
+Sábados: guardia pasiva para incidentes críticos (plataforma inaccesible). Tiempo de respuesta: hasta 2 horas.
+Domingos y feriados: guardia pasiva para incidentes críticos únicamente.
+
+Disponibilidad por canal:
+— Email (alejo@intellix.com.ar): respuesta dentro de las 8 horas hábiles.
+— Incidentes críticos (plataforma inaccesible): disponible las 24 horas vía el canal de soporte de emergencia. Tiempo de respuesta garantizado: 2 horas.
+— Reuniones técnicas: disponible martes y jueves de 10:00 a 13:00 hs y de 16:00 a 18:00 hs.
+
+Consultas a Alejo:
+Alejo atiende consultas relacionadas con:
+— Integración vía API REST (autenticación, endpoints, webhooks).
+— Incidentes de disponibilidad o performance de la plataforma.
+— Configuraciones avanzadas de seguridad (SSO, dominios, certificados).
+— Consultas técnicas sobre el procesamiento de documentos.
+— Errores en el procesamiento o indexación de documentos.
+
+Para soporte de emergencia fuera del horario laboral: soporte@intellix.com.ar con asunto "URGENTE".
+
+---CHUNK---
+
+8. HORARIOS DE ATENCIÓN GENERAL DE INTELLIX
+
+Horario de atención al cliente (todos los canales):
+Lunes a viernes: 9:00 a 18:00 hs (hora de Argentina)
+Sábados: 9:00 a 13:00 hs (solo consultas urgentes de clientes activos)
+Domingos y feriados nacionales argentinos: sin atención regular
+
+Incidentes críticos (plataforma inaccesible o error grave):
+Los 7 días de la semana, las 24 horas del día.
+Canal: soporte@intellix.com.ar con asunto "CRÍTICO: [descripción breve]"
+Tiempo de respuesta garantizado: 2 horas para todos los planes.
+
+Feriados nacionales argentinos:
+El equipo de Intellix respeta los feriados nacionales establecidos por el Gobierno de la República Argentina. En esos días no hay atención regular, pero la guardia de incidentes críticos permanece activa.
+
+Zona horaria:
+Todo el equipo opera en GMT-3 (hora de Argentina). Argentina no aplica cambio de horario estacional, por lo que el offset es fijo durante todo el año.
+
+Atención en otros idiomas:
+La atención al cliente se realiza en español. Para clientes o prospectos que requieran atención en inglés, coordinarlo previamente con Enzo.
+
+---CHUNK---
+
+9. CANALES DE CONTACTO Y SOPORTE
+
+Canal de ventas y consultas comerciales
+Responsable: Enzo Pérez
+Email: enzo@intellix.com.ar
+WhatsApp: +54 9 351 XXX-XXXX
+Formulario web: intellix.com.ar/contacto
+Horario: lunes a viernes de 9:00 a 18:00 hs
+
+Canal de soporte técnico general
+Responsable: rotativo (equipo completo)
+Email: soporte@intellix.com.ar
+Tiempo de respuesta: según plan contratado (hasta 24 hs Starter, hasta 4 hs Professional, hasta 1 hs Enterprise)
+Horario: lunes a viernes de 9:00 a 18:00 hs
+
+Canal de soporte de emergencia
+Disponible: 24/7
+Email: soporte@intellix.com.ar con asunto "CRÍTICO" o "URGENTE"
+Respuesta garantizada: 2 horas
+
+Canal de facturación y administración de cuenta
+Email: admin@intellix.com.ar
+Horario: lunes a viernes de 9:00 a 17:00 hs
+Responsable: Enzo Pérez (con copia a equipo contable)
+
+Canal de prensa y comunicaciones
+Email: prensa@intellix.com.ar
+
+Redes sociales (consultas informativas únicamente, no soporte):
+LinkedIn: linkedin.com/company/intellix-ar
+Instagram: @intellix.ar
+
+---CHUNK---
+
+10. PROCESO DE ESCALADO DE CONSULTAS
+
+Cuando una consulta o problema no se resuelve en el primer contacto, existe un proceso de escalado claro:
+
+Nivel 1 — Autogestión
+El cliente resuelve la consulta a través del centro de ayuda en línea (ayuda.intellix.com.ar), disponible 24/7 con documentación completa, tutoriales en video y preguntas frecuentes.
+
+Nivel 2 — Soporte estándar
+Contacto por email a soporte@intellix.com.ar. El ticket es gestionado por el primer integrante disponible del equipo. Tiempo de respuesta según plan.
+
+Nivel 3 — Soporte especializado
+Si la consulta requiere intervención técnica específica, el ticket se asigna a Alejo (backend/infraestructura) o Guillermo (frontend/interfaz) según corresponda. Se notifica al cliente el nombre del responsable y el tiempo estimado de resolución.
+
+Nivel 4 — Escalado a dirección
+Para casos excepcionales (incidentes graves, disputas comerciales, situaciones no previstas en los términos de servicio), el cliente puede solicitar atención directa de Enzo como responsable comercial o del CEO del equipo. Tiempo de respuesta: dentro de las 4 horas hábiles.
+
+Seguimiento de tickets:
+Todos los tickets de soporte reciben un número de referencia por email. El cliente puede hacer seguimiento de su ticket en cualquier momento escribiendo a soporte@intellix.com.ar con el número de referencia en el asunto.
+
+---CHUNK---
+
+11. REUNIONES Y DISPONIBILIDAD PARA DEMOS
+
+Demos de la plataforma para organizaciones interesadas:
+
+Formato: videollamada por Google Meet o Zoom (a elección del cliente).
+Duración: 45 a 60 minutos.
+Contenido: presentación de la plataforma, demostración en vivo con un caso de uso similar al del prospecto, sesión de preguntas y respuestas.
+Responsable: Enzo Pérez.
+
+Horarios disponibles para demos:
+Lunes: 10:00, 11:00, 15:00, 16:00 hs
+Martes: 10:00, 11:00, 14:00, 15:00, 16:00 hs
+Miércoles: 10:00, 11:00, 15:00, 16:00 hs
+Jueves: 10:00, 11:00, 14:00, 15:00, 16:00 hs
+Viernes: 10:00, 11:00 hs
+
+(Todos los horarios en GMT-3, hora de Argentina)
+
+Para agendar una demo: enzo@intellix.com.ar o formulario en intellix.com.ar/demo.
+Confirmar disponibilidad con al menos 24 horas de anticipación.
+Para clientes internacionales en otra zona horaria, coordinar con Enzo para encontrar un horario conveniente para ambas partes.
+
+---CHUNK---
+
+12. REUNIONES DE SEGUIMIENTO CON CLIENTES ACTIVOS
+
+Plan Starter:
+Sin reuniones de seguimiento incluidas. El cliente puede solicitar una reunión de revisión semestral sin costo adicional.
+
+Plan Professional:
+Una reunión mensual de seguimiento de 30 minutos con Enzo Pérez.
+Las reuniones se agendan en los primeros 10 días de cada mes.
+Agenda estándar: revisión de métricas de uso, novedades de la plataforma, consultas del cliente, planificación del mes siguiente.
+
+Plan Enterprise:
+Una reunión semanal de seguimiento de 30 minutos con Enzo Pérez y el referente técnico asignado.
+Agenda adaptable según las necesidades del cliente en cada período.
+Acceso a reuniones adicionales sin restricción cuando el proyecto lo requiera.
+
+Todas las reuniones de seguimiento se realizan por videollamada. El cliente recibe un resumen escrito de los puntos tratados y los próximos pasos dentro de las 24 horas de finalizada la reunión.
+
+---CHUNK---
+
+13. GESTIÓN DE VACACIONES Y AUSENCIAS DEL EQUIPO
+
+Intellix tiene una política de comunicación anticipada de vacaciones para garantizar continuidad del servicio:
+
+Vacaciones planificadas:
+Cada integrante del equipo comunica sus períodos de vacaciones con al menos dos semanas de anticipación a todos los clientes activos con los que tenga relación directa.
+Durante las vacaciones de un integrante, los demás miembros del equipo cubren sus responsabilidades de atención.
+
+Período de menor actividad (verano argentino):
+Los meses de enero y febrero son de menor actividad en el equipo. Se recomienda a los clientes anticipar consultas o implementaciones que estén planificadas para ese período.
+
+Feriados puente:
+Cuando un feriado nacional cae en jueves o martes, el equipo puede optar por tomar el viernes o lunes como día no laborable. En esos casos se comunica con anticipación y la guardia de emergencia permanece activa.
+
+Guardia de emergencia:
+Independientemente de las ausencias del equipo, siempre hay al menos un integrante disponible para responder incidentes críticos en un plazo máximo de 2 horas, los 365 días del año.
+
+---CHUNK---
+
+14. CALENDARIO DE TRABAJO SEMANAL DEL EQUIPO
+
+Para facilitar la coordinación con clientes y prospectos, compartimos la estructura típica de la semana del equipo:
+
+Lunes:
+— Reunión interna de planificación semanal: 9:00 a 10:00 hs (interno).
+— Enzo: disponible para demos y reuniones comerciales desde las 10:00 hs.
+— Guillermo y Alejo: foco en desarrollo. Disponibles para reuniones técnicas desde las 14:00 hs.
+
+Martes:
+— Día de mayor disponibilidad para reuniones técnicas (Alejo: 10:00-13:00 hs y 16:00-18:00 hs).
+— Enzo: disponible para demos todo el día.
+
+Miércoles:
+— Día de revisión de producto (Guillermo lidera). Disponible para consultas de integración de 14:00 a 17:00 hs.
+— Enzo: disponible para demos y reuniones comerciales.
+
+Jueves:
+— Alta disponibilidad técnica (Alejo: 10:00-13:00 hs y 16:00-18:00 hs).
+— Día de cierre comercial (Enzo: reuniones de avance y firma de contratos).
+
+Viernes:
+— Revisión semanal interna: 17:00 a 18:00 hs (interno).
+— Enzo: demos disponibles hasta las 13:00 hs.
+— Guillermo y Alejo: foco en revisión técnica y preparación de la semana siguiente.
+
+---CHUNK---
+
+15. PERFILES Y EXPERIENCIA DEL EQUIPO
+
+Enzo Pérez — Sales Developer
+Enzo tiene experiencia en ventas B2B de soluciones tecnológicas y en gestión de cuentas corporativas. Su background en consultoría le permite entender rápidamente los procesos y desafíos de cada organización y proponer implementaciones adaptadas a su realidad específica. Es el punto de contacto principal para todo lo relacionado con la relación comercial con el cliente.
+
+Idiomas: español (nativo), inglés (intermedio-avanzado).
+Disponibilidad para atención en inglés: consultar disponibilidad.
+
+Guillermo Fernández — Developer Frontend & Producto
+Guillermo es desarrollador web con especialización en frontend y experiencia en el diseño de interfaces para aplicaciones empresariales. Su enfoque está en la usabilidad y en hacer que herramientas técnicamente complejas sean fáciles de usar para cualquier persona, independientemente de su perfil técnico. Lidera la evolución del producto desde la perspectiva del usuario.
+
+Idiomas: español (nativo), inglés (intermedio).
+
+Alejo Maros — Developer Backend & Tech Lead
+Alejo es el arquitecto técnico de la plataforma. Con sólida experiencia en sistemas distribuidos, inteligencia artificial aplicada e infraestructura de producción, es responsable de que la plataforma funcione de manera confiable, segura y escalable para todos los clientes. Combina expertise técnico con capacidad para explicar conceptos complejos de manera clara a audiencias no técnicas.
+
+Idiomas: español (nativo), inglés (avanzado).
+
+---CHUNK---
+
+16. POLÍTICA DE CONFIDENCIALIDAD DEL EQUIPO
+
+Todos los integrantes de Intellix están sujetos a acuerdos de confidencialidad que prohíben compartir información de clientes con terceros. Esto incluye:
+
+— El nombre o identidad de los clientes y prospectos.
+— El contenido de los documentos cargados a la plataforma.
+— Las consultas realizadas por los usuarios.
+— Los términos comerciales de cada contrato.
+— Cualquier información estratégica de la organización compartida durante el proceso de implementación.
+
+Los integrantes del equipo únicamente acceden a la información de un cliente cuando es estrictamente necesario para brindar soporte o resolver un incidente. Todo acceso queda registrado en logs de auditoría.
+
+Para solicitar información sobre las políticas de privacidad y el tratamiento de datos personales: privacidad@intellix.com.ar.
+
+---CHUNK---
+
+17. INCORPORACIONES Y CRECIMIENTO DEL EQUIPO
+
+Intellix está en proceso de crecimiento. Durante 2026 están planificadas las siguientes incorporaciones:
+
+Responsable de Customer Success (Q3 2026):
+Se incorporará una persona dedicada exclusivamente al acompañamiento de clientes activos, seguimiento de resultados y detección de oportunidades de mejora. Esto permitirá a Enzo focalizarse en el crecimiento comercial.
+
+Developer adicional (Q3-Q4 2026):
+Se incorporará un cuarto integrante al equipo de desarrollo para acelerar la hoja de ruta de producto. El proceso de selección comenzará en julio 2026.
+
+Responsable de Contenidos y Documentación (Q4 2026):
+Se incorporará una persona dedicada a la producción de contenidos de ayuda, documentación técnica y materiales de capacitación para clientes.
+
+Las incorporaciones pueden afectar la distribución de responsabilidades de atención. Los clientes serán informados con anticipación de cualquier cambio en sus puntos de contacto habituales.
+
+---CHUNK---
+
+18. COMUNICACIÓN INTERNA Y COORDINACIÓN CON CLIENTES
+
+Intellix utiliza las siguientes herramientas para la gestión del trabajo:
+
+Gestión de proyectos: Notion (interno). Los roadmaps de producto y los planes de implementación de clientes Enterprise se gestionan aquí.
+
+Comunicación interna: Slack (interno). El equipo está disponible en tiempo real durante el horario laboral.
+
+Gestión de soporte: sistema de ticketing propio integrado a la plataforma. Cada consulta de soporte recibe un número de ticket y queda registrada.
+
+Videollamadas: Google Meet (por defecto) o Zoom (a solicitud del cliente).
+
+Documentación compartida con clientes: Google Drive (documentos compartidos durante la implementación) o la propia plataforma Intellix (una vez en operación).
+
+Para clientes con restricciones en el uso de herramientas en la nube (datos sensibles, políticas de seguridad corporativa), Intellix puede adaptar la comunicación a las herramientas habilitadas por la organización. Consultar con Enzo en el proceso comercial.
+
+---CHUNK---
+
+19. TIEMPO ESTIMADO DE RESPUESTA POR TIPO DE CONSULTA
+
+Para que los clientes tengan expectativas claras, detallamos los tiempos estimados de respuesta según el tipo de consulta:
+
+Consultas comerciales (demos, precios, propuestas):
+Primer respuesta: dentro de las 4 horas hábiles.
+Propuesta formal: dentro de los 3 días hábiles desde la reunión de relevamiento.
+
+Consultas de soporte estándar (configuración, uso de la plataforma):
+Plan Starter: hasta 24 horas hábiles.
+Plan Professional: hasta 4 horas hábiles.
+Plan Enterprise: hasta 1 hora hábil.
+
+Reporte de bugs o errores en la plataforma:
+Confirmación de recepción: dentro de 1 hora hábil.
+Diagnóstico inicial: dentro de las 4 horas hábiles.
+Resolución según criticidad: crítico (bloqueo total) dentro de las 4 horas; alto (funcionalidad degradada) dentro de las 24 horas; medio/bajo dentro de los 5 días hábiles.
+
+Consultas técnicas de integración (API, widget):
+Primer respuesta de Guillermo o Alejo: dentro de las 4 horas hábiles.
+Resolución de problemas simples: dentro de las 24 horas.
+Resolución de problemas complejos: a definir según diagnóstico, con comunicación proactiva del avance.
+
+Solicitudes de nuevas funcionalidades o cambios de producto:
+Acuse de recibo: inmediato (respuesta automática + manual dentro de 48 hs).
+Evaluación e inclusión en roadmap: dentro de los 10 días hábiles.
+El cliente recibe notificación cuando la funcionalidad solicitada es incluida en el roadmap y cuando es liberada en producción.
+
+---CHUNK---
+
+20. COMPROMISO CON LA MEJORA CONTINUA
+
+El equipo de Intellix revisa mensualmente los indicadores de calidad del servicio:
+
+— Tasa de satisfacción de clientes (NPS y CSAT).
+— Tiempo promedio de resolución de tickets de soporte.
+— Volumen y tipo de consultas de soporte (para identificar oportunidades de mejora en la plataforma o documentación).
+— Disponibilidad efectiva de la plataforma vs. SLA comprometido.
+— Tasa de renovación y churn (cancelaciones).
+
+Los resultados de esta revisión se comparten semestralmente con los clientes del plan Enterprise en las reuniones de seguimiento. Los clientes de planes Starter y Professional pueden solicitar acceso a los reportes de disponibilidad de la plataforma en cualquier momento.
+
+El feedback de los clientes es el principal insumo para la evolución del producto. Cada sugerencia de mejora recibida es analizada por el equipo y, si es incorporada al roadmap, el cliente que la sugirió es notificado y reconocido.
+
+Intellix es una empresa joven con vocación de crecer junto a sus clientes. La relación con cada organización no termina en la venta ni en la implementación: empieza ahí.
+
+Para cualquier consulta, sugerencia o comentario sobre el servicio: feedback@intellix.com.ar.
+
+---CHUNK---
+
+21. DIRECTORIO RÁPIDO DE CONTACTOS
+
+VENTAS Y CONSULTAS COMERCIALES
+Enzo Pérez — Sales Developer
+enzo@intellix.com.ar
+Horario: lunes a viernes 9:00-18:00 hs | sábados 9:00-13:00 hs (urgente)
+
+SOPORTE TÉCNICO GENERAL
+soporte@intellix.com.ar (equipo completo)
+Horario: lunes a viernes 9:00-18:00 hs
+
+SOPORTE TÉCNICO — FRONTEND E INTERFAZ
+Guillermo Fernández — Developer Frontend
+guillermo@intellix.com.ar
+Horario: lunes a viernes 9:00-19:00 hs
+
+SOPORTE TÉCNICO — BACKEND, API E INFRAESTRUCTURA
+Alejo Maros — Developer Backend / Tech Lead
+alejo@intellix.com.ar
+Horario: lunes a viernes 10:00-19:00 hs | guardia crítica 24/7
+
+EMERGENCIAS (plataforma inaccesible o error grave)
+soporte@intellix.com.ar — Asunto: "CRÍTICO"
+Disponible: 24/7 — Respuesta garantizada: 2 horas
+
+FACTURACIÓN Y ADMINISTRACIÓN DE CUENTA
+admin@intellix.com.ar
+Horario: lunes a viernes 9:00-17:00 hs
+
+PRIVACIDAD Y PROTECCIÓN DE DATOS
+privacidad@intellix.com.ar
+
+INFORMACIÓN GENERAL
+info@intellix.com.ar
+
+SITIO WEB
+intellix.com.ar
+
+════════════════════════════════════════════════════════════════
+FIN DEL DOCUMENTO — INTELLIX EQUIPO Y HORARIOS
+Última actualización: junio 2026
+Para actualizar este documento: admin@intellix.com.ar
+════════════════════════════════════════════════════════════════
