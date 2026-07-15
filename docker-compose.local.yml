@@ -244,6 +244,12 @@ services:
       NEXT_PUBLIC_DEV_QUICK_PASSWORD: ${DEV_QUICK_PASSWORD:-local1234}
       PORT: "3000"
       HOSTNAME: 0.0.0.0
+      # HMR sobre bind mount en Docker/Windows: los eventos de filesystem no
+      # atraviesan el mount, así que el watcher de Next no ve los cambios. El
+      # polling los detecta cada ~1s y habilita hot-reload sin reiniciar el
+      # contenedor. Solo local (costo de CPU aceptable en dev).
+      WATCHPACK_POLLING: "true"
+      CHOKIDAR_USEPOLLING: "true"
     ports:
       - "127.0.0.1:3010:3000"
     volumes:

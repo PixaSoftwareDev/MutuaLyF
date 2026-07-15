@@ -80,6 +80,7 @@ async def list_intentions(
                 AND intent_confidence >= :low
                 AND intent_confidence < :high
                 AND intent_label NOT IN (SELECT label FROM intenciones WHERE is_active = TRUE)
+                AND cluster_status IS DISTINCT FROM 'dismissed'
                 AND created_at >= NOW() - INTERVAL '30 days'
             GROUP BY intent_label
             HAVING COUNT(*) >= 3
@@ -230,6 +231,7 @@ async def get_pending_examples(
         result = await session.execute(text("""
             SELECT
                 id,
+                question_text,
                 intent_confidence,
                 auto_learning_blocked,
                 latency_ms,

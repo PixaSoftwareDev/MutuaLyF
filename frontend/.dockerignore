@@ -1,0 +1,24 @@
+# Dependencias e outputs de build — se instalan/generan DENTRO del contenedor.
+# Copiarlos desde el host rompe el build (node_modules de npm vs pnpm) e infla
+# el contexto (cientos de MB). El compose monta node_modules en un volumen aparte.
+node_modules
+.next
+out
+build
+
+# Local / VCS / logs
+.git
+.gitignore
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Env locales (nunca al contexto de build)
+.env*.local
+.env
+
+# Editor / OS
+.vscode
+.idea
+.DS_Store
+Thumbs.db

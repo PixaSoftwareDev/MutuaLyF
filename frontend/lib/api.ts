@@ -237,6 +237,15 @@ export interface PendingIntention {
   auto_learning_blocked_count: number;
 }
 
+export interface PendingExample {
+  id: string;
+  question_text: string | null;
+  intent_confidence: number | null;
+  auto_learning_blocked: boolean;
+  latency_ms: number | null;
+  created_at: string;
+}
+
 export interface ClusterQuery {
   id: string;
   text: string;
@@ -776,6 +785,11 @@ export const api = {
     },
     getExamples: async (intentionId: string): Promise<IntentionDetail> => {
       const { data } = await apiClient.get<IntentionDetail>(`/intentions/${intentionId}/examples`);
+      return data;
+    },
+    // Consultas que dispararon un tema pendiente (por label detectado).
+    getPendingExamples: async (label: string): Promise<{ label: string; examples: PendingExample[] }> => {
+      const { data } = await apiClient.get(`/intentions/label/${encodeURIComponent(label)}/examples`);
       return data;
     },
     approve: async (intentionId: string) => {

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Plus, Search, Play, BrainCircuit, ChevronRight, Check, X, MoreHorizontal, Inbox, Layers, Tag } from "lucide-react";
+import { Loader2, Plus, Search, Play, BrainCircuit, Check, X, MoreHorizontal, Inbox, Layers, Tag, ChevronUp, ChevronDown } from "lucide-react";
 import { EmptyState } from "@/components/ui/empty-state";
 import {
   DropdownMenu,
@@ -11,7 +11,7 @@ import {
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
 import { PageShell } from "@/components/layout/page-shell";
-import { PageHeader, CountChip } from "@/components/layout/page-header";
+import { PageHeader } from "@/components/layout/page-header";
 import { FormSheet } from "@/components/layout/form-sheet";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -20,13 +20,24 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { IntentionCard } from "@/components/intentions/intention-card";
+import { IntentionRow } from "@/components/intentions/intention-card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
+import type { PendingIntention } from "@/lib/api";
 import { toast } from "@/components/ui/toast";
 
 export default function IntentionsPage() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
+  // Tab controlado: arranca en null y cae al default del flujo (Sugeridos →
+  // Pendientes → Activos) hasta que el usuario elija. Controlado para que la
+  // barra guía pueda saltar de pestaña.
+  const [tab, setTab] = useState<string | null>(null);
+  const [showInactive, setShowInactive] = useState(false);
+  const [sortDir, setSortDir] = useState<"desc" | "asc">("desc");
+  const [pendingDetail, setPendingDetail] = useState<PendingIntention | null>(null);
+  const [selectedClusterId, setSelectedClusterId] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [newLabel, setNewLabel] = useState("");
   const [newDescription, setNewDescription] = useState("");
@@ -121,14 +132,32 @@ export default function IntentionsPage() {
   );
   const active = intentions.filter((i) => i.is_active);
   const inactive = intentions.filter((i) => !i.is_active);
+
+  // Orden de la pestaña Activos: por uso (consultas 7d), dirección según el
+  // header clickeable de la columna Consultas.
+  const sortThemes = <T extends { queries_7d?: number }>(list: T[]) =>
+    [...list].sort((a, b) => {
+      const d = (a.queries_7d ?? 0) - (b.queries_7d ?? 0);
+      return sortDir === "desc" ? -d : d;
+    });
+  const sortedActive = sortThemes(active);
+  const sortedInactive = sortThemes(inactive);
+  const maxQueries = Math.max(1, ...active.map((i) => i.queries_7d ?? 0), ...inactive.map((i) => i.queries_7d ?? 0));
+  // Conteo sin filtrar por búsqueda → distingue "no hay temas" de "sin resultados".
+  const totalActive = (data?.intentions ?? []).filter((i) => i.is_active).length;
   const pending = data?.pending_review ?? [];
   const clusters = data?.discovered_clusters ?? [];
+
+  // Tab por defecto = primer paso del flujo con trabajo pendiente. Se respeta
+  // la elección del usuario (tab !== null) una vez que interactúa.
+  const activeTab = tab ?? (clusters.length > 0 ? "clusters" : pending.length > 0 ? "pending" : "active");
 
   const approveClusterMutation = useMutation({
     mutationFn: ({ clusterId, label }: { clusterId: string; label: string }) =>
       api.intentions.approveCluster(clusterId, label),
     onSuccess: (_data, vars) => {
       inv();
+      setSelectedClusterId((cur) => (cur === vars.clusterId ? null : cur));
       setClusterLabel((prev) => { const n = { ...prev }; delete n[vars.clusterId]; return n; });
       toast({ title: "Intención creada", description: "El clasificador se reentrenará en segundo plano.", variant: "success" });
     },
@@ -137,61 +166,31 @@ export default function IntentionsPage() {
 
   const dismissClusterMutation = useMutation({
     mutationFn: (clusterId: string) => api.intentions.dismissCluster(clusterId),
-    onSuccess: () => { inv(); toast({ title: "Cluster descartado", variant: "default" }); },
+    onSuccess: (_data, clusterId) => {
+      inv();
+      setSelectedClusterId((cur) => (cur === clusterId ? null : cur));
+      toast({ title: "Grupo descartado", variant: "default" });
+    },
   });
 
+  // Cluster en vivo (derivado de la lista): así el panel de detalle refleja los
+  // refetches — al quitar un outlier o descartar, se actualiza solo.
+  const selectedCluster = clusters.find((c) => c.cluster_id === selectedClusterId) ?? null;
+
+  // El label efectivo de un grupo = lo que el admin tipeó, o la sugerencia de la
+  // IA. Aprobar sin label no tiene sentido, así que el botón queda deshabilitado.
+  const clusterEffectiveLabel = (c: import("@/lib/api").DiscoveredCluster) =>
+    ((clusterLabel[c.cluster_id] ?? c.suggested_label ?? "").trim());
+  const approveCluster = (c: import("@/lib/api").DiscoveredCluster) => {
+    const label = clusterEffectiveLabel(c);
+    if (label) approveClusterMutation.mutate({ clusterId: c.cluster_id, label });
+  };
+
   return (
-    <PageShell>
+    <PageShell width="wide">
       <PageHeader
         title="Temas reconocidos"
-        badge={!isLoading && !error
-          ? <CountChip>{active.length} {active.length === 1 ? "activo" : "activos"}</CountChip>
-          : undefined}
-        description="Los temas que el bot identifica en las consultas. Aprobá los que correspondan a tu organización."
-        actions={
-          <>
-            {/* "Detectar temas nuevos" es el primer paso del flujo (sin esto no
-                aparecen Sugeridos) → visible, no escondido en el menú. */}
-            {/* "Detectar temas nuevos" es el primer paso del flujo (sin esto no
-                aparecen Sugeridos) → visible. */}
-            <Button
-              variant="outline"
-              size="sm"
-              className="group"
-              onClick={() => clusterMutation.mutate()}
-              disabled={clusterMutation.isPending}
-            >
-              {clusterMutation.isPending
-                ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
-                : <Play className="h-4 w-4 mr-1.5 transition-transform group-hover:translate-x-0.5" />}
-              Detectar temas nuevos
-            </Button>
-            <Button size="sm" className="group" onClick={() => setShowCreate(true)}>
-              <Plus className="h-4 w-4 mr-1 transition-transform group-hover:rotate-90" />
-              Nuevo tema
-            </Button>
-            {/* Overflow al EXTREMO (convención). Acciones avanzadas/raras: hoy
-                solo "Reentrenar" (normalmente es automático tras aprobar temas). */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" aria-label="Más acciones" title="Más acciones">
-                  <MoreHorizontal className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-56">
-                <DropdownMenuItem
-                  onSelect={() => retrainMutation.mutate()}
-                  disabled={retrainMutation.isPending}
-                >
-                  {retrainMutation.isPending
-                    ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    : <BrainCircuit className="h-4 w-4 mr-2" />}
-                  Reentrenar clasificador
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </>
-        }
+        description="El bot detecta temas en las consultas y vos los revisás y aprobás."
       />
 
       {isLoading ? (
@@ -206,65 +205,124 @@ export default function IntentionsPage() {
           Error al cargar intenciones
         </div>
       ) : (
-        <Tabs defaultValue={clusters.length > 0 ? "clusters" : pending.length > 0 ? "pending" : "active"}>
-          {/* Orden = flujo de trabajo: primero lo que hay para revisar
-              (Sugeridos/Pendientes), después lo ya resuelto (Activos/Inactivos).
-              La mirada cae primero a la izquierda → ahí va la bandeja de trabajo. */}
-          <TabsList>
-            <TabsTrigger value="clusters">
-              Sugeridos
-              {clusters.length > 0 && <TabCount count={clusters.length} />}
-            </TabsTrigger>
-            <TabsTrigger value="pending">
-              Pendientes
-              {pending.length > 0 && <TabCount count={pending.length} />}
-            </TabsTrigger>
-            <TabsTrigger value="active">
-              Activos
-              {active.length > 0 && <TabCount count={active.length} />}
-            </TabsTrigger>
-            {inactive.length > 0 && (
-              <TabsTrigger value="inactive">
-                Inactivos
-                <TabCount count={inactive.length} />
+        <Tabs value={activeTab} onValueChange={setTab}>
+          {/* Fila de pestañas + acciones a la derecha (misma altura). Orden =
+              flujo de trabajo: primero lo que hay para revisar, después lo ya
+              resuelto. La mirada cae a la izquierda → ahí va la bandeja. */}
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <TabsList>
+              <TabsTrigger value="clusters">
+                Sugeridos
+                {clusters.length > 0 && <TabCount count={clusters.length} />}
               </TabsTrigger>
-            )}
-          </TabsList>
+              <TabsTrigger value="pending">
+                Pendientes
+                {pending.length > 0 && <TabCount count={pending.length} />}
+              </TabsTrigger>
+              <TabsTrigger value="active">
+                Activos
+                {active.length > 0 && <TabCount count={active.length} />}
+              </TabsTrigger>
+            </TabsList>
 
-          {/* Activas */}
+            <div className="flex items-center gap-2">
+              <Button size="sm" className="group" onClick={() => setShowCreate(true)}>
+                <Plus className="h-4 w-4 mr-1 transition-transform group-hover:rotate-90" />
+                Nuevo tema
+              </Button>
+              {/* Acciones secundarias/automáticas en el overflow */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" aria-label="Más acciones" title="Más acciones">
+                    <MoreHorizontal className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-60">
+                  <DropdownMenuItem
+                    onSelect={() => clusterMutation.mutate()}
+                    disabled={clusterMutation.isPending}
+                  >
+                    {clusterMutation.isPending
+                      ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      : <Play className="h-4 w-4 mr-2" />}
+                    Detectar temas nuevos
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={() => retrainMutation.mutate()}
+                    disabled={retrainMutation.isPending}
+                  >
+                    {retrainMutation.isPending
+                      ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      : <BrainCircuit className="h-4 w-4 mr-2" />}
+                    Reentrenar clasificador
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </div>
+
+          {/* Activas — inventario que se administra: buscar, ordenar por uso,
+              tabla que escala a cientos de temas. */}
           <TabsContent value="active" className="mt-4 space-y-4">
-            {intentions.length > 4 && (
-              <div className="relative max-w-xs">
-                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Buscar tema..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="pl-8"
-                />
-              </div>
-            )}
-            {active.length === 0 ? (
+            {totalActive === 0 ? (
               <EmptyState
                 icon={Tag}
                 title="No hay temas activos"
                 description="Creá un tema con 'Nuevo tema' (arriba) o aprobá los que el bot detectó en las pestañas Sugeridos y Pendientes."
               />
             ) : (
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 stagger-children">
-                {active.map((intent) => (
-                  <IntentionCard
-                    key={intent.id}
-                    id={intent.id}
-                    label={intent.label}
-                    description={intent.description}
-                    isActive={intent.is_active}
-                    queries7d={intent.queries_7d}
-                    onToggleActive={(id, current) => toggleMutation.mutate({ id, isActive: current })}
+              <>
+                {/* Toolbar: buscar · ver inactivos · ordenar · toggle */}
+                <div className="flex items-center justify-between gap-2.5 flex-wrap">
+                  <div className="relative w-full max-w-xs min-w-0">
+                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      placeholder="Buscar tema..."
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                      className="pl-8 h-10"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {inactive.length > 0 && (
+                      <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={() => setShowInactive(v => !v)}>
+                        {showInactive ? "Ocultar inactivos" : `Ver inactivos (${inactive.length})`}
+                      </Button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Contenido: sin resultados / tabla */}
+                {sortedActive.length === 0 ? (
+                  <EmptyState icon={Search} title="Sin resultados" description={`Ningún tema coincide con "${search}".`} />
+                ) : (
+                  <ThemeTable
+                    items={sortedActive}
+                    maxQueries={maxQueries}
+                    sortDir={sortDir}
+                    onToggleSort={() => setSortDir(d => d === "desc" ? "asc" : "desc")}
+                    onToggle={(id, current) => toggleMutation.mutate({ id, isActive: current })}
                     onDelete={(id) => deleteMutation.mutate(id)}
                   />
-                ))}
-              </div>
+                )}
+
+                {/* Inactivos — plegados dentro de Activos (sin pestaña propia) */}
+                {showInactive && inactive.length > 0 && (
+                  <div className="pt-2 space-y-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">
+                      Inactivos · no se usan para clasificar
+                    </p>
+                    <ThemeTable
+                      items={sortedInactive}
+                      maxQueries={maxQueries}
+                      sortDir={sortDir}
+                      onToggleSort={() => setSortDir(d => d === "desc" ? "asc" : "desc")}
+                      onToggle={(id, current) => toggleMutation.mutate({ id, isActive: current })}
+                      onDelete={(id) => deleteMutation.mutate(id)}
+                    />
+                  </div>
+                )}
+              </>
             )}
           </TabsContent>
 
@@ -277,21 +335,14 @@ export default function IntentionsPage() {
                 description="Cuando el bot detecte consultas que necesitan tu validación, van a aparecer acá."
               />
             ) : (
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {pending.map((intent) => (
-                    <IntentionCard
-                      key={intent.id}
-                      id={intent.id}
-                      label={intent.label}
-                      description={null}
-                      isActive={false}
-                      isPending
-                      pendingQueryCount={intent.query_count}
-                      onApprove={(id) => approveMutation.mutate(id)}
-                      onReject={(id) => rejectMutation.mutate(id)}
-                    />
-                  ))}
-              </div>
+              <PendingTable
+                items={pending}
+                approving={approveMutation.isPending}
+                rejecting={rejectMutation.isPending}
+                onApprove={(id) => approveMutation.mutate(id)}
+                onReject={(id) => rejectMutation.mutate(id)}
+                onSelect={setPendingDetail}
+              />
             )}
           </TabsContent>
 
@@ -304,42 +355,46 @@ export default function IntentionsPage() {
                 description="Usá 'Detectar temas nuevos' (arriba) para que el sistema agrupe consultas similares y te proponga temas."
               />
             ) : (
-              <ClusterReview
+              <ClusterTable
                 clusters={clusters}
                 getLabel={(id) => clusterLabel[id] ?? ""}
                 onLabelChange={(id, v) => setClusterLabel((prev) => ({ ...prev, [id]: v }))}
-                onApprove={(cluster) => {
-                  const label = (clusterLabel[cluster.cluster_id] ?? cluster.suggested_label ?? "").trim();
-                  if (label) approveClusterMutation.mutate({ clusterId: cluster.cluster_id, label });
-                }}
-                onDismiss={(cluster) => dismissClusterMutation.mutate(cluster.cluster_id)}
-                isApproving={approveClusterMutation.isPending}
-                isDismissing={dismissClusterMutation.isPending}
+                effectiveLabel={clusterEffectiveLabel}
+                approving={approveClusterMutation.isPending}
+                dismissing={dismissClusterMutation.isPending}
+                onApprove={approveCluster}
+                onDismiss={(c) => dismissClusterMutation.mutate(c.cluster_id)}
+                onSelect={(c) => setSelectedClusterId(c.cluster_id)}
               />
             )}
           </TabsContent>
 
-          {/* Inactivas */}
-          {inactive.length > 0 && (
-            <TabsContent value="inactive" className="mt-4">
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {inactive.map((intent) => (
-                  <IntentionCard
-                    key={intent.id}
-                    id={intent.id}
-                    label={intent.label}
-                    description={intent.description}
-                    isActive={false}
-                    queries7d={intent.queries_7d}
-                    onToggleActive={(id, current) => toggleMutation.mutate({ id, isActive: current })}
-                    onDelete={(id) => deleteMutation.mutate(id)}
-                  />
-                ))}
-              </div>
-            </TabsContent>
-          )}
         </Tabs>
       )}
+
+      {/* Panel de detalle de un pendiente: sus consultas + decisión */}
+      <PendingDetailSheet
+        item={pendingDetail}
+        onClose={() => setPendingDetail(null)}
+        approving={approveMutation.isPending}
+        rejecting={rejectMutation.isPending}
+        onApprove={(id) => approveMutation.mutate(id)}
+        onReject={(id) => rejectMutation.mutate(id)}
+      />
+
+      {/* Panel de detalle de un grupo sugerido: nombrar, revisar consultas,
+          quitar outliers y decidir. Mismo patrón que el de Pendientes. */}
+      <ClusterDetailSheet
+        cluster={selectedCluster}
+        onClose={() => setSelectedClusterId(null)}
+        label={selectedCluster ? clusterLabel[selectedCluster.cluster_id] ?? "" : ""}
+        onLabelChange={(v) => selectedCluster && setClusterLabel((prev) => ({ ...prev, [selectedCluster.cluster_id]: v }))}
+        canApprove={selectedCluster ? clusterEffectiveLabel(selectedCluster).length > 0 : false}
+        approving={approveClusterMutation.isPending}
+        dismissing={dismissClusterMutation.isPending}
+        onApprove={() => selectedCluster && approveCluster(selectedCluster)}
+        onDismiss={() => selectedCluster && dismissClusterMutation.mutate(selectedCluster.cluster_id)}
+      />
 
       {/* Panel crear tema */}
       <FormSheet
@@ -404,185 +459,401 @@ export default function IntentionsPage() {
   );
 }
 
-/**
- * Revisión de grupos sugeridos — patrón master-detail (split view), como las
- * colas de triage de Linear/Gmail/GitHub. La lista izquierda deja escanear TODOS
- * los grupos de un vistazo; el panel derecho muestra el grupo activo con UN solo
- * par de acciones (aprobar/descartar). Evita el "muro de N botones repetidos" de
- * una grilla de cards. Al resolver un grupo, salta solo al siguiente.
- */
-function ClusterReview({
-  clusters, getLabel, onLabelChange, onApprove, onDismiss, isApproving, isDismissing,
+/** Tabla de grupos sugeridos: misma cola de decisiones que Pendientes. Cada
+ *  fila es un grupo con su nombre editable inline (el bot sugiere uno), el
+ *  conteo de consultas y las acciones Aprobar / Descartar. Al clickear la fila
+ *  se abre el panel de detalle para ver las consultas y quitar outliers. */
+function ClusterTable({
+  clusters, getLabel, onLabelChange, effectiveLabel, approving, dismissing, onApprove, onDismiss, onSelect,
 }: {
   clusters: import("@/lib/api").DiscoveredCluster[];
   getLabel: (clusterId: string) => string;
   onLabelChange: (clusterId: string, v: string) => void;
-  onApprove: (cluster: import("@/lib/api").DiscoveredCluster) => void;
-  onDismiss: (cluster: import("@/lib/api").DiscoveredCluster) => void;
-  isApproving: boolean;
-  isDismissing: boolean;
+  effectiveLabel: (c: import("@/lib/api").DiscoveredCluster) => string;
+  approving: boolean;
+  dismissing: boolean;
+  onApprove: (c: import("@/lib/api").DiscoveredCluster) => void;
+  onDismiss: (c: import("@/lib/api").DiscoveredCluster) => void;
+  onSelect: (c: import("@/lib/api").DiscoveredCluster) => void;
 }) {
-  const [selectedId, setSelectedId] = useState<string | null>(clusters[0]?.cluster_id ?? null);
-
-  // Mantener una selección válida: si el grupo activo se aprueba/descarta y
-  // desaparece de la lista, saltar al primero disponible (flujo continuo).
-  useEffect(() => {
-    if (clusters.length === 0) { setSelectedId(null); return; }
-    if (!clusters.some((c) => c.cluster_id === selectedId)) {
-      setSelectedId(clusters[0].cluster_id);
-    }
-  }, [clusters, selectedId]);
-
-  const selected = clusters.find((c) => c.cluster_id === selectedId) ?? clusters[0] ?? null;
-
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-[300px_1fr] gap-4 lg:h-[calc(100dvh-13rem)] lg:min-h-[480px]">
-      {/* ── Lista de grupos (escaneo, sin acciones repetidas) ──────────────── */}
-      <div className="rounded-xl border bg-card overflow-hidden flex flex-col min-h-0">
-        <div className="px-3 py-2.5 border-b bg-muted/30 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide shrink-0">
-          {clusters.length} {clusters.length === 1 ? "grupo para revisar" : "grupos para revisar"}
-        </div>
-        <div className="overflow-y-auto scrollbar-slim flex-1 min-h-0 p-1.5 space-y-0.5 max-h-64 lg:max-h-none">
-          {clusters.map((c) => {
-            const name = (getLabel(c.cluster_id) || c.suggested_label || "").trim();
-            const isSel = c.cluster_id === selected?.cluster_id;
-            return (
-              <button
-                key={c.cluster_id}
-                onClick={() => setSelectedId(c.cluster_id)}
-                aria-current={isSel ? "true" : undefined}
-                className={cn(
-                  "w-full text-left rounded-lg px-3 py-2.5 transition-colors flex items-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                  isSel ? "bg-action/10 ring-1 ring-action/20" : "hover:bg-muted/60",
-                )}
-              >
-                <div className="min-w-0 flex-1">
-                  <p className={cn("text-sm truncate", name ? "font-medium text-foreground" : "text-muted-foreground italic")}>
-                    {name || "Grupo sin nombre"}
-                  </p>
-                  <p className="text-[11px] text-muted-foreground mt-0.5">
-                    {c.queries.length} {c.queries.length === 1 ? "consulta" : "consultas"}
-                  </p>
+    <div className="rounded-2xl border bg-card shadow-sm overflow-hidden">
+      <Table>
+        <TableHeader>
+          <TableRow className="hover:bg-transparent">
+            <TableHead>Tema sugerido</TableHead>
+            <TableHead className="text-right whitespace-nowrap">Consultas</TableHead>
+            <TableHead className="text-right">Acciones</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {clusters.map((c) => (
+            <TableRow key={c.cluster_id} className="cursor-pointer" onClick={() => onSelect(c)}>
+              <TableCell>
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-action-gradient-soft">
+                    <Tag className="h-4 w-4 text-action" />
+                  </div>
+                  {/* El input frena la propagación: tipear/clickear no abre el panel */}
+                  <Input
+                    value={getLabel(c.cluster_id)}
+                    placeholder={c.suggested_label || "Escribí un nombre…"}
+                    onChange={(e) => onLabelChange(c.cluster_id, e.target.value)}
+                    onClick={(e) => e.stopPropagation()}
+                    className="h-9 text-sm font-medium max-w-xs"
+                  />
                 </div>
-                <ChevronRight className={cn("h-4 w-4 shrink-0", isSel ? "text-action" : "text-muted-foreground/40")} />
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* ── Detalle del grupo seleccionado ─────────────────────────────────── */}
-      {selected ? (
-        <ClusterDetail
-          key={selected.cluster_id}
-          cluster={selected}
-          label={getLabel(selected.cluster_id)}
-          onLabelChange={(v) => onLabelChange(selected.cluster_id, v)}
-          onApprove={() => onApprove(selected)}
-          onDismiss={() => onDismiss(selected)}
-          isApproving={isApproving}
-          isDismissing={isDismissing}
-        />
-      ) : (
-        <div className="rounded-xl border bg-card flex items-center justify-center text-sm text-muted-foreground">
-          Seleccioná un grupo
-        </div>
-      )}
+              </TableCell>
+              <TableCell className="text-right whitespace-nowrap tabular-nums">
+                <span className="font-semibold text-foreground">{c.query_count}</span>
+              </TableCell>
+              <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                <div className="inline-flex items-center gap-1.5">
+                  <Button
+                    variant="ghost" size="sm"
+                    className="text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                    onClick={() => onDismiss(c)}
+                    disabled={dismissing}
+                  >
+                    <X className="h-4 w-4 sm:mr-1" />
+                    <span className="hidden sm:inline">Descartar</span>
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => onApprove(c)}
+                    disabled={approving || !effectiveLabel(c)}
+                    title={!effectiveLabel(c) ? "Ponele un nombre al tema para aprobarlo" : undefined}
+                  >
+                    <Check className="h-4 w-4 sm:mr-1" />
+                    <span className="hidden sm:inline">Aprobar</span>
+                  </Button>
+                </div>
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
     </div>
   );
 }
 
-function ClusterDetail({
-  cluster, label, onLabelChange, onApprove, onDismiss, isApproving, isDismissing,
+/** Panel lateral de un grupo sugerido: nombre editable, las consultas que el
+ *  sistema agrupó, y la posibilidad de quitar las que sobran (outliers) antes
+ *  de decidir. Mismo patrón que el panel de Pendientes — coherencia de sistema. */
+function ClusterDetailSheet({
+  cluster, onClose, label, onLabelChange, canApprove, approving, dismissing, onApprove, onDismiss,
 }: {
-  cluster: import("@/lib/api").DiscoveredCluster;
+  cluster: import("@/lib/api").DiscoveredCluster | null;
+  onClose: () => void;
   label: string;
   onLabelChange: (v: string) => void;
+  canApprove: boolean;
+  approving: boolean;
+  dismissing: boolean;
   onApprove: () => void;
   onDismiss: () => void;
-  isApproving: boolean;
-  isDismissing: boolean;
 }) {
-  // `removed` se resetea al cambiar de grupo gracias al key={cluster_id} arriba.
+  const open = cluster !== null;
+  const queryClient = useQueryClient();
   const [removed, setRemoved] = useState<Set<string>>(new Set());
-  const allQueries = cluster.queries.filter((q) => !removed.has(q.id));
-  const effectiveLabel = (label.trim() || cluster.suggested_label || "").trim();
+
+  // Reset del set optimista al cambiar de grupo — cada panel arranca limpio.
+  const clusterId = cluster?.cluster_id;
+  useEffect(() => { setRemoved(new Set()); }, [clusterId]);
 
   const removeQuery = useMutation({
-    mutationFn: (queryId: string) => api.intentions.removeQueryFromCluster(cluster.cluster_id, queryId),
+    mutationFn: (queryId: string) => api.intentions.removeQueryFromCluster(clusterId!, queryId),
     onMutate: (queryId) => setRemoved((prev) => new Set([...prev, queryId])),
     onError: (_err, queryId) => setRemoved((prev) => { const n = new Set(prev); n.delete(queryId); return n; }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["intentions"] }),
   });
 
+  const queries = cluster ? cluster.queries.filter((q) => !removed.has(q.id)) : [];
+
   return (
-    <div className="rounded-xl border bg-card overflow-hidden flex flex-col min-h-0">
-      {/* Nombre del tema — editable directo, con la sugerencia de la IA ya puesta.
-          Al ser UN grupo a la vez, un input visible no abruma (no hay 7 campos). */}
-      <div className="px-5 py-4 border-b shrink-0">
-        <label htmlFor="cluster-name" className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
-          Nombre del tema
-        </label>
-        <Input
-          id="cluster-name"
-          value={label}
-          placeholder={cluster.suggested_label || "Escribí un nombre para este tema…"}
-          onChange={(e) => onLabelChange(e.target.value)}
-          className="mt-1.5 h-10 text-base font-medium max-w-md"
-        />
-        <p className="text-xs text-muted-foreground mt-2 leading-relaxed">
-          {allQueries.length} {allQueries.length === 1 ? "consulta agrupada" : "consultas agrupadas"} por el sistema.
-          Quitá las que no correspondan antes de aprobar.
-        </p>
-      </div>
+    <Sheet open={open} onOpenChange={(v) => !v && onClose()}>
+      <SheetContent className="w-full sm:max-w-lg p-0 gap-0 flex flex-col">
+        <SheetHeader className="px-6 pt-6 pb-5 border-b border-border/70 space-y-0 text-left">
+          <SheetTitle className="sr-only">Grupo sugerido</SheetTitle>
+          {/* pr-8 reserva lugar para la X de cerrar del sheet — que no se pise
+              con el input. Icono + input en la misma fila, a la misma altura. */}
+          <div className="flex items-center gap-3 pr-8">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-action-gradient-soft">
+              <Tag className="h-5 w-5 text-action" />
+            </div>
+            <Input
+              value={label}
+              placeholder={cluster?.suggested_label || "Escribí un nombre para este tema…"}
+              onChange={(e) => onLabelChange(e.target.value)}
+              className="h-10 flex-1 min-w-0 text-[15px] font-medium"
+            />
+          </div>
+        </SheetHeader>
 
-      {/* Consultas de ejemplo */}
-      <div className="flex-1 overflow-y-auto scrollbar-slim px-4 py-3 min-h-0 max-h-72 lg:max-h-none">
-        {allQueries.length === 0 ? (
-          <p className="text-sm text-muted-foreground py-10 text-center">
-            No quedan consultas en este grupo. Descartalo o agregá ejemplos desde otro lado.
+        <div className="flex-1 overflow-y-auto px-6 py-5">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 mb-3">
+            Consultas del grupo · quitá las que no encajen
           </p>
-        ) : (
-          <ul className="space-y-0.5">
-            {allQueries.map((q) => (
-              <li key={q.id} className="group flex items-start gap-2 rounded-lg px-2 py-1.5 hover:bg-muted/50">
-                <span className="text-action/40 text-base leading-5 shrink-0 font-serif">“</span>
-                <span className="text-sm text-foreground flex-1 leading-relaxed">{q.text}</span>
-                <button
-                  onClick={() => removeQuery.mutate(q.id)}
-                  disabled={removeQuery.isPending}
-                  aria-label={`Quitar "${q.text}" del grupo`}
-                  className="opacity-40 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded p-0.5 text-muted-foreground hover:text-destructive shrink-0 transition-opacity mt-0.5"
-                  title="Quitar del grupo"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+          {queries.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-4">
+              No quedan consultas en este grupo. Descartalo.
+            </p>
+          ) : (
+            <ul className="space-y-0.5">
+              {queries.map((q) => (
+                <li key={q.id} className="group/q flex items-start gap-2 rounded-lg px-2 py-2 hover:bg-muted/40">
+                  <span className="text-action/40 text-base leading-5 shrink-0 font-serif">“</span>
+                  <span className="text-sm text-foreground flex-1 leading-relaxed">{q.text}</span>
+                  <button
+                    onClick={() => removeQuery.mutate(q.id)}
+                    disabled={removeQuery.isPending}
+                    aria-label={`Quitar "${q.text}" del grupo`}
+                    title="Quitar del grupo"
+                    className="opacity-0 group-hover/q:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded p-0.5 text-muted-foreground hover:text-destructive shrink-0 transition-opacity mt-0.5"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
 
-      {/* Acciones — UN solo par para el grupo activo */}
-      <div className="px-5 py-3.5 border-t bg-muted/20 flex items-center justify-between gap-3 shrink-0">
-        <Button
-          variant="ghost"
-          className="gap-1.5 text-destructive hover:bg-destructive/10 hover:text-destructive"
-          onClick={onDismiss}
-          disabled={isDismissing}
-        >
-          {isDismissing ? <Loader2 className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />}
-          Descartar grupo
-        </Button>
-        <Button
-          className="gap-1.5 min-w-[150px]"
-          onClick={onApprove}
-          disabled={!effectiveLabel || isApproving || allQueries.length === 0}
-        >
-          {isApproving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-          Aprobar tema
-        </Button>
-      </div>
+        {/* Footer: decisión con contexto a la vista */}
+        <div className="px-6 py-4 border-t border-border/70 flex items-center justify-end gap-2">
+          <Button
+            variant="ghost"
+            className="text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+            onClick={onDismiss}
+            disabled={dismissing}
+          >
+            {dismissing ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <X className="h-4 w-4 mr-1.5" />}
+            Descartar
+          </Button>
+          <Button
+            className="min-w-[140px]"
+            onClick={onApprove}
+            disabled={approving || !canApprove || queries.length === 0}
+            title={!canApprove ? "Ponele un nombre al tema para aprobarlo" : undefined}
+          >
+            {approving ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Check className="h-4 w-4 mr-1.5" />}
+            Aprobar tema
+          </Button>
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+/** Tabla de temas (vista Lista de Activos). Escala a cientos de filas con
+ *  columna de uso ordenable. */
+function ThemeTable({
+  items, maxQueries, sortDir, onToggleSort, onToggle, onDelete,
+}: {
+  items: Array<{ id: string; label: string; description?: string | null; is_active: boolean; queries_7d?: number }>;
+  maxQueries: number;
+  sortDir: "asc" | "desc";
+  onToggleSort: () => void;
+  onToggle: (id: string, current: boolean) => void;
+  onDelete: (id: string) => void;
+}) {
+  return (
+    <div className="rounded-2xl border bg-card shadow-sm overflow-hidden">
+      <Table>
+        <TableHeader>
+          <TableRow className="hover:bg-transparent">
+            <TableHead>Tema</TableHead>
+            <TableHead className="p-0">
+              {/* Header clickeable: ordena por uso, alterna asc/desc con la flecha */}
+              <button
+                type="button"
+                onClick={onToggleSort}
+                className="inline-flex items-center gap-1 h-9 px-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground transition-colors"
+              >
+                Consultas · 7 días
+                {sortDir === "desc"
+                  ? <ChevronDown className="h-3.5 w-3.5" />
+                  : <ChevronUp className="h-3.5 w-3.5" />}
+              </button>
+            </TableHead>
+            <TableHead className="hidden md:table-cell">Estado</TableHead>
+            <TableHead className="w-10" />
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {items.map((intent) => (
+            <IntentionRow
+              key={intent.id}
+              id={intent.id}
+              label={intent.label}
+              description={intent.description}
+              isActive={intent.is_active}
+              queries7d={intent.queries_7d}
+              maxQueries={maxQueries}
+              onToggleActive={onToggle}
+              onDelete={onDelete}
+            />
+          ))}
+        </TableBody>
+      </Table>
     </div>
+  );
+}
+
+/** Tabla de temas pendientes: cola de decisiones. Cada fila con sus acciones
+ *  Aprobar / Descartar inline. */
+function PendingTable({
+  items, approving, rejecting, onApprove, onReject, onSelect,
+}: {
+  items: PendingIntention[];
+  approving: boolean;
+  rejecting: boolean;
+  onApprove: (id: string) => void;
+  onReject: (id: string) => void;
+  onSelect: (p: PendingIntention) => void;
+}) {
+  return (
+    <div className="rounded-2xl border bg-card shadow-sm overflow-hidden">
+      <Table>
+        <TableHeader>
+          <TableRow className="hover:bg-transparent">
+            <TableHead>Tema detectado</TableHead>
+            <TableHead className="text-right whitespace-nowrap">Consultas</TableHead>
+            <TableHead className="hidden md:table-cell text-right whitespace-nowrap">Confianza</TableHead>
+            <TableHead className="text-right">Acciones</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {items.map((p) => (
+            <TableRow key={p.id} className="cursor-pointer" onClick={() => onSelect(p)}>
+              <TableCell>
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-warning/15">
+                    <Tag className="h-4 w-4 text-warning" />
+                  </div>
+                  <span className="font-medium text-foreground truncate">{p.label}</span>
+                </div>
+              </TableCell>
+              <TableCell className="text-right whitespace-nowrap tabular-nums">
+                <span className="font-semibold text-foreground">{p.query_count}</span>
+              </TableCell>
+              <TableCell className="hidden md:table-cell text-right whitespace-nowrap">
+                <span className="text-sm tabular-nums font-medium text-warning">{Math.round(p.avg_confidence * 100)}%</span>
+              </TableCell>
+              <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                <div className="inline-flex items-center gap-1.5">
+                  <Button
+                    variant="ghost" size="sm"
+                    className="text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                    onClick={() => onReject(p.id)}
+                    disabled={rejecting}
+                  >
+                    <X className="h-4 w-4 sm:mr-1" />
+                    <span className="hidden sm:inline">Descartar</span>
+                  </Button>
+                  <Button size="sm" onClick={() => onApprove(p.id)} disabled={approving}>
+                    <Check className="h-4 w-4 sm:mr-1" />
+                    <span className="hidden sm:inline">Aprobar</span>
+                  </Button>
+                </div>
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
+  );
+}
+
+/** Panel lateral de un tema pendiente: muestra las consultas reales que lo
+ *  dispararon y permite decidir (Aprobar / Descartar) con contexto. */
+function PendingDetailSheet({
+  item, onClose, onApprove, onReject, approving, rejecting,
+}: {
+  item: PendingIntention | null;
+  onClose: () => void;
+  onApprove: (id: string) => void;
+  onReject: (id: string) => void;
+  approving: boolean;
+  rejecting: boolean;
+}) {
+  const open = item !== null;
+  const { data, isLoading } = useQuery({
+    queryKey: ["pending-examples", item?.label],
+    queryFn: () => api.intentions.getPendingExamples(item!.label),
+    enabled: open,
+    staleTime: 30_000,
+  });
+  const examples = data?.examples ?? [];
+  const fmt = (iso: string) => new Date(iso).toLocaleDateString("es-AR", { day: "2-digit", month: "short" });
+
+  return (
+    <Sheet open={open} onOpenChange={(v) => !v && onClose()}>
+      <SheetContent className="w-full sm:max-w-lg p-0 gap-0 flex flex-col">
+        <SheetHeader className="px-6 pt-6 pb-5 border-b border-border/70 space-y-0 text-left">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-warning/15">
+              <Tag className="h-5 w-5 text-warning" />
+            </div>
+            <div className="min-w-0 space-y-1">
+              <SheetTitle className="truncate">{item?.label}</SheetTitle>
+              <p className="text-[13px] text-muted-foreground">
+                {item?.query_count} {item?.query_count === 1 ? "consulta" : "consultas"}
+                {item != null && <> · {Math.round(item.avg_confidence * 100)}% de confianza</>}
+              </p>
+            </div>
+          </div>
+        </SheetHeader>
+
+        <div className="flex-1 overflow-y-auto px-6 py-5">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 mb-3">
+            Consultas que dispararon este tema
+          </p>
+          {isLoading ? (
+            <div className="space-y-2">{[...Array(5)].map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}</div>
+          ) : examples.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-4">Sin consultas para mostrar.</p>
+          ) : (
+            <ul className="space-y-0.5">
+              {examples.map((e) => (
+                <li key={e.id} className="flex items-start gap-2.5 rounded-lg px-2 py-2 hover:bg-muted/40">
+                  <span className="flex-1 min-w-0">
+                    <span className="block text-sm text-foreground leading-snug">
+                      {e.question_text ?? <span className="italic text-muted-foreground">Sin texto</span>}
+                    </span>
+                    <span className="text-xs text-muted-foreground">{fmt(e.created_at)}</span>
+                  </span>
+                  {e.intent_confidence != null && (
+                    <span className="shrink-0 mt-0.5 text-xs tabular-nums font-medium text-warning">
+                      {Math.round(e.intent_confidence * 100)}%
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        {/* Footer: decisión con contexto a la vista */}
+        <div className="px-6 py-4 border-t border-border/70 flex items-center justify-end gap-2">
+          <Button
+            variant="ghost"
+            className="text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+            onClick={() => { if (item) { onReject(item.id); onClose(); } }}
+            disabled={rejecting}
+          >
+            <X className="h-4 w-4 mr-1.5" /> Descartar
+          </Button>
+          <Button
+            className="min-w-[140px]"
+            onClick={() => { if (item) { onApprove(item.id); onClose(); } }}
+            disabled={approving}
+          >
+            <Check className="h-4 w-4 mr-1.5" /> Aprobar tema
+          </Button>
+        </div>
+      </SheetContent>
+    </Sheet>
   );
 }
 
