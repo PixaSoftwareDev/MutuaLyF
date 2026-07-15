@@ -196,11 +196,11 @@ export default function ConnectorsPage() {
         <div className="space-y-5">
           <div className="space-y-2">
             <Label>Nombre</Label>
-            <Input placeholder="NEXA Obra Social" value={name} onChange={e => setName(e.target.value)} />
+            <Input placeholder="Ej. Proveedor de datos" value={name} onChange={e => setName(e.target.value)} />
           </div>
           <div className="space-y-2">
             <Label>Identificador (slug)</Label>
-            <Input placeholder="nexa" value={slug} onChange={e => setSlug(e.target.value.toLowerCase())} />
+            <Input placeholder="proveedor" value={slug} onChange={e => setSlug(e.target.value.toLowerCase())} />
             <p className="text-xs text-muted-foreground">Minúsculas, números, guiones. No se puede cambiar después.</p>
           </div>
           <div className="space-y-2">
