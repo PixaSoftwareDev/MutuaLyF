@@ -7,8 +7,9 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft, Plus, Plug, Loader2, Trash2, KeyRound, FlaskConical,
   CheckCircle2, XCircle, Globe, Lock, Link2, Wand2, Sparkles, FileUp,
+  Users, UserPlus, Pencil,
 } from "lucide-react";
-import { api, type ConnectorTool, type ConnectorTestResult, type DiscoveryProposal } from "@/lib/api";
+import { api, type ConnectorTool, type ConnectorTestResult, type DiscoveryProposal, type ConnectorUserRow } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -240,6 +241,7 @@ export default function ConnectorDetailPage() {
                     <SelectContent>
                       <SelectItem value="provider">El proveedor valida el código (tiene endpoint propio)</SelectItem>
                       <SelectItem value="platform_otp">La plataforma envía y valida el código (OTP propio)</SelectItem>
+                      <SelectItem value="platform_registry">Nosotros validamos (lista de usuarios cargada acá) + OTP a su email</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -263,6 +265,8 @@ export default function ConnectorDetailPage() {
               <p className="text-xs text-muted-foreground">
                 {flow === "platform_otp"
                   ? "La plataforma lee el email del afiliado desde el proveedor, le envía un código de 6 dígitos y lo valida. El proveedor no necesita construir nada."
+                  : flow === "platform_registry"
+                  ? "El sistema externo no modela usuarios: la lista de quién puede consultar la cargás vos acá abajo (documento + email). La persona tipea su documento, le mandamos un código a su email registrado, y validamos de nuestro lado."
                   : "El backend llama al endpoint de validación del proveedor con DNI + código."}
               </p>
             </div>
@@ -290,6 +294,11 @@ export default function ConnectorDetailPage() {
           </div>
         )}
       </div>
+
+      {/* Usuarios autorizados — solo cuando la identidad la validamos nosotros */}
+      {String((conn.auth_config as Record<string, unknown>)?.identity_validation ?? "") === "platform_registry" && (
+        <ConnectorUsersSection connectorId={id} />
+      )}
 
       {/* Operaciones */}
       <div className="flex items-center justify-between mb-3">
@@ -651,6 +660,123 @@ function ToolCard({ connectorId, tool, onDelete, onChanged }: {
           </Button>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Usuarios autorizados: registro de identidad de nuestro lado (platform_registry) ──
+// La lista blanca de quién puede consultar este conector. La persona tipea su
+// documento en el chat, le mandamos un código a su email registrado, y validamos
+// nosotros — el bot llama al proveedor con el token de servicio, nunca con datos del
+// usuario. Ver connector_router (modo platform_registry) + migración 033.
+
+function ConnectorUsersSection({ connectorId }: { connectorId: string }) {
+  const qc = useQueryClient();
+  const { data, isLoading } = useQuery({
+    queryKey: ["connector-users", connectorId],
+    queryFn: () => api.connectors.listUsers(connectorId),
+  });
+  const inv = () => qc.invalidateQueries({ queryKey: ["connector-users", connectorId] });
+
+  const [showForm, setShowForm] = useState(false);
+  const [editing, setEditing] = useState<ConnectorUserRow | null>(null);
+  const [doc, setDoc]       = useState("");
+  const [email, setEmail]   = useState("");
+  const [nombre, setNombre] = useState("");
+
+  const openCreate = () => { setEditing(null); setDoc(""); setEmail(""); setNombre(""); setShowForm(true); };
+  const openEdit = (u: ConnectorUserRow) => { setEditing(u); setDoc(u.documento); setEmail(u.email); setNombre(u.nombre); setShowForm(true); };
+
+  const saveM = useMutation({
+    mutationFn: async () => {
+      const body = { documento: doc.trim(), email: email.trim(), nombre: nombre.trim() };
+      if (editing) await api.connectors.updateUser(editing.id, body);
+      else await api.connectors.createUser(connectorId, body);
+    },
+    onSuccess: () => { inv(); setShowForm(false); toast({ title: editing ? "Usuario actualizado" : "Usuario agregado", variant: "success" }); },
+    onError: (e) => toast({ title: "No se pudo guardar", description: errDetail(e), variant: "destructive" }),
+  });
+
+  const toggleM = useMutation({
+    mutationFn: (u: ConnectorUserRow) => api.connectors.updateUser(u.id, { is_active: !u.is_active }),
+    onSuccess: () => inv(),
+    onError: (e) => toast({ title: "No se pudo cambiar el estado", description: errDetail(e), variant: "destructive" }),
+  });
+
+  const delM = useMutation({
+    mutationFn: (u: ConnectorUserRow) => api.connectors.deleteUser(u.id),
+    onSuccess: () => { inv(); toast({ title: "Usuario eliminado", variant: "success" }); },
+    onError: (e) => toast({ title: "No se pudo eliminar", description: errDetail(e), variant: "destructive" }),
+  });
+
+  const users = data?.users ?? [];
+
+  return (
+    <div className="rounded-xl border bg-card p-4 mb-6">
+      <div className="flex items-center justify-between mb-3 gap-3">
+        <div className="min-w-0">
+          <h2 className="font-semibold inline-flex items-center gap-1.5"><Users className="h-4 w-4" /> Usuarios autorizados</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">Solo estas personas pueden consultar. Tipean su documento en el chat → reciben un código en su email.</p>
+        </div>
+        <Button size="sm" onClick={openCreate}><UserPlus className="h-4 w-4 mr-1" /> Agregar</Button>
+      </div>
+
+      {isLoading ? (
+        <Skeleton className="h-16 w-full" />
+      ) : users.length === 0 ? (
+        <div className="text-sm text-muted-foreground border border-dashed rounded-lg p-4 text-center">
+          No hay usuarios cargados. Nadie va a poder consultar hasta que agregues al menos uno.
+        </div>
+      ) : (
+        <div className="divide-y rounded-lg border">
+          {users.map(u => (
+            <div key={u.id} className={cn("flex items-center gap-2 px-3 py-2.5", !u.is_active && "opacity-60")}>
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium truncate">{u.nombre}</div>
+                <div className="text-xs text-muted-foreground truncate">Doc {u.documento} · {u.email}</div>
+              </div>
+              <Badge variant={u.is_active ? "success" : "outline"}>{u.is_active ? "Activo" : "Inactivo"}</Badge>
+              <Button size="sm" variant="ghost" onClick={() => toggleM.mutate(u)} disabled={toggleM.isPending}>
+                {u.is_active ? "Desactivar" : "Activar"}
+              </Button>
+              <Button size="icon" variant="ghost" onClick={() => openEdit(u)} aria-label="Editar"><Pencil className="h-3.5 w-3.5" /></Button>
+              <Button size="icon" variant="ghost" onClick={() => delM.mutate(u)} disabled={delM.isPending} aria-label="Eliminar"><Trash2 className="h-3.5 w-3.5 text-destructive" /></Button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <FormSheet
+        open={showForm}
+        onOpenChange={setShowForm}
+        icon={UserPlus}
+        title={editing ? "Editar usuario" : "Agregar usuario"}
+        description="Documento con el que se identifica en el chat + email donde recibe el código de acceso."
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setShowForm(false)}>Cancelar</Button>
+            <Button onClick={() => saveM.mutate()} disabled={!doc.trim() || !email.trim() || !nombre.trim() || saveM.isPending}>
+              {saveM.isPending && <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />}
+              {editing ? "Guardar" : "Agregar"}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-5">
+          <div className="space-y-2">
+            <Label>Nombre</Label>
+            <Input placeholder="Guillermo Fernández" value={nombre} onChange={e => setNombre(e.target.value)} />
+          </div>
+          <div className="space-y-2">
+            <Label>Documento (DNI/legajo — lo tipea en el chat)</Label>
+            <Input inputMode="numeric" placeholder="30111222" value={doc} onChange={e => setDoc(e.target.value)} />
+          </div>
+          <div className="space-y-2">
+            <Label>Email (recibe el código de acceso)</Label>
+            <Input type="email" placeholder="guille@intellix.com" value={email} onChange={e => setEmail(e.target.value)} />
+          </div>
+        </div>
+      </FormSheet>
     </div>
   );
 }

@@ -437,6 +437,23 @@ export interface ConnectorToolPayload {
   roles?: string[];
 }
 
+// Usuario autorizado por conector (registro de identidad, modo platform_registry).
+export interface ConnectorUserRow {
+  id: string;
+  documento: string;
+  email: string;
+  nombre: string;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface ConnectorUserPayload {
+  documento: string;
+  email: string;
+  nombre: string;
+  is_active?: boolean;
+}
+
 export interface ConnectorTestResult {
   url: string;
   method: string;
@@ -913,6 +930,21 @@ export const api = {
         })),
       });
       return data as { created: string[]; identity_lookup_path: string | null };
+    },
+    // Usuarios autorizados por conector (registro de identidad, modo platform_registry).
+    listUsers: async (connectorId: string): Promise<{ users: ConnectorUserRow[] }> => {
+      const { data } = await apiClient.get(`/admin/connectors/${connectorId}/users`);
+      return data;
+    },
+    createUser: async (connectorId: string, body: ConnectorUserPayload): Promise<{ id: string }> => {
+      const { data } = await apiClient.post(`/admin/connectors/${connectorId}/users`, body);
+      return data;
+    },
+    updateUser: async (userId: string, body: Partial<ConnectorUserPayload>) => {
+      await apiClient.patch(`/admin/connectors/users/${userId}`, body);
+    },
+    deleteUser: async (userId: string) => {
+      await apiClient.delete(`/admin/connectors/users/${userId}`);
     },
   },
 

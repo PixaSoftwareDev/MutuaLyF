@@ -460,20 +460,34 @@ async def maybe_handle(
 
 
 async def _send_platform_otp(tenant_id: str, conv_id: str, binding, identity: str) -> tuple[str | None, str | None]:
-    """OTP propio: busca el contacto en el proveedor, genera y envía el código.
+    """OTP propio: resuelve el email de contacto, genera y envía el código.
+
+    El email sale de dos fuentes según identity_validation del conector:
+      - 'platform_registry' → nuestra lista blanca (connector_users), por documento.
+        Para conectores cuyo sistema externo no modela usuarios (ej. un CRM con solo
+        token de servicio): la identidad la validamos nosotros de este lado.
+      - 'platform_otp'      → perfil del afiliado en el proveedor (lookup_identity).
 
     Devuelve (masked_contact, nombre). masked=None si la identidad no existe o el
     envío no se registró — el mensaje al usuario queda neutro (anti-enumeración).
     """
     from services import otp
-    from services.connector_executor import lookup_identity
 
     cfg = getattr(binding, "auth_config", {}) or {}
-    profile = await lookup_identity(binding, identity, cfg)
-    if profile is None:
-        return None, None
-    email = profile.get(cfg.get("contact_email_field", "email"))
-    nombre = profile.get(cfg.get("name_field", "nombre"))
+    if cfg.get("identity_validation") == "platform_registry":
+        from services.connectors_dao import get_connector_user_by_documento
+        user = await get_connector_user_by_documento(tenant_id, binding.connector_id, identity)
+        if user is None:
+            return None, None
+        email = user.get("email")
+        nombre = user.get("nombre")
+    else:
+        from services.connector_executor import lookup_identity
+        profile = await lookup_identity(binding, identity, cfg)
+        if profile is None:
+            return None, None
+        email = profile.get(cfg.get("contact_email_field", "email"))
+        nombre = profile.get(cfg.get("name_field", "nombre"))
     code = await otp.generate_and_store(tenant_id, conv_id, identity)
     if code is None:
         return None, nombre
@@ -494,7 +508,10 @@ async def _handle_id_input(tenant_id: str, conv_id: str, text: str, flow: dict) 
     flow["stage"] = _PIDIENDO_CODIGO
 
     # ¿El conector delega la validación al proveedor, o la hace la plataforma?
-    if binding is not None and cfg.get("identity_validation") == "platform_otp":
+    # platform_otp     → email leído del proveedor (perfil del afiliado).
+    # platform_registry→ email leído de NUESTRA lista blanca (connector_users).
+    # Ambos validan el código con el OTP propio → mismo flujo, distinto origen de email.
+    if binding is not None and cfg.get("identity_validation") in ("platform_otp", "platform_registry"):
         from services import otp
         flow["mode"] = "platform_otp"
         if not await otp.can_send(tenant_id, conv_id):
