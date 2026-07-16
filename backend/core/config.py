@@ -159,6 +159,16 @@ class Settings(BaseSettings):
     def trusted_internal_hosts_set(self) -> set[str]:
         return {h.strip().lower() for h in self.connector_trusted_internal_hosts.split(",") if h.strip()}
 
+    # Hosts (CSV) a los que se permite egress por HTTP plano AUN en producción.
+    # Excepción interina e INSEGURA: el tráfico (incl. el token bearer) viaja sin
+    # cifrar. Usar SOLO para un tercero que todavía no expone HTTPS, y revertir en
+    # cuanto tenga TLS. Vacío por defecto → en prod solo se permite https.
+    connector_http_allow_hosts: str = ""
+
+    @property
+    def http_allow_hosts_set(self) -> set[str]:
+        return {h.strip().lower() for h in self.connector_http_allow_hosts.split(",") if h.strip()}
+
     # ── JWT ───────────────────────────────────────────────────────────────────
     jwt_secret_key: str
     jwt_algorithm: str = "HS256"

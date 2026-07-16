@@ -24,10 +24,23 @@ from dataclasses import dataclass, field
 
 import httpx
 
+from urllib.parse import urlparse
+
 from core.config import settings
 from core.egress_guard import EgressBlocked, assert_egress_allowed
 
 logger = logging.getLogger(__name__)
+
+
+def _allow_http_for(url: str) -> bool:
+    """¿Se permite HTTP plano para esta URL? True en dev, o en prod si el host
+    está en la allowlist interina connector_http_allow_hosts (excepción INSEGURA
+    para un tercero sin HTTPS todavía). Fuera de eso, el egress_guard exige https.
+    """
+    if settings.environment == "development":
+        return True
+    host = (urlparse(url).hostname or "").lower()
+    return host in settings.http_allow_hosts_set
 
 # Outcomes del contrato canónico.
 OK = "ok"
@@ -174,9 +187,9 @@ async def _invoke_stub(binding, identity: str, query: dict) -> dict | list:
 async def _invoke_http(binding, path: str, query: dict) -> dict | list:
     url = binding.base_url.rstrip("/") + "/" + path.lstrip("/")
     # Anti-SSRF: el host debe estar en la allowlist del conector y no resolver a
-    # una IP interna. En prod exigimos https. En dev, hosts mock de confianza
-    # (ej. mock_nexa) quedan exentos de la verificación de IP interna.
-    allow_http = settings.environment == "development"
+    # una IP interna. En prod exigimos https (salvo host en la allowlist HTTP
+    # interina). En dev, hosts mock de confianza quedan exentos de la verif. de IP.
+    allow_http = _allow_http_for(url)
     assert_egress_allowed(
         url, binding.egress_allow, allow_http=allow_http,
         trusted_internal_hosts=settings.trusted_internal_hosts_set,
@@ -216,7 +229,7 @@ async def validate_second_factor(binding, identity: str, code: str) -> dict:
 
     # Convención afiliado (Fase 2 la hará config-driven vía columna auth_validate_path).
     url = binding.base_url.rstrip("/") + f"/afiliados/{identity}/validar"
-    allow_http = settings.environment == "development"
+    allow_http = _allow_http_for(url)
     try:
         assert_egress_allowed(
             url, binding.egress_allow, allow_http=allow_http,
@@ -249,7 +262,7 @@ async def lookup_identity(binding, identity: str, cfg: dict | None = None) -> di
     cfg = cfg or {}
     path = (cfg.get("identity_lookup_path") or "/afiliados/{identity}").replace("{identity}", identity)
     url = binding.base_url.rstrip("/") + path
-    allow_http = settings.environment == "development"
+    allow_http = _allow_http_for(url)
     try:
         assert_egress_allowed(
             url, binding.egress_allow, allow_http=allow_http,
