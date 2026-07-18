@@ -372,8 +372,13 @@ export function Sidebar() {
               : "Fijar panel — queda siempre abierto"}
             aria-label={sidebarPinned ? "Desfijar panel" : "Fijar panel"}
             className={cn(
-              "hidden lg:flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground",
-              "opacity-0 transition-[opacity,background-color,color] lg:group-hover/aside:opacity-100 focus-visible:opacity-100",
+              "hidden lg:flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-[opacity,background-color,color]",
+              sidebarPinned
+                // Fijado: queda siempre visible y "pintado" (relleno blanco con
+                // sombrita, como los ítems activos de la app).
+                ? "bg-card text-foreground shadow-xs"
+                // Sin fijar: aparece solo al pasar el mouse por el panel.
+                : "text-muted-foreground opacity-0 hover:bg-foreground/[0.06] hover:text-foreground lg:group-hover/aside:opacity-100 focus-visible:opacity-100",
               focusRing,
             )}
           >
