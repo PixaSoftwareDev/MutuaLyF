@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/toast";
 import { PageShell } from "@/components/layout/page-shell";
+import { PageHeader } from "@/components/layout/page-header";
 import { cn } from "@/lib/utils";
 import {
   DOC_STATUS_CONFIG, QG_DOC_CONFIG, fileExt, ChunkCard,
@@ -280,14 +281,7 @@ export default function DocumentDetailPage() {
   );
 }
 
+// Cabecera estándar de detalle: barra con volver + título de sección.
 function BackLink() {
-  return (
-    <Link
-      href="/admin/documents"
-      className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors w-fit"
-    >
-      <ArrowLeft className="h-4 w-4" />
-      Volver a Documentos
-    </Link>
-  );
+  return <PageHeader back={{ href: "/admin/documents", label: "Volver a Documentos" }} title="Documento" />;
 }

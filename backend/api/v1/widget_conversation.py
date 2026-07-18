@@ -68,6 +68,10 @@ class ConfirmHandoffRequest(BaseModel):
     # sin él, ver degraded mode). min_length=1 para coincidir con el front, que no
     # impone un mínimo — antes estaba en 4 y un DNI corto rebotaba con 422 silencioso.
     afiliado_dni:    str | None = Field(default=None, min_length=1, max_length=20)
+    # El sector se elige en el momento del handoff (no al abrir el chat): la
+    # conversación arranca en el sector default y acá se re-etiqueta para que
+    # caiga en la cola de operadores correcta. Inválido/ausente → queda como está.
+    sector_id:       str | None = Field(default=None, max_length=64)
 
 
 # ── Start / resume conversation ───────────────────────────────────────────────
@@ -596,8 +600,8 @@ async def confirm_handoff(
         if not owner_row[0]:
             raise HTTPException(status_code=409, detail="No hay una derivación pendiente para confirmar.")
 
-    # Persistir datos de identificación si vinieron en el body
-    if body and (body.afiliado_nombre or body.afiliado_dni):
+    # Persistir datos de identificación + sector elegido si vinieron en el body
+    if body and (body.afiliado_nombre or body.afiliado_dni or body.sector_id):
         updates = []
         params: dict[str, str] = {"cid": conversation_id}
         if body.afiliado_nombre:
@@ -606,6 +610,24 @@ async def confirm_handoff(
         if body.afiliado_dni:
             updates.append("afiliado_dni = :dni")
             params["dni"] = body.afiliado_dni.strip()
+        # Re-etiquetado de sector al derivar. Mismo criterio de validación que en
+        # start: UUID real + existe en este tenant + activo; si no, se ignora en
+        # silencio y la conversación queda en su sector actual (default).
+        sector_id = (body.sector_id or "").strip() or None
+        if sector_id:
+            try:
+                uuid.UUID(sector_id)
+            except ValueError:
+                sector_id = None
+        if sector_id:
+            async with get_pg_session(tenant_id) as session:
+                valid = await session.execute(
+                    text("SELECT 1 FROM sectores WHERE id = :id AND is_active = TRUE"),
+                    {"id": sector_id},
+                )
+                if valid.fetchone():
+                    updates.append("sector_id = :sector_id")
+                    params["sector_id"] = sector_id
         if updates:
             async with get_pg_session(tenant_id) as session:
                 await session.execute(

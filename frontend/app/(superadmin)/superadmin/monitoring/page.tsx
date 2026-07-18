@@ -27,7 +27,7 @@ function BackupHistory({ history }: {
   const median = sizes[Math.floor(sizes.length / 2)] || 0;
   return (
     <div className="mt-2.5">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-1.5">
+      <p className="text-[11px] font-semibold text-muted-foreground mb-1.5">
         Últimos diarios
       </p>
       <div className="rounded-lg border divide-y">
@@ -58,14 +58,14 @@ function CollapsibleMetric({ icon: Icon, label, sublabel, defaultOpen = false, c
 }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <div className="rounded-2xl border bg-card shadow-sm overflow-hidden">
+    <div className="rounded-2xl border bg-card overflow-hidden">
       <button
         type="button"
         onClick={() => setOpen(o => !o)}
         className="flex w-full items-center gap-2.5 px-4 py-3 text-left transition-colors hover:bg-muted/30"
       >
-        <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-action-gradient-soft shrink-0">
-          <Icon className="h-3.5 w-3.5 text-action" />
+        <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-muted shrink-0">
+          <Icon className="h-3.5 w-3.5 text-muted-foreground" />
         </span>
         <span className="text-sm font-semibold">{label}</span>
         {sublabel && <span className="text-xs text-muted-foreground truncate hidden sm:inline">{sublabel}</span>}
@@ -186,7 +186,7 @@ export default function MonitoringPage() {
             <div
               key={s.label}
               className={cn(
-                "flex items-center gap-3 rounded-xl border px-4 py-3.5 shadow-sm",
+                "flex items-center gap-3 rounded-xl border px-4 py-3.5",
                 isDown ? "bg-destructive/10 border-destructive/20" : "bg-card"
               )}
             >

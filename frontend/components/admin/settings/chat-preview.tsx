@@ -8,7 +8,7 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { pickReadableTextColor } from "@/lib/use-tenant-branding";
+import { pickReadableTextColor, shade } from "@/lib/use-tenant-branding";
 
 // Defaults que el chat público usa cuando el tenant no configuró propios.
 // Deben matchear los defaults en `frontend/app/chat/page.tsx`.
@@ -94,11 +94,14 @@ export function ChatPreview({
 }) {
   const headerText = textColor || pickReadableTextColor(primaryColor);
   const resolvedLogo = fullLogoUrl(logoUrl);
+  // Paleta derivada — misma que el widget real: degradado en vez de color chato.
+  const headerGrad = `linear-gradient(to right, ${shade(primaryColor, -15)}, ${primaryColor}, ${shade(primaryColor, 15)})`;
+  const bubbleGrad = `linear-gradient(135deg, ${primaryColor}, ${shade(primaryColor, -15)})`;
 
   return (
     <div className="rounded-2xl border bg-card shadow-md overflow-hidden">
       {/* Header del chat con el branding del tenant */}
-      <div className="flex items-center gap-2.5 px-4 py-3" style={{ backgroundColor: primaryColor, color: headerText }}>
+      <div className="flex items-center gap-2.5 px-4 py-3 shadow-sm" style={{ background: headerGrad, color: headerText }}>
         {resolvedLogo ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={resolvedLogo} alt="" className="h-7 w-7 rounded-full object-cover bg-white/20 shrink-0" />
@@ -115,8 +118,8 @@ export function ChatPreview({
         </div>
       </div>
 
-      {/* Conversación de muestra */}
-      <div className="bg-muted/30 px-3.5 py-4 space-y-3">
+      {/* Conversación de muestra — velo de marca como el widget real */}
+      <div className="bg-muted/30 px-3.5 py-4 space-y-3" style={{ backgroundImage: `linear-gradient(180deg, ${primaryColor}0f, transparent 200px)` }}>
         {conversation.map((b, i) =>
           b.from === "bot" ? (
             <div key={i} className="max-w-[85%]">
@@ -132,8 +135,8 @@ export function ChatPreview({
           ) : (
             <div
               key={i}
-              className="ml-auto max-w-[75%] w-fit rounded-2xl rounded-tr-md px-3.5 py-2.5 text-[13px] leading-relaxed shadow-xs"
-              style={{ backgroundColor: primaryColor, color: headerText }}
+              className="ml-auto max-w-[75%] w-fit rounded-2xl rounded-tr-md px-3.5 py-2.5 text-[13px] leading-relaxed shadow-sm"
+              style={{ background: bubbleGrad, color: headerText }}
             >
               {b.text}
             </div>

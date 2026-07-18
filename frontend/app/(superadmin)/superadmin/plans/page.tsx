@@ -87,7 +87,7 @@ function PlanCard({ plan: p, onEdit }: { plan: PlanRow; onEdit: () => void }) {
   ];
   return (
     <div className={cn(
-      "group relative flex flex-col overflow-hidden rounded-2xl border bg-card shadow-sm transition-shadow hover:shadow-md",
+      "group relative flex flex-col overflow-hidden rounded-2xl border bg-card hover:border-foreground/20",
       !p.is_active && "opacity-60",
     )}>
       {/* Acento de marca */}
@@ -100,8 +100,8 @@ function PlanCard({ plan: p, onEdit }: { plan: PlanRow; onEdit: () => void }) {
             <div className="flex items-center gap-2">
               <h3 className="truncate text-lg font-semibold tracking-tight">{p.name}</h3>
               {p.is_active
-                ? <span className="rounded-full bg-success/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-success">Activo</span>
-                : <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Inactivo</span>}
+                ? <span className="rounded-full bg-success/10 px-2 py-0.5 text-[10px] font-semibold text-success">Activo</span>
+                : <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">Inactivo</span>}
             </div>
             <p className="mt-0.5 font-mono text-[11px] text-muted-foreground/70">{p.id}</p>
           </div>

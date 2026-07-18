@@ -96,11 +96,11 @@ export function HeaderKpi({ label, value, tone = "neutral", loading }: {
   return (
     <div
       className={cn(
-        "relative bg-card border border-border rounded-xl pl-4 pr-4 py-3 shadow-sm overflow-hidden before:content-[''] before:absolute before:left-0 before:top-0 before:bottom-0 before:w-1",
+        "relative overflow-hidden rounded-xl border border-border bg-card px-4 py-3 before:absolute before:left-0 before:top-0 before:bottom-0 before:w-1 before:content-['']",
         accent
       )}
     >
-      <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+      <div className="text-xs font-medium text-muted-foreground">
         {label}
       </div>
       {loading ? (
@@ -146,12 +146,12 @@ export function Kpi({ icon: Icon, label, value, tone = "neutral", accentBrand, s
                          "text-muted-foreground/50";
   return (
     <div className={cn(
-      "relative overflow-hidden rounded-xl border bg-card px-4 py-3.5 shadow-sm",
+      "relative overflow-hidden rounded-xl border bg-card px-4 py-3.5",
       "before:absolute before:left-0 before:top-0 before:bottom-0 before:w-1 before:content-['']",
       accent,
     )}>
       <div className="flex items-center justify-between">
-        <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">{label}</span>
+        <span className="text-xs font-medium text-muted-foreground">{label}</span>
         {Icon && <Icon className={cn("h-4 w-4 shrink-0", iconColor)} />}
       </div>
       {loading
@@ -172,10 +172,10 @@ export function Section({ icon: Icon, label, sublabel, children }: {
   icon: any; label: string; sublabel?: string; children: React.ReactNode;
 }) {
   return (
-    <div className="rounded-2xl border bg-card shadow overflow-hidden">
-      <div className="flex items-center gap-2.5 px-4 py-3 border-b bg-muted/30">
-        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-action-gradient-soft shrink-0">
-          <Icon className="h-4 w-4 text-action" />
+    <div className="overflow-hidden rounded-2xl border bg-card">
+      <div className="flex items-center gap-2.5 border-b bg-muted/30 px-4 py-3">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+          <Icon className="h-4 w-4" />
         </span>
         <span className="text-sm font-semibold">{label}</span>
         {sublabel && <span className="text-xs text-muted-foreground">{sublabel}</span>}
@@ -208,11 +208,11 @@ export function StatTile({ label, value, tone = "neutral", sublabel }: {
                          "before:bg-border";
   return (
     <div className={cn(
-      "relative overflow-hidden rounded-xl border bg-card px-3.5 py-3 shadow-sm",
+      "relative overflow-hidden rounded-xl border bg-card px-3.5 py-3",
       "before:absolute before:left-0 before:top-0 before:bottom-0 before:w-0.5 before:content-['']",
       accent,
     )}>
-      <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground leading-tight">
+      <p className="text-xs font-medium leading-tight text-muted-foreground">
         {label}
       </p>
       <p className={cn("mt-1 text-xl font-semibold tabular-nums leading-none", TILE_TONE[tone])}>{value}</p>
@@ -229,7 +229,7 @@ export function BackupStat({ label, b }: {
 }) {
   return (
     <div className="rounded-lg bg-muted/50 px-3.5 py-3">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground leading-tight">{label}</p>
+      <p className="text-xs font-medium leading-tight text-muted-foreground">{label}</p>
       {!b ? (
         <p className="mt-1 text-lg font-semibold text-muted-foreground leading-none">—</p>
       ) : (
@@ -259,7 +259,7 @@ export function DiskStat({ storage }: {
                    "bg-success";
   return (
     <div className="rounded-lg bg-muted/50 px-3.5 py-3">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground leading-tight">Disco del servidor</p>
+      <p className="text-xs font-medium leading-tight text-muted-foreground">Disco del servidor</p>
       {pct === null || !storage?.total_bytes ? (
         <p className="mt-1 text-lg font-semibold text-muted-foreground leading-none">—</p>
       ) : (

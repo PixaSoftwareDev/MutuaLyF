@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Plug, Loader2, Trash2, ShieldCheck, ShieldAlert, KeyRound, ChevronRight } from "lucide-react";
+import { Plus, Plug, Loader2, Trash2, ShieldCheck, ShieldAlert, KeyRound, ChevronRight, Database } from "lucide-react";
 import { api, type ConnectorRow } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -11,13 +11,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/toast";
-import { EmptyState } from "@/components/ui/empty-state";
 import { PageShell } from "@/components/layout/page-shell";
-import { PageHeader, CountChip } from "@/components/layout/page-header";
-import { FormSheet } from "@/components/layout/form-sheet";
+import { PageHeader } from "@/components/layout/page-header";
 
 const AUTH_TYPES = [
   { value: "none",    label: "Sin autenticación" },
@@ -87,34 +86,35 @@ export default function ConnectorsPage() {
     onError: (e) => toast({ title: "No se pudo eliminar", description: errDetail(e), variant: "destructive" }),
   });
 
-  const active = connectors.filter(c => c.is_active).length;
-
   return (
     <PageShell>
-      <PageHeader
-        title="Conectores"
-        badge={!isLoading ? <CountChip>{connectors.length} {connectors.length === 1 ? "conector" : "conectores"} · {active} activo{active === 1 ? "" : "s"}</CountChip> : undefined}
-        description={
-          <>APIs de terceros que el asistente puede consultar en vivo (órdenes, cuentas, turnos).
-          Configurá y <span className="font-semibold text-foreground">probá</span> libremente; activar hacia un host nuevo requiere aprobación del super-admin.</>
-        }
-        actions={
-          <Button onClick={() => setShowCreate(true)} className="shrink-0">
-            <Plus className="h-[18px] w-[18px] mr-1.5" /> Nuevo conector
-          </Button>
-        }
-      />
+      <PageHeader title="Fuentes de datos" />
 
       {isLoading ? (
         <div className="grid sm:grid-cols-2 gap-4">
           {[1, 2].map(i => <Skeleton key={i} className="h-40 rounded-2xl" />)}
         </div>
       ) : connectors.length === 0 ? (
-        <EmptyState
-          icon={Plug}
-          title="Sin conectores todavía"
-          description="Conectá el primer sistema externo para que el bot responda con datos en vivo."
-        />
+        /* Estado inicial: hero centrado con el CTA en el medio (patrón WhatsApp) */
+        <div className="mx-auto w-full max-w-3xl xl:max-w-4xl">
+          <Card className="rounded-2xl">
+            <CardContent className="flex flex-col items-center px-6 py-14 text-center">
+              <span className="flex h-16 w-16 items-center justify-center rounded-2xl bg-action-gradient-soft text-action shadow-sm">
+                <Database className="h-8 w-8" />
+              </span>
+              <h3 className="mt-5 text-lg font-semibold tracking-tight text-foreground">
+                Conectá una fuente de datos
+              </h3>
+              <p className="mt-1.5 max-w-md text-sm leading-relaxed text-muted-foreground">
+                Enlazá un sistema externo —turnos, cuentas, órdenes— para que el asistente
+                responda con datos en vivo. Primero lo probás; recién después se activa. Nada se conecta solo.
+              </p>
+              <Button className="mt-6" onClick={() => setShowCreate(true)}>
+                <Plus className="mr-1.5 h-[18px] w-[18px]" /> Conectar una fuente
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
       ) : (
         <div className="grid sm:grid-cols-2 gap-4">
           {connectors.map(c => (
@@ -170,18 +170,75 @@ export default function ConnectorsPage() {
               </div>
             </div>
           ))}
+
+          {/* Agregar otra fuente — reemplaza el botón de arriba */}
+          <button
+            onClick={() => setShowCreate(true)}
+            className="group flex min-h-[172px] flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-border p-5 text-muted-foreground transition-colors hover:border-action/40 hover:bg-muted/30 hover:text-foreground"
+          >
+            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-muted text-muted-foreground transition-colors group-hover:bg-action/10 group-hover:text-action">
+              <Plus className="h-5 w-5" />
+            </span>
+            <span className="text-sm font-medium">Conectar otra fuente</span>
+          </button>
         </div>
       )}
 
-      {/* Crear conector */}
-      <FormSheet
-        open={showCreate}
-        onOpenChange={setShowCreate}
-        icon={Plug}
-        title="Nuevo conector"
-        description="Los datos que te pasa el proveedor del API. Todo nace inactivo: primero probás, después activás."
-        footer={
-          <>
+      {/* Crear conector — modal centrado */}
+      <Dialog open={showCreate} onOpenChange={setShowCreate}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <div className="flex items-start gap-3 text-left">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-muted text-muted-foreground">
+                <Database className="h-5 w-5" />
+              </span>
+              <div className="min-w-0 space-y-1 pt-0.5">
+                <DialogTitle>Conectar una fuente de datos</DialogTitle>
+                <DialogDescription>
+                  Cargá los datos que te pasó el proveedor del API. Nace inactiva: primero probás, después activás.
+                </DialogDescription>
+              </div>
+            </div>
+          </DialogHeader>
+
+          <div className="-mr-1 max-h-[min(60vh,32rem)] space-y-4 overflow-y-auto pr-1">
+            <div className="space-y-2">
+              <Label>Nombre</Label>
+              <Input placeholder="Ej. Proveedor de datos" value={name} onChange={e => setName(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label>Identificador (slug)</Label>
+              <Input placeholder="proveedor" value={slug} onChange={e => setSlug(e.target.value.toLowerCase())} />
+              <p className="text-xs leading-relaxed text-muted-foreground">Minúsculas, números, guiones. No se puede cambiar después.</p>
+            </div>
+            <div className="space-y-2">
+              <Label>URL base del API</Label>
+              <Input placeholder="https://api.proveedor.com.ar" value={baseUrl} onChange={e => setBaseUrl(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label>Hosts permitidos (egress)</Label>
+              <Input placeholder="api.proveedor.com.ar (separados por coma)" value={hosts} onChange={e => setHosts(e.target.value)} />
+              <p className="text-xs leading-relaxed text-muted-foreground">Si lo dejás vacío, se usa el host de la URL base. Activar hacia un host nuevo requiere aprobación del super-admin.</p>
+            </div>
+            <div className="space-y-2">
+              <Label>Autenticación</Label>
+              <Select value={authType} onValueChange={setAuthType}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {AUTH_TYPES.map(a => <SelectItem key={a.value} value={a.value}>{a.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            {authType !== "none" && (
+              <div className="space-y-2">
+                <Label>Credencial</Label>
+                <Input type="password" placeholder={authType === "basic" ? "contraseña" : "API key / token"} value={secret} onChange={e => setSecret(e.target.value)} />
+                <p className="text-xs leading-relaxed text-muted-foreground">Se guarda cifrada y nunca se vuelve a mostrar. Podés cargarla o cambiarla después.</p>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
             <Button variant="outline" onClick={() => setShowCreate(false)}>Cancelar</Button>
             <Button
               onClick={() => createM.mutate()}
@@ -190,46 +247,9 @@ export default function ConnectorsPage() {
               {createM.isPending && <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />}
               Crear conector
             </Button>
-          </>
-        }
-      >
-        <div className="space-y-5">
-          <div className="space-y-2">
-            <Label>Nombre</Label>
-            <Input placeholder="Ej. Proveedor de datos" value={name} onChange={e => setName(e.target.value)} />
-          </div>
-          <div className="space-y-2">
-            <Label>Identificador (slug)</Label>
-            <Input placeholder="proveedor" value={slug} onChange={e => setSlug(e.target.value.toLowerCase())} />
-            <p className="text-xs text-muted-foreground">Minúsculas, números, guiones. No se puede cambiar después.</p>
-          </div>
-          <div className="space-y-2">
-            <Label>URL base del API</Label>
-            <Input placeholder="https://api.proveedor.com.ar" value={baseUrl} onChange={e => setBaseUrl(e.target.value)} />
-          </div>
-          <div className="space-y-2">
-            <Label>Hosts permitidos (egress)</Label>
-            <Input placeholder="api.proveedor.com.ar (separados por coma)" value={hosts} onChange={e => setHosts(e.target.value)} />
-            <p className="text-xs text-muted-foreground">Si lo dejás vacío, se usa el host de la URL base. Activar hacia un host nuevo requiere aprobación del super-admin.</p>
-          </div>
-          <div className="space-y-2">
-            <Label>Autenticación</Label>
-            <Select value={authType} onValueChange={setAuthType}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {AUTH_TYPES.map(a => <SelectItem key={a.value} value={a.value}>{a.label}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-          {authType !== "none" && (
-            <div className="space-y-2">
-              <Label>Credencial</Label>
-              <Input type="password" placeholder={authType === "basic" ? "contraseña" : "API key / token"} value={secret} onChange={e => setSecret(e.target.value)} />
-              <p className="text-xs text-muted-foreground">Se guarda cifrada y nunca se vuelve a mostrar. Podés cargarla o cambiarla después.</p>
-            </div>
-          )}
-        </div>
-      </FormSheet>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Confirmar borrado */}
       <Dialog open={!!deleting} onOpenChange={o => !o && setDeleting(null)}>

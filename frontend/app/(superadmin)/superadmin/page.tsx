@@ -11,6 +11,7 @@ import {
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { PageShell } from "@/components/layout/page-shell";
+import { PageHeader } from "@/components/layout/page-header";
 import { Skeleton } from "@/components/ui/skeleton";
 import { fmtNum, Kpi } from "@/components/superadmin/shared";
 import { cn } from "@/lib/utils";
@@ -192,14 +193,10 @@ export default function PlatformHomePage() {
 
   return (
     <PageShell>
-      <div>
-        <p className="text-[11px] font-semibold uppercase tracking-[0.08em] bg-action-gradient bg-clip-text text-transparent">
-          {fechaLabel}
-        </p>
-        <h1 className="mt-1 text-xl sm:text-2xl font-semibold tracking-tight">
-          {greeting}{now && niceName ? `, ${niceName}` : ""}
-        </h1>
-      </div>
+      <PageHeader
+        title={`${greeting}${now && niceName ? `, ${niceName}` : ""}`}
+        badge={<span className="text-xs text-muted-foreground first-letter:uppercase">{fechaLabel}</span>}
+      />
 
       {/* ── Hero de estado ── */}
       <div className={cn("relative overflow-hidden rounded-2xl border bg-gradient-to-br p-5 sm:p-6", hero.ring, hero.grad)}>
@@ -256,8 +253,8 @@ export default function PlatformHomePage() {
       {/* ── Pulso de organizaciones ── */}
       <div className="overflow-hidden rounded-2xl border bg-card shadow-sm">
         <div className="flex items-center gap-2.5 border-b bg-muted/30 px-4 py-3">
-          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-action-gradient-soft shrink-0">
-            <Network className="h-4 w-4 text-action" />
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+            <Network className="h-4 w-4" />
           </span>
           <span className="text-sm font-semibold">Pulso de organizaciones</span>
           <span className="text-xs text-muted-foreground">consumo y actividad, últimos 30 días</span>

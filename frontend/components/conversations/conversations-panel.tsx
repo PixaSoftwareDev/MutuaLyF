@@ -1221,10 +1221,21 @@ function WaTicks({ status }: { status: string }) {
   );
 }
 
-export function MessageBubble({ msg, conversationId }:
+/**
+ * Burbuja de mensaje — lenguaje visual de la referencia (Text):
+ *   Afiliado  → IZQUIERDA: avatar redondo gris + label con el nombre, burbuja
+ *               gris sin borde ni sombra, hora chica adentro.
+ *   Bot (IA)  → DERECHA: label "Asistente" + avatar violeta (violeta = IA en
+ *               todo el sistema), burbuja con tinte violeta suave.
+ *   Operador  → DERECHA: label + avatar verde, burbuja con tinte verde suave.
+ * Es la perspectiva del inbox: "ellos" a la izquierda, "nosotros" a la derecha.
+ */
+export function MessageBubble({ msg, conversationId, senderName }:
   { msg: { id: string; sender_type: string; content: string; created_at: string;
            attachment_name?: string | null; attachment_mime?: string | null; pending?: boolean;
-           delivery_status?: string | null }; conversationId: string }) {
+           delivery_status?: string | null }; conversationId: string;
+    /** Nombre del afiliado — label y para la inicial del avatar. */
+    senderName?: string | null }) {
   const isUser     = msg.sender_type === "user";
   const isSystem   = msg.sender_type === "system";
   const isOperator = msg.sender_type === "operator";
@@ -1239,26 +1250,37 @@ export function MessageBubble({ msg, conversationId }:
     </div>
   );
 
+  const label = isUser
+    ? (senderName || "Afiliado")
+    : isOperator ? "Operador" : "Asistente";
+
+  const avatar = (
+    <span className={cn(
+      "flex h-7 w-7 shrink-0 items-center justify-center rounded-full",
+      isUser     && "bg-muted text-muted-foreground",
+      isOperator && "bg-success/15 text-success",
+      !isUser && !isOperator && "bg-violet-100 text-violet-600 dark:bg-violet-500/20 dark:text-violet-300",
+    )}>
+      {isUser
+        ? (senderName?.trim()[0]
+            ? <span className="text-[11px] font-semibold uppercase">{senderName.trim()[0]}</span>
+            : <UserCheck className="h-3.5 w-3.5" />)
+        : isOperator
+          ? <UserCheck className="h-3.5 w-3.5" />
+          : <Bot className="h-3.5 w-3.5" />}
+    </span>
+  );
+
   return (
-    <div className={cn("flex gap-3 items-end", isUser ? "flex-row-reverse" : "flex-row")}>
-      {!isUser && (
+    <div className={cn("flex items-start gap-2.5", !isUser && "flex-row-reverse")}>
+      {avatar}
+      <div className={cn("flex max-w-[80%] flex-col", !isUser && "items-end")}>
+        <span className="mb-1 px-0.5 text-[11px] font-semibold text-foreground/80">{label}</span>
         <div className={cn(
-          "w-8 h-8 rounded-xl flex items-center justify-center shrink-0 shadow-sm",
-          isOperator
-            ? "bg-success"
-            : "bg-gradient-to-br from-brand-light to-brand",
-        )}>
-          {isOperator
-            ? <UserCheck className="h-4 w-4 text-success-foreground" />
-            : <Bot       className="h-4 w-4 text-brand-foreground" />}
-        </div>
-      )}
-      <div className="max-w-[85%] flex flex-col">
-        <div className={cn(
-          "rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed break-words transition-opacity",
-          isUser     && "bg-brand text-brand-foreground rounded-br-sm shadow-sm",
-          isOperator && "bg-card border border-success/30 text-foreground rounded-bl-sm shadow-sm",
-          !isUser && !isOperator && "bg-card border text-foreground rounded-bl-sm shadow-sm",
+          "rounded-2xl px-4 py-2.5 text-sm leading-relaxed break-words text-foreground transition-opacity",
+          isUser     && "rounded-tl-md bg-muted",
+          isOperator && "rounded-tr-md bg-success/10",
+          !isUser && !isOperator && "rounded-tr-md bg-gradient-to-br from-violet-100/70 to-indigo-100/50 dark:from-violet-500/15 dark:to-indigo-500/10",
           msg.pending && "opacity-65",
         )}>
           {msg.content && <p className="whitespace-pre-wrap break-words">{renderWithLinks(msg.content)}</p>}
@@ -1266,7 +1288,7 @@ export function MessageBubble({ msg, conversationId }:
             <AttachmentView conversationId={conversationId} messageId={msg.id}
                             name={msg.attachment_name} mime={msg.attachment_mime || ""} />
           )}
-          <p className={cn("text-[11px] mt-1 opacity-60 flex items-center gap-1", isUser ? "justify-end" : "justify-start")}>
+          <p className={cn("mt-1 flex items-center gap-1 text-[11px] opacity-60", !isUser && "justify-end")}>
             {msg.pending ? <><Loader2 className="h-2.5 w-2.5 animate-spin" /> enviando…</> : time}
             {!msg.pending && isOperator && msg.delivery_status && <WaTicks status={msg.delivery_status} />}
           </p>

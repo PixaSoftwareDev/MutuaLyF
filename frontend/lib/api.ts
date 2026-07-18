@@ -161,6 +161,10 @@ export interface TenantBranding {
   favicon_url:      string | null;
   bot_name:         string | null;
   greeting_message: string | null;
+  /** Tema del widget embebido: 'light' (default) o 'dark'. */
+  widget_theme?: "light" | "dark";
+  /** Esquina del widget embebido: 'right' (default) o 'left'. */
+  widget_position?: "right" | "left";
 }
 
 export interface SourceChunk {
@@ -342,6 +346,8 @@ export interface ConversationHistoryRow {
   updated_at: string | null;
   closed_at: string | null;
   last_message_at: string | null;
+  last_message_preview: string | null;
+  last_message_sender: "user" | "bot" | "operator" | "system" | null;
 }
 
 export interface ConversationHistoryFilters {
@@ -558,9 +564,56 @@ export interface DuplicatesResponse {
   pending: number;
 }
 
+// ── Métricas del tenant ─────────────────────────────────────────────────────────
+
+export interface TenantMetrics {
+  tenant: { id: string; name: string | null; plan: string | null; limits: Record<string, number> };
+  usage: {
+    queries_today: number; queries_7d: number; queries_30d: number;
+    queries_this_month: number; queries_prev_month: number; mom_pct: number | null;
+    ingests_30d: number; llm_tokens_30d: number;
+    queries_prev_30d: number; llm_tokens_prev_30d: number;
+    daily: Array<{ day: string; total: number }>;
+    ingest_daily: Array<{ day: string; total: number }>;
+    tokens_daily: Array<{ day: string; total: number }>;
+  };
+  assistant: { daily: Array<{ day: string; avg_confidence: number | null; total: number }> };
+  performance: {
+    latency_p50: number | null; latency_p95: number | null;
+    cache_hit_rate: number | null; avg_confidence: number | null; total_logged: number;
+    unclassified_30d: number; classified_30d: number;
+  };
+  docs: { total: number; ready: number; failed: number; processing: number; storage_bytes: number };
+  quality: { passed: number; pending: number; skipped: number };
+  conversations: {
+    total: number; widget: number; whatsapp: number;
+    handoffs: number; handoff_rate: number | null; bot_resolved_pct: number | null;
+    avg_resolution_seconds: number | null;
+    prev_total: number; avg_wait_seconds: number | null;
+    daily: Array<{ day: string; total: number; handoffs: number }>;
+    by_sector: Array<{ nombre: string; total: number }>;
+  };
+  top_intents: Array<{ label: string; count: number; avg_confidence: number | null }>;
+  recent_queries: Array<{
+    question_text: string | null; intent_label: string | null; intent_confidence: number | null;
+    latency_ms: number | null; from_cache: boolean; created_at: string;
+  }>;
+  quota: {
+    queries_month: { used: number; limit: number; pct: number | null };
+    documents: { used: number; limit: number; pct: number | null };
+  };
+}
+
 // ── API functions ──────────────────────────────────────────────────────────────
 
 export const api = {
+  metrics: {
+    get: async (): Promise<TenantMetrics> => {
+      const { data } = await apiClient.get<TenantMetrics>("/metrics");
+      return data;
+    },
+  },
+
   auth: {
     /** Email-first lookup. Devuelve los tenants donde existe ese email. */
     lookupTenant: async (email: string): Promise<LookupTenantResponse> => {
@@ -639,7 +692,7 @@ export const api = {
 
     /** Admin: patch branding fields. Send only the fields you want to change. */
     update: async (
-      patch: Partial<Pick<TenantBranding, "display_name" | "primary_color" | "secondary_color" | "favicon_url">>,
+      patch: Partial<Pick<TenantBranding, "display_name" | "primary_color" | "secondary_color" | "favicon_url" | "widget_theme" | "widget_position">>,
       tenantId?: string,
     ): Promise<TenantBranding> => {
       const url = tenantId
@@ -1014,7 +1067,7 @@ export const api = {
       const { data } = await apiClient.get(`/tenants/${tenantId}/metrics`);
       return data as {
         tenant: { id: string; name: string; plan: string; status: string; admin_email: string; created_at: string; limits: Record<string, number> };
-        usage: { queries_today: number; queries_7d: number; queries_30d: number; ingests_30d: number; llm_tokens_30d: number; daily_30d: Array<{ day: string; total: number }> };
+        usage: { queries_today: number; queries_7d: number; queries_30d: number; ingests_30d: number; llm_tokens_30d: number; daily: Array<{ day: string; total: number }> };
         docs: { total: number; ready: number; failed: number; processing: number; storage_bytes: number };
         performance: { latency_p50: number | null; latency_p95: number | null; cache_hit_rate: number | null; avg_confidence: number | null; total_logged: number };
         quality: { passed: number; pending: number; skipped: number };
@@ -1223,6 +1276,10 @@ export const api = {
     },
     unassign: async (tenant_id: string, template_id: string) => {
       await apiClient.delete(`/superadmin/tenants/${tenant_id}/prompt-assignments/${template_id}`);
+    },
+    test: async (contenido: string, messages: { role: "user" | "bot"; content: string }[]) => {
+      const { data } = await apiClient.post("/superadmin/prompt-templates/test", { contenido, messages });
+      return data as { answer: string; latency_ms: number };
     },
     setMaxTemplates: async (tenant_id: string, max: number) => {
       const { data } = await apiClient.patch(`/superadmin/tenants/${tenant_id}/max-templates`, { max_prompt_templates: max });

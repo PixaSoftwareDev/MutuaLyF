@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
-import { Loader2, Send, Bot, ChevronLeft, UserCheck, AlertTriangle, Paperclip } from "lucide-react";
+import { Loader2, Send, Bot, UserCheck, AlertTriangle, Paperclip, Plus } from "lucide-react";
 import { api, type TenantBranding } from "@/lib/api";
 import { applyBrandingVars, readCachedBranding, writeCachedBranding } from "@/lib/use-tenant-branding";
 import { renderWithLinks } from "@/lib/render-with-links";
@@ -179,16 +179,25 @@ function HandoffOfferBubble({
   onConfirm,
   confirmed,
   identified,
+  sectors,
+  preselectedSectorId,
 }: {
   content: string;
-  onConfirm: (identif?: { afiliado_nombre: string; afiliado_dni: string }) => void;
+  onConfirm: (identif?: { afiliado_nombre?: string; afiliado_dni?: string; sector_id?: string }) => void;
   confirmed: boolean;
   identified: boolean;
+  sectors: Sector[];
+  preselectedSectorId: string | null;
 }) {
   // 3 estados: "offer" (botón inicial) → "identify" (form) → confirmed (loader)
   const [phase, setPhase] = useState<"offer" | "identify">("offer");
   const [nombre, setNombre] = useState("");
   const [dni, setDni]       = useState("");
+  // El sector se decide acá — el momento en que importa de verdad (define la
+  // cola de operadores). Pre-seleccionado: el elegido antes por chip, o el default.
+  const [sectorId, setSectorId] = useState<string>(
+    preselectedSectorId || sectors.find(s => s.is_default)?.id || sectors[0]?.id || ""
+  );
   const [err, setErr]       = useState<string | null>(null);
 
   function submit() {
@@ -199,7 +208,11 @@ function HandoffOfferBubble({
     if (!d) { setErr("Decinos tu DNI o número de documento, por favor."); return; }
     // Sin mínimo de longitud: es un identificador para que el operador te reconozca,
     // no una credencial. Documentos cortos, provisorios o extranjeros son válidos.
-    onConfirm({ afiliado_nombre: n, afiliado_dni: d });
+    onConfirm({
+      afiliado_nombre: n,
+      afiliado_dni: d,
+      ...(sectors.length > 1 && sectorId ? { sector_id: sectorId } : {}),
+    });
   }
 
   return (
@@ -213,7 +226,9 @@ function HandoffOfferBubble({
           </span>
         ) : phase === "offer" ? (
           <button
-            onClick={() => identified ? onConfirm() : setPhase("identify")}
+            onClick={() => identified
+              ? onConfirm(preselectedSectorId ? { sector_id: preselectedSectorId } : undefined)
+              : setPhase("identify")}
             className="inline-flex items-center gap-2 bg-warning text-warning-foreground hover:bg-warning/90 active:scale-95 text-sm font-medium rounded-xl px-4 py-2 transition-all"
           >
             <UserCheck className="h-4 w-4" />
@@ -244,6 +259,19 @@ function HandoffOfferBubble({
               className="w-full px-3 py-2 rounded-md border border-warning/20 text-sm text-warning placeholder:text-warning/40 bg-white focus:outline-none focus:ring-2 focus:ring-warning/40"
               onKeyDown={e => { if (e.key === "Enter") submit(); }}
             />
+            {sectors.length > 1 && (
+              <>
+                <p className="text-[11px] text-warning leading-relaxed">¿Con qué área querés hablar?</p>
+                <select
+                  value={sectorId}
+                  onChange={e => setSectorId(e.target.value)}
+                  aria-label="Área que te va a atender"
+                  className="w-full px-3 py-2 rounded-md border border-warning/20 text-sm text-warning bg-white focus:outline-none focus:ring-2 focus:ring-warning/40"
+                >
+                  {sectors.map(s => <option key={s.id} value={s.id}>{s.nombre}</option>)}
+                </select>
+              </>
+            )}
             {err && <p className="text-[11px] text-destructive">{err}</p>}
             <div className="flex items-center justify-end pt-1">
               <button
@@ -256,6 +284,65 @@ function HandoffOfferBubble({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Elección de área OPCIONAL, dentro de la conversación (no como pantalla previa):
+ * chip discreto → lista vertical → pill de confirmación. El sector no cambia lo
+ * que responde el bot; solo define qué equipo atiende si se deriva a un humano.
+ */
+function SectorChooser({ sectors, selected, onSelect }: {
+  sectors: Sector[];
+  selected: Sector | null;
+  onSelect: (s: Sector) => void;
+}) {
+  const [open, setOpen] = useState(false);
+
+  if (selected) {
+    return (
+      <div className="flex justify-center animate-fade-in-up">
+        <span className="text-xs text-muted-foreground bg-muted rounded-full px-4 py-1.5">
+          Área elegida: <span className="font-medium text-foreground">{selected.nombre}</span>
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex justify-center animate-fade-in-up">
+      {open ? (
+        <div className="w-full max-w-sm rounded-2xl border bg-card shadow-md overflow-hidden">
+          <p className="border-b bg-muted/40 px-4 py-2.5 text-xs font-semibold text-muted-foreground">
+            ¿Con qué área querés hablar?
+          </p>
+          <div className="max-h-64 overflow-y-auto">
+            {sectors.map(s => (
+              <button
+                key={s.id}
+                onClick={() => onSelect(s)}
+                className="block w-full border-b px-4 py-2.5 text-left text-sm transition-colors last:border-b-0 hover:bg-brand/5 hover:text-brand"
+              >
+                {s.nombre}
+              </button>
+            ))}
+            <button
+              onClick={() => setOpen(false)}
+              className="block w-full px-4 py-2.5 text-left text-xs text-muted-foreground transition-colors hover:bg-muted/50"
+            >
+              No importa, sigo con el asistente
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          onClick={() => setOpen(true)}
+          className="rounded-full border bg-card px-4 py-1.5 text-xs text-muted-foreground shadow-sm transition-colors hover:border-brand/30 hover:text-brand"
+        >
+          ¿Preferís hablar con un área específica?
+        </button>
+      )}
     </div>
   );
 }
@@ -296,10 +383,8 @@ function ChatInner() {
   useLayoutEffect(() => {
     if (tenantId) setBranding(prev => prev ?? readCachedBranding(tenantId));
   }, [tenantId]);
-  const [greeting, setGreeting]             = useState<string>("¡Hola! 👋 Soy tu asistente virtual. ¿En qué área puedo ayudarte?");
   const [sectorsLoading, setSectorsLoading] = useState(true);
   const [selectedSector, setSelectedSector] = useState<Sector | null>(null);
-  const [phase, setPhase]                   = useState<"selecting" | "chat">("selecting");
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [messages, setMessages]             = useState<Message[]>([]);
   const [input, setInput]                   = useState("");
@@ -374,11 +459,22 @@ function ChatInner() {
       .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
       .then((data: { sectors: Sector[]; greeting_message: string | null }) => {
         setSectors(data.sectors);
-        if (data.greeting_message) setGreeting(data.greeting_message);
         setSectorsLoading(false);
       })
-      .catch(e => { setError(`Error al cargar sectores: ${e.message}`); setSectorsLoading(false); });
+      // Sectores son opcionales ahora (solo importan al derivar) — un fallo acá
+      // no bloquea el chat.
+      .catch(() => setSectorsLoading(false));
   }, [resolvedToken, tenantId]);
+
+  // Arranque directo en conversación: sin pantalla de selección de área. El
+  // saludo llega como primer mensaje del bot (persistido en DB, viene por poll).
+  const startedRef = useRef(false);
+  useEffect(() => {
+    if (!resolvedToken || startedRef.current) return;
+    startedRef.current = true;
+    startChat();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resolvedToken]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -451,14 +547,15 @@ function ChatInner() {
     loop();
   }, [pollMessages]);
 
-  async function fetchOperatorsOnline(sectorId: string) {
+  async function fetchOperatorsOnline(sectorId?: string | null) {
     try {
-      const r = await fetch(`${API_BASE}/api/v1/widget/operators-online?sector_id=${sectorId}`, { headers: getHeaders() });
+      const qs = sectorId ? `?sector_id=${sectorId}` : "";
+      const r = await fetch(`${API_BASE}/api/v1/widget/operators-online${qs}`, { headers: getHeaders() });
       if (r.ok) { const d = await r.json(); setOperatorsOnline({ count: d.online ?? 0, names: d.operators ?? [] }); }
     } catch { /* non-critical */ }
   }
 
-  async function startChat(sector: Sector, pendingMessage?: string) {
+  async function startChat(pendingMessage?: string) {
     // Reset critico: matar polling viejo (si lo hay) y limpiar todos los refs
     // que persisten entre ciclos. Sin esto, al renovar conv el cliente quedaba
     // polleando con last_message_id de la conv vieja → backend hacia long-poll
@@ -467,16 +564,16 @@ function ChatInner() {
     if (pollTimeoutRef.current) { clearTimeout(pollTimeoutRef.current); pollTimeoutRef.current = null; }
     lastMessageIdRef.current = null;
 
-    setSelectedSector(sector);
-    setPhase("chat");
     setMessages([]);
     setHandoffConfirmed(false);
     setTimeout(() => inputRef.current?.focus(), 100);
-    fetchOperatorsOnline(sector.id);
+    fetchOperatorsOnline(selectedSector?.id);
     try {
       const r = await fetch(`${API_BASE}/api/v1/widget/conversation/start`, {
         method: "POST", headers: getHeaders(),
-        body: JSON.stringify({ widget_session_id: sessionId.current, sector_id: sector.id, is_test: isTest }),
+        // Sin sector: el backend usa el default del tenant. El área real se
+        // decide al derivar (confirm-handoff la re-etiqueta).
+        body: JSON.stringify({ widget_session_id: sessionId.current, sector_id: selectedSector?.id ?? null, is_test: isTest }),
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const data = await r.json();
@@ -502,10 +599,10 @@ function ChatInner() {
       });
       // 410 = conversacion cerrada por el operador. Arrancar una nueva
       // automaticamente y reenviar el mensaje del usuario.
-      if (r.status === 410 && selectedSector) {
+      if (r.status === 410) {
         // Limpiar el "user" optimista para que no quede duplicado en la nueva conv
         setMessages(prev => prev.filter(m => m.content !== text || m.role !== "user"));
-        await startChat(selectedSector, text);
+        await startChat(text);
         return;
       }
       const data = await r.json();
@@ -565,15 +662,19 @@ function ChatInner() {
     }
   }
 
-  async function confirmHandoff(identif?: { afiliado_nombre: string; afiliado_dni: string }) {
+  async function confirmHandoff(identif?: { afiliado_nombre?: string; afiliado_dni?: string; sector_id?: string }) {
     if (!conversationId) return;
     setHandoffConfirmed(true);
     try {
       const headers: Record<string, string> = { ...getHeaders() };
+      // Siempre que haya sector elegido (form o chip), mandarlo: el backend
+      // re-etiqueta la conversación para la cola de operadores correcta.
+      const payload = { ...(identif || {}) };
+      if (!payload.sector_id && selectedSector) payload.sector_id = selectedSector.id;
       let body: string | undefined;
-      if (identif) {
+      if (payload.afiliado_nombre || payload.afiliado_dni || payload.sector_id) {
         headers["Content-Type"] = "application/json";
-        body = JSON.stringify(identif);
+        body = JSON.stringify(payload);
       }
       const r = await fetch(`${API_BASE}/api/v1/widget/conversation/${conversationId}/confirm-handoff?widget_session_id=${encodeURIComponent(sessionId.current)}`, {
         method: "POST",
@@ -627,111 +728,67 @@ function ChatInner() {
   }
 
   // ── Layout ───────────────────────────────────────────────────────────────────
-  return (
-    <div className="h-screen flex flex-col bg-muted/40 overflow-hidden">
+  // Patrón "Chat Page" (referencia Text): columna de bienvenida a la izquierda,
+  // conversación a la derecha con dos piezas FLOTANTES que le dan la misma
+  // identidad que el widget embebido — card de identidad arriba e input abajo.
+  // Esta pantalla vive siempre en claro (sin .dark), por eso los grises son fijos.
+  const botName = branding?.bot_name || branding?.display_name || "Asistente";
+  const orgName = branding?.display_name || "tu organización";
 
-      {/* ── Top bar ──────────────────────────────────────────────────────────────
-          Header estable con el color de marca (antes cambiaba todo el fondo a
-          ámbar/verde según estado — efecto "semáforo"). El estado ahora se lee
-          en el punto + label de abajo, más sobrio. */}
-      <header className="shrink-0 shadow-md z-10 bg-gradient-to-r from-brand-dark via-brand to-brand-light shadow-black/20">
-        <div className="max-w-3xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
-          {/* Left: brand + status */}
-          <div className="flex items-center gap-3">
-            {phase === "chat" ? (
-              <button
-                onClick={() => {
-                  pollAliveRef.current = false;
-                  if (pollTimeoutRef.current) clearTimeout(pollTimeoutRef.current);
-                  lastMessageIdRef.current = null;
-                  setPhase("selecting"); setConversationId(null); setMessages([]); setSelectedSector(null);
-                }}
-                className="mr-1 text-brand-foreground/70 hover:text-brand-foreground transition-colors p-1 -ml-1 rounded-lg hover:bg-white/10"
-                aria-label="Cambiar área"
-              >
-                <ChevronLeft className="h-5 w-5" />
-              </button>
-            ) : null}
-            {/* Avatar del bot — fijo para todos los tenants, no depende del logo del cliente */}
-            <div className="w-9 h-9 rounded-xl bg-white/20 backdrop-blur-sm border border-white/30 flex items-center justify-center shadow-inner">
-              <Bot className="h-5 w-5 text-brand-foreground" />
-            </div>
-            <div>
-              <p className="text-brand-foreground font-semibold text-sm leading-none">
-                {selectedSector ? selectedSector.nombre : (branding?.bot_name || branding?.display_name || "Asistente")}
-              </p>
-              <div className="flex items-center gap-1.5 mt-1">
-                <span className={`w-1.5 h-1.5 rounded-full ${statusDot}`} />
-                <span className="text-brand-foreground/80 text-xs">{phase === "selecting" ? "Elige un área para comenzar" : statusLabel}</span>
-                {phase === "chat" && operatorsOnline !== null && status === "bot_active" && (
-                  operatorsOnline.count > 0 ? (
-                    <span className="text-brand-foreground/70 text-xs">
-                      · {operatorsOnline.count === 1
-                          ? "1 operador disponible"
-                          : `${operatorsOnline.count} operadores disponibles`}
-                    </span>
-                  ) : (
-                    <span className="text-brand-foreground/50 text-xs">· Sin operadores disponibles</span>
-                  )
-                )}
+  return (
+    <div className="h-screen flex bg-slate-100 overflow-hidden">
+
+      {/* ── Columna de bienvenida (solo desktop) ── */}
+      <aside className="hidden lg:flex w-[340px] shrink-0 flex-col justify-between p-10">
+        <div>
+          <h1 className="text-4xl font-bold tracking-tight text-slate-900">¡Hola!</h1>
+          <p className="mt-4 max-w-[250px] text-sm leading-relaxed text-slate-500">
+            Estás en el chat de <span className="font-medium text-slate-700">{orgName}</span>.
+            Escribinos tu consulta y {botName} te responde al instante.
+          </p>
+        </div>
+        <div className="flex items-center gap-2 text-xs text-slate-400">
+          <span className={`h-2 w-2 rounded-full ${statusDot}`} />
+          <span>{statusLabel}</span>
+        </div>
+      </aside>
+
+      {/* ── Conversación (contenedor blanco redondeado sobre el lienzo gris) ── */}
+      <div className="relative flex flex-1 flex-col overflow-hidden bg-white lg:my-3 lg:mr-3 lg:rounded-3xl lg:border lg:border-slate-200/70 lg:shadow-sm">
+
+        {/* Card de identidad FLOTANTE — centrada arriba (como el widget) */}
+        <div className="pointer-events-none absolute inset-x-0 top-4 z-20 flex flex-col items-center px-4">
+          <div className="pointer-events-auto flex items-center gap-3 rounded-2xl border border-slate-200/80 bg-white px-4 py-2.5 shadow-lg shadow-black/[0.06]">
+            <div className="relative shrink-0">
+              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-brand-light to-brand-dark shadow-sm">
+                <Bot className="h-[18px] w-[18px] text-brand-foreground" />
               </div>
+              <span className={`absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-white ${statusDot}`} />
+            </div>
+            <div className="pr-1 leading-tight">
+              <p className="text-sm font-semibold text-slate-900">{botName}</p>
+              <p className="text-xs text-slate-500">
+                {statusLabel}
+                {operatorsOnline !== null && status === "bot_active" && (
+                  operatorsOnline.count > 0
+                    ? ` · ${operatorsOnline.count === 1 ? "1 operador disponible" : `${operatorsOnline.count} operadores disponibles`}`
+                    : " · Sin operadores"
+                )}
+              </p>
             </div>
           </div>
-
         </div>
-      </header>
 
-      {/* ── Messages / Selection area ─────────────────────────────────────────── */}
-      <div className="flex-1 overflow-y-auto">
-        <div className="max-w-3xl mx-auto px-4 sm:px-6 py-6 space-y-4 min-h-full flex flex-col">
-
-          {phase === "selecting" ? (
-            /* ── Sector selection ─────────────────────────────────────────── */
-            <div className="flex-1 flex flex-col justify-center items-center gap-8 py-8">
-              {/* Hero */}
-              <div className="text-center space-y-3">
-                <div className="w-20 h-20 rounded-3xl bg-gradient-to-br from-brand-light to-brand-dark flex items-center justify-center mx-auto shadow-xl shadow-black/20">
-                  <Bot className="h-10 w-10 text-brand-foreground" />
-                </div>
-                <p className="text-muted-foreground text-sm sm:text-base whitespace-pre-line max-w-md mx-auto">
-                  {greeting}
-                </p>
+        {/* ── Área de mensajes (con padding para no quedar bajo card/input) ── */}
+        <div className="flex-1 overflow-y-auto">
+          <div className="mx-auto flex min-h-full max-w-2xl flex-col px-4 pb-28 pt-24 sm:px-6">
+            <div className="flex-1" />
+            {messages.length === 0 && (
+              <div className="flex justify-center py-8">
+                <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
               </div>
-
-              {/* Sector pills */}
-              {sectorsLoading ? (
-                <div className="flex flex-wrap gap-3 justify-center">
-                  {[1, 2, 3, 4].map(i => (
-                    <div key={i} className="h-10 w-28 rounded-full bg-muted skeleton-shimmer" />
-                  ))}
-                </div>
-              ) : sectors.length === 0 ? (
-                <p className="text-muted-foreground text-sm">No hay sectores disponibles.</p>
-              ) : (
-                <div className="flex flex-wrap gap-3 justify-center max-w-lg">
-                  {sectors.map(s => (
-                    <button
-                      key={s.id}
-                      onClick={() => startChat(s)}
-                      className="group relative bg-card hover:bg-gradient-to-br hover:from-brand hover:to-brand-dark border-2 border-brand/30 hover:border-transparent text-brand hover:text-brand-foreground font-medium text-sm rounded-full px-5 py-2.5 transition-all duration-200 shadow-sm hover:shadow-lg hover:shadow-black/20 active:scale-95"
-                    >
-                      {s.nombre}
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              {/* Hint discreto — el input está fijo abajo, evitamos el divisor colgado */}
-              {!sectorsLoading && sectors.length > 0 && (
-                <p className="text-muted-foreground text-xs text-center -mt-3">
-                  Elegí un área o escribí tu consulta abajo
-                </p>
-              )}
-            </div>
-          ) : (
-            /* ── Chat messages ───────────────────────────────────────────── */
-            <>
-              <div className="flex-1" />
+            )}
+            <div className="space-y-4">
               {messages.map(m => {
                 if (m.attachment && conversationId)
                   return (
@@ -746,24 +803,29 @@ function ChatInner() {
                 if (m.role === "user")     return <UserBubble     key={m.id} content={m.content} />;
                 if (m.role === "operator") return <OperatorBubble key={m.id} content={m.content} operatorName={operatorName} />;
                 if (m.role === "system" && m.handoffOffer)
-                  return <HandoffOfferBubble key={m.id} content={m.content} onConfirm={confirmHandoff} confirmed={handoffConfirmed} identified={afiliadoIdentified} />;
+                  return <HandoffOfferBubble key={m.id} content={m.content} onConfirm={confirmHandoff} confirmed={handoffConfirmed} identified={afiliadoIdentified} sectors={sectors} preselectedSectorId={selectedSector?.id ?? null} />;
                 if (m.role === "system")   return <SystemBubble   key={m.id} content={m.content} />;
                 return                            <BotBubble      key={m.id} content={m.content} />;
               })}
+              {/* Elección de área opcional — visible mientras atiende el bot */}
+              {conversationId && messages.length > 0 && status === "bot_active" && !sectorsLoading && sectors.length > 1 && (
+                <SectorChooser
+                  sectors={sectors}
+                  selected={selectedSector}
+                  onSelect={s => { setSelectedSector(s); fetchOperatorsOnline(s.id); }}
+                />
+              )}
               {sending && status === "bot_active" && <TypingIndicator />}
-            </>
-          )}
-
-          <div ref={bottomRef} />
+            </div>
+            <div ref={bottomRef} />
+          </div>
         </div>
-      </div>
 
-      {/* ── Input bar ────────────────────────────────────────────────────────── */}
-      <div className="shrink-0 border-t bg-card/80 backdrop-blur-md">
-        <div className="max-w-3xl mx-auto px-4 sm:px-6 py-3 sm:py-4">
-          <div className="flex gap-3 items-center">
+        {/* ── Input FLOTANTE — pill blanca con sombra, con margen (como Text) ── */}
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 px-4 pb-4 sm:pb-5">
+          <div className="pointer-events-auto mx-auto flex max-w-2xl items-center gap-1 rounded-full border border-slate-200/80 bg-white py-1.5 pl-2 pr-1.5 shadow-lg shadow-black/[0.07]">
             {/* Adjuntar — solo con conversación activa */}
-            {phase === "chat" && conversationId && (
+            {conversationId && (
               <>
                 <input
                   ref={fileInputRef}
@@ -782,70 +844,41 @@ function ChatInner() {
                   disabled={uploadingFile}
                   aria-label="Adjuntar imagen o PDF"
                   title="Adjuntar imagen o PDF"
-                  className="w-12 h-12 rounded-2xl shrink-0 bg-muted hover:bg-muted/70 text-muted-foreground hover:text-foreground flex items-center justify-center transition-all disabled:opacity-50"
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50"
                 >
                   {uploadingFile
                     ? <Loader2 className="h-4 w-4 animate-spin" />
-                    : <Paperclip className="h-4 w-4" />}
+                    : <Plus className="h-5 w-5" />}
                 </button>
               </>
             )}
-            <div className="flex-1 relative">
-              <input
-                ref={inputRef}
-                className="w-full bg-muted hover:bg-muted/70 focus:bg-card border border-transparent focus:border-brand rounded-2xl px-5 py-3 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:ring-2 focus:ring-brand/30 transition-all"
-                placeholder={
-                  phase === "selecting"
-                    ? sectorsLoading || sectors.length === 0
-                      ? "Cargando sectores…"
-                      : "Escribí tu consulta…"
-                    : "Escribí tu mensaje…"
-                }
-                disabled={phase === "selecting" && (sectorsLoading || sectors.length === 0)}
-                value={input}
-                onChange={e => setInput(e.target.value)}
-                onKeyDown={e => {
-                  if (e.key !== "Enter" || e.shiftKey) return;
-                  e.preventDefault();
-                  if (phase === "selecting") {
-                    const val = input.trim();
-                    if (val && sectors.length > 0) {
-                      const def = sectors.find(s => s.is_default) || sectors[0];
-                      setInput("");
-                      startChat(def, val);
-                    }
-                  } else {
-                    sendMessage();
-                  }
-                }}
-              />
-            </div>
-            <button
-              onClick={() => {
-                if (phase === "chat") { sendMessage(); return; }
-                const val = input.trim();
-                if (phase === "selecting" && val && sectors.length > 0) {
-                  const def = sectors.find(s => s.is_default) || sectors[0];
-                  setInput("");
-                  startChat(def, val);
-                }
+            <input
+              ref={inputRef}
+              className="min-w-0 flex-1 bg-transparent px-2 text-sm text-slate-900 placeholder:text-slate-400 outline-none disabled:opacity-60"
+              placeholder={conversationId ? "Escribí un mensaje…" : "Conectando…"}
+              disabled={!conversationId}
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={e => {
+                if (e.key !== "Enter" || e.shiftKey) return;
+                e.preventDefault();
+                sendMessage();
               }}
-              disabled={
-                phase === "chat"
-                  ? (!input.trim() || sending)
-                  : !input.trim() || sectorsLoading || sectors.length === 0
-              }
-              className="w-12 h-12 rounded-2xl bg-gradient-to-br from-brand to-brand-dark text-brand-foreground flex items-center justify-center shadow-md shadow-black/20 hover:shadow-lg hover:shadow-black/25 hover:scale-105 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100 disabled:shadow-md transition-all duration-150"
+            />
+            <button
+              onClick={sendMessage}
+              disabled={!conversationId || !input.trim() || sending}
+              aria-label="Enviar mensaje"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand to-brand-dark text-brand-foreground shadow-sm transition-all hover:scale-105 active:scale-95 disabled:scale-100 disabled:opacity-40 disabled:shadow-none"
             >
               {sending
                 ? <Loader2 className="h-4 w-4 animate-spin" />
-                : <Send className="h-4 w-4" />
-              }
+                : <Send className="h-4 w-4" />}
             </button>
           </div>
         </div>
-      </div>
 
+      </div>
     </div>
   );
 }

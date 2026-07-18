@@ -305,11 +305,18 @@ async def list_conversations_history(
                 c.created_at, c.updated_at, c.closed_at,
                 s.nombre AS sector_nombre,
                 u.name   AS operator_name,
-                (SELECT MAX(created_at) FROM mensajes WHERE conversation_id = c.id) AS last_message_at,
+                lm.created_at  AS last_message_at,
+                LEFT(lm.content, 140) AS last_message_preview,
+                lm.sender_type AS last_message_sender,
                 (SELECT COUNT(*) FROM mensajes WHERE conversation_id = c.id) AS message_count
             FROM conversaciones c
             LEFT JOIN sectores s ON s.id = c.sector_id
             LEFT JOIN usuarios u ON u.id = c.assigned_operator_id
+            LEFT JOIN LATERAL (
+                SELECT content, sender_type, created_at
+                FROM mensajes WHERE conversation_id = c.id
+                ORDER BY created_at DESC LIMIT 1
+            ) lm ON TRUE
             {where_sql}
             ORDER BY c.updated_at DESC
             LIMIT :limit OFFSET :offset
@@ -335,6 +342,8 @@ async def list_conversations_history(
                 "updated_at":       r["updated_at"].isoformat() if r["updated_at"] else None,
                 "closed_at":        r["closed_at"].isoformat() if r["closed_at"] else None,
                 "last_message_at":  r["last_message_at"].isoformat() if r["last_message_at"] else None,
+                "last_message_preview": r["last_message_preview"],
+                "last_message_sender":  r["last_message_sender"],
             })
 
     return {
@@ -977,7 +986,7 @@ async def public_tenant_branding(tenant_id: str):
     async with get_pg_session() as session:
         row = await session.execute(text("""
             SELECT id, name, display_name, logo_url, primary_color, secondary_color,
-                   favicon_url, bot_name, greeting_message
+                   favicon_url, bot_name, greeting_message, widget_theme, widget_position
             FROM tenants
             WHERE id = :tid AND status != 'suspended'
             LIMIT 1
@@ -996,6 +1005,8 @@ async def public_tenant_branding(tenant_id: str):
         "favicon_url":      t["favicon_url"],
         "bot_name":         t["bot_name"],
         "greeting_message": t["greeting_message"],
+        "widget_theme":     t["widget_theme"] or "light",
+        "widget_position":  t["widget_position"] or "right",
     }
 
 

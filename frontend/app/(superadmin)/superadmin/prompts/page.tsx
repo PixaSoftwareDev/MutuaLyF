@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -15,7 +15,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PageShell } from "@/components/layout/page-shell";
 import { PageHeader } from "@/components/layout/page-header";
-import { Bot, Plus, Pencil, Trash2, Users, Loader2, X, Save, Cpu, ArrowLeft } from "lucide-react";
+import { Bot, Plus, Pencil, Trash2, Users, Loader2, X, Save, Cpu, ArrowLeft, FlaskConical, Send } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // ── Constants ──────────────────────────────────────────────────────────────────
@@ -29,13 +29,13 @@ const PLANS = [
 const PLAN_COLORS: Record<string, string> = {
   starter:      "bg-muted text-muted-foreground",
   professional: "bg-info/10 text-info",
-  enterprise:   "bg-action-gradient-soft text-action",
+  enterprise:   "bg-muted text-muted-foreground",
 };
 
 // Paleta sobria sobre tokens del sistema (no colores tailwind -100 sueltos).
 const CAT_PALETTE = [
   "bg-muted text-muted-foreground",
-  "bg-action-gradient-soft text-action",
+  "bg-muted text-muted-foreground",
   "bg-info/10 text-info",
   "bg-success/10 text-success",
   "bg-warning/10 text-warning",
@@ -64,7 +64,7 @@ function sysLabel(catKey: string): string {
 function sysColor(catKey: string): string {
   return catKey === "anti_alucinacion" ? "bg-warning/10 text-warning"
     : catKey === "calidad" ? "bg-info/10 text-info"
-    : catKey === "intenciones" ? "bg-action-gradient-soft text-action"
+    : catKey === "intenciones" ? "bg-muted text-muted-foreground"
     : catKey === "sistema" ? "bg-muted text-muted-foreground"
     : catColor(catKey);
 }
@@ -105,6 +105,7 @@ export default function PromptsPage() {
   const [formErr, setFormErr] = useState("");
   const [assignTenantId, setAssignTenantId] = useState("none");
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; nombre: string } | null>(null);
+  const [testTarget, setTestTarget] = useState<{ nombre: string; contenido: string } | null>(null);
 
   // Motor tab state
   const [selectedSystem, setSelectedSystem] = useState<SystemComponent | null>(null);
@@ -257,7 +258,7 @@ export default function PromptsPage() {
             </Button>
             <h2 className="text-xl font-bold tracking-tight">{editing ? "Editar personalidad" : "Nueva personalidad"}</h2>
 
-            <div className="rounded-2xl border bg-card shadow-sm p-5 space-y-4">
+            <div className="rounded-2xl border bg-card p-5 space-y-4">
               <div className="space-y-1.5">
                 <Label className="text-xs font-medium">Nombre</Label>
                 <Input value={form.nombre} onChange={e => setForm(f => ({ ...f, nombre: e.target.value }))} placeholder="Bot de ventas" className="h-9" />
@@ -302,6 +303,13 @@ export default function PromptsPage() {
             </div>
 
             <div className="flex justify-end gap-2">
+              <Button
+                variant="outline" className="gap-1.5 mr-auto"
+                disabled={form.contenido.trim().length < 10}
+                onClick={() => setTestTarget({ nombre: form.nombre || "Borrador", contenido: form.contenido })}
+              >
+                <FlaskConical className="h-4 w-4" /> Probar borrador
+              </Button>
               <Button variant="outline" onClick={() => { setShowForm(false); setEditing(null); }}>Cancelar</Button>
               <Button disabled={formSaveDisabled} onClick={() => { setFormErr(""); editing ? updateM.mutate() : createM.mutate(); }}>
                 {(createM.isPending || updateM.isPending) && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
@@ -322,14 +330,14 @@ export default function PromptsPage() {
               <>
                 <div className="flex items-start justify-between gap-4 flex-wrap">
                   <div className="flex items-start gap-3 min-w-0">
-                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-action-gradient-soft">
-                      <Bot className="h-5 w-5 text-action" />
+                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-muted">
+                      <Bot className="h-5 w-5 text-muted-foreground" />
                     </span>
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <h2 className="text-xl font-bold tracking-tight">{detail.nombre}</h2>
                         {!detail.is_active && (
-                          <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Inactivo</span>
+                          <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">Inactivo</span>
                         )}
                       </div>
                       {detail.descripcion && <p className="mt-0.5 text-sm text-muted-foreground">{detail.descripcion}</p>}
@@ -340,6 +348,9 @@ export default function PromptsPage() {
                     </div>
                   </div>
                   <div className="flex gap-2 shrink-0">
+                    <Button size="sm" className="gap-1.5" onClick={() => setTestTarget({ nombre: detail.nombre, contenido: detail.contenido })}>
+                      <FlaskConical className="h-3.5 w-3.5" /> Probar
+                    </Button>
                     <Button variant="outline" size="sm" className="gap-1.5" onClick={() => openEdit(detail)}>
                       <Pencil className="h-3.5 w-3.5" /> Editar
                     </Button>
@@ -361,8 +372,8 @@ export default function PromptsPage() {
                 {/* Asignaciones */}
                 <div className="rounded-2xl border bg-card overflow-hidden">
                   <div className="flex items-center gap-2.5 px-4 py-3 border-b bg-muted/20">
-                    <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-action-gradient-soft shrink-0">
-                      <Users className="h-3.5 w-3.5 text-action" />
+                    <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-muted shrink-0">
+                      <Users className="h-3.5 w-3.5 text-muted-foreground" />
                     </span>
                     <span className="text-sm font-semibold">Asignaciones</span>
                     <span className="text-xs text-muted-foreground">
@@ -427,12 +438,12 @@ export default function PromptsPage() {
                   <button
                     key={t.id}
                     onClick={() => setSelected(t as any)}
-                    className="group text-left rounded-2xl border bg-card shadow-sm p-4 transition-shadow hover:shadow-md card-interactive"
+                    className="group text-left rounded-2xl border bg-card p-4 transition-shadow hover:border-foreground/20 card-interactive"
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex items-center gap-2.5 min-w-0">
-                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-action-gradient-soft">
-                          <Bot className="h-4 w-4 text-action" />
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-muted">
+                          <Bot className="h-4 w-4 text-muted-foreground" />
                         </span>
                         <div className="min-w-0">
                           <p className="font-semibold truncate leading-tight">{t.nombre}</p>
@@ -440,7 +451,7 @@ export default function PromptsPage() {
                         </div>
                       </div>
                       {!t.is_active && (
-                        <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Inactivo</span>
+                        <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">Inactivo</span>
                       )}
                     </div>
                     <div className="mt-3 flex items-center gap-1.5 flex-wrap">
@@ -472,8 +483,8 @@ export default function PromptsPage() {
 
             <div className="flex items-start justify-between gap-4 flex-wrap">
               <div className="flex items-start gap-3 min-w-0">
-                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-action-gradient-soft">
-                  <Cpu className="h-5 w-5 text-action" />
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-muted">
+                  <Cpu className="h-5 w-5 text-muted-foreground" />
                 </span>
                 <div className="min-w-0">
                   <h2 className="text-xl font-bold tracking-tight">{selectedSystem.nombre}</h2>
@@ -531,12 +542,12 @@ export default function PromptsPage() {
                   <button
                     key={s.id}
                     onClick={() => { setSelectedSystem(s); setEditingSystem(false); }}
-                    className="group text-left rounded-2xl border bg-card shadow-sm p-4 transition-shadow hover:shadow-md card-interactive"
+                    className="group text-left rounded-2xl border bg-card p-4 transition-shadow hover:border-foreground/20 card-interactive"
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex items-center gap-2.5 min-w-0">
-                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-action-gradient-soft">
-                          <Cpu className="h-4 w-4 text-action" />
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-muted">
+                          <Cpu className="h-4 w-4 text-muted-foreground" />
                         </span>
                         <div className="min-w-0">
                           <p className="font-semibold truncate leading-tight">{s.nombre}</p>
@@ -557,6 +568,11 @@ export default function PromptsPage() {
             )}
           </div>
         )
+      )}
+
+      {/* ── Sandbox de prueba de personalidad ── */}
+      {testTarget && (
+        <TestChatDialog key={testTarget.nombre + testTarget.contenido.length} target={testTarget} onClose={() => setTestTarget(null)} />
       )}
 
       {/* ── Confirmación de borrado ── */}
@@ -593,5 +609,105 @@ export default function PromptsPage() {
         </DialogContent>
       </Dialog>
     </PageShell>
+  );
+}
+
+// ── Sandbox de prueba ───────────────────────────────────────────────────────────
+// Mini-chat contra el LLM real con la personalidad elegida + contexto demo ficticio.
+// No toca ningún tenant: sin cache, sin retrieval, sin log de consultas.
+
+type TestMsg = { role: "user" | "bot"; content: string };
+
+function TestChatDialog({ target, onClose }: { target: { nombre: string; contenido: string }; onClose: () => void }) {
+  const [messages, setMessages] = useState<TestMsg[]>([]);
+  const [input, setInput] = useState("");
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  const testM = useMutation({
+    mutationFn: (msgs: TestMsg[]) => api.promptTemplates.test(target.contenido, msgs),
+    onSuccess: (d) => setMessages(m => [...m, { role: "bot", content: d.answer }]),
+    onError: (e: any) => {
+      toast({ title: e?.response?.data?.detail ?? "No se pudo obtener respuesta", variant: "destructive" });
+      setMessages(m => m[m.length - 1]?.role === "user" ? m.slice(0, -1) : m);
+    },
+  });
+
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+  }, [messages, testM.isPending]);
+
+  function send() {
+    const content = input.trim();
+    if (!content || testM.isPending) return;
+    const next = [...messages, { role: "user" as const, content }];
+    setMessages(next);
+    setInput("");
+    testM.mutate(next.slice(-20));
+  }
+
+  return (
+    <Dialog open onOpenChange={v => !v && onClose()}>
+      <DialogContent className="w-full max-w-lg mx-4 sm:mx-auto p-0 gap-0 overflow-hidden">
+        <DialogHeader className="px-4 py-3 border-b space-y-0.5">
+          <div className="flex items-center gap-2.5">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted">
+              <FlaskConical className="h-4 w-4 text-muted-foreground" />
+            </span>
+            <div className="min-w-0 text-left">
+              <DialogTitle className="text-sm truncate">Probar · {target.nombre}</DialogTitle>
+              <p className="text-[11px] text-muted-foreground leading-tight">
+                Sandbox con documentos ficticios (trámites, horarios, reintegros). No afecta a ningún tenant.
+              </p>
+            </div>
+          </div>
+        </DialogHeader>
+
+        <div ref={scrollRef} className="h-[380px] overflow-y-auto px-4 py-3 space-y-3 bg-muted/20">
+          {messages.length === 0 && (
+            <div className="h-full flex flex-col items-center justify-center gap-2 text-center px-6">
+              <Bot className="h-8 w-8 text-muted-foreground/40" />
+              <p className="text-xs text-muted-foreground">
+                Escribí una consulta para ver cómo responde esta personalidad.
+                Probá por ejemplo: <span className="italic">"hola"</span>, <span className="italic">"¿cómo saco la credencial?"</span> o <span className="italic">"¿hasta cuándo puedo pedir un reintegro?"</span>
+              </p>
+            </div>
+          )}
+          {messages.map((m, i) => (
+            <div key={i} className={cn("flex", m.role === "user" ? "justify-end" : "justify-start")}>
+              <div className={cn(
+                "max-w-[85%] rounded-2xl px-3.5 py-2 text-sm whitespace-pre-wrap break-words leading-relaxed",
+                m.role === "user"
+                  ? "bg-primary text-primary-foreground rounded-br-sm"
+                  : "bg-card border rounded-bl-sm",
+              )}>
+                {m.content}
+              </div>
+            </div>
+          ))}
+          {testM.isPending && (
+            <div className="flex justify-start">
+              <div className="rounded-2xl rounded-bl-sm bg-card border px-3.5 py-2.5">
+                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2 border-t px-3 py-2.5">
+          <Input
+            autoFocus
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
+            placeholder="Escribí tu consulta…"
+            maxLength={2000}
+            className="h-9 flex-1"
+          />
+          <Button size="sm" className="h-9 w-9 p-0 shrink-0" disabled={!input.trim() || testM.isPending} onClick={send}>
+            <Send className="h-4 w-4" />
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }

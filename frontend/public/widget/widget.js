@@ -76,6 +76,7 @@
     // Variantes con alpha (sin color-mix, para compat con navegadores viejos)
     root.style.setProperty("--ia-brand-30", _rgba(hex, 0.3));
     root.style.setProperty("--ia-brand-25", _rgba(hex, 0.25));
+    root.style.setProperty("--ia-brand-06", _rgba(hex, 0.06));
   }
   _applyBrand(DEFAULT_PRIMARY);
 
@@ -103,9 +104,9 @@
     widgetSessionId = "ws_" + Date.now() + "_" + Math.random().toString(36).slice(2, 9);
     localStorage.setItem(SESSION_KEY, widgetSessionId);
   }
-  var SECTOR_KEY = "ia_widget_sector_" + WIDGET_TOKEN.slice(-8);
-  var rememberedSector = null;
-  try { rememberedSector = JSON.parse(localStorage.getItem(SECTOR_KEY) || "null"); } catch (e) {}
+  // El sector ya no se elige al abrir — se decide recién al derivar a un humano
+  // (no afecta lo que responde el bot). Limpiar la preferencia de sesiones viejas.
+  try { localStorage.removeItem("ia_widget_sector_" + WIDGET_TOKEN.slice(-8)); } catch (e) {}
 
   // ── State ─────────────────────────────────────────────────────────────────────
   var conversationId = null;
@@ -169,48 +170,53 @@
     "@keyframes ia-slideup-m{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}}",
     "@media (min-width:1441px){#ia-w-panel{width:440px;height:700px;bottom:32px;right:32px;}#ia-w-btn{width:72px;height:72px;bottom:32px;right:32px;}}",
 
-    // Header — gradiente que cambia por estado (igual que /chat)
-    "#ia-w-header{flex-shrink:0;padding:0 16px;height:64px;display:flex;align-items:center;gap:12px;background:linear-gradient(to right,var(--ia-brand-dark),var(--ia-brand),var(--ia-brand-light));box-shadow:0 4px 12px rgba(0,0,0,.18);transition:background .5s;z-index:10;}",
-    "#ia-w-header.handoff{background:linear-gradient(to right,#d97706,#f59e0b,#f97316);}",
-    "#ia-w-header.attending{background:linear-gradient(to right,#047857,#059669,#0d9488);}",
-    "#ia-w-back{display:none;background:none;border:none;color:rgba(255,255,255,.7);cursor:pointer;padding:4px;margin-left:-4px;border-radius:8px;align-items:center;justify-content:center;transition:color .2s,background .2s;}",
+    // Posición IZQUIERDA (branding.widget_position === 'left'): flip esquina.
+    "#ia-w-btn.ia-left{right:auto;left:24px;}",
+    "#ia-w-panel.ia-left{right:auto;left:24px;transform-origin:bottom left;}",
+    "@media (max-width:640px){#ia-w-btn.ia-left{left:16px;}}",
+    "@media (min-width:1441px){#ia-w-btn.ia-left{left:32px;}#ia-w-panel.ia-left{left:32px;}}",
+
+    // Header WHITE-FIRST: fondo blanco, sin banda de color. El color de marca es
+    // acento (avatar + burbuja del usuario). El estado lo indican el dot + texto.
+    "#ia-w-header{flex-shrink:0;padding:0 14px;height:60px;display:flex;align-items:center;gap:10px;background:#fff;border-bottom:1px solid #eceef1;z-index:10;}",
+    "#ia-w-panel.ia-dark #ia-w-header{background:#15181b;border-bottom-color:#262c33;}",
+    "#ia-w-back{display:none;background:none;border:none;color:#94a3b8;cursor:pointer;padding:4px;margin-left:-4px;border-radius:8px;align-items:center;justify-content:center;transition:color .2s,background .2s;}",
     "#ia-w-back svg{width:20px;height:20px;}",
-    "#ia-w-back:hover{color:#fff;background:rgba(255,255,255,.1);}",
-    "#ia-w-avatar{width:36px;height:36px;border-radius:12px;background:rgba(255,255,255,.2);backdrop-filter:blur(4px);border:1px solid rgba(255,255,255,.3);display:flex;align-items:center;justify-content:center;flex-shrink:0;overflow:hidden;box-shadow:inset 0 1px 2px rgba(0,0,0,.1);}",
-    "#ia-w-avatar svg{width:20px;height:20px;color:#fff;}",
+    "#ia-w-back:hover{color:#1e293b;background:rgba(0,0,0,.05);}",
+    "#ia-w-panel.ia-dark #ia-w-back{color:#8b939e;}",
+    "#ia-w-avatar{width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,var(--ia-brand-light),var(--ia-brand-dark));display:flex;align-items:center;justify-content:center;flex-shrink:0;overflow:hidden;}",
+    "#ia-w-avatar svg{width:19px;height:19px;color:#fff;}",
     "#ia-w-avatar img{width:100%;height:100%;object-fit:cover;}",
     "#ia-w-titlewrap{flex:1;min-width:0;}",
-    "#ia-w-title{color:#fff;font-weight:600;font-size:14px;line-height:1.1;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}",
-    "#ia-w-substatus{display:flex;align-items:center;gap:6px;margin-top:5px;}",
-    "#ia-w-dot{width:6px;height:6px;border-radius:50%;background:#4ade80;flex-shrink:0;}",
+    "#ia-w-title{color:#1e293b;font-weight:600;font-size:14px;line-height:1.1;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}",
+    "#ia-w-panel.ia-dark #ia-w-title{color:#e7e9ec;}",
+    "#ia-w-substatus{display:flex;align-items:center;gap:6px;margin-top:4px;}",
+    "#ia-w-dot{width:6px;height:6px;border-radius:50%;background:#22c55e;flex-shrink:0;}",
     "#ia-w-dot.pulse{animation:ia-pulse 2s infinite;}",
-    "#ia-w-dot.amber{background:#fbbf24;}",
+    "#ia-w-dot.amber{background:#f59e0b;}",
     "#ia-w-dot.gray{background:#94a3b8;}",
-    "@keyframes ia-pulse{0%{box-shadow:0 0 0 0 rgba(74,222,128,.6);}70%{box-shadow:0 0 0 5px rgba(74,222,128,0);}100%{box-shadow:0 0 0 0 rgba(74,222,128,0);}}",
-    "#ia-w-substatus-text{font-size:12px;color:rgba(255,255,255,.8);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}",
-    "#ia-w-close{background:none;border:none;color:rgba(255,255,255,.8);cursor:pointer;font-size:22px;line-height:1;padding:4px 6px;border-radius:6px;flex-shrink:0;}",
-    "#ia-w-close:hover{color:#fff;background:rgba(255,255,255,.15);}",
+    "@keyframes ia-pulse{0%{box-shadow:0 0 0 0 rgba(34,197,94,.5);}70%{box-shadow:0 0 0 5px rgba(34,197,94,0);}100%{box-shadow:0 0 0 0 rgba(34,197,94,0);}}",
+    "#ia-w-substatus-text{font-size:12px;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}",
+    "#ia-w-panel.ia-dark #ia-w-substatus-text{color:#8b939e;}",
+    "#ia-w-close{background:none;border:none;color:#94a3b8;cursor:pointer;font-size:22px;line-height:1;padding:4px 6px;border-radius:6px;flex-shrink:0;}",
+    "#ia-w-close:hover{color:#1e293b;background:rgba(0,0,0,.05);}",
+    "#ia-w-panel.ia-dark #ia-w-close{color:#8b939e;}",
 
-    // Body scrollable
-    "#ia-w-body{flex:1 1 auto;min-height:0;overflow-y:auto;background:" + SLATE_50 + ";}",
+    // Body scrollable — gris base con un velo apenas perceptible del color de
+    // marca cayendo desde el header: le da atmósfera sin ensuciar la lectura.
+    "#ia-w-body{flex:1 1 auto;min-height:0;overflow-y:auto;background:linear-gradient(180deg,var(--ia-brand-06),rgba(0,0,0,0) 240px)," + SLATE_50 + ";}",
     "#ia-w-body-inner{min-height:100%;display:flex;flex-direction:column;padding:20px 16px;gap:14px;}",
 
-    // Hero de seleccion (igual que /chat phase selecting)
-    "#ia-w-hero{flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:28px;padding:8px 0;}",
-    "#ia-w-hero-top{text-align:center;display:flex;flex-direction:column;align-items:center;gap:14px;}",
-    "#ia-w-hero-avatar{width:76px;height:76px;border-radius:24px;background:linear-gradient(135deg,var(--ia-brand-light),var(--ia-brand-dark));display:flex;align-items:center;justify-content:center;box-shadow:0 12px 28px rgba(0,0,0,.18);overflow:hidden;}",
-    "#ia-w-hero-avatar svg{width:38px;height:38px;color:#fff;}",
-    "#ia-w-hero-avatar img{width:100%;height:100%;object-fit:cover;}",
-    "#ia-w-hero-greeting{color:" + SLATE_600 + ";font-size:14px;line-height:1.5;white-space:pre-line;max-width:300px;margin:0;}",
-    "#ia-w-pills{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;max-width:340px;}",
-    ".ia-w-pill{background:#fff;border:2px solid var(--ia-brand-30);color:var(--ia-brand);font-weight:500;font-size:13px;border-radius:9999px;padding:9px 18px;cursor:pointer;transition:all .2s;box-shadow:0 1px 2px rgba(0,0,0,.05);font-family:inherit;}",
-    ".ia-w-pill:hover{background:linear-gradient(135deg,var(--ia-brand),var(--ia-brand-dark));border-color:transparent;color:#fff;box-shadow:0 6px 16px rgba(0,0,0,.18);transform:translateY(-1px);}",
-    ".ia-w-pill:active{transform:translateY(0);}",
-    ".ia-w-skel{height:38px;width:96px;border-radius:9999px;background:" + SLATE_200 + ";animation:ia-pulse-bg 1.4s infinite;}",
-    "@keyframes ia-pulse-bg{0%,100%{opacity:1;}50%{opacity:.5;}}",
-    "#ia-w-divider{display:flex;align-items:center;gap:12px;width:100%;max-width:280px;}",
-    "#ia-w-divider .ln{flex:1;height:1px;background:" + SLATE_200 + ";}",
-    "#ia-w-divider .tx{font-size:11px;color:" + SLATE_400 + ";white-space:nowrap;}",
+    // Elección de área (opcional): chip discreto bajo el saludo + lista vertical
+    // estilo lista de mensajería. Escala a cualquier cantidad de sectores.
+    ".ia-w-secchip{align-self:center;background:#fff;border:1px solid " + SLATE_200 + ";color:" + SLATE_600 + ";font-size:12px;font-weight:500;border-radius:9999px;padding:7px 14px;cursor:pointer;transition:all .2s;font-family:inherit;box-shadow:0 1px 2px rgba(0,0,0,.05);}",
+    ".ia-w-secchip:hover{border-color:var(--ia-brand-30);color:var(--ia-brand);}",
+    ".ia-w-seclist{align-self:stretch;background:#fff;border:1px solid " + SLATE_100 + ";border-radius:16px;box-shadow:0 4px 16px rgba(0,0,0,.08);max-height:280px;overflow-y:auto;}",
+    ".ia-w-seclist .hd{padding:10px 14px;font-size:12px;font-weight:600;color:" + SLATE_600 + ";border-bottom:1px solid " + SLATE_100 + ";background:" + SLATE_50 + ";position:sticky;top:0;}",
+    ".ia-w-secitem{display:block;width:100%;text-align:left;background:none;border:none;border-bottom:1px solid " + SLATE_100 + ";padding:11px 14px;font-size:13px;color:" + SLATE_800 + ";cursor:pointer;font-family:inherit;transition:background .15s,color .15s;}",
+    ".ia-w-secitem:last-child{border-bottom:none;}",
+    ".ia-w-secitem:hover{background:var(--ia-brand-06);color:var(--ia-brand);}",
+    ".ia-w-secitem.muted{color:" + SLATE_400 + ";font-size:12px;}",
 
     // Burbujas (igual que /chat)
     // Entrada de mensajes: fade + 6px de deslizamiento. Como los mensajes se
@@ -254,8 +260,8 @@
     ".ia-w-hf-form{text-align:left;display:flex;flex-direction:column;gap:8px;}",
     ".ia-w-hf-form .t{font-size:12px;font-weight:600;color:#78350f;}",
     ".ia-w-hf-form .h{font-size:11px;color:#a16207;line-height:1.5;}",
-    ".ia-w-hf-form input{padding:9px 12px;border:1px solid #fde68a;border-radius:10px;font-size:14px;width:100%;background:#fff;font-family:inherit;}",
-    ".ia-w-hf-form input:focus{outline:none;border-color:#f59e0b;box-shadow:0 0 0 3px rgba(245,158,11,.18);}",
+    ".ia-w-hf-form input,.ia-w-hf-form select{padding:9px 12px;border:1px solid #fde68a;border-radius:10px;font-size:14px;width:100%;background:#fff;font-family:inherit;color:" + SLATE_800 + ";}",
+    ".ia-w-hf-form input:focus,.ia-w-hf-form select:focus{outline:none;border-color:#f59e0b;box-shadow:0 0 0 3px rgba(245,158,11,.18);}",
     ".ia-w-hf-form .err{font-size:11px;color:#dc2626;}",
     ".ia-w-hf-form .actions{display:flex;align-items:center;justify-content:space-between;gap:8px;padding-top:2px;}",
     ".ia-w-hf-skip{background:none;border:none;cursor:pointer;color:#92400e;font-size:12px;text-decoration:underline;font-family:inherit;}",
@@ -282,6 +288,35 @@
     "#ia-w-send:disabled{opacity:.4;cursor:not-allowed;}",
     ".ia-spin{animation:ia-rotate 1s linear infinite;}",
     "@keyframes ia-rotate{to{transform:rotate(360deg);}}",
+
+    // ── Tema OSCURO del widget (branding.widget_theme === 'dark') ─────────────
+    // Scope por clase en el panel: superficies oscuras, texto claro. El color de
+    // marca (header, burbuja del usuario, FAB) no cambia — es la identidad.
+    "#ia-w-panel.ia-dark{background:#101214;color:#e7e9ec;color-scheme:dark;}",
+    "#ia-w-panel.ia-dark *,#ia-w-panel.ia-dark *::before,#ia-w-panel.ia-dark *::after{color-scheme:dark;}",
+    "#ia-w-panel.ia-dark #ia-w-body{background:linear-gradient(180deg,var(--ia-brand-06),rgba(0,0,0,0) 240px),#101214;}",
+    "#ia-w-panel.ia-dark .ia-w-bubble.bot{background:#1c2126;color:#e7e9ec;border-color:#262c33;}",
+    "#ia-w-panel.ia-dark .ia-w-bubble.op{background:#0e2a21;color:#d9f5e8;border-color:#1d4536;}",
+    "#ia-w-panel.ia-dark .ia-w-sys{background:#1c2126;color:#8b939e;}",
+    "#ia-w-panel.ia-dark .ia-w-typing{background:#1c2126;border-color:#262c33;}",
+    "#ia-w-panel.ia-dark #ia-w-inputbar{background:rgba(16,18,20,.9);border-top-color:#262c33;}",
+    "#ia-w-panel.ia-dark #ia-w-input{background:#1c2126;color:#e7e9ec;-webkit-text-fill-color:#e7e9ec;}",
+    "#ia-w-panel.ia-dark #ia-w-input:hover{background:#20262c;}",
+    "#ia-w-panel.ia-dark #ia-w-input:focus{background:#20262c;}",
+    "#ia-w-panel.ia-dark #ia-w-input::placeholder{color:#6b7280;}",
+    "#ia-w-panel.ia-dark #ia-w-clip:hover{background:#1c2126;}",
+    "#ia-w-panel.ia-dark .ia-w-secchip{background:#1c2126;border-color:#262c33;color:#aab2bc;}",
+    "#ia-w-panel.ia-dark .ia-w-seclist{background:#171b1f;border-color:#262c33;box-shadow:0 4px 16px rgba(0,0,0,.4);}",
+    "#ia-w-panel.ia-dark .ia-w-seclist .hd{background:#1c2126;border-bottom-color:#262c33;color:#aab2bc;}",
+    "#ia-w-panel.ia-dark .ia-w-secitem{color:#e7e9ec;border-bottom-color:#262c33;}",
+    "#ia-w-panel.ia-dark .ia-w-secitem.muted{color:#6b7280;}",
+    "#ia-w-panel.ia-dark .ia-w-handoff{background:#2a2113;border-color:#4d3a14;}",
+    "#ia-w-panel.ia-dark .ia-w-handoff .ia-w-hf-text{color:#eab308;}",
+    "#ia-w-panel.ia-dark .ia-w-hf-form .t{color:#facc15;}",
+    "#ia-w-panel.ia-dark .ia-w-hf-form .h{color:#ca8a04;}",
+    "#ia-w-panel.ia-dark .ia-w-hf-form input,#ia-w-panel.ia-dark .ia-w-hf-form select{background:#1c2126;border-color:#4d3a14;color:#e7e9ec;-webkit-text-fill-color:#e7e9ec;}",
+    "#ia-w-panel.ia-dark .ia-w-attach-file{background:rgba(255,255,255,.08);}",
+    "#ia-w-panel.ia-dark ::-webkit-scrollbar-thumb{background:#3a424b;border:2px solid transparent;background-clip:content-box;}",
   ].join("");
   document.head.appendChild(style);
 
@@ -345,6 +380,8 @@
       .then(function (b) {
         if (b) {
           if (b.primary_color) _applyBrand(b.primary_color);
+          if (b.widget_theme === "dark") panel.classList.add("ia-dark");
+          if (b.widget_position === "left") { btn.classList.add("ia-left"); panel.classList.add("ia-left"); }
           if (b.bot_name) { TITLE = b.bot_name; titleEl.textContent = b.bot_name; panel.setAttribute("aria-label", b.bot_name); }
           if (b.greeting_message) GREETING = b.greeting_message;
           if (b.logo_url) {
@@ -380,9 +417,9 @@
       // Mobile: bloquear el scroll de la web de fondo (evita scroll bleed / jank).
       if (_isMobile()) _lockBody(true);
       if (conversationId) { /* ya en chat */ }
-      else if (rememberedSector) { _enterChat(rememberedSector); }
-      // Mobile: NO auto-focus — abrir el teclado durante la animación causa jank.
-      else { _showHero(); if (!_isMobile()) inputEl.focus(); }
+      // Directo a la conversación: saludo del bot + input listo. Sin pantalla
+      // de selección de sector. Mobile: NO auto-focus (teclado + animación = jank).
+      else { _enterChat(); if (!_isMobile()) inputEl.focus(); }
     }
   });
 
@@ -429,15 +466,9 @@
     inputEl.addEventListener("blur", function () { setTimeout(_syncViewport, 100); });
   }
 
-  backBtn.addEventListener("click", function () {
-    _stopPolling();
-    conversationId = null; lastMessageId = null; selectedSector = null;
-    handoffBubble = null; handoffConfirmed = false;
-    convStatus = "bot_active";
-    localStorage.removeItem(SECTOR_KEY);
-    _showHero();
-    _updateHeader();
-  });
+  // El botón "volver" del header quedó sin propósito (no hay pantalla de
+  // selección a la que volver) — se mantiene oculto siempre.
+  backBtn.style.display = "none";
 
   sendBtn.addEventListener("click", _onSubmit);
   clipBtn.addEventListener("click", function () { if (!fileInput.disabled) fileInput.click(); });
@@ -461,9 +492,7 @@
     if (!text) return;
     inputEl.value = ""; inputEl.style.height = "auto"; inputEl.style.overflowY = "hidden";
     if (!conversationId) {
-      // En el hero, escribir directo manda al sector default
-      var def = sectors.find(function (s) { return s.is_default; }) || sectors[0];
-      if (def) _enterChat(def, text);
+      _enterChat(text);
     } else {
       _sendMessage(text);
     }
@@ -474,48 +503,18 @@
     return { "Content-Type": "application/json", "Authorization": "Bearer " + WIDGET_TOKEN };
   }
 
-  // ── Hero / sectores ─────────────────────────────────────────────────────────
-  function _showHero() {
-    backBtn.style.display = "none";
+  // ── Arranque directo en conversación ────────────────────────────────────────
+  // El chat abre listo para usar: saludo como burbuja del bot + input con foco.
+  // El sector NO se pide por adelantado (no afecta lo que responde el bot);
+  // se elige recién al derivar a un humano, o antes con el chip opcional.
+  function _enterChat(pendingMessage) {
     titleEl.textContent = TITLE;
     bodyInner.innerHTML = "";
-    var hero = document.createElement("div");
-    hero.id = "ia-w-hero";
-    var greetingText = GREETING || "¡Hola! 👋 Soy tu asistente virtual. ¿En qué área puedo ayudarte?";
-    hero.innerHTML =
-      '<div id="ia-w-hero-top">' +
-      '  <div id="ia-w-hero-avatar">' + (LOGO_URL ? '<img src="' + LOGO_URL + '" alt="" />' : ICON_BOT) + '</div>' +
-      '  <p id="ia-w-hero-greeting"></p>' +
-      '</div>' +
-      '<div id="ia-w-pills"></div>';
-    bodyInner.appendChild(hero);
-    hero.querySelector("#ia-w-hero-greeting").textContent = greetingText;
-
-    inputEl.placeholder = sectors.length ? "Escribí tu consulta y presioná Enter…" : "Cargando sectores…";
-    _renderPills();
+    sectorChipEl = null;
+    inputEl.placeholder = "Escribí tu consulta…";
     if (!sectors.length) _loadSectors();
-  }
-
-  function _renderPills() {
-    var pills = document.getElementById("ia-w-pills");
-    if (!pills) return;
-    pills.innerHTML = "";
-    if (!sectors.length) {
-      for (var i = 0; i < 4; i++) { var sk = document.createElement("div"); sk.className = "ia-w-skel"; pills.appendChild(sk); }
-      return;
-    }
-    sectors.forEach(function (s) {
-      var p = document.createElement("button");
-      p.className = "ia-w-pill";
-      p.textContent = s.nombre;
-      p.addEventListener("click", function () { _enterChat(s); });
-      pills.appendChild(p);
-    });
-    // Divider
-    var div = document.createElement("div");
-    div.id = "ia-w-divider";
-    div.innerHTML = '<div class="ln"></div><span class="tx">o escribí directamente</span><div class="ln"></div>';
-    pills.parentNode.appendChild(div);
+    _fetchOperatorsOnline(null);
+    _startConversation(pendingMessage);
   }
 
   function _loadSectors() {
@@ -524,43 +523,66 @@
       .then(function (data) {
         if (Array.isArray(data)) { sectors = data; }
         else { sectors = (data && Array.isArray(data.sectors)) ? data.sectors : []; if (data && data.greeting_message) GREETING = data.greeting_message; }
-        if (!conversationId) {
-          var g = document.getElementById("ia-w-hero-greeting");
-          if (g && GREETING) g.textContent = GREETING;
-          inputEl.placeholder = "Escribí tu consulta y presioná Enter…";
-          _renderPills();
-        }
+        // Si el saludo ya se pintó antes de conocer los sectores, ofrecer el chip ahora.
+        _renderSectorChip();
       })
-      .catch(function (err) {
-        werr("[IA Widget] sectores:", err);
-        var pills = document.getElementById("ia-w-pills");
-        if (pills) pills.innerHTML = '<p style="color:' + SLATE_400 + ';font-size:13px;">No se pudieron cargar los sectores.</p>';
-      });
+      .catch(function (err) { werr("[IA Widget] sectores:", err); });
   }
 
-  function _enterChat(sector, pendingMessage) {
-    selectedSector = sector;
-    localStorage.setItem(SECTOR_KEY, JSON.stringify(sector));
-    backBtn.style.display = "flex";
-    titleEl.textContent = sector.nombre;
-    bodyInner.innerHTML = "";
-    inputEl.placeholder = "Escribí tu mensaje…";
-    if (!_isMobile()) inputEl.focus();
-    _fetchOperatorsOnline(sector.id);
-    _startConversation(sector.id, pendingMessage);
+  // Chip discreto bajo el saludo: abre la lista de áreas. Solo si hay más de una.
+  var sectorChipEl = null;
+  function _renderSectorChip() {
+    if (sectorChipEl || selectedSector || sectors.length < 2) return;
+    if (!conversationId || convStatus !== "bot_active") return;
+    var chip = document.createElement("button");
+    chip.className = "ia-w-secchip";
+    chip.textContent = "¿Preferís hablar con un área específica?";
+    chip.addEventListener("click", _showSectorList);
+    bodyInner.appendChild(chip);
+    sectorChipEl = chip;
+    _scrollBottom();
+  }
+
+  function _showSectorList() {
+    if (!sectorChipEl) return;
+    var list = document.createElement("div");
+    list.className = "ia-w-seclist";
+    var hd = document.createElement("div"); hd.className = "hd"; hd.textContent = "¿Con qué área querés hablar?";
+    list.appendChild(hd);
+    sectors.forEach(function (s) {
+      var b = document.createElement("button");
+      b.className = "ia-w-secitem";
+      b.textContent = s.nombre;
+      b.addEventListener("click", function () {
+        selectedSector = s;
+        list.remove();
+        _appendMessage("system", "Consulta dirigida al área " + s.nombre + ". Si pedís hablar con una persona, te atiende ese equipo.");
+        _fetchOperatorsOnline(s.id);
+      });
+      list.appendChild(b);
+    });
+    var skip = document.createElement("button");
+    skip.className = "ia-w-secitem muted";
+    skip.textContent = "No importa, sigo con el asistente";
+    skip.addEventListener("click", function () { list.remove(); _renderSectorChip(); });
+    list.appendChild(skip);
+    sectorChipEl.replaceWith(list);
+    sectorChipEl = null;
+    _scrollBottom();
   }
 
   function _fetchOperatorsOnline(sectorId) {
-    fetch(API_BASE + "/api/v1/widget/operators-online?sector_id=" + encodeURIComponent(sectorId), { headers: _headers() })
+    var url = API_BASE + "/api/v1/widget/operators-online" + (sectorId ? "?sector_id=" + encodeURIComponent(sectorId) : "");
+    fetch(url, { headers: _headers() })
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (d) { if (d) { operatorsOnline = { count: d.online || 0, names: d.operators || [] }; _updateHeader(); } })
       .catch(function () {});
   }
 
-  function _startConversation(sectorId, pendingMessage) {
+  function _startConversation(pendingMessage) {
     fetch(API_BASE + "/api/v1/widget/conversation/start", {
       method: "POST", headers: _headers(),
-      body: JSON.stringify({ widget_session_id: widgetSessionId, sector_id: sectorId }),
+      body: JSON.stringify({ widget_session_id: widgetSessionId, sector_id: selectedSector ? selectedSector.id : null }),
     })
       .then(function (r) { return r.json(); })
       .then(function (data) {
@@ -571,8 +593,10 @@
         if (data.resumed) {
           _loadHistory();
         } else {
-          var greeting = GREETING || ("¡Hola! Soy " + TITLE + ", asistente de " + (selectedSector ? selectedSector.nombre : TITLE) + ". ¿En qué te puedo ayudar?");
-          _appendMessage("system", greeting);
+          // El saludo llega del backend (personalizado por tenant); fallback local.
+          var greeting = data.greeting || GREETING || ("¡Hola! Soy " + TITLE + ". ¿En qué te puedo ayudar?");
+          _appendMessage("bot", greeting);
+          _renderSectorChip();
           if (pendingMessage) _sendMessage(pendingMessage);
         }
         _startPolling();
@@ -631,11 +655,9 @@
         if (r.status === 410) {
           // Conversacion cerrada por operador: reabrir y reenviar
           _hideTyping();
-          if (selectedSector) {
-            _stopPolling(); conversationId = null; lastMessageId = null; handoffBubble = null;
-            bodyInner.innerHTML = "";
-            _startConversation(selectedSector.id, question);
-          }
+          _stopPolling(); conversationId = null; lastMessageId = null; handoffBubble = null;
+          bodyInner.innerHTML = ""; sectorChipEl = null;
+          _startConversation(question);
           return null;
         }
         return r.json();
@@ -792,6 +814,19 @@
     p.className = "ia-w-hf-text"; _renderTextWithLinks(message, p);
     handoffBubble.appendChild(p);
 
+    // Momento en el que el sector importa de verdad: acá se elige el área que
+    // va a atender. Pre-seleccionada la elegida antes (chip) o la default.
+    var sectorField = "";
+    if (sectors.length > 1) {
+      var pre = selectedSector || sectors.find(function (s) { return s.is_default; }) || sectors[0];
+      sectorField =
+        '<select id="ia-w-hf-sector" aria-label="Área que te va a atender">' +
+        sectors.map(function (s) {
+          return '<option value="' + _escape(s.id) + '"' + (pre && s.id === pre.id ? ' selected' : '') + '>' + _escape(s.nombre) + '</option>';
+        }).join("") +
+        '</select>';
+    }
+
     var form = document.createElement("div");
     form.className = "ia-w-hf-form";
     form.innerHTML =
@@ -799,6 +834,7 @@
       '<div class="h">Para una mejor atención, decinos tu nombre y DNI:</div>' +
       '<input type="text" id="ia-w-hf-nombre" placeholder="Nombre y apellido" maxlength="200" />' +
       '<input type="text" id="ia-w-hf-dni" inputmode="numeric" placeholder="DNI (sin puntos)" maxlength="20" />' +
+      (sectorField ? '<div class="h">¿Con qué área querés hablar?</div>' + sectorField : '') +
       '<div class="err" id="ia-w-hf-err" style="display:none"></div>' +
       '<div class="actions" style="justify-content:flex-end;">' +
       '  <button class="ia-w-hf-btn" id="ia-w-hf-submit" style="padding:8px 16px;"><span>Continuar</span></button>' +
@@ -807,6 +843,7 @@
 
     var nombreEl = form.querySelector("#ia-w-hf-nombre");
     var dniEl    = form.querySelector("#ia-w-hf-dni");
+    var sectorEl = form.querySelector("#ia-w-hf-sector");
     var errEl    = form.querySelector("#ia-w-hf-err");
     var submitEl = form.querySelector("#ia-w-hf-submit");
     nombreEl.focus();
@@ -819,7 +856,7 @@
       // Sin mínimo de largo: es solo un identificador para el operador (mismo
       // criterio que /chat y el back, min_length=1). Antes exigía 4 y quedaba
       // inconsistente con el otro front.
-      _confirmHandoff({ afiliado_nombre: n, afiliado_dni: d });
+      _confirmHandoff({ afiliado_nombre: n, afiliado_dni: d, sector_id: sectorEl ? sectorEl.value : null });
     }
     submitEl.addEventListener("click", submit);
     dniEl.addEventListener("keydown", function (e) { if (e.key === "Enter") submit(); });
@@ -835,8 +872,12 @@
     handoffConfirmed = true;
     _renderHandoffLoader();
     var opts = { method: "POST", headers: _headers() };
-    if (identifyData && (identifyData.afiliado_nombre || identifyData.afiliado_dni)) {
-      opts.body = JSON.stringify(identifyData);
+    // Siempre que haya un sector elegido (form o chip), mandarlo: el backend
+    // re-etiqueta la conversación para que caiga en la cola correcta.
+    var payload = identifyData ? Object.assign({}, identifyData) : {};
+    if (!payload.sector_id && selectedSector) payload.sector_id = selectedSector.id;
+    if (payload.afiliado_nombre || payload.afiliado_dni || payload.sector_id) {
+      opts.body = JSON.stringify(payload);
     }
     fetch(API_BASE + "/api/v1/widget/conversation/" + conversationId + "/confirm-handoff?widget_session_id=" + encodeURIComponent(widgetSessionId), opts)
       .then(function (r) {

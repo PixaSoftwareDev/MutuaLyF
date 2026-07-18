@@ -5,8 +5,8 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  ArrowLeft, Plus, Plug, Loader2, Trash2, KeyRound, FlaskConical,
-  CheckCircle2, XCircle, Globe, Lock, Link2, Wand2, Sparkles, FileUp,
+  Plus, Loader2, Trash2, KeyRound, FlaskConical,
+  CheckCircle2, XCircle, Globe, Lock, Link2, Wand2, Sparkles, FileUp, Database,
 } from "lucide-react";
 import { api, type ConnectorTool, type ConnectorTestResult, type DiscoveryProposal } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -17,9 +17,11 @@ import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/toast";
 import { PageShell } from "@/components/layout/page-shell";
-import { FormSheet } from "@/components/layout/form-sheet";
+import { PageHeader } from "@/components/layout/page-header";
+import { SectionCard } from "@/components/admin/settings/section-card";
 
 function errDetail(e: unknown): string {
   const anyE = e as { response?: { data?: { detail?: string } } };
@@ -185,23 +187,18 @@ export default function ConnectorDetailPage() {
 
   return (
     <PageShell>
-      <Link href="/admin/connectors" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground mb-4">
-        <ArrowLeft className="h-4 w-4" /> Volver a Conectores
-      </Link>
+      <PageHeader back={{ href: "/admin/connectors", label: "Volver a Fuentes de datos" }} title="Fuente de datos" />
 
-      {/* Cabecera del conector */}
-      <div className="rounded-2xl border bg-card p-5 mb-6">
+      {/* ── Estado del conector ── */}
+      <div className="rounded-2xl border bg-card p-5 sm:p-6">
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className={cn("h-11 w-11 rounded-xl grid place-items-center shrink-0",
-              conn.is_active ? "bg-emerald-500/10 text-emerald-600" : "bg-muted text-muted-foreground")}>
-              <Plug className="h-5 w-5" />
-            </div>
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-muted text-muted-foreground">
+              <Database className="h-5 w-5" />
+            </span>
             <div className="min-w-0">
-              <h1 className="text-lg font-bold leading-tight truncate">{conn.display_name}</h1>
-              <p className="text-xs text-muted-foreground font-mono truncate">
-                {conn.base_url} · hosts: {conn.egress_allow.join(", ") || "—"} · auth: {conn.auth_type}
-              </p>
+              <h1 className="text-lg font-semibold leading-tight text-foreground break-words">{conn.display_name}</h1>
+              <p className="break-all font-mono text-xs text-muted-foreground">{conn.base_url}</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -218,21 +215,68 @@ export default function ConnectorDetailPage() {
           </div>
         </div>
 
-        {/* Validación de identidad (2º factor de los datos personales) */}
-        {(() => {
-          const currentFlow = String((conn.auth_config as Record<string, unknown>)?.identity_validation ?? "provider");
-          const currentLookup = String((conn.auth_config as Record<string, unknown>)?.identity_lookup_path ?? "/afiliados/{identity}");
-          const currentLabel = String((conn.auth_config as Record<string, unknown>)?.identity_label ?? "");
-          const flow = idVal ?? currentFlow;
-          const lookup = lookupPath ?? currentLookup;
-          const label = idLabel ?? currentLabel;
-          const dirty = flow !== currentFlow || (flow === "platform_otp" && lookup !== currentLookup)
-            || label.trim() !== currentLabel;
-          return (
-            <div className="mt-4 pt-4 border-t space-y-3">
-              <Label className="inline-flex items-center gap-1.5">
-                <Lock className="h-3.5 w-3.5" /> Validación de identidad (datos personales)
+        {/* Banner de estado en una frase (patrón WhatsApp) */}
+        <div className={cn(
+          "mt-4 flex items-center gap-2.5 rounded-xl border px-4 py-3",
+          conn.is_active ? "border-success/30 bg-success/[0.06]" : "border-border bg-muted/40",
+        )}>
+          {conn.is_active
+            ? <CheckCircle2 className="h-4 w-4 shrink-0 text-success" />
+            : <span className="h-2 w-2 shrink-0 rounded-full bg-muted-foreground/40" />}
+          <span className="text-sm font-medium text-foreground">
+            {conn.is_active
+              ? "Activo — el asistente puede consultar esta fuente en vivo."
+              : conn.tools.length === 0
+                ? "Todavía sin operaciones. Detectá o creá al menos una para poder activarlo."
+                : "Inactivo — probá las operaciones y activalo cuando esté listo."}
+          </span>
+        </div>
+      </div>
+
+      {/* ── Credencial ── */}
+      {conn.auth_type !== "none" && (
+        <SectionCard
+          icon={KeyRound}
+          title="Credencial"
+          description="La clave o token que te dio el proveedor. Se cifra al guardarse y nunca se vuelve a mostrar."
+        >
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="min-w-[220px] flex-1 space-y-1.5">
+              <Label className="text-xs">
+                {conn.has_secret ? <span className="text-success">Credencial cargada · reemplazala si querés</span> : "API key / token / contraseña"}
               </Label>
+              <Input
+                type="password"
+                placeholder={conn.has_secret ? "•••••••• (reemplazar)" : "API key / token / contraseña"}
+                value={secret}
+                onChange={e => setSecret(e.target.value)}
+              />
+            </div>
+            <Button size="sm" disabled={!secret.trim() || secretM.isPending} onClick={() => secretM.mutate()}>
+              {secretM.isPending && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
+              Guardar credencial
+            </Button>
+          </div>
+        </SectionCard>
+      )}
+
+      {/* ── Validación de identidad (2º factor de los datos personales) ── */}
+      {(() => {
+        const currentFlow = String((conn.auth_config as Record<string, unknown>)?.identity_validation ?? "provider");
+        const currentLookup = String((conn.auth_config as Record<string, unknown>)?.identity_lookup_path ?? "/afiliados/{identity}");
+        const currentLabel = String((conn.auth_config as Record<string, unknown>)?.identity_label ?? "");
+        const flow = idVal ?? currentFlow;
+        const lookup = lookupPath ?? currentLookup;
+        const label = idLabel ?? currentLabel;
+        const dirty = flow !== currentFlow || (flow === "platform_otp" && lookup !== currentLookup)
+          || label.trim() !== currentLabel;
+        return (
+          <SectionCard
+            icon={Lock}
+            title="Validación de identidad"
+            description="Para datos personales: quién valida el segundo factor (el código) cuando el afiliado consulta lo suyo."
+          >
+            <div className="space-y-3">
               <div className="flex flex-wrap items-end gap-3">
                 <div className="w-full sm:w-96">
                   <Select value={flow} onValueChange={setIdVal}>
@@ -244,12 +288,12 @@ export default function ConnectorDetailPage() {
                   </Select>
                 </div>
                 {flow === "platform_otp" && (
-                  <div className="space-y-1.5 flex-1 min-w-[240px]">
+                  <div className="min-w-[240px] flex-1 space-y-1.5">
                     <Label className="text-xs">Ruta del perfil del afiliado (de dónde leemos el contacto)</Label>
                     <Input className="font-mono" value={lookup} onChange={e => setLookupPath(e.target.value)} />
                   </div>
                 )}
-                <div className="space-y-1.5 w-full sm:w-56">
+                <div className="w-full space-y-1.5 sm:w-56">
                   <Label className="text-xs">Identificador que se le pide (vacío = DNI)</Label>
                   <Input placeholder="DNI · legajo · nro de socio…" value={label} onChange={e => setIdLabel(e.target.value)} />
                 </div>
@@ -266,40 +310,22 @@ export default function ConnectorDetailPage() {
                   : "El backend llama al endpoint de validación del proveedor con DNI + código."}
               </p>
             </div>
-          );
-        })()}
+          </SectionCard>
+        );
+      })()}
 
-        {conn.auth_type !== "none" && (
-          <div className="mt-4 pt-4 border-t flex flex-wrap items-end gap-3">
-            <div className="space-y-1.5 flex-1 min-w-[220px]">
-              <Label className="inline-flex items-center gap-1.5">
-                <KeyRound className="h-3.5 w-3.5" /> Credencial {conn.has_secret && <span className="text-xs font-normal text-emerald-600">· cargada</span>}
-              </Label>
-              <Input
-                type="password"
-                placeholder={conn.has_secret ? "•••••••• (reemplazar)" : "API key / token / contraseña"}
-                value={secret}
-                onChange={e => setSecret(e.target.value)}
-              />
-            </div>
-            <Button size="sm" disabled={!secret.trim() || secretM.isPending} onClick={() => secretM.mutate()}>
-              {secretM.isPending && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
-              Guardar credencial
-            </Button>
-            <p className="w-full text-xs text-muted-foreground -mt-1">Se cifra al guardarse y nunca se vuelve a mostrar.</p>
-          </div>
-        )}
-      </div>
-
-      {/* Operaciones */}
-      <div className="flex items-center justify-between mb-3">
-        <h2 className="font-semibold">Operaciones ({conn.tools.length})</h2>
+      {/* ── Operaciones ── */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="text-sm font-semibold text-foreground">Operaciones <span className="text-muted-foreground">({conn.tools.length})</span></h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">Lo más fácil: dejá que la IA lea la documentación del proveedor y arme las operaciones por vos.</p>
+        </div>
         <div className="flex items-center gap-2">
           <Button size="sm" onClick={() => setShowWizard(s => !s)}>
-            <Sparkles className="h-4 w-4 mr-1" /> Detectar automáticamente
+            <Sparkles className="h-4 w-4 mr-1" /> Detectar con IA
           </Button>
           <Button size="sm" variant="outline" onClick={() => setShowTool(true)}>
-            <Plus className="h-4 w-4 mr-1" /> Nueva operación
+            <Plus className="h-4 w-4 mr-1" /> Crear manual
           </Button>
         </div>
       </div>
@@ -416,15 +442,73 @@ export default function ConnectorDetailPage() {
         )}
       </div>
 
-      {/* Nueva operación */}
-      <FormSheet
-        open={showTool}
-        onOpenChange={setShowTool}
-        icon={Link2}
-        title="Nueva operación"
-        description="Un endpoint del API del proveedor. {identity} se reemplaza por el identificador de la sesión (DNI, CUIT, legajo…)."
-        footer={
-          <>
+      {/* Nueva operación — modal centrado */}
+      <Dialog open={showTool} onOpenChange={setShowTool}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <div className="flex items-start gap-3 text-left">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-muted text-muted-foreground">
+                <Link2 className="h-5 w-5" />
+              </span>
+              <div className="min-w-0 space-y-1 pt-0.5">
+                <DialogTitle>Nueva operación</DialogTitle>
+                <DialogDescription>
+                  Un endpoint del API del proveedor. <code className="rounded bg-muted px-1 font-mono">{"{identity}"}</code> se reemplaza por el identificador de la sesión (DNI, CUIT, legajo…).
+                </DialogDescription>
+              </div>
+            </div>
+          </DialogHeader>
+
+          <div className="-mr-1 max-h-[min(60vh,34rem)] space-y-4 overflow-y-auto pr-1">
+            <div className="space-y-2">
+              <Label>Nombre</Label>
+              <Input placeholder="Órdenes pendientes del afiliado" value={tName} onChange={e => setTName(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label>Identificador (slug)</Label>
+              <Input placeholder="ordenes_pendientes" value={tSlug} onChange={e => setTSlug(e.target.value.toLowerCase())} />
+            </div>
+            <div className="grid grid-cols-[110px_1fr] gap-3">
+              <div className="space-y-2">
+                <Label>Método</Label>
+                <Select value={tMethod} onValueChange={setTMethod}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {["GET", "POST"].map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Ruta (path template)</Label>
+                <Input className="font-mono" placeholder="/afiliados/{identity}/ordenes" value={tPath} onChange={e => setTPath(e.target.value)} />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Acceso</Label>
+              <Select value={tKind} onValueChange={setTKind}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {IDENTITY_KINDS.map(k => <SelectItem key={k.value} value={k.value}>{k.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>params_schema (JSON, opcional)</Label>
+              <Textarea className="font-mono text-xs" rows={4}
+                placeholder='{"type":"object","required":["especialidad"],"properties":{"especialidad":{"type":"string"}}}'
+                value={tParams} onChange={e => setTParams(e.target.value)} />
+              <p className="text-xs leading-relaxed text-muted-foreground">Qué datos se extraen del mensaje del usuario y cómo se validan.</p>
+            </div>
+            <div className="space-y-2">
+              <Label>response_map (JSON, opcional)</Label>
+              <Textarea className="font-mono text-xs" rows={3}
+                placeholder='{"items_path":"ordenes","empty_when_empty":true}'
+                value={tMap} onChange={e => setTMap(e.target.value)} />
+              <p className="text-xs leading-relaxed text-muted-foreground">De dónde sale la respuesta. Dejalo vacío: al Probar te sugerimos uno.</p>
+            </div>
+          </div>
+
+          <DialogFooter>
             <Button variant="outline" onClick={() => setShowTool(false)}>Cancelar</Button>
             <Button
               onClick={() => createToolM.mutate()}
@@ -433,58 +517,9 @@ export default function ConnectorDetailPage() {
               {createToolM.isPending && <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />}
               Crear operación
             </Button>
-          </>
-        }
-      >
-        <div className="space-y-5">
-          <div className="space-y-2">
-            <Label>Nombre</Label>
-            <Input placeholder="Órdenes pendientes del afiliado" value={tName} onChange={e => setTName(e.target.value)} />
-          </div>
-          <div className="space-y-2">
-            <Label>Identificador (slug)</Label>
-            <Input placeholder="ordenes_pendientes" value={tSlug} onChange={e => setTSlug(e.target.value.toLowerCase())} />
-          </div>
-          <div className="grid grid-cols-[110px_1fr] gap-3">
-            <div className="space-y-2">
-              <Label>Método</Label>
-              <Select value={tMethod} onValueChange={setTMethod}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {["GET", "POST"].map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Ruta (path template)</Label>
-              <Input className="font-mono" placeholder="/afiliados/{identity}/ordenes" value={tPath} onChange={e => setTPath(e.target.value)} />
-            </div>
-          </div>
-          <div className="space-y-2">
-            <Label>Acceso</Label>
-            <Select value={tKind} onValueChange={setTKind}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {IDENTITY_KINDS.map(k => <SelectItem key={k.value} value={k.value}>{k.label}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-2">
-            <Label>params_schema (JSON, opcional)</Label>
-            <Textarea className="font-mono text-xs" rows={4}
-              placeholder='{"type":"object","required":["especialidad"],"properties":{"especialidad":{"type":"string"}}}'
-              value={tParams} onChange={e => setTParams(e.target.value)} />
-            <p className="text-xs text-muted-foreground">Qué datos se extraen del mensaje del usuario y cómo se validan.</p>
-          </div>
-          <div className="space-y-2">
-            <Label>response_map (JSON, opcional)</Label>
-            <Textarea className="font-mono text-xs" rows={3}
-              placeholder='{"items_path":"ordenes","empty_when_empty":true}'
-              value={tMap} onChange={e => setTMap(e.target.value)} />
-            <p className="text-xs text-muted-foreground">De dónde sale la respuesta. Dejalo vacío: al Probar te sugerimos uno.</p>
-          </div>
-        </div>
-      </FormSheet>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </PageShell>
   );
 }
@@ -550,7 +585,7 @@ function ToolCard({ connectorId, tool, onDelete, onChanged }: {
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <p className="font-semibold">{tool.display_name}</p>
-            <Badge variant="secondary" className="font-mono text-[11px]">{tool.http_method} {tool.path_template}</Badge>
+            <Badge variant="secondary" className="max-w-full whitespace-normal break-all font-mono text-[11px]">{tool.http_method} {tool.path_template}</Badge>
             <Badge variant="outline" className="inline-flex items-center gap-1">
               {isPublic ? <Globe className="h-3 w-3" /> : <Lock className="h-3 w-3" />}
               {isPublic ? "pública" : tool.identity_kind}

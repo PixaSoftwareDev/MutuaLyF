@@ -48,7 +48,7 @@ function relActivity(iso: string | null): string {
 const PLAN_COLORS: Record<string, string> = {
   starter:      "bg-muted text-muted-foreground",
   professional: "bg-info/10 text-info",
-  enterprise:   "bg-action-gradient-soft text-action",
+  enterprise:   "bg-muted text-muted-foreground",
 };
 // Estado en español, pill suave — el color queda reservado para estados.
 const STATUS_PILL: Record<string, { label: string; cls: string }> = {
@@ -232,7 +232,7 @@ function TenantRowCard({ tenant: t, anomaly, onClick }: {
   return (
     <button
       onClick={onClick}
-      className="w-full rounded-2xl border bg-card shadow text-left group card-interactive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="w-full rounded-2xl border bg-card text-left group card-interactive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <div className="flex items-center gap-3 px-4 py-3.5">
         <div className="shrink-0 w-10 h-10 rounded-xl bg-action-gradient-soft flex items-center justify-center">

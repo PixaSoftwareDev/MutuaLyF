@@ -213,7 +213,7 @@ export default function GlobalAuditPage() {
       </p>
 
       {/* Table */}
-      <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
+      <div className="rounded-2xl border bg-card overflow-hidden">
         {isLoading && (
           <div className="py-12 text-center text-muted-foreground">
             <Loader2 className="w-5 h-5 animate-spin inline" />
@@ -362,9 +362,9 @@ function Kpi({ label, value, tone = "neutral" }: { label: string; value: number;
                         "text-foreground";
   return (
     <div
-      className={`relative bg-card border border-border rounded-xl pl-4 pr-4 py-3 shadow-sm overflow-hidden before:content-[''] before:absolute before:left-0 before:top-0 before:bottom-0 before:w-1 ${accent}`}
+      className={`relative bg-card border border-border rounded-2xl pl-4 pr-4 py-3 overflow-hidden before:content-[''] before:absolute before:left-0 before:top-0 before:bottom-0 before:w-1 ${accent}`}
     >
-      <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+      <div className="text-xs font-medium text-muted-foreground">
         {label}
       </div>
       <div className={`mt-1 text-2xl font-semibold tabular-nums leading-none ${numColor}`}>

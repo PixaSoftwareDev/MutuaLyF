@@ -61,7 +61,7 @@ function relTime(iso: string): string {
 const PLAN_COLORS: Record<string, string> = {
   starter:      "bg-muted text-muted-foreground",
   professional: "bg-info/10 text-info",
-  enterprise:   "bg-action-gradient-soft text-action",
+  enterprise:   "bg-muted text-muted-foreground",
 };
 
 // Mismo lenguaje que la lista de Organizaciones: estado en español, pill suave.
@@ -187,10 +187,10 @@ export default function TenantDetailPage() {
         <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-4 space-y-4 pb-10">
 
           {/* ── Identity — siempre visible, arriba de las tabs ─────────── */}
-          <div className="rounded-2xl border bg-card shadow px-5 py-4">
+          <div className="rounded-2xl border bg-card px-5 py-4">
             <div className="flex items-start gap-4 flex-wrap">
-              <div className="w-12 h-12 rounded-xl bg-action-gradient-soft flex items-center justify-center shrink-0">
-                <span className="text-lg font-bold text-action uppercase">{t.name[0]}</span>
+              <div className="w-12 h-12 rounded-xl bg-muted flex items-center justify-center shrink-0">
+                <span className="text-lg font-bold text-muted-foreground uppercase">{t.name[0]}</span>
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
@@ -321,7 +321,7 @@ export default function TenantDetailPage() {
           ) : tenantUsers.length === 0 ? (
             <EmptyState icon={Users} title="Sin usuarios registrados" className="rounded-xl border border-dashed" />
           ) : (
-            <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
+            <div className="rounded-xl border bg-card overflow-hidden">
               <Table>
                 <TableHeader>
                   <TableRow className="bg-muted/40 hover:bg-muted/40">
@@ -347,7 +347,7 @@ export default function TenantDetailPage() {
                       <TableCell>
                         <span className={cn(
                           "text-xs px-2 py-1 rounded-full font-medium",
-                          u.role === "admin"    ? "bg-action-gradient-soft text-action" :
+                          u.role === "admin"    ? "bg-muted text-muted-foreground" :
                           u.role === "operator" ? "bg-info/10 text-info" :
                           "bg-muted text-muted-foreground"
                         )}>
@@ -436,7 +436,7 @@ export default function TenantDetailPage() {
           <div className="grid gap-4 lg:grid-cols-2 items-start">
 
             {/* Volumen — número protagonista + barras comparativas */}
-            <div className="rounded-2xl border bg-card shadow-sm overflow-hidden">
+            <div className="rounded-2xl border bg-card overflow-hidden">
               <PanelHeader icon={TrendingUp} label="Volumen de consultas" sublabel="ritmo de uso" />
               <div className="p-4">
                 <div className="flex items-end justify-between gap-4">
@@ -444,9 +444,9 @@ export default function TenantDetailPage() {
                     <p className="text-4xl font-bold tabular-nums leading-none">{fmtNum(m.usage.queries_30d)}</p>
                     <p className="mt-1.5 text-xs text-muted-foreground">consultas en 30 días</p>
                   </div>
-                  <div className="shrink-0 rounded-xl bg-action-gradient-soft px-3 py-2 text-right">
-                    <p className="text-[10px] font-semibold uppercase tracking-wide text-action/80">Promedio</p>
-                    <p className="text-base font-semibold tabular-nums text-action leading-none mt-0.5">
+                  <div className="shrink-0 rounded-xl bg-muted px-3 py-2 text-right">
+                    <p className="text-[10px] font-semibold text-muted-foreground">Promedio</p>
+                    <p className="text-base font-semibold tabular-nums text-muted-foreground leading-none mt-0.5">
                       ≈ {fmtNum(Math.round(m.usage.queries_30d / 30))}<span className="text-[11px] font-normal">/día</span>
                     </p>
                   </div>
@@ -460,7 +460,7 @@ export default function TenantDetailPage() {
             </div>
 
             {/* Rendimiento — anillo de cache + gauges de latencia */}
-            <div className="rounded-2xl border bg-card shadow-sm overflow-hidden">
+            <div className="rounded-2xl border bg-card overflow-hidden">
               <PanelHeader icon={Zap} label="Rendimiento del servicio" sublabel="últimos 30d" />
               <div className="flex items-center gap-5 p-4">
                 <Donut value={m.performance.cache_hit_rate} label="Cache hit" />
@@ -516,7 +516,7 @@ export default function TenantDetailPage() {
                       </p>
                       <div className="mt-1 flex items-center gap-x-2 gap-y-1 flex-wrap text-[10px] text-muted-foreground">
                         {q.intent_label && (
-                          <span className="font-medium bg-action-gradient-soft text-action px-1.5 py-0.5 rounded-full">{q.intent_label}</span>
+                          <span className="font-medium bg-muted text-muted-foreground px-1.5 py-0.5 rounded-full">{q.intent_label}</span>
                         )}
                         {q.from_cache && (
                           <span className="font-medium bg-info/10 text-info px-1.5 py-0.5 rounded-full">cache</span>
@@ -606,7 +606,7 @@ export default function TenantDetailPage() {
           <div className="grid items-start gap-4 lg:grid-cols-2">
 
             {/* Cuotas del plan */}
-            <div className="rounded-2xl border bg-card shadow-sm overflow-hidden">
+            <div className="rounded-2xl border bg-card overflow-hidden">
               <PanelHeader icon={Shield} label="Cuotas del plan" sublabel={t.plan} />
               <div className="p-4 space-y-3.5">
                 <QuotaBar label="Consultas / mes" used={quotaQ.used} limit={quotaQ.limit} pct={quotaQ.pct} />
@@ -615,7 +615,7 @@ export default function TenantDetailPage() {
             </div>
 
             {/* Base de conocimiento — anillo de procesados + estados + quality */}
-            <div className="rounded-2xl border bg-card shadow-sm overflow-hidden">
+            <div className="rounded-2xl border bg-card overflow-hidden">
               <PanelHeader icon={FileText} label="Base de conocimiento" sublabel="documentos e ingesta" />
               <div className="flex items-center gap-5 p-4">
                 <Donut value={m.docs.total > 0 ? m.docs.ready / m.docs.total : null} label="Procesados" />
@@ -646,7 +646,7 @@ export default function TenantDetailPage() {
           <div className="grid items-start gap-4 lg:grid-cols-2">
 
             {/* Almacenamiento + backup global */}
-            <div className="rounded-2xl border bg-card shadow-sm overflow-hidden">
+            <div className="rounded-2xl border bg-card overflow-hidden">
               <PanelHeader icon={HardDrive} label="Almacenamiento" sublabel="lo que ocupa en el servidor" />
               <div className="p-4 space-y-2.5">
                 <StorageRow label="Documentos" value={healthData.storage.documents != null ? fmtNum(healthData.storage.documents) : "—"} />
@@ -665,17 +665,17 @@ export default function TenantDetailPage() {
             </div>
 
             {/* Señal de actividad — ¿el cliente sigue vivo? */}
-            <div className="rounded-2xl border bg-card shadow-sm overflow-hidden">
+            <div className="rounded-2xl border bg-card overflow-hidden">
               <PanelHeader icon={Activity} label="Señal de actividad" sublabel="¿el cliente está activo?" />
               <div className="grid grid-cols-2 divide-x">
                 <div className="px-4 py-4">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Última consulta</p>
+                  <p className="text-[10px] font-semibold text-muted-foreground">Última consulta</p>
                   <p className={cn("mt-1.5 text-lg font-semibold leading-none", healthData.activity.last_query_at ? "text-foreground" : "text-warning")}>
                     {healthData.activity.last_query_at ? relTime(healthData.activity.last_query_at) : "Nunca"}
                   </p>
                 </div>
                 <div className="px-4 py-4">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Última ingesta</p>
+                  <p className="text-[10px] font-semibold text-muted-foreground">Última ingesta</p>
                   <p className={cn("mt-1.5 text-lg font-semibold leading-none", healthData.activity.last_ingest_at ? "text-foreground" : "text-muted-foreground")}>
                     {healthData.activity.last_ingest_at ? relTime(healthData.activity.last_ingest_at) : "Nunca"}
                   </p>
@@ -686,10 +686,10 @@ export default function TenantDetailPage() {
           </div>
 
           {/* ── Errores de esta organización ──────────────────────────── */}
-          <div className="rounded-2xl border bg-card shadow-sm overflow-hidden">
+          <div className="rounded-2xl border bg-card overflow-hidden">
             <div className="flex items-center gap-2.5 px-4 py-2.5 border-b bg-muted/20">
-              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-action-gradient-soft shrink-0">
-                <Bug className="h-3.5 w-3.5 text-action" />
+              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-muted shrink-0">
+                <Bug className="h-3.5 w-3.5 text-muted-foreground" />
               </span>
               <span className="text-sm font-semibold">Errores de esta organización</span>
               <span className="text-xs text-muted-foreground hidden sm:inline">backend · últimos 7 días</span>
@@ -861,7 +861,7 @@ function CollapsiblePanel({ icon: Icon, label, sublabel, count, defaultOpen = fa
   const [open, setOpen] = useState(defaultOpen);
   const empty = count === 0;
   return (
-    <div className="rounded-2xl border bg-card shadow-sm overflow-hidden">
+    <div className="rounded-2xl border bg-card overflow-hidden">
       <button
         type="button"
         onClick={() => !empty && setOpen(o => !o)}
@@ -871,8 +871,8 @@ function CollapsiblePanel({ icon: Icon, label, sublabel, count, defaultOpen = fa
           empty ? "cursor-default" : "hover:bg-muted/30",
         )}
       >
-        <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-action-gradient-soft shrink-0">
-          <Icon className="h-3.5 w-3.5 text-action" />
+        <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-muted shrink-0">
+          <Icon className="h-3.5 w-3.5 text-muted-foreground" />
         </span>
         <span className="text-sm font-semibold">{label}</span>
         {sublabel && <span className="text-xs text-muted-foreground hidden sm:inline">{sublabel}</span>}
@@ -880,7 +880,7 @@ function CollapsiblePanel({ icon: Icon, label, sublabel, count, defaultOpen = fa
           {count != null && (
             <span className={cn(
               "inline-flex min-w-[1.5rem] items-center justify-center rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums",
-              empty ? "bg-muted text-muted-foreground/60" : "bg-action-gradient-soft text-action",
+              empty ? "bg-muted text-muted-foreground/60" : "bg-muted text-muted-foreground",
             )}>
               {count}
             </span>
@@ -897,8 +897,8 @@ function CollapsiblePanel({ icon: Icon, label, sublabel, count, defaultOpen = fa
 function PanelHeader({ icon: Icon, label, sublabel }: { icon: any; label: string; sublabel?: string }) {
   return (
     <div className="flex items-center gap-2.5 px-4 py-2.5 border-b bg-muted/20">
-      <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-action-gradient-soft shrink-0">
-        <Icon className="h-3.5 w-3.5 text-action" />
+      <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-muted shrink-0">
+        <Icon className="h-3.5 w-3.5 text-muted-foreground" />
       </span>
       <span className="text-sm font-semibold">{label}</span>
       {sublabel && <span className="text-xs text-muted-foreground">{sublabel}</span>}
@@ -929,7 +929,7 @@ function Donut({ value, label }: { value: number | null; label: string }) {
           {pct == null ? "—" : `${pct}%`}
         </div>
       </div>
-      <p className="mt-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">{label}</p>
+      <p className="mt-1.5 text-[10px] font-semibold text-muted-foreground">{label}</p>
     </div>
   );
 }
@@ -952,7 +952,7 @@ function LatencyGauge({ label, ms }: { label: string; ms: number | null }) {
   return (
     <div className="flex-1 min-w-0">
       <div className="flex items-center justify-between gap-2">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">{label}</p>
+        <p className="text-[10px] font-semibold text-muted-foreground">{label}</p>
         <span className={cn("inline-flex items-center gap-1 text-[10px] font-semibold", txt)}>
           <span className={cn("h-1.5 w-1.5 rounded-full", bar)} /> {status}
         </span>
@@ -1008,8 +1008,8 @@ function StorageRow({ label, value, hint }: { label: string; value: string; hint
 function SectionTitle({ icon: Icon, label, sublabel }: { icon: any; label: string; sublabel?: string }) {
   return (
     <div className="flex items-center gap-2.5 pt-2">
-      <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-action-gradient-soft shrink-0">
-        <Icon className="h-4 w-4 text-action" />
+      <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted shrink-0">
+        <Icon className="h-4 w-4 text-muted-foreground" />
       </span>
       <span className="text-sm font-semibold">{label}</span>
       {sublabel && <span className="text-xs text-muted-foreground">{sublabel}</span>}
@@ -1023,7 +1023,7 @@ function QuotaBar({ label, used, limit, pct }: { label: string; used: number; li
   const warn   = !unlimited && (pct ?? 0) >= 70;
 
   return (
-    <div className="rounded-xl border bg-card px-4 py-3 shadow-sm">
+    <div className="rounded-xl border bg-card px-4 py-3">
       <div className="flex items-center justify-between mb-2">
         <span className="text-xs font-medium text-muted-foreground">{label}</span>
         {unlimited
@@ -1094,7 +1094,7 @@ function BotSelector({ allTemplates, bots, activeBot, activateBotM, deactivateBo
       <EmptyState
         icon={Bot}
         title="No hay bots creados en la plataforma aún"
-        className="rounded-xl border bg-card shadow-sm"
+        className="rounded-xl border bg-card"
       />
     );
   }
@@ -1114,7 +1114,7 @@ function BotSelector({ allTemplates, bots, activeBot, activateBotM, deactivateBo
 
   return (
     <>
-    <div className="rounded-xl border bg-card shadow-sm px-5 py-4 space-y-3">
+    <div className="rounded-xl border bg-card px-5 py-4 space-y-3">
       {/* Status strip */}
       <div className={cn(
         "flex items-center justify-between gap-3 rounded-lg border px-4 py-3 text-sm",
@@ -1507,7 +1507,7 @@ function EmailDomainsSection({ tenantId }: { tenantId: string }) {
         sublabel={domains.length === 0 ? "Opcional · email-first login" : `${domains.length} configurado${domains.length === 1 ? "" : "s"}`}
       />
 
-      <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
+      <div className="rounded-xl border bg-card overflow-hidden">
         {/* Lista */}
         {isLoading ? (
           <div className="p-4"><Skeleton className="h-8 w-full" /></div>
