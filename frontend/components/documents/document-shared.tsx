@@ -2,14 +2,13 @@
 
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import {
-  Loader2, ChevronDown, ChevronUp, CheckCircle2, XCircle, UserCheck, Pencil,
-} from "lucide-react";
-import { api, type DocumentResponse, type ChunkResponse, type PendingChunkResponse } from "@/lib/api";
+import { Loader2, Check, X, Pencil, PanelRight, UserCheck } from "lucide-react";
+import { api, type DocumentResponse, type ChunkResponse } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/toast";
 import { extractErrorMessage } from "@/lib/errors";
+import { DetailPanelHeader, PanelIconButton } from "@/components/admin/list-detail-shell";
 import { cn } from "@/lib/utils";
 
 // ── Config maps ───────────────────────────────────────────────────────────────
@@ -23,14 +22,8 @@ export const DOC_STATUS_CONFIG: Record<DocumentResponse["status"], { label: stri
 
 export const QG_DOC_CONFIG: Record<DocumentResponse["quality_gate_status"], { label: string; variant: any } | null> = {
   passed:  null,
-  pending: { label: "Verificación pendiente", variant: "warning" },
-  skipped: { label: "Fragmentos excluidos",   variant: "secondary" },
-};
-
-const QG_CHUNK_CONFIG: Record<ChunkResponse["quality_gate_status"], { label: string; dot: string; text: string }> = {
-  passed:  { label: "Verificado",  dot: "bg-success",             text: "text-success" },
-  pending: { label: "Por revisar", dot: "bg-warning",             text: "text-warning" },
-  skipped: { label: "Excluido",    dot: "bg-muted-foreground/40", text: "text-muted-foreground" },
+  pending: { label: "Partes por revisar", variant: "warning" },
+  skipped: { label: "Partes sin usar",    variant: "secondary" },
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -46,143 +39,48 @@ export function fmtDate(iso: string): string {
 
 function humanReason(reason: string | null | undefined): string | null {
   if (!reason) return null;
-  if (reason === "groq_unavailable") return "El verificador automático no estaba disponible al procesar este fragmento.";
+  if (reason === "groq_unavailable") return "El verificador automático no estaba disponible al procesar esta parte.";
   if (reason === "exception_defaulting_to_pending") return "Ocurrió un error inesperado durante la verificación.";
   if (reason.startsWith("groq")) return "El verificador automático no estaba disponible.";
   return reason;
 }
 
-// ── ChunkSummaryChip ──────────────────────────────────────────────────────────
-
-export function ChunkSummaryChip({ count, label, tone }: { count: number; label: string; tone: "success" | "warning" | "muted" }) {
-  if (count === 0) return null;
-  const cls =
-    tone === "success" ? "bg-success/10 text-success" :
-    tone === "warning" ? "bg-warning/10 text-warning" :
-    "bg-muted text-muted-foreground";
-  return (
-    <span className={cn("inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-medium tabular-nums", cls)}>
-      {count} {label}{count !== 1 ? "s" : ""}
-    </span>
-  );
+// Estado de una parte en lenguaje del admin: ¿el asistente la usa para responder?
+// passed + pending → en uso; skipped → sin usar; pending además pide revisión.
+export function partStatus(s: ChunkResponse["quality_gate_status"]) {
+  if (s === "skipped") return {
+    label: "Sin usar",    dot: "bg-muted-foreground/40", text: "text-muted-foreground",
+    pill: "border-border bg-muted text-muted-foreground",
+  };
+  if (s === "pending") return {
+    label: "Por revisar", dot: "bg-warning", text: "text-warning",
+    pill: "border-warning/30 bg-warning/[0.08] text-warning",
+  };
+  return {
+    label: "En uso",      dot: "bg-success", text: "text-success",
+    pill: "border-success/30 bg-success/[0.08] text-success",
+  };
 }
 
-// ── ConfidenceBar ─────────────────────────────────────────────────────────────
+// ── PartDetailPanel ───────────────────────────────────────────────────────────
+// Contenido del panel derecho (master-detalle) para una parte del documento.
+// Muestra el texto completo y deja accionar: usar/no usar y editar. Sin tarjetas
+// anidadas — todo vive en el panel, legible de un vistazo.
 
-export function ConfidenceBar({ value }: { value: number | null }) {
-  if (value === null) return null;
-  const pct = Math.round(value * 100);
-  const color = pct >= 85 ? "bg-success" : pct >= 60 ? "bg-warning" : "bg-destructive";
-  return (
-    <div className="flex items-center gap-1.5" title={`Confianza del verificador: ${pct}%`}>
-      <div className="w-14 h-1.5 bg-muted rounded-full overflow-hidden">
-        <div className={`h-full rounded-full ${color}`} style={{ width: `${pct}%` }} />
-      </div>
-      <span className="text-[10px] text-muted-foreground tabular-nums">{pct}%</span>
-    </div>
-  );
-}
-
-// ── ChunkActionButton ─────────────────────────────────────────────────────────
-
-export function ChunkActionButton({
-  onClick, icon: Icon, children, tone = "default", disabled, loading, title,
-}: {
-  onClick: () => void;
-  icon: React.ElementType;
-  children: React.ReactNode;
-  tone?: "default" | "success" | "destructive";
-  disabled?: boolean;
-  loading?: boolean;
-  title?: string;
+export function PartDetailPanel({ chunk, documentId, onCollapse }: {
+  chunk: ChunkResponse;
+  documentId: string;
+  onCollapse: () => void;
 }) {
-  const toneCls =
-    tone === "success"     ? "border-success/30 text-success bg-success/5 hover:bg-success/10" :
-    tone === "destructive" ? "border-destructive/30 text-destructive bg-destructive/5 hover:bg-destructive/10" :
-    "border-border text-muted-foreground bg-card hover:text-foreground hover:bg-muted";
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      title={title}
-      className={cn(
-        "inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border text-xs font-medium transition-colors disabled:opacity-50 cursor-pointer",
-        toneCls,
-      )}
-    >
-      {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Icon className="h-3.5 w-3.5" />}
-      {children}
-    </button>
-  );
-}
-
-// ── PendingChunkCard ──────────────────────────────────────────────────────────
-
-export function PendingChunkCard({ chunk, onReviewed }: { chunk: PendingChunkResponse; onReviewed: () => void }) {
   const queryClient = useQueryClient();
-  const [showFull, setShowFull] = useState(false);
-
-  const { mutate: review, isPending: reviewing } = useMutation({
-    mutationFn: (action: "approve" | "reject") => api.documents.reviewChunk(chunk.document_id, chunk.id, action),
-    onSuccess: (_, action) => {
-      queryClient.invalidateQueries({ queryKey: ["chunks", "pending"] });
-      queryClient.invalidateQueries({ queryKey: ["documents"] });
-      queryClient.invalidateQueries({ queryKey: ["chunks", chunk.document_id] });
-      onReviewed();
-      toast({
-        title: action === "approve" ? "Fragmento incluido" : "Fragmento excluido",
-        description: action === "approve" ? "La IA lo usará en sus respuestas." : "La IA no lo tendrá en cuenta.",
-        variant: "success",
-      });
-    },
-    onError: () => toast({ title: "Error al actualizar", variant: "destructive" }),
-  });
-
-  const humanMsg = humanReason(chunk.quality_gate_reason);
-  const PREVIEW_LENGTH = 250;
-  const isLong = chunk.text.length > PREVIEW_LENGTH;
-  const displayText = showFull || !isLong ? chunk.text : chunk.text.slice(0, PREVIEW_LENGTH) + "…";
-
-  return (
-    <div className="rounded-xl border bg-card p-4 space-y-3">
-      <div className="flex items-center justify-between gap-4 flex-wrap">
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="text-xs text-muted-foreground truncate">Fragmento {chunk.chunk_index + 1} de {chunk.total_chunks}</span>
-          <ConfidenceBar value={chunk.quality_gate_confidence} />
-        </div>
-        <div className="flex items-center gap-1.5 shrink-0">
-          <ChunkActionButton onClick={() => review("approve")} disabled={reviewing} loading={reviewing} icon={CheckCircle2} tone="success">Incluir</ChunkActionButton>
-          <ChunkActionButton onClick={() => review("reject")} disabled={reviewing} loading={reviewing} icon={XCircle} tone="destructive">Excluir</ChunkActionButton>
-        </div>
-      </div>
-      {humanMsg && <p className="text-xs text-warning bg-warning/10 rounded-lg px-2.5 py-1.5 border border-warning/20">{humanMsg}</p>}
-      <div>
-        <p className="text-xs leading-relaxed text-foreground whitespace-pre-wrap break-words">{displayText}</p>
-        {isLong && (
-          <button onClick={() => setShowFull((v) => !v)} className="text-[11px] text-action hover:underline mt-1 flex items-center gap-0.5">
-            {showFull ? <><ChevronUp className="h-3 w-3" /> Ver menos</> : <><ChevronDown className="h-3 w-3" /> Ver todo el fragmento</>}
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ── ChunkCard ─────────────────────────────────────────────────────────────────
-
-export function ChunkCard({ chunk, documentId }: { chunk: ChunkResponse; documentId: string }) {
-  const queryClient = useQueryClient();
-  const [showFull, setShowFull] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState(chunk.text);
-  const [confirmingExclude, setConfirmingExclude] = useState(false);
-  const qg = QG_CHUNK_CONFIG[chunk.quality_gate_status];
-  const isPassed  = chunk.quality_gate_status === "passed";
-  const isSkipped = chunk.quality_gate_status === "skipped";
-  const humanMsg  = humanReason(chunk.quality_gate_reason);
-  const PREVIEW_LENGTH = 240;
-  const isLong = chunk.text.length > PREVIEW_LENGTH;
-  const displayText = showFull || !isLong ? chunk.text : chunk.text.slice(0, PREVIEW_LENGTH) + "…";
+
+  const isSkipped   = chunk.quality_gate_status === "skipped";
+  const needsReview = chunk.quality_gate_status === "pending";
+  const inUse       = !isSkipped;
+  const st          = partStatus(chunk.quality_gate_status);
+  const humanMsg    = humanReason(chunk.quality_gate_reason);
 
   const { mutate: review, isPending: reviewing } = useMutation({
     mutationFn: (action: "approve" | "reject") => api.documents.reviewChunk(documentId, chunk.id, action),
@@ -198,25 +96,23 @@ export function ChunkCard({ chunk, documentId }: { chunk: ChunkResponse; documen
     },
     onError: (_err, _action, ctx) => {
       queryClient.setQueryData(["chunks", documentId], ctx?.prev);
-      toast({ title: "Error al actualizar el fragmento", variant: "destructive" });
+      toast({ title: "No se pudo guardar el cambio", variant: "destructive" });
     },
     onSuccess: (_, action) => {
       queryClient.invalidateQueries({ queryKey: ["documents"] });
-      toast({ title: action === "approve" ? "Fragmento incluido" : "Fragmento excluido", variant: "success" });
+      toast({
+        title: action === "approve" ? "El asistente va a usar esta parte" : "El asistente ya no usa esta parte",
+        variant: "success",
+      });
     },
-    onSettled: () => setConfirmingExclude(false),
   });
 
-  // Guardado del texto editado inline (re-procesa el embedding en el backend).
+  // Guardado del texto editado (re-procesa el embedding en el backend).
   const { mutate: save, isPending: saving } = useMutation({
     mutationFn: () => api.documents.editChunkText(documentId, chunk.id, editText.trim()),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["chunks", documentId] });
-      toast({
-        title: "Fragmento actualizado",
-        description: "Se re-procesó el embedding. El bot va a usar el nuevo texto.",
-        variant: "success",
-      });
+      toast({ title: "Texto actualizado", description: "El asistente va a usar la nueva versión.", variant: "success" });
       setEditing(false);
     },
     onError: (err: any) => {
@@ -224,124 +120,120 @@ export function ChunkCard({ chunk, documentId }: { chunk: ChunkResponse; documen
     },
   });
 
-  const startEdit = () => { setEditText(chunk.text); setEditing(true); setShowFull(true); };
+  const startEdit = () => { setEditText(chunk.text); setEditing(true); };
+  const cancelEdit = () => { setEditing(false); setEditText(chunk.text); };
   const dirty = editText.trim() !== chunk.text.trim();
   const valid = editText.trim().length > 0 && editText.trim().length <= 8000;
 
   return (
-    <div className={cn(
-      "group rounded-2xl border bg-card shadow-xs transition-shadow hover:shadow-sm overflow-hidden",
-      isSkipped && !editing && "bg-muted/40 border-dashed",
-      editing && "ring-1 ring-action/30 shadow-sm",
-    )}>
-      {/* Cabecera */}
-      <div className="flex items-center justify-between gap-2 px-4 pt-3.5 flex-wrap">
-        <div className="flex items-center gap-2.5 min-w-0">
-          <span className="inline-flex items-center justify-center h-5 min-w-[28px] px-1.5 rounded-md bg-muted text-[11px] font-semibold tabular-nums text-muted-foreground">
-            {chunk.chunk_index + 1}
+    <div className="w-full bg-card">
+      <DetailPanelHeader label={`Parte ${chunk.chunk_index + 1}`}>
+        {!editing && (
+          <PanelIconButton onClick={startEdit} label="Editar texto"><Pencil className="h-4 w-4" /></PanelIconButton>
+        )}
+        <PanelIconButton onClick={onCollapse} label="Ocultar panel"><PanelRight className="h-4 w-4" /></PanelIconButton>
+      </DetailPanelHeader>
+
+      {/* Estado + aviso de revisión */}
+      <div className="border-b px-4 py-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className={cn("inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-semibold", st.pill)}>
+            <span className={cn("h-1.5 w-1.5 rounded-full", st.dot)} /> {st.label}
           </span>
-          {editing ? (
-            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-action">
-              <Pencil className="h-3 w-3" /> Editando
-            </span>
-          ) : (
-            <span className={cn("inline-flex items-center gap-1.5 text-xs font-medium", qg.text)}>
-              <span className={cn("h-1.5 w-1.5 rounded-full", qg.dot)} />
-              {qg.label}
-            </span>
-          )}
-          {!editing && chunk.manually_reviewed && (
-            <span title={`Revisado manualmente${chunk.reviewed_by ? ` por ${chunk.reviewed_by}` : ""}`} className="hidden sm:inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+          {chunk.manually_reviewed && (
+            <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground"
+              title={`Revisado manualmente${chunk.reviewed_by ? ` por ${chunk.reviewed_by}` : ""}`}>
               <UserCheck className="h-3 w-3" /> revisado
             </span>
           )}
         </div>
-        {!editing && <ConfidenceBar value={chunk.quality_gate_confidence} />}
+        {needsReview && (
+          <p className="mt-2.5 rounded-lg border border-warning/20 bg-warning/[0.07] px-2.5 py-2 text-xs leading-relaxed text-warning">
+            {humanMsg ?? "El asistente no está seguro de esta parte. Revisala y decidí si la usa para responder."}
+          </p>
+        )}
       </div>
 
-      {!editing && !isPassed && humanMsg && <p className="text-[11px] text-warning italic px-4 pt-2">{humanMsg}</p>}
-
-      {/* Texto / editor inline */}
-      <div className="px-4 py-3">
+      {/* Texto / editor */}
+      <div className="px-4 py-4">
         {editing ? (
           <>
             <Textarea
               value={editText}
               onChange={(e) => setEditText(e.target.value)}
-              rows={7}
               maxLength={8000}
               autoFocus
               disabled={saving}
-              className="text-sm leading-relaxed resize-y min-h-[120px]"
+              className="min-h-[240px] w-full resize-none text-sm leading-relaxed"
             />
-            <p className="text-[11px] text-muted-foreground mt-1.5 tabular-nums">
-              {editText.length} / 8000 · al guardar se re-procesa el embedding
-            </p>
+            <p className="mt-1.5 text-[11px] tabular-nums text-muted-foreground">{editText.length} / 8000</p>
           </>
         ) : (
-          <>
-            <p className={cn("text-sm leading-relaxed whitespace-pre-wrap break-words", isSkipped ? "text-muted-foreground" : "text-foreground")}>
-              {displayText}
-            </p>
-            {isLong && (
-              <button onClick={() => setShowFull((v) => !v)} className="text-xs text-action hover:underline mt-2 flex items-center gap-0.5 font-medium">
-                {showFull ? <><ChevronUp className="h-3.5 w-3.5" /> Ver menos</> : <><ChevronDown className="h-3.5 w-3.5" /> Ver todo</>}
-              </button>
-            )}
-          </>
+          <p className={cn("whitespace-pre-wrap break-words text-sm leading-relaxed", isSkipped ? "text-muted-foreground" : "text-foreground")}>
+            {chunk.text}
+          </p>
         )}
       </div>
 
       {/* Acciones */}
-      <div className="px-3 py-2.5 border-t bg-muted/20">
+      <div className="border-t p-4">
         {editing ? (
-          // Edición inline — sin modal.
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] text-muted-foreground hidden sm:block">Editás el texto en el lugar</span>
-            <div className="ml-auto flex items-center gap-1.5">
-              <button
-                onClick={() => setEditing(false)}
-                disabled={saving}
-                className="inline-flex items-center h-8 px-3 rounded-lg text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer disabled:opacity-50"
+          <div className="flex items-center justify-end gap-2">
+            <Button variant="outline" size="sm" onClick={cancelEdit} disabled={saving}>Cancelar</Button>
+            <Button size="sm" onClick={() => save()} disabled={!dirty || !valid || saving}>
+              {saving ? <><Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> Guardando…</> : "Guardar cambios"}
+            </Button>
+          </div>
+        ) : needsReview ? (
+          <div className="space-y-2.5">
+            <p className="text-xs font-medium text-foreground">¿El asistente usa esta parte para responder?</p>
+            <div className="flex gap-2">
+              <Button
+                variant="outline" size="sm"
+                className="flex-1 border-success/30 text-success hover:bg-success/10 hover:text-success"
+                onClick={() => review("approve")} disabled={reviewing}
               >
-                Cancelar
-              </button>
-              <Button size="sm" className="h-8" onClick={() => save()} disabled={!dirty || !valid || saving}>
-                {saving ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Guardando…</> : "Guardar cambios"}
+                <Check className="mr-1.5 h-4 w-4" /> Sí, usarla
+              </Button>
+              <Button
+                variant="outline" size="sm"
+                className="flex-1 border-destructive/30 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                onClick={() => review("reject")} disabled={reviewing}
+              >
+                <X className="mr-1.5 h-4 w-4" /> No usarla
               </Button>
             </div>
           </div>
-        ) : confirmingExclude ? (
-          // Doble validación del excluir — confirmación inline, sin modal.
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-xs text-foreground flex-1 min-w-0">
-              ¿Excluir este fragmento de las respuestas de la IA?
-            </span>
-            <button
-              onClick={() => setConfirmingExclude(false)}
-              disabled={reviewing}
-              className="inline-flex items-center h-8 px-3 rounded-lg text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer"
-            >
-              Cancelar
-            </button>
-            <ChunkActionButton onClick={() => review("reject")} disabled={reviewing} loading={reviewing} icon={XCircle} tone="destructive">
-              Sí, excluir
-            </ChunkActionButton>
-          </div>
         ) : (
-          <div className="flex items-center gap-1.5">
-            <ChunkActionButton onClick={startEdit} icon={Pencil} title="Editar el texto del fragmento (re-procesa el embedding)">Editar</ChunkActionButton>
-            <div className="ml-auto flex items-center gap-1.5">
-              {!isPassed && (
-                <ChunkActionButton onClick={() => review("approve")} disabled={reviewing} loading={reviewing} icon={CheckCircle2} tone="success" title="Incluir en las respuestas de la IA">Incluir</ChunkActionButton>
-              )}
-              {!isSkipped && (
-                <ChunkActionButton onClick={() => setConfirmingExclude(true)} disabled={reviewing} icon={XCircle} tone="destructive" title="Excluir — la IA no lo usará">Excluir</ChunkActionButton>
-              )}
-            </div>
-          </div>
+          <UseRow inUse={inUse} disabled={reviewing} onChange={(next) => review(next ? "approve" : "reject")} />
         )}
       </div>
     </div>
+  );
+}
+
+// ── UseRow ────────────────────────────────────────────────────────────────────
+// Interruptor "Usar para responder" como fila completa. On = el asistente usa
+// esta parte, Off = la ignora. Un toque, reversible.
+function UseRow({ inUse, onChange, disabled }: { inUse: boolean; onChange: (next: boolean) => void; disabled?: boolean }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={inUse}
+      disabled={disabled}
+      onClick={() => onChange(!inUse)}
+      className="flex w-full items-center justify-between gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors hover:bg-muted/50 disabled:opacity-50"
+    >
+      <span className="min-w-0">
+        <span className="block text-sm font-medium text-foreground">Usar para responder</span>
+        <span className="block text-[11px] text-muted-foreground">
+          {inUse ? "El asistente la tiene en cuenta" : "El asistente la ignora"}
+        </span>
+      </span>
+      <span className={cn("relative h-5 w-9 shrink-0 rounded-full transition-colors", inUse ? "bg-success" : "bg-muted-foreground/30")}>
+        <span className={cn("absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-all", inUse ? "left-[18px]" : "left-0.5")} />
+      </span>
+    </button>
   );
 }

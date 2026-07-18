@@ -14,9 +14,11 @@ import { cn } from "@/lib/utils";
  * cablea su `onCollapse` desde la página; el shell solo maneja el riel/expandir.
  */
 export function ListDetailShell({
-  title, actions, children, panelTitle = "detalle", panel, open, hasSelection, onExpand,
+  title, leading, actions, children, panelTitle = "detalle", panel, open, hasSelection, onExpand,
 }: {
   title: string;
+  /** Nodo opcional antes del título (ej. botón volver). */
+  leading?: React.ReactNode;
   actions?: React.ReactNode;
   children: React.ReactNode;
   panelTitle?: string;
@@ -33,7 +35,10 @@ export function ListDetailShell({
       {/* Columna principal */}
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="flex h-12 shrink-0 items-center justify-between gap-3 border-b px-4 sm:px-6">
-          <h1 className="truncate text-[15px] font-semibold tracking-tight text-foreground">{title}</h1>
+          <div className="flex min-w-0 items-center gap-2">
+            {leading}
+            <h1 className="truncate text-[15px] font-semibold tracking-tight text-foreground">{title}</h1>
+          </div>
           {actions}
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto scrollbar-slim p-4 sm:p-6">

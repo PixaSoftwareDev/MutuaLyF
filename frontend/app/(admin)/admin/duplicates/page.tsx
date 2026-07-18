@@ -11,8 +11,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/toast";
-import { PageShell } from "@/components/layout/page-shell";
-import { PageHeader, CountChip } from "@/components/layout/page-header";
+import { CountChip } from "@/components/layout/page-header";
 import { cn } from "@/lib/utils";
 
 // ── LCS-based word diff ────────────────────────────────────────────────────────
@@ -548,60 +547,55 @@ export default function DuplicatesPage() {
   const pagedPairs = pendingPairs.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   return (
-    <PageShell width="wide">
-      <PageHeader
-        title="Fragmentos duplicados"
-        badge={!isLoading && pendingPairs.length > 0
-          ? <CountChip>{pendingPairs.length} {pendingPairs.length === 1 ? "pendiente" : "pendientes"}</CountChip>
-          : undefined}
-        description="El bot encontró textos que dicen casi lo mismo en tus documentos. Si no los resolvés, puede responder distinto según cuál use. Elegí con cuál quedarte —el otro se elimina— o conservá ambos. Lo resaltado marca en qué se diferencian."
-      />
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex h-12 shrink-0 items-center gap-2.5 border-b px-4 sm:px-6">
+        <h1 className="text-[15px] font-semibold tracking-tight text-foreground">Fragmentos duplicados</h1>
+        {!isLoading && pendingPairs.length > 0 && (
+          <CountChip>{pendingPairs.length} {pendingPairs.length === 1 ? "pendiente" : "pendientes"}</CountChip>
+        )}
+      </div>
 
-      {/* Pairs list */}
-      {error ? (
-        <Card className="rounded-2xl">
-          <ErrorState
-            title="Error al cargar duplicados"
-            description="No pudimos traer los pares de fragmentos. Probá de nuevo."
-            onRetry={() => refetch()}
-          />
-        </Card>
-      ) : isLoading ? (
-        <div className="space-y-4">
-          <Skeleton className="h-48 w-full" />
-          <Skeleton className="h-48 w-full" />
-        </div>
-      ) : pendingPairs.length === 0 ? (
-        <Card className="rounded-2xl">
-          <EmptyState
-            icon={CopyCheck}
-            title="No hay duplicados pendientes"
-            description="Cuando el sistema detecte fragmentos con contenido muy similar entre documentos, vas a poder revisarlos acá."
-          />
-        </Card>
-      ) : (
-        <div className="space-y-4">
-          {pagedPairs.map((pair) => (
-            <PairCard
-              key={pair.id}
-              pair={pair}
-              resolving={resolvingId === pair.id}
-              onResolve={(action) => resolveMutation.mutate({ pairId: pair.id, action })}
-            />
-          ))}
-          <Pagination
-            page={page}
-            totalPages={totalPages}
-            totalItems={pendingPairs.length}
-            pageSize={PAGE_SIZE}
-            onChange={(p) => {
-              setPage(p);
-              window.scrollTo({ top: 0, behavior: "smooth" });
-            }}
-          />
-        </div>
-      )}
+      <div className="min-h-0 flex-1 overflow-y-auto scrollbar-slim p-4 sm:p-6">
+        <div className="mx-auto w-full max-w-5xl">
+          {pendingPairs.length > 0 && (
+            <p className="mb-4 max-w-3xl text-sm leading-relaxed text-muted-foreground">
+              El bot encontró textos que dicen casi lo mismo. Si no los resolvés, puede responder distinto según cuál use.
+              Elegí con cuál quedarte —el otro se elimina— o conservá ambos. Lo resaltado marca en qué se diferencian.
+            </p>
+          )}
 
-    </PageShell>
+          {error ? (
+            <div className="rounded-2xl border">
+              <ErrorState title="Error al cargar duplicados" description="No pudimos traer los pares de fragmentos. Probá de nuevo." onRetry={() => refetch()} />
+            </div>
+          ) : isLoading ? (
+            <div className="space-y-4">
+              <Skeleton className="h-48 w-full rounded-2xl" />
+              <Skeleton className="h-48 w-full rounded-2xl" />
+            </div>
+          ) : pendingPairs.length === 0 ? (
+            <div className="rounded-2xl border">
+              <EmptyState
+                icon={CopyCheck}
+                title="No hay duplicados pendientes"
+                description="Cuando el sistema detecte fragmentos con contenido muy similar entre documentos, vas a poder revisarlos acá."
+              />
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {pagedPairs.map((pair) => (
+                <PairCard
+                  key={pair.id}
+                  pair={pair}
+                  resolving={resolvingId === pair.id}
+                  onResolve={(action) => resolveMutation.mutate({ pairId: pair.id, action })}
+                />
+              ))}
+              <Pagination page={page} totalPages={totalPages} totalItems={pendingPairs.length} pageSize={PAGE_SIZE} onChange={setPage} />
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }

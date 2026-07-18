@@ -10,9 +10,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
-import { PageShell } from "@/components/layout/page-shell";
-import { PageHeader } from "@/components/layout/page-header";
-import { FormSheet } from "@/components/layout/form-sheet";
+import { FormDialog } from "@/components/ui/form-dialog";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -187,79 +185,63 @@ export default function IntentionsPage() {
   };
 
   return (
-    <PageShell width="wide">
-      <PageHeader
-        title="Temas reconocidos"
-        description="El bot detecta temas en las consultas y vos los revisás y aprobás."
-      />
+    <div className="flex h-full min-h-0 flex-col">
+      {/* Header bar: título + acciones */}
+      <div className="flex h-12 shrink-0 items-center gap-3 border-b px-4 sm:px-6">
+        <h1 className="text-[15px] font-semibold tracking-tight text-foreground">Temas reconocidos</h1>
+        <div className="ml-auto flex items-center gap-2">
+          <Button size="sm" className="group" onClick={() => setShowCreate(true)}>
+            <Plus className="mr-1 h-4 w-4 transition-transform group-hover:rotate-90" />
+            Nuevo tema
+          </Button>
+          {/* Acciones secundarias/automáticas en el overflow */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" aria-label="Más acciones" title="Más acciones">
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-60">
+              <DropdownMenuItem onSelect={() => clusterMutation.mutate()} disabled={clusterMutation.isPending}>
+                {clusterMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
+                Detectar temas nuevos
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => retrainMutation.mutate()} disabled={retrainMutation.isPending}>
+                {retrainMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <BrainCircuit className="mr-2 h-4 w-4" />}
+                Reentrenar clasificador
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </div>
 
+      {/* Cuerpo scrolleable */}
+      <div className="min-h-0 flex-1 overflow-y-auto scrollbar-slim p-4 sm:p-6">
       {isLoading ? (
         <div className="space-y-3">
           <Skeleton className="h-9 w-72" />
-          <Skeleton className="h-24 w-full" />
-          <Skeleton className="h-24 w-full" />
-          <Skeleton className="h-24 w-full" />
+          <Skeleton className="h-24 w-full rounded-2xl" />
+          <Skeleton className="h-24 w-full rounded-2xl" />
+          <Skeleton className="h-24 w-full rounded-2xl" />
         </div>
       ) : error ? (
-        <div className="text-center py-20 text-destructive text-sm">
-          Error al cargar intenciones
-        </div>
+        <div className="py-20 text-center text-sm text-destructive">Error al cargar intenciones</div>
       ) : (
         <Tabs value={activeTab} onValueChange={setTab}>
-          {/* Fila de pestañas + acciones a la derecha (misma altura). Orden =
-              flujo de trabajo: primero lo que hay para revisar, después lo ya
-              resuelto. La mirada cae a la izquierda → ahí va la bandeja. */}
-          <div className="flex items-center justify-between gap-3 flex-wrap">
-            <TabsList>
-              <TabsTrigger value="clusters">
-                Sugeridos
-                {clusters.length > 0 && <TabCount count={clusters.length} />}
-              </TabsTrigger>
-              <TabsTrigger value="pending">
-                Pendientes
-                {pending.length > 0 && <TabCount count={pending.length} />}
-              </TabsTrigger>
-              <TabsTrigger value="active">
-                Activos
-                {active.length > 0 && <TabCount count={active.length} />}
-              </TabsTrigger>
-            </TabsList>
-
-            <div className="flex items-center gap-2">
-              <Button size="sm" className="group" onClick={() => setShowCreate(true)}>
-                <Plus className="h-4 w-4 mr-1 transition-transform group-hover:rotate-90" />
-                Nuevo tema
-              </Button>
-              {/* Acciones secundarias/automáticas en el overflow */}
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="sm" aria-label="Más acciones" title="Más acciones">
-                    <MoreHorizontal className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-60">
-                  <DropdownMenuItem
-                    onSelect={() => clusterMutation.mutate()}
-                    disabled={clusterMutation.isPending}
-                  >
-                    {clusterMutation.isPending
-                      ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      : <Play className="h-4 w-4 mr-2" />}
-                    Detectar temas nuevos
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onSelect={() => retrainMutation.mutate()}
-                    disabled={retrainMutation.isPending}
-                  >
-                    {retrainMutation.isPending
-                      ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      : <BrainCircuit className="h-4 w-4 mr-2" />}
-                    Reentrenar clasificador
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          </div>
+          <TabsList>
+            <TabsTrigger value="clusters">
+              Sugeridos
+              {clusters.length > 0 && <TabCount count={clusters.length} />}
+            </TabsTrigger>
+            <TabsTrigger value="pending">
+              Pendientes
+              {pending.length > 0 && <TabCount count={pending.length} />}
+            </TabsTrigger>
+            <TabsTrigger value="active">
+              Activos
+              {active.length > 0 && <TabCount count={active.length} />}
+            </TabsTrigger>
+          </TabsList>
 
           {/* Activas — inventario que se administra: buscar, ordenar por uso,
               tabla que escala a cientos de temas. */}
@@ -371,6 +353,7 @@ export default function IntentionsPage() {
 
         </Tabs>
       )}
+      </div>
 
       {/* Panel de detalle de un pendiente: sus consultas + decisión */}
       <PendingDetailSheet
@@ -396,8 +379,8 @@ export default function IntentionsPage() {
         onDismiss={() => selectedCluster && dismissClusterMutation.mutate(selectedCluster.cluster_id)}
       />
 
-      {/* Panel crear tema */}
-      <FormSheet
+      {/* Crear tema */}
+      <FormDialog
         open={showCreate}
         onOpenChange={setShowCreate}
         icon={Tag}
@@ -405,57 +388,35 @@ export default function IntentionsPage() {
         description="Un tema que el bot va a reconocer en las consultas."
         footer={
           <>
-            <Button variant="outline" onClick={() => setShowCreate(false)}>
-              Cancelar
-            </Button>
-            <Button
-              onClick={() => createMutation.mutate()}
-              disabled={!newLabel.trim() || createMutation.isPending}
-            >
-              {createMutation.isPending && <Loader2 className="h-4 w-4 animate-spin mr-1.5" />}
+            <Button variant="outline" onClick={() => setShowCreate(false)}>Cancelar</Button>
+            <Button onClick={() => createMutation.mutate()} disabled={!newLabel.trim() || createMutation.isPending}>
+              {createMutation.isPending && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
               Crear tema
             </Button>
           </>
         }
       >
-        <div className="space-y-5">
-          <div className="space-y-2">
-            <Label htmlFor="new-intent-label">Nombre</Label>
-            <Input
-              id="new-intent-label"
-              placeholder="Ej. vacaciones"
-              value={newLabel}
-              onChange={(e) => setNewLabel(e.target.value)}
-              autoFocus
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="new-intent-desc">
-              Descripción <span className="font-normal text-muted-foreground">(opcional)</span>
-            </Label>
-            <Input
-              id="new-intent-desc"
-              placeholder="Para qué se usa este tema"
-              value={newDescription}
-              onChange={(e) => setNewDescription(e.target.value)}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="new-intent-examples">
-              Ejemplos <span className="font-normal text-muted-foreground">(uno por línea)</span>
-            </Label>
-            <Textarea
-              id="new-intent-examples"
-              rows={4}
-              className="text-sm resize-none"
-              placeholder={"¿Cuántos días de vacaciones tengo?\n¿Cómo pido vacaciones?"}
-              value={newExamples}
-              onChange={(e) => setNewExamples(e.target.value)}
-            />
-          </div>
+        <div className="space-y-2">
+          <Label htmlFor="new-intent-label">Nombre</Label>
+          <Input id="new-intent-label" placeholder="Ej. vacaciones" value={newLabel} onChange={(e) => setNewLabel(e.target.value)} autoFocus />
         </div>
-      </FormSheet>
-    </PageShell>
+        <div className="space-y-2">
+          <Label htmlFor="new-intent-desc">Descripción <span className="font-normal text-muted-foreground">(opcional)</span></Label>
+          <Input id="new-intent-desc" placeholder="Para qué se usa este tema" value={newDescription} onChange={(e) => setNewDescription(e.target.value)} />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="new-intent-examples">Ejemplos <span className="font-normal text-muted-foreground">(uno por línea)</span></Label>
+          <Textarea
+            id="new-intent-examples"
+            rows={4}
+            className="resize-none text-sm"
+            placeholder={"¿Cuántos días de vacaciones tengo?\n¿Cómo pido vacaciones?"}
+            value={newExamples}
+            onChange={(e) => setNewExamples(e.target.value)}
+          />
+        </div>
+      </FormDialog>
+    </div>
   );
 }
 
@@ -477,7 +438,7 @@ function ClusterTable({
   onSelect: (c: import("@/lib/api").DiscoveredCluster) => void;
 }) {
   return (
-    <div className="rounded-2xl border bg-card shadow-sm overflow-hidden">
+    <div className="overflow-hidden rounded-2xl border bg-card">
       <Table>
         <TableHeader>
           <TableRow className="hover:bg-transparent">
@@ -491,8 +452,8 @@ function ClusterTable({
             <TableRow key={c.cluster_id} className="cursor-pointer" onClick={() => onSelect(c)}>
               <TableCell>
                 <div className="flex items-center gap-3 min-w-0">
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-action-gradient-soft">
-                    <Tag className="h-4 w-4 text-action" />
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+                    <Tag className="h-4 w-4" />
                   </div>
                   {/* El input frena la propagación: tipear/clickear no abre el panel */}
                   <Input
@@ -578,8 +539,8 @@ function ClusterDetailSheet({
           {/* pr-8 reserva lugar para la X de cerrar del sheet — que no se pise
               con el input. Icono + input en la misma fila, a la misma altura. */}
           <div className="flex items-center gap-3 pr-8">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-action-gradient-soft">
-              <Tag className="h-5 w-5 text-action" />
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-muted text-muted-foreground">
+              <Tag className="h-5 w-5" />
             </div>
             <Input
               value={label}
@@ -658,7 +619,7 @@ function ThemeTable({
   onDelete: (id: string) => void;
 }) {
   return (
-    <div className="rounded-2xl border bg-card shadow-sm overflow-hidden">
+    <div className="overflow-hidden rounded-2xl border bg-card">
       <Table>
         <TableHeader>
           <TableRow className="hover:bg-transparent">
@@ -713,7 +674,7 @@ function PendingTable({
   onSelect: (p: PendingIntention) => void;
 }) {
   return (
-    <div className="rounded-2xl border bg-card shadow-sm overflow-hidden">
+    <div className="overflow-hidden rounded-2xl border bg-card">
       <Table>
         <TableHeader>
           <TableRow className="hover:bg-transparent">

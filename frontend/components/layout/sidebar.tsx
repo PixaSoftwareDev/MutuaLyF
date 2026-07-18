@@ -6,7 +6,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   Inbox, FileText, Tags, Settings, LogOut,
   Home, Building2, GitMerge, Users, MessageSquareShare, ClipboardList, Bot, Network, X, Layers, BarChart3,
-  MessageSquare, Clock, UserCheck, Archive, UserRound, ChevronDown, Globe, Database, Grid3x3,
+  MessageSquare, Clock, UserCheck, Archive, UserRound, ChevronDown, Globe, Database, Grid3x3, Pin, PinOff,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore, useUIStore } from "@/lib/store";
@@ -211,7 +211,7 @@ export function Sidebar() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { userEmail, userRole, tenantId, clearAuth } = useAuthStore();
-  const { mobileSidebarOpen, closeMobileSidebar } = useUIStore();
+  const { mobileSidebarOpen, closeMobileSidebar, sidebarPinned, toggleSidebarPin } = useUIStore();
 
   const { branding } = useTenantBranding();
 
@@ -341,28 +341,55 @@ export function Sidebar() {
 
       <aside
         className={cn(
-          // Mobile: drawer blanco. Desktop: panel transparente SOBRE el lienzo
-          // gris, fuera del recuadro blanco (referencia Text).
-          "flex flex-col bg-card border-r lg:border-r-0 lg:bg-transparent",
-          "fixed inset-y-0 left-0 z-50 w-64 lg:static lg:z-auto lg:w-[224px] lg:shrink-0",
-          "transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none lg:transition-none",
-          mobileSidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0",
+          // Mobile: drawer blanco fijo. Desktop: depende del pin.
+          // group/aside: el botón de pin aparece al pasar el mouse por el panel.
+          "group/aside flex flex-col bg-card border-r",
+          "fixed inset-y-0 left-0 z-50 w-64",
+          "transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none",
+          mobileSidebarOpen ? "translate-x-0" : "-translate-x-full",
+          // Desktop FIJADO: panel transparente en el flujo, sobre el lienzo gris.
+          sidebarPinned && "lg:static lg:z-auto lg:w-[224px] lg:shrink-0 lg:translate-x-0 lg:border-r-0 lg:bg-transparent lg:transition-none",
+          // Desktop SIN FIJAR: EN FLUJO (empuja el contenido, no lo tapa). Colapsa
+          // a ancho 0 y se expande al pasar el mouse por la zona de navegación
+          // (rail o panel). Mismo fondo transparente sobre el lienzo que fijado.
+          !sidebarPinned && cn(
+            "lg:static lg:z-auto lg:shrink-0 lg:translate-x-0 lg:overflow-hidden lg:border-r-0 lg:bg-transparent",
+            "lg:w-0 lg:group-hover/nav:w-[224px] lg:group-focus-within/nav:w-[224px]",
+            "lg:transition-[width] lg:duration-200 lg:ease-out",
+          ),
         )}
       >
         {/* Título de la SECCIÓN activa, alineado con el primer ícono del rail. */}
-        <div className="flex h-14 shrink-0 items-center gap-2.5 border-b px-4 lg:mt-1 lg:h-10 lg:border-b-0 lg:px-3">
-          <p className="min-w-0 truncate text-[15px] font-semibold tracking-tight text-foreground">{sectionTitle}</p>
+        <div className="flex h-14 shrink-0 items-center gap-1.5 border-b px-4 lg:mt-1 lg:h-10 lg:w-[224px] lg:border-b-0 lg:px-3">
+          <p className="min-w-0 flex-1 truncate text-[15px] font-semibold tracking-tight text-foreground">{sectionTitle}</p>
+          {/* Fijar / desfijar panel (solo desktop). Aparece al pasar el mouse por
+              el panel (patrón text.com), en la costura con el contenido. */}
+          <button
+            onClick={(e) => { toggleSidebarPin(); e.currentTarget.blur(); }}
+            aria-pressed={sidebarPinned}
+            title={sidebarPinned
+              ? "Desfijar panel — se oculta y aparece al pasar el mouse"
+              : "Fijar panel — queda siempre abierto"}
+            aria-label={sidebarPinned ? "Desfijar panel" : "Fijar panel"}
+            className={cn(
+              "hidden lg:flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground",
+              "opacity-0 transition-[opacity,background-color,color] lg:group-hover/aside:opacity-100 focus-visible:opacity-100",
+              focusRing,
+            )}
+          >
+            {sidebarPinned ? <Pin className="h-4 w-4" /> : <PinOff className="h-4 w-4" />}
+          </button>
           {/* Cerrar (mobile) */}
           <button
             onClick={closeMobileSidebar}
-            className={cn("lg:hidden ml-auto flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground transition-colors", focusRing)}
+            className={cn("lg:hidden flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground transition-colors", focusRing)}
             aria-label="Cerrar menú"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
 
-        <nav id="sidebar-nav" aria-label="Navegación principal" className="flex-1 overflow-y-auto scrollbar-slim px-3 pb-3 pt-3">
+        <nav id="sidebar-nav" aria-label="Navegación principal" className="flex-1 overflow-y-auto scrollbar-slim px-3 pb-3 pt-3 lg:w-[224px]">
           {/* ── Desktop: SUBMENÚ contextual de la sección activa ─────────────── */}
           <div className="hidden lg:block">
             {isConversations ? (

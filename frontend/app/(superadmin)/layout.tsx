@@ -29,9 +29,13 @@ export default function SuperAdminLayout({ children }: { children: React.ReactNo
     <div className="flex h-[100dvh] flex-col overflow-hidden bg-canvas">
       <TopBar />
       <div className="flex min-h-0 flex-1">
-        <AppRail />
-        {/* Panel secundario sobre el lienzo, fuera del recuadro (referencia Text) */}
-        <Sidebar />
+        {/* Zona de navegación (rail + submenú). group/nav: con el submenú sin
+            fijar, se despliega como overlay al pasar el mouse por acá. */}
+        <div className="group/nav relative flex">
+          <AppRail />
+          {/* Panel secundario sobre el lienzo, fuera del recuadro (referencia Text) */}
+          <Sidebar />
+        </div>
         <div className="flex min-w-0 flex-1 lg:pb-2 lg:pr-2">
           <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-card lg:rounded-2xl lg:border lg:shadow-xs">
             <MobileNavBar />

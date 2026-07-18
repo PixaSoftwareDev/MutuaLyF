@@ -2,7 +2,7 @@
 
 import { Suspense, useState, useRef, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Search, ChevronLeft, ChevronRight, MessageSquare, CalendarDays,
   SlidersHorizontal, X, AlertCircle, Inbox as InboxIcon, Loader2, Bot,
@@ -59,7 +59,6 @@ function ConversationsInbox() {
   const [search,      setSearch]      = useState("");
   const [dateFrom,    setDateFrom]    = useState("");
   const [dateTo,      setDateTo]      = useState("");
-  const [page,        setPage]        = useState(1);
   const [showFilters, setShowFilters] = useState(false);
 
   // Detalle: inline en desktop, Sheet en mobile
@@ -90,24 +89,30 @@ function ConversationsInbox() {
   const handleSearch = (v: string) => {
     setSearch(v);
     if (searchTimer.current) clearTimeout(searchTimer.current);
-    searchTimer.current = setTimeout(() => { setDebouncedSearch(v); setPage(1); }, 350);
+    searchTimer.current = setTimeout(() => setDebouncedSearch(v), 350);
   };
-
-  useEffect(() => { setPage(1); }, [status, sectorId, dateFrom, dateTo]);
 
   // ── Queries ────────────────────────────────────────────────────────────────
 
-  const historyQuery = useQuery({
-    queryKey: ["admin-conversations", status, debouncedSearch, sectorId, dateFrom, dateTo, page],
-    queryFn: () => api.operator.listHistory({
+  // Scroll infinito: al cambiar filtros/vista cambia la queryKey → la lista
+  // arranca de cero. getNextPageParam devuelve la próxima página mientras haya
+  // más cargables que el total.
+  const historyQuery = useInfiniteQuery({
+    queryKey: ["admin-conversations", status, debouncedSearch, sectorId, dateFrom, dateTo],
+    queryFn: ({ pageParam }) => api.operator.listHistory({
       status:   status === "all" ? undefined : status,
       q:        debouncedSearch || undefined,
       sectorId: sectorId || undefined,
       dateFrom: dateFrom || undefined,
       dateTo:   dateTo   || undefined,
-      page,
+      page:     pageParam,
       pageSize: PAGE_SIZE,
     }),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage, allPages) => {
+      const loaded = allPages.reduce((n, p) => n + p.items.length, 0);
+      return loaded < lastPage.total ? allPages.length + 1 : undefined;
+    },
     staleTime: 10_000,
     refetchInterval: 45_000,
   });
@@ -123,10 +128,25 @@ function ConversationsInbox() {
 
   // ── Derived ────────────────────────────────────────────────────────────────
 
-  const items      = historyQuery.data?.items ?? [];
-  const total      = historyQuery.data?.total ?? 0;
-  const totalPages = Math.ceil(total / PAGE_SIZE);
+  const items      = historyQuery.data?.pages.flatMap(p => p.items) ?? [];
+  const total      = historyQuery.data?.pages[0]?.total ?? 0;
   const hasDateFilter = !!dateFrom || !!dateTo;
+
+  // Scroll infinito: un sentinel al final de la lista dispara la próxima página
+  // cuando entra en viewport (con margen de 200px para precargar sin cortes).
+  const scrollRef   = useRef<HTMLDivElement>(null);
+  const loadMoreRef = useRef<HTMLDivElement>(null);
+  const { fetchNextPage, hasNextPage, isFetchingNextPage } = historyQuery;
+  useEffect(() => {
+    const sentinel = loadMoreRef.current;
+    if (!sentinel || !hasNextPage) return;
+    const io = new IntersectionObserver(
+      (entries) => { if (entries[0].isIntersecting && !isFetchingNextPage) fetchNextPage(); },
+      { root: scrollRef.current, rootMargin: "200px" },
+    );
+    io.observe(sentinel);
+    return () => io.disconnect();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage, items.length]);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
@@ -220,7 +240,7 @@ function ConversationsInbox() {
           )}
 
           {/* Filas */}
-          <div className="min-h-0 flex-1 overflow-y-auto scrollbar-slim [scrollbar-gutter:stable]">
+          <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto scrollbar-slim [scrollbar-gutter:stable]">
             {historyQuery.isLoading ? (
               <div>{Array.from({ length: 12 }).map((_, i) => <RowSkeleton key={i} />)}</div>
             ) : historyQuery.isError ? (
@@ -240,36 +260,30 @@ function ConversationsInbox() {
                 </p>
               </div>
             ) : (
-              items.map(conv => (
-                <ConvRow
-                  key={conv.id}
-                  conv={conv}
-                  selected={selectedId === conv.id}
-                  onClick={() => openDetail(conv.id)}
-                />
-              ))
+              <>
+                {items.map(conv => (
+                  <ConvRow
+                    key={conv.id}
+                    conv={conv}
+                    selected={selectedId === conv.id}
+                    onClick={() => openDetail(conv.id)}
+                  />
+                ))}
+                {/* Sentinel de scroll infinito + indicador de carga */}
+                <div ref={loadMoreRef} aria-hidden className="h-px" />
+                {isFetchingNextPage && (
+                  <div className="flex items-center justify-center gap-2 py-3 text-xs text-muted-foreground">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> Cargando más…
+                  </div>
+                )}
+                {!hasNextPage && items.length > 0 && (
+                  <p className="py-3 text-center text-[11px] text-muted-foreground/60">
+                    {total.toLocaleString("es-AR")} conversaciones · fin de la lista
+                  </p>
+                )}
+              </>
             )}
           </div>
-
-          {/* Paginación */}
-          {!historyQuery.isLoading && !historyQuery.isError && total > 0 && (
-            <div className="flex shrink-0 items-center justify-between gap-3 border-t px-3 py-1.5">
-              <span className="text-[11px] tabular-nums text-muted-foreground">
-                {((page - 1) * PAGE_SIZE) + 1}–{Math.min(page * PAGE_SIZE, total)} de {total.toLocaleString("es-AR")}
-              </span>
-              {totalPages > 1 && (
-                <div className="flex items-center gap-1">
-                  <Button variant="ghost" size="icon" className="h-7 w-7" disabled={page === 1} onClick={() => setPage(p => p - 1)} aria-label="Página anterior">
-                    <ChevronLeft className="h-4 w-4" />
-                  </Button>
-                  <span className="px-1 text-[11px] tabular-nums text-muted-foreground">{page} / {totalPages}</span>
-                  <Button variant="ghost" size="icon" className="h-7 w-7" disabled={page === totalPages} onClick={() => setPage(p => p + 1)} aria-label="Página siguiente">
-                    <ChevronRight className="h-4 w-4" />
-                  </Button>
-                </div>
-              )}
-            </div>
-          )}
         </section>
 
         {/* ══ Columna 2: conversación (desktop) ═══════════════════════════════ */}
@@ -581,7 +595,7 @@ function ContextPanel({ detail, loading, onCollapse }: {
     <div className="flex flex-col">
       {header}
       {/* Identidad */}
-      <div className="flex items-center gap-3 border-b px-4 py-3.5">
+      <div className="flex items-center gap-3 border-b px-4 py-4">
         <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-semibold text-muted-foreground">
           {initial ?? <Bot className="h-4 w-4" />}
         </span>
@@ -633,7 +647,7 @@ function PanelSection({ title, children }: { title: string; children: React.Reac
         {title}
         <ChevronRight className={cn("h-4 w-4 text-muted-foreground transition-transform", open && "rotate-90")} />
       </button>
-      {open && <div className="space-y-2 px-4 pb-3.5">{children}</div>}
+      {open && <div className="space-y-2.5 px-4 pb-4 pt-0.5">{children}</div>}
     </div>
   );
 }

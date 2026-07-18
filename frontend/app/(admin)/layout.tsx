@@ -16,10 +16,15 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       <div className="flex h-[100dvh] flex-col overflow-hidden bg-canvas">
         <TopBar />
         <div className="flex min-h-0 flex-1">
-          <AppRail />
-          {/* El panel secundario vive SOBRE el lienzo (fuera del recuadro),
-              como en la referencia; el recuadro blanco es solo del contenido. */}
-          <Sidebar />
+          {/* Zona de navegación: rail + submenú. El group/nav permite que, con el
+              submenú SIN fijar, se despliegue como overlay al pasar el mouse por
+              acá (rail o panel). Fijado, el submenú va en el flujo y empuja. */}
+          <div className="group/nav relative flex">
+            <AppRail />
+            {/* El panel secundario vive SOBRE el lienzo (fuera del recuadro),
+                como en la referencia; el recuadro blanco es solo del contenido. */}
+            <Sidebar />
+          </div>
           <div className="flex min-w-0 flex-1 lg:pb-2 lg:pr-2">
             <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-card lg:rounded-2xl lg:border lg:shadow-xs">
               <MobileNavBar />
