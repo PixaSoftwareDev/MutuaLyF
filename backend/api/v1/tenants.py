@@ -700,10 +700,13 @@ class OnboardingGenerateRequest(BaseModel):
     """Pide la generacion final del bot_description. Toma respuestas curadas
     + opcional followup + lee documentos cargados del tenant."""
     org_name:           str = Field(..., min_length=1, max_length=200)
-    org_type:           str = Field(..., min_length=1, max_length=100)
+    org_type:           str = Field(default="", max_length=100)
+    # "A qué se dedica / qué ofrece la organización" — contexto principal del
+    # wizard simplificado. Reemplaza a las 5 preguntas curadas.
+    description:        str = Field(default="", max_length=1000)
     tone:               str = Field(..., min_length=1, max_length=50)
     bot_name:           str = Field(default="", max_length=100)
-    answers:            OnboardingFixedAnswers
+    answers:            OnboardingFixedAnswers = Field(default_factory=OnboardingFixedAnswers)
     followup_question:  str = Field(default="", max_length=500)
     followup_answer:    str = Field(default="", max_length=1000)
 
@@ -959,7 +962,8 @@ Debe incluir explícitamente:
 
 Datos:
 - Nombre de la organización: {body.org_name}
-- Tipo: {body.org_type}
+- A qué se dedica / qué ofrece: {body.description.strip() or '(no especificado)'}
+- Tipo: {body.org_type.strip() or '(no especificado)'}
 - Tono elegido: {body.tone}
 - {bot_name_line}
 

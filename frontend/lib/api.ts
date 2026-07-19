@@ -525,13 +525,15 @@ export interface OnboardingFixedAnswers {
 }
 
 export interface OnboardingGenerateRequest {
-  org_name:          string;
-  org_type:          string;
-  tone:              string;
-  bot_name:          string;
-  answers:           OnboardingFixedAnswers;
-  followup_question: string;
-  followup_answer:   string;
+  org_name:           string;
+  org_type?:          string;
+  /** "A qué se dedica / qué ofrece" — contexto principal del wizard simple. */
+  description?:       string;
+  tone:               string;
+  bot_name?:          string;
+  answers?:           OnboardingFixedAnswers;
+  followup_question?: string;
+  followup_answer?:   string;
 }
 
 export interface OnboardingFollowupRequest {

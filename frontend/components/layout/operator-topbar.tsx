@@ -68,19 +68,15 @@ export function OperatorTopbar() {
   return (
     // Topbar claro, coherente con el login y el sidebar del admin. Marca Intellix
     // a la izquierda junto a la navegación; identidad del operador a la derecha.
-    <header
-      className="relative h-16 flex items-center gap-3 sm:gap-4 px-3 sm:px-5 shrink-0 border-b border-slate-200"
-      style={{ background: "#f1f2fb" }}
-    >
-      {/* Mesh de marca (cyan/violeta en las esquinas) — identidad Intellix, y de
-          paso diferencia el topbar del contenido blanco. */}
+    <header className="relative flex h-14 shrink-0 items-center gap-3 border-b bg-card px-3 sm:gap-4 sm:px-5">
+      {/* Mesh de marca sutil (cyan/violeta en las esquinas) — identidad Intellix. */}
       <div
         aria-hidden
-        className="absolute inset-0 pointer-events-none"
+        className="pointer-events-none absolute inset-0"
         style={{
           backgroundImage:
-            "radial-gradient(circle at 0% 0%, #4FC3F726 0%, transparent 62%)," +
-            "radial-gradient(circle at 100% 0%, #7A2DFF20 0%, transparent 60%)",
+            "radial-gradient(circle at 0% 0%, #22d3ee14 0%, transparent 55%)," +
+            "radial-gradient(circle at 100% 0%, #7A2DFF14 0%, transparent 55%)",
         }}
       />
 
@@ -107,11 +103,11 @@ export function OperatorTopbar() {
           />
         </Link>
 
-        <div className="hidden sm:block h-6 w-px bg-slate-200 shrink-0" />
+        <div className="hidden h-6 w-px shrink-0 bg-border sm:block" />
 
         {/* Nav tabs — segmented control. Cambiar entre Bandeja e Historial es la
             acción más frecuente del operador; siempre visible (ícono en mobile). */}
-        <nav className="flex items-center gap-1 p-1 rounded-xl bg-slate-900/[0.04]">
+        <nav className="flex items-center gap-1 rounded-xl bg-muted/60 p-1">
           {NAV_ITEMS.map(item => {
             const active = item.href === "/operator"
               ? pathname === "/operator"
@@ -130,8 +126,8 @@ export function OperatorTopbar() {
                 className={cn(
                   "flex items-center gap-1.5 px-2.5 sm:px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all",
                   active
-                    ? "bg-white text-foreground font-semibold shadow-sm ring-1 ring-black/[0.04]"
-                    : "text-slate-500 hover:text-slate-800",
+                    ? "bg-card text-foreground font-semibold shadow-xs"
+                    : "text-muted-foreground hover:text-foreground",
                 )}
               >
                 <Icon className={cn("h-4 w-4 sm:h-3.5 sm:w-3.5", active && "text-action")} />
@@ -154,13 +150,13 @@ export function OperatorTopbar() {
         <DropdownMenuTrigger asChild>
           <button
             type="button"
-            className="relative flex items-center gap-2.5 rounded-xl pl-2.5 pr-1.5 py-1 hover:bg-white/60 transition-colors shrink-0"
+            className="relative flex shrink-0 items-center gap-2.5 rounded-xl py-1 pl-2.5 pr-1.5 transition-colors hover:bg-muted"
             aria-label="Acciones de cuenta"
           >
-            <div className="hidden sm:flex flex-col items-end leading-tight min-w-0">
-              <span className="text-xs font-semibold text-foreground truncate max-w-[200px]">{roleLabel}</span>
+            <div className="hidden min-w-0 flex-col items-end leading-tight sm:flex">
+              <span className="max-w-[200px] truncate text-xs font-semibold text-foreground">{roleLabel}</span>
               {userEmail && (
-                <span className="text-[11px] text-slate-500 truncate max-w-[200px]">{userEmail}</span>
+                <span className="max-w-[200px] truncate text-[11px] text-muted-foreground">{userEmail}</span>
               )}
             </div>
             <div

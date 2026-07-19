@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Check, Sparkles, Bot, Drama, Pencil, Building2 } from "lucide-react";
+import { Loader2, Check, Bot, Drama, Pencil, Building2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { Textarea } from "@/components/ui/textarea";
@@ -215,7 +215,6 @@ export function GeneralSettings() {
           <div className="flex justify-center py-6"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
         ) : templates.length === 0 ? (
           <EmptyState
-            icon={Sparkles}
             title="Sin personalidades disponibles"
             description="El administrador de la plataforma puede habilitarte opciones."
           />

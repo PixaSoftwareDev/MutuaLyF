@@ -23,24 +23,21 @@ export function MobileNavBar() {
     // topbar del operador. El color del tenant NO pinta el panel — el tenant
     // aparece como contexto a la derecha. Antes esta barra usaba
     // branding.primary_color de fondo y en mobile el admin se veía "rojo".
-    <header
-      className="lg:hidden relative flex items-center gap-2.5 h-14 px-3 border-b border-slate-200 text-slate-600 shrink-0"
-      style={{ background: "#f1f2fb" }}
-    >
+    <header className="relative flex h-14 shrink-0 items-center gap-2.5 border-b bg-card px-3 text-muted-foreground lg:hidden">
       {/* Mesh de marca sutil — mismo lenguaje que sidebar/login/topbar operador */}
       <div
         aria-hidden
-        className="absolute inset-0 pointer-events-none"
+        className="pointer-events-none absolute inset-0"
         style={{
           backgroundImage:
-            "radial-gradient(circle at 0% 0%, #4FC3F726 0%, transparent 62%)," +
-            "radial-gradient(circle at 100% 0%, #7A2DFF20 0%, transparent 60%)",
+            "radial-gradient(circle at 0% 0%, #22d3ee14 0%, transparent 55%)," +
+            "radial-gradient(circle at 100% 0%, #7A2DFF14 0%, transparent 55%)",
         }}
       />
 
       <button
         onClick={openMobileSidebar}
-        className="relative flex items-center justify-center w-8 h-8 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors"
+        className="relative flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         aria-label="Abrir menú"
       >
         <Menu className="h-5 w-5" />
@@ -77,7 +74,7 @@ export function MobileNavBar() {
             tenant) se veía rojo. */}
         <div
           className={cn(
-            "relative w-6 h-6 flex items-center justify-center shrink-0 rounded-md overflow-hidden ring-1 ring-slate-200",
+            "relative w-6 h-6 flex items-center justify-center shrink-0 rounded-md overflow-hidden ring-1 ring-border",
             !logoUrl && "bg-action-gradient",
           )}
         >

@@ -43,7 +43,15 @@ type Step = "credentials" | "select" | "org";
 // scripts/dev-local.sh + seed). tenant "" = super admin (platform_users).
 // La contraseña vive en .env.local (DEV_QUICK_PASSWORD) → compose →
 // NEXT_PUBLIC_DEV_QUICK_PASSWORD. Fallback a "local1234" si no está seteada.
-const DEV_LOGIN_ENABLED = process.env.NODE_ENV === "development";
+// Habilitado en dev (next dev) O en un build local de producción cuando se pasa
+// NEXT_PUBLIC_ENABLE_DEV_LOGIN=true al `next build` (para probar el build prod en
+// localhost). SEGURIDAD: en el VPS NO seteés este flag en "true" — y además el
+// gate runtime `isLocal` (hostname localhost) impide que aparezca en producción
+// real aunque el flag quedara activo. Para stripear también los emails del bundle
+// del VPS, ese build debe setear NEXT_PUBLIC_ENABLE_DEV_LOGIN="false".
+const DEV_LOGIN_ENABLED =
+  process.env.NODE_ENV === "development" ||
+  process.env.NEXT_PUBLIC_ENABLE_DEV_LOGIN === "true";
 const DEV_PASSWORD = process.env.NEXT_PUBLIC_DEV_QUICK_PASSWORD || "local1234";
 type DevUser = { org: string; label: string; email: string; tenant: string; role: string };
 // Usuarios que EXISTEN en la base local clonada (solo tenants con schema:

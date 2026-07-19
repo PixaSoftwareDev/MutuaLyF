@@ -3,12 +3,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
-  Search, ChevronLeft, ChevronRight, ChevronDown, Loader2, MessageSquare,
-  X, UserCheck, MessageCircle, Filter,
+  Search, ChevronLeft, ChevronRight, Loader2, MessageSquare,
+  X, UserCheck, MessageCircle, SlidersHorizontal,
 } from "lucide-react";
 import { api, type ConversationHistoryFilters } from "@/lib/api";
 import { WhatsAppIcon } from "@/components/ui/whatsapp-icon";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   StatusBadge, MessageBubble,
@@ -75,45 +76,45 @@ export default function OperatorHistoryPage() {
   const applySearch = () => setFilters(f => ({ ...f, q: searchInput.trim() || undefined, page: 1 }));
   const clearFilters = () => { setSearchInput(""); setFilters({ page: 1, pageSize: PAGE_SIZE }); };
 
+  const inputCls = "h-9 w-full rounded-lg border border-transparent bg-muted/60 px-2.5 text-xs shadow-none transition-colors focus-visible:border-border focus-visible:bg-card focus-visible:outline-none focus-visible:ring-0";
+
   return (
-    <div className="flex h-full overflow-hidden">
-      {/* ── LEFT: filters + list ──────────────────────────────────────────── */}
-      <div className={cn(
-        "border-r border-slate-100 flex flex-col shrink-0 bg-slate-50/40",
-        "w-full sm:w-80",
-        selectedId ? "hidden sm:flex" : "flex"
+    <div className="flex h-full min-h-0">
+      {/* ── IZQUIERDA: filtros + lista ────────────────────────────────────── */}
+      <section className={cn(
+        "flex min-h-0 w-full flex-col border-r sm:w-80 sm:shrink-0",
+        selectedId ? "hidden sm:flex" : "flex",
       )}>
-        {/* Buscador + Filtros arriba, a la misma altura que el buscador de la
-            bandeja. El header "Historial" se quitó: el topbar ya indica la vista
-            y así se recupera espacio y se unifica con la bandeja. */}
-        <div className="px-4 pt-3 pb-3 space-y-2">
+        {/* Búsqueda + filtros */}
+        <div className="shrink-0 space-y-2 border-b px-3 py-3">
           <div className="flex items-center gap-2">
             <div className="relative flex-1">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-              <input
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input
                 type="text"
                 placeholder="Buscar afiliado…"
                 value={searchInput}
                 onChange={e => setSearchInput(e.target.value)}
                 onKeyDown={e => { if (e.key === "Enter") applySearch(); }}
                 onBlur={applySearch}
-                className="w-full h-9 pl-8 pr-3 rounded-lg bg-slate-100/80 text-xs placeholder:text-slate-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-action/40 transition"
+                className={cn(inputCls, "pl-8")}
               />
             </div>
             <button
               onClick={() => setFiltersOpen(v => !v)}
               title="Filtros"
+              aria-expanded={filtersOpen}
               className={cn(
-                "flex items-center gap-1 text-[11px] h-9 px-2.5 rounded-lg shrink-0 transition-colors",
+                "flex h-9 shrink-0 items-center gap-1 rounded-lg px-2.5 text-[11px] transition-colors",
                 activeFiltersCount > 0
-                  ? "bg-action/[0.08] text-action font-medium"
-                  : "text-muted-foreground hover:bg-slate-100",
+                  ? "bg-action/[0.08] font-medium text-action"
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground",
               )}
             >
-              <Filter className="h-3.5 w-3.5" />
+              <SlidersHorizontal className="h-3.5 w-3.5" />
               <span className="hidden min-[360px]:inline">Filtros</span>
               {activeFiltersCount > 0 && (
-                <span className="bg-action text-action-foreground rounded-full text-[10px] w-4 h-4 flex items-center justify-center font-bold">
+                <span className="flex h-4 w-4 items-center justify-center rounded-full bg-action text-[10px] font-bold text-action-foreground">
                   {activeFiltersCount}
                 </span>
               )}
@@ -125,55 +126,53 @@ export default function OperatorHistoryPage() {
               <select
                 value={filters.status ?? ""}
                 onChange={e => setFilters(f => ({ ...f, status: e.target.value || undefined, page: 1 }))}
-                className="w-full h-9 rounded-lg bg-slate-100/80 px-2 text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-action/40 transition"
+                className={inputCls}
               >
                 {STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
 
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1.5">
                 <input
                   type="date"
                   value={filters.dateFrom ?? ""}
                   onChange={e => setFilters(f => ({ ...f, dateFrom: e.target.value || undefined, page: 1 }))}
-                  className="flex-1 h-9 rounded-lg bg-slate-100/80 px-2 text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-action/40 transition"
-                  placeholder="Desde"
+                  className={cn(inputCls, "flex-1")}
                 />
-                <span className="text-xs text-muted-foreground">→</span>
+                <span className="text-xs text-muted-foreground" aria-hidden>→</span>
                 <input
                   type="date"
                   value={filters.dateTo ?? ""}
                   onChange={e => setFilters(f => ({ ...f, dateTo: e.target.value || undefined, page: 1 }))}
-                  className="flex-1 h-9 rounded-lg bg-slate-100/80 px-2 text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-action/40 transition"
-                  placeholder="Hasta"
+                  className={cn(inputCls, "flex-1")}
                 />
               </div>
 
               {activeFiltersCount > 0 && (
-                <Button size="sm" variant="ghost" className="w-full h-7 text-xs" onClick={clearFilters}>
-                  <X className="h-3 w-3 mr-1" /> Limpiar filtros
+                <Button size="sm" variant="ghost" className="h-7 w-full text-xs" onClick={clearFilters}>
+                  <X className="mr-1 h-3 w-3" /> Limpiar filtros
                 </Button>
               )}
             </div>
           )}
 
-          <div className="text-[10px] text-muted-foreground tabular-nums flex items-center gap-1">
+          <div className="flex items-center gap-1 text-[10px] tabular-nums text-muted-foreground">
             {isFetching && <Loader2 className="h-2.5 w-2.5 animate-spin" />}
-            <span>{total} resultados</span>
+            <span>{total} resultado{total !== 1 ? "s" : ""}</span>
           </div>
         </div>
 
-        {/* List */}
-        <div className="flex-1 overflow-y-auto p-2 space-y-1">
+        {/* Lista */}
+        <div className="min-h-0 flex-1 space-y-1 overflow-y-auto scrollbar-slim p-2">
           {isLoading ? (
             Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-20 rounded-lg" />)
           ) : error ? (
-            <p className="text-xs text-destructive text-center py-8">Error al cargar</p>
+            <p className="py-8 text-center text-xs text-destructive">Error al cargar</p>
           ) : items.length === 0 ? (
-            <div className="text-center py-12 text-muted-foreground">
-              <MessageSquare className="h-8 w-8 mx-auto mb-2 opacity-20" />
+            <div className="py-12 text-center text-muted-foreground">
+              <MessageSquare className="mx-auto mb-2 h-8 w-8 opacity-20" />
               <p className="text-xs">Sin resultados</p>
               {activeFiltersCount > 0 && (
-                <button onClick={clearFilters} className="text-[11px] text-primary hover:underline mt-2">
+                <button onClick={clearFilters} className="mt-2 text-[11px] text-action hover:underline">
                   Limpiar filtros
                 </button>
               )}
@@ -190,9 +189,9 @@ export default function OperatorHistoryPage() {
           )}
         </div>
 
-        {/* Pagination */}
+        {/* Paginación */}
         {!isLoading && total > 0 && (
-          <div className="px-3 py-2 border-t border-slate-100 flex items-center justify-between text-[11px] text-muted-foreground shrink-0">
+          <div className="flex shrink-0 items-center justify-between border-t px-3 py-2 text-[11px] text-muted-foreground">
             <span className="tabular-nums">
               {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, total)} de {total}
             </span>
@@ -201,6 +200,7 @@ export default function OperatorHistoryPage() {
                 size="sm" variant="outline" className="h-6 px-1.5"
                 disabled={page <= 1}
                 onClick={() => setFilters(f => ({ ...f, page: Math.max(1, (f.page ?? 1) - 1) }))}
+                aria-label="Página anterior"
               >
                 <ChevronLeft className="h-3 w-3" />
               </Button>
@@ -209,104 +209,96 @@ export default function OperatorHistoryPage() {
                 size="sm" variant="outline" className="h-6 px-1.5"
                 disabled={page >= totalPages}
                 onClick={() => setFilters(f => ({ ...f, page: Math.min(totalPages, (f.page ?? 1) + 1) }))}
+                aria-label="Página siguiente"
               >
                 <ChevronRight className="h-3 w-3" />
               </Button>
             </div>
           </div>
         )}
-      </div>
+      </section>
 
-      {/* ── RIGHT: detail (read-only) ─────────────────────────────────────── */}
-      <div className={cn(
-        "flex-1 flex flex-col min-w-0 bg-background",
-        !selectedId && "hidden sm:flex"
+      {/* ── DERECHA: detalle (solo lectura) ───────────────────────────────── */}
+      <section className={cn(
+        "flex min-w-0 flex-1 flex-col",
+        !selectedId && "hidden sm:flex",
       )}>
         {!selectedId ? (
-          <div className="flex-1 flex items-center justify-center text-muted-foreground">
-            <div className="text-center space-y-2">
-              <MessageSquare className="h-10 w-10 mx-auto opacity-15" />
-              <p className="text-sm">Seleccioná una conversación</p>
-              <p className="text-xs opacity-70">Vista de solo lectura</p>
-            </div>
+          <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center text-muted-foreground">
+            <MessageSquare className="h-10 w-10 opacity-15" />
+            <p className="text-sm">Seleccioná una conversación</p>
+            <p className="text-xs opacity-70">Vista de solo lectura</p>
           </div>
         ) : detailLoading ? (
-          // Skeleton de chat (no un spinner suelto): coherencia con la bandeja —
-          // se ve la estructura cargando, no un parpadeo en blanco.
-          <div className="flex-1 flex flex-col">
-            <div className="px-4 py-3 border-b border-slate-100 bg-white">
+          // Skeleton de chat (no un spinner suelto): se ve la estructura cargando.
+          <div className="flex flex-1 flex-col">
+            <div className="flex h-12 shrink-0 items-center border-b px-4">
               <Skeleton className="h-4 w-40" />
             </div>
-            <div className="flex-1 p-4 space-y-3">
+            <div className="flex-1 space-y-3 p-4">
               <Skeleton className="h-12 w-2/3 rounded-2xl" />
-              <Skeleton className="h-12 w-1/2 rounded-2xl ml-auto" />
+              <Skeleton className="ml-auto h-12 w-1/2 rounded-2xl" />
               <Skeleton className="h-10 w-3/5 rounded-2xl" />
             </div>
           </div>
         ) : detail ? (
           <>
             {/* Header */}
-            <div className="px-4 py-3 border-b border-slate-100 bg-white">
-              <div className="max-w-4xl mx-auto w-full flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2 min-w-0">
-                <button
-                  onClick={() => setSelectedId(null)}
-                  className="sm:hidden flex items-center justify-center w-7 h-7 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0"
-                  aria-label="Volver"
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                </button>
-                <div className="min-w-0">
-                  <p className="font-semibold text-sm truncate">{detail.afiliado_nombre || (detail.afiliado_ip ? `IP ${detail.afiliado_ip}` : "Afiliado anónimo")}</p>
-                  <p className="text-xs text-muted-foreground truncate">
-                    {detail.sector_nombre}
-                    {detail.afiliado_email && ` · ${detail.afiliado_email}`}
-                    {detail.operator_name && ` · atendió ${detail.operator_name}`}
-                  </p>
-                </div>
+            <div className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
+              <button
+                onClick={() => setSelectedId(null)}
+                className="-ml-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground sm:hidden"
+                aria-label="Volver"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-semibold text-foreground">{detail.afiliado_nombre || (detail.afiliado_ip ? `IP ${detail.afiliado_ip}` : "Afiliado anónimo")}</p>
+                <p className="truncate text-xs text-muted-foreground">
+                  {detail.sector_nombre}
+                  {detail.afiliado_email && ` · ${detail.afiliado_email}`}
+                  {detail.operator_name && ` · atendió ${detail.operator_name}`}
+                </p>
               </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <StatusBadge status={detail.status} />
-              </div>
+              <StatusBadge status={detail.status} />
+            </div>
+
+            {/* Mensajes */}
+            <div className="min-h-0 flex-1 overflow-y-auto scrollbar-slim p-4">
+              <div className="mx-auto w-full max-w-4xl space-y-3">
+                {botMessages.map(m => <MessageBubble key={m.id} msg={m} conversationId={detail.id} />)}
+                {operatorMessages.length > 0 && botMessages.length > 0 && (
+                  <div className="flex items-center gap-2 py-1">
+                    <div className="flex-1 border-t border-dashed border-border" />
+                    <span className="flex shrink-0 items-center gap-1 text-[10px] text-muted-foreground">
+                      <UserCheck className="h-3 w-3" /> Operador tomó la conversación
+                    </span>
+                    <div className="flex-1 border-t border-dashed border-border" />
+                  </div>
+                )}
+                {operatorMessages.map(m => <MessageBubble key={m.id} msg={m} conversationId={detail.id} />)}
+                {detail.messages.length === 0 && (
+                  <p className="py-10 text-center text-sm text-muted-foreground">Conversación sin mensajes</p>
+                )}
+                <div ref={messagesEndRef} />
               </div>
             </div>
 
-            {/* Messages */}
-            <div className="flex-1 overflow-y-auto p-4">
-              <div className="max-w-4xl mx-auto w-full space-y-3">
-              {botMessages.map(m => <MessageBubble key={m.id} msg={m} conversationId={detail.id} />)}
-              {operatorMessages.length > 0 && botMessages.length > 0 && (
-                <div className="flex items-center gap-2 py-1">
-                  <div className="flex-1 border-t border-dashed border-border" />
-                  <span className="text-[10px] text-muted-foreground shrink-0 flex items-center gap-1">
-                    <UserCheck className="h-3 w-3" /> Operador tomó la conversación
-                  </span>
-                  <div className="flex-1 border-t border-dashed border-border" />
-                </div>
-              )}
-              {operatorMessages.map(m => <MessageBubble key={m.id} msg={m} conversationId={detail.id} />)}
-              {detail.messages.length === 0 && (
-                <p className="text-center text-sm text-muted-foreground py-10">Conversación sin mensajes</p>
-              )}
-              <div ref={messagesEndRef} />
-              </div>
-            </div>
-
-            {/* Footer: read-only notice */}
-            <div className="px-4 py-2.5 border-t border-slate-100 bg-slate-50/50 text-center">
-              <p className="text-[11px] text-muted-foreground flex items-center justify-center gap-1.5">
+            {/* Pie: aviso de solo lectura */}
+            <div className="shrink-0 border-t bg-muted/30 px-4 py-2.5 text-center">
+              <p className="flex items-center justify-center gap-1.5 text-[11px] text-muted-foreground">
                 <MessageCircle className="h-3 w-3" />
                 Vista histórica de solo lectura
               </p>
             </div>
           </>
         ) : null}
-      </div>
+      </section>
     </div>
   );
 }
 
-// ── History card ──────────────────────────────────────────────────────────────
+// ── Fila del historial ─────────────────────────────────────────────────────────
 
 function HistoryCard({
   row, selected, onClick,
@@ -315,7 +307,7 @@ function HistoryCard({
   selected: boolean;
   onClick: () => void;
 }) {
-  // Status is communicated by a leading dot, same vocabulary as the inbox.
+  // El estado se comunica con un punto adelante, mismo vocabulario que la bandeja.
   const dotColor =
     row.status === "handoff_requested" ? "bg-warning" :
     row.status === "human_attending"   ? "bg-success" :
@@ -327,38 +319,35 @@ function HistoryCard({
     : "—";
 
   return (
-    <div
+    <button
+      onClick={onClick}
+      aria-selected={selected}
       className={cn(
-        "rounded-lg transition-colors",
-        selected ? "bg-accent ring-1 ring-primary/20" : "hover:bg-muted/50",
+        "w-full rounded-lg px-3 py-2.5 text-left transition-colors",
+        selected ? "bg-muted/70" : "hover:bg-muted/40",
       )}
     >
-      <button onClick={onClick} className="w-full text-left px-3 py-2.5">
-        <div className="flex items-start gap-2.5">
-          <span
-            className={cn("w-2 h-2 rounded-full shrink-0 mt-1.5", dotColor)}
-            aria-hidden
-          />
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium truncate leading-tight flex items-center gap-1.5">
-              {row.is_test && <span className="shrink-0 text-[9px] font-bold bg-violet-100 text-violet-700 rounded px-1 py-0.5 uppercase tracking-wide">TEST</span>}
-              {row.channel === "whatsapp" && <span aria-label="WhatsApp" className="shrink-0 inline-flex items-center gap-0.5 text-[9px] font-semibold bg-green-600/10 text-green-700 rounded px-1 py-0.5"><WhatsAppIcon className="h-2.5 w-2.5" />WA</span>}
-              {row.afiliado_nombre || (row.afiliado_ip ? `IP ${row.afiliado_ip}` : "Anónimo")}
+      <div className="flex items-start gap-2.5">
+        <span className={cn("mt-1.5 h-2 w-2 shrink-0 rounded-full", dotColor)} aria-hidden />
+        <div className="min-w-0 flex-1">
+          <p className="flex items-center gap-1.5 truncate text-sm font-medium leading-tight text-foreground">
+            {row.is_test && <span className="shrink-0 rounded bg-action/10 px-1 py-0.5 text-[9px] font-bold uppercase tracking-wide text-action">TEST</span>}
+            {row.channel === "whatsapp" && <span aria-label="WhatsApp" className="inline-flex shrink-0 items-center gap-0.5 rounded bg-success/10 px-1 py-0.5 text-[9px] font-semibold text-success"><WhatsAppIcon className="h-2.5 w-2.5" />WA</span>}
+            {row.afiliado_nombre || (row.afiliado_ip ? `IP ${row.afiliado_ip}` : "Anónimo")}
+          </p>
+          <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{row.sector_nombre || "Sin sector"}</p>
+          {row.operator_name && (
+            <p className="mt-0.5 flex items-center gap-1 text-[10px]">
+              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/40" />
+              <span className="truncate text-muted-foreground">{row.operator_name}</span>
             </p>
-            <p className="text-[11px] text-muted-foreground truncate mt-0.5">{row.sector_nombre || "Sin sector"}</p>
-            {row.operator_name && (
-              <p className="text-[10px] mt-0.5 flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full shrink-0 bg-muted-foreground/40" />
-                <span className="truncate text-muted-foreground">{row.operator_name}</span>
-              </p>
-            )}
-          </div>
-          <div className="shrink-0 flex flex-col items-end gap-1">
-            <span className="text-[10px] text-muted-foreground tabular-nums">{dateStr}</span>
-            <span className="text-[10px] text-muted-foreground tabular-nums">{row.message_count} msj</span>
-          </div>
+          )}
         </div>
-      </button>
-    </div>
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          <span className="text-[10px] tabular-nums text-muted-foreground">{dateStr}</span>
+          <span className="text-[10px] tabular-nums text-muted-foreground">{row.message_count} msj</span>
+        </div>
+      </div>
+    </button>
   );
 }

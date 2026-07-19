@@ -527,7 +527,7 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
 
       {/* ── LEFT: queue ──────────────────────────────────────────────────── */}
       <div className={cn(
-        "border-r border-slate-100 flex flex-col shrink-0 bg-slate-50/40",
+        "border-r flex flex-col shrink-0",
         "w-full sm:w-80",
         selectedId ? "hidden sm:flex" : "flex"
       )}>
@@ -547,7 +547,7 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
               placeholder="Buscar…"
               value={search}
               onChange={e => setSearch(e.target.value)}
-              className="w-full h-9 pl-8 pr-3 rounded-lg bg-slate-100/80 text-xs placeholder:text-slate-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-action/40 transition"
+              className="w-full h-9 pl-8 pr-3 rounded-lg bg-muted/60 text-xs placeholder:text-muted-foreground focus:bg-card focus:outline-none focus-visible:ring-2 focus-visible:ring-action/40 transition-colors"
             />
           </div>
 
@@ -561,7 +561,7 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
                 className={cn(
                   "w-full h-9 pl-3 pr-8 rounded-lg text-xs cursor-pointer appearance-none focus:outline-none focus-visible:ring-2 focus-visible:ring-action/40 transition",
                   sectorFilter === "all"
-                    ? "bg-slate-100/80 text-muted-foreground"
+                    ? "bg-muted/60 text-muted-foreground"
                     : "bg-action/[0.08] text-foreground font-medium"
                 )}
               >
@@ -657,10 +657,10 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
           // Skeleton de chat (no un panel vacío): al saltar entre conversaciones
           // el operador ve la estructura cargando, no un parpadeo en blanco.
           <div className="flex-1 flex flex-col">
-            <div className="px-4 py-3 border-b border-slate-100 bg-white">
+            <div className="px-4 py-3 border-b bg-card">
               <Skeleton className="h-4 w-40" />
             </div>
-            <div className="flex-1 p-4 space-y-3 bg-slate-50/50">
+            <div className="flex-1 p-4 space-y-3 bg-muted/30">
               <Skeleton className="h-12 w-2/3 rounded-2xl" />
               <Skeleton className="h-12 w-1/2 rounded-2xl ml-auto" />
               <Skeleton className="h-10 w-3/5 rounded-2xl" />
@@ -669,7 +669,7 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
         ) : detail ? (
           <>
             {/* ── Header ── */}
-            <div className="px-4 py-3 border-b border-slate-100 bg-white">
+            <div className="px-4 py-3 border-b bg-card">
               <div className="max-w-4xl mx-auto w-full flex items-center justify-between gap-3">
               <div className="flex items-center gap-2 min-w-0">
                 <button
@@ -861,7 +861,7 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
 
             {/* ── Reply ── */}
             {!readOnly && detail.status === "human_attending" && (
-              <div className="border-t border-slate-100 bg-white">
+              <div className="border-t bg-card">
                 <div className="max-w-4xl mx-auto w-full">
                 {/* Preview del adjunto pendiente — revisar antes de enviar */}
                 {pendingFile && (
