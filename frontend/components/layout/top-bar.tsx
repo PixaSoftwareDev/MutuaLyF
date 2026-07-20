@@ -4,10 +4,17 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { Search } from "lucide-react";
+import { Search, Inbox, History, UserRound } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/lib/store";
 import { navGroups, searchExtras, type NavItem } from "@/components/layout/sidebar";
+
+// Destinos del operador para el buscador (su panel no usa navGroups).
+const OPERATOR_DESTINATIONS = [
+  { href: "/operator",           label: "Bandeja",   icon: Inbox,     group: "" },
+  { href: "/operator/historial", label: "Historial", icon: History,   group: "" },
+  { href: "/operator/cuenta",    label: "Mi cuenta", icon: UserRound, group: "" },
+];
 
 /**
  * Barra horizontal superior (estructura de referencia: Text App): vive sobre el
@@ -26,17 +33,20 @@ export function TopBar() {
 
   const isAdmin = userRole === "admin";
   const isSuperAdmin = userRole === "super_admin";
+  const isOperator = userRole === "operator";
 
   // Destinos navegables según el rol (misma fuente que el panel secundario),
-  // más los deep-links de vistas y canales (searchExtras).
+  // más los deep-links de vistas y canales (searchExtras). El operador tiene su
+  // lista propia (su panel no usa navGroups).
   const destinations = useMemo(() => {
+    if (isOperator) return OPERATOR_DESTINATIONS;
     const visible = (i: NavItem) =>
       (!i.adminOnly || isAdmin) && (!i.superAdminOnly || isSuperAdmin);
     return [
       ...navGroups.flatMap(g => g.items.filter(visible).map(i => ({ ...i, group: g.label ?? "" }))),
       ...searchExtras.filter(visible),
     ];
-  }, [isAdmin, isSuperAdmin]);
+  }, [isAdmin, isSuperAdmin, isOperator]);
 
   const norm = (s: string) => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
   const results = useMemo(() => {
@@ -80,7 +90,7 @@ export function TopBar() {
     <header className="hidden h-12 shrink-0 items-center gap-2 pl-2 pr-3 lg:flex" aria-label="Barra superior">
       {/* Logo — alineado con la columna del rail (56px) */}
       <Link
-        href={isSuperAdmin ? "/superadmin" : "/admin/conversations"}
+        href={isSuperAdmin ? "/superadmin" : isOperator ? "/operator" : "/admin/conversations"}
         aria-label="Intellix"
         className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-card shadow-xs transition-shadow hover:shadow-sm"
       >

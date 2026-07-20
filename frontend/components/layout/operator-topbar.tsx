@@ -4,9 +4,10 @@ import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import Image from "next/image";
 import { useQuery } from "@tanstack/react-query";
-import { LogOut, Inbox, History, UserCircle } from "lucide-react";
+import { LogOut, Inbox, History, UserCircle, Monitor, Sun, Moon } from "lucide-react";
 import { useAuthStore } from "@/lib/store";
 import { useTenantBranding } from "@/lib/use-tenant-branding";
+import { useTheme } from "@/lib/theme";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import {
@@ -40,6 +41,12 @@ export function OperatorTopbar() {
   // azul por defecto de --brand, mientras el admin y el widget las ven verdes.
   // No cambia la identidad Intellix del shell (eso vive en --action).
   useTenantBranding();
+  const { pref: theme, setPref: setTheme } = useTheme();
+  const THEMES = [
+    { key: "auto"  as const, label: "Auto",   icon: Monitor },
+    { key: "light" as const, label: "Claro",  icon: Sun },
+    { key: "dark"  as const, label: "Oscuro", icon: Moon },
+  ];
 
   // Conversaciones en espera — badge en la tab Bandeja. Misma query key que el
   // panel del operador: con la bandeja abierta comparten cache (cero requests
@@ -182,6 +189,28 @@ export function OperatorTopbar() {
             <UserCircle className="h-4 w-4 mr-2" />
             Mi cuenta
           </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          {/* Tema — dark/light igual que el admin */}
+          <div className="flex h-9 items-center justify-between px-2">
+            <span className="text-[13px] font-medium text-foreground">Tema</span>
+            <div className="flex items-center gap-0.5">
+              {THEMES.map(t => (
+                <button
+                  key={t.key}
+                  onClick={() => setTheme(t.key)}
+                  title={t.label}
+                  aria-label={`Tema ${t.label}`}
+                  aria-pressed={theme === t.key}
+                  className={cn(
+                    "flex h-7 w-7 items-center justify-center rounded-lg transition-colors",
+                    theme === t.key ? "bg-muted text-foreground" : "text-muted-foreground/60 hover:text-foreground",
+                  )}
+                >
+                  <t.icon className="h-[15px] w-[15px]" />
+                </button>
+              ))}
+            </div>
+          </div>
           <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={handleLogout}>
             <LogOut className="h-4 w-4 mr-2" />

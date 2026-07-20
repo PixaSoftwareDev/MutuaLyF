@@ -3,12 +3,14 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import {
   Inbox, FileText, Users, BarChart3, Settings, Home, Building2, Network, Bot,
-  ClipboardList, LogOut, Monitor, Sun, Moon,
+  ClipboardList, History, LogOut, Monitor, Sun, Moon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/lib/store";
+import { useTenantBranding } from "@/lib/use-tenant-branding";
 import { api } from "@/lib/api";
 import { useTheme } from "@/lib/theme";
 
@@ -41,6 +43,11 @@ const ADMIN_RAIL: RailItem[] = [
 // Rutas de "Sistema" — las marca la ruedita del pie del rail, no un ícono arriba.
 const SYSTEM_PREFIXES = ["/admin/settings", "/admin/connectors", "/admin/cuenta"];
 
+const OPERATOR_RAIL: RailItem[] = [
+  { href: "/operator",           label: "Bandeja",   icon: Inbox,   prefixes: ["/operator"] },
+  { href: "/operator/historial", label: "Historial", icon: History, prefixes: ["/operator/historial"] },
+];
+
 const SUPER_RAIL: RailItem[] = [
   { href: "/superadmin", label: "Inicio", icon: Home,
     prefixes: ["/superadmin"] },
@@ -61,7 +68,25 @@ export function AppRail() {
   const userInitial = (userEmail?.trim()[0] ?? "?").toUpperCase();
 
   const isAdmin = userRole === "admin";
-  const items = isAdmin ? ADMIN_RAIL : SUPER_RAIL;
+  const isOperator = userRole === "operator";
+  const items = isAdmin ? ADMIN_RAIL : isOperator ? OPERATOR_RAIL : SUPER_RAIL;
+
+  // Inyecta --brand del tenant (burbujas del chat del operador). En admin/super
+  // es idempotente (el sidebar ya lo llama).
+  useTenantBranding();
+
+  // Badge de "en espera" en Bandeja (solo operador).
+  const { data: opConvs } = useQuery({
+    queryKey: ["operator-conversations", "all", "operator"],
+    queryFn: () => api.operator.listConversations(),
+    enabled: isOperator,
+    staleTime: 5_000,
+    refetchInterval: 15_000,
+    refetchIntervalInBackground: false,
+  });
+  const waiting = isOperator
+    ? (opConvs?.sectors ?? []).flatMap((s: any) => s.conversations).filter((c: any) => c.status === "handoff_requested").length
+    : 0;
 
   // Sección activa = prefijo MÁS específico que matchea (mismo criterio que el
   // panel secundario: con prefijos anidados tipo /superadmin, gana el más largo).
@@ -99,11 +124,16 @@ export function AppRail() {
               key={item.href}
               href={item.href}
               title={item.label}
-              aria-label={item.label}
+              aria-label={item.href === "/operator" && waiting > 0 ? `${item.label} — ${waiting} en espera` : item.label}
               aria-current={active ? "page" : undefined}
-              className={cn(iconBtn, active ? iconActive : iconIdle)}
+              className={cn(iconBtn, "relative", active ? iconActive : iconIdle)}
             >
               <Icon className="h-[18px] w-[18px]" />
+              {item.href === "/operator" && waiting > 0 && (
+                <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-destructive px-1 text-[9px] font-bold tabular-nums text-destructive-foreground shadow-sm">
+                  {waiting > 99 ? "99+" : waiting}
+                </span>
+              )}
             </Link>
           );
         })}
@@ -126,11 +156,25 @@ export function AppRail() {
           </Link>
         );
       })()}
+      {isOperator && (() => {
+        const active = pathname === "/operator/cuenta" || pathname.startsWith("/operator/cuenta/");
+        return (
+          <Link
+            href="/operator/cuenta"
+            title="Configuración"
+            aria-label="Configuración"
+            aria-current={active ? "page" : undefined}
+            className={cn(iconBtn, active ? iconActive : iconIdle)}
+          >
+            <Settings className="h-[18px] w-[18px]" />
+          </Link>
+        );
+      })()}
       <UserMenu
-        isAdmin={isAdmin}
+        accountHref={isAdmin ? "/admin/cuenta" : isOperator ? "/operator/cuenta" : undefined}
         userEmail={userEmail}
         userInitial={userInitial}
-        roleLabel={isAdmin ? "Administrador" : "Super Admin"}
+        roleLabel={isAdmin ? "Administrador" : isOperator ? "Operador" : "Super Admin"}
         onLogout={handleLogout}
       />
     </aside>
@@ -141,8 +185,9 @@ export function AppRail() {
 // Se abre desde el avatar del rail, hacia arriba a la derecha. El selector de
 // tema escribe la preferencia real (lib/theme.ts): auto / claro / oscuro.
 
-function UserMenu({ isAdmin, userEmail, userInitial, roleLabel, onLogout }: {
-  isAdmin: boolean;
+function UserMenu({ accountHref, userEmail, userInitial, roleLabel, onLogout }: {
+  /** Ruta de "Mi cuenta" según el rol; undefined = sin cuenta (super admin). */
+  accountHref?: string;
   userEmail: string | null;
   userInitial: string;
   roleLabel: string;
@@ -207,9 +252,9 @@ function UserMenu({ isAdmin, userEmail, userInitial, roleLabel, onLogout }: {
 
           {/* Filas de solo texto, accesorios a la derecha (patrón Text) */}
           <div className="py-1">
-            {isAdmin && (
+            {accountHref && (
               <Link
-                href="/admin/cuenta"
+                href={accountHref}
                 onClick={() => setOpen(false)}
                 className="flex h-9 items-center px-3.5 text-[13px] font-medium text-foreground transition-colors hover:bg-muted/60"
               >

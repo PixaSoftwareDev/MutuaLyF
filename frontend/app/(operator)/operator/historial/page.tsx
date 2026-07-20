@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import {
   Search, ChevronLeft, ChevronRight, Loader2, MessageSquare,
-  X, UserCheck, MessageCircle, SlidersHorizontal,
+  X, UserCheck, MessageCircle, SlidersHorizontal, PanelRight,
 } from "lucide-react";
 import { api, type ConversationHistoryFilters } from "@/lib/api";
 import { WhatsAppIcon } from "@/components/ui/whatsapp-icon";
@@ -14,24 +16,72 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   StatusBadge, MessageBubble,
 } from "@/components/conversations/conversations-panel";
+import { ConversationContextPanel } from "@/components/conversations/conversation-context-panel";
 import { cn } from "@/lib/utils";
 
-const STATUS_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: "",                  label: "Todos los estados" },
-  { value: "bot_active",        label: "Bot activo"        },
-  { value: "handoff_requested", label: "En espera"         },
-  { value: "human_attending",   label: "En atención"       },
-  { value: "closed",            label: "Cerradas"          },
+// Etiquetas de vista por estado — el estado activo vive en la URL (?status=),
+// lo escribe el submenú (OperatorSidebar) y esta página lo lee para filtrar.
+const HISTORY_LABELS: Record<string, string> = {
+  "":                "Todas",
+  bot_active:        "Bot activo",
+  handoff_requested: "En espera",
+  human_attending:   "En atención",
+  closed:            "Cerradas",
+};
+
+// Pills de estado para mobile (en desktop las vistas viven en el submenú).
+const MOBILE_STATUS: Array<{ key: string; label: string }> = [
+  { key: "",                  label: "Todas" },
+  { key: "bot_active",        label: "Bot activo" },
+  { key: "handoff_requested", label: "En espera" },
+  { key: "human_attending",   label: "En atención" },
+  { key: "closed",            label: "Cerradas" },
 ];
 
 const PAGE_SIZE = 20;
 
 export default function OperatorHistoryPage() {
-  const [filters, setFilters] = useState<ConversationHistoryFilters>({ page: 1, pageSize: PAGE_SIZE });
+  return (
+    <Suspense fallback={
+      <div className="flex h-full items-center justify-center">
+        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+      </div>
+    }>
+      <HistoryInbox />
+    </Suspense>
+  );
+}
+
+function HistoryInbox() {
+  // Vista y sector activos — desde la URL (los escribe el submenú OperatorSidebar
+  // en desktop y las pills en mobile). Mismo patrón que la bandeja.
+  const params = useSearchParams();
+  const status = params.get("status") ?? "";
+  const sector = params.get("sector") ?? "";
+
   const [searchInput, setSearchInput] = useState("");
+  const [q, setQ] = useState<string | undefined>(undefined);
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [page, setPage] = useState(1);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  // Panel de contexto del afiliado (columna 3) — colapsable con pin, igual que
+  // la bandeja de entrada.
+  const [contextOpen, setContextOpen] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Cualquier cambio de filtro vuelve a la página 1.
+  useEffect(() => { setPage(1); }, [status, sector, q, dateFrom, dateTo]);
+
+  const filters: ConversationHistoryFilters = useMemo(() => ({
+    page, pageSize: PAGE_SIZE,
+    status:   status || undefined,
+    sectorId: sector || undefined,
+    q:        q || undefined,
+    dateFrom: dateFrom || undefined,
+    dateTo:   dateTo || undefined,
+  }), [page, status, sector, q, dateFrom, dateTo]);
 
   const { data, isLoading, isFetching, error } = useQuery({
     queryKey: ["operator-history", filters],
@@ -48,18 +98,9 @@ export default function OperatorHistoryPage() {
 
   const total      = data?.total ?? 0;
   const items      = data?.items ?? [];
-  const page       = filters.page ?? 1;
-  const pageSize   = filters.pageSize ?? PAGE_SIZE;
+  const pageSize   = PAGE_SIZE;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
-
-  const activeFiltersCount = useMemo(() => {
-    let n = 0;
-    if (filters.status)   n++;
-    if (filters.q)        n++;
-    if (filters.dateFrom) n++;
-    if (filters.dateTo)   n++;
-    return n;
-  }, [filters]);
+  const hasDateFilter = !!dateFrom || !!dateTo;
 
   const { botMessages, operatorMessages } = useMemo(() => {
     if (!detail?.messages) return { botMessages: [], operatorMessages: [] };
@@ -73,93 +114,126 @@ export default function OperatorHistoryPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [detail?.messages?.length]);
 
-  const applySearch = () => setFilters(f => ({ ...f, q: searchInput.trim() || undefined, page: 1 }));
-  const clearFilters = () => { setSearchInput(""); setFilters({ page: 1, pageSize: PAGE_SIZE }); };
+  const applySearch = () => setQ(searchInput.trim() || undefined);
+  const clearSearchAndDates = () => { setSearchInput(""); setQ(undefined); setDateFrom(""); setDateTo(""); };
+
+  // href de las pills mobile (preserva el sector activo).
+  const viewHref = (key: string) => {
+    const p = new URLSearchParams();
+    if (key)    p.set("status", key);
+    if (sector) p.set("sector", sector);
+    const s = p.toString();
+    return "/operator/historial" + (s ? `?${s}` : "");
+  };
 
   const inputCls = "h-9 w-full rounded-lg border border-transparent bg-muted/60 px-2.5 text-xs shadow-none transition-colors focus-visible:border-border focus-visible:bg-card focus-visible:outline-none focus-visible:ring-0";
 
   return (
     <div className="flex h-full min-h-0">
-      {/* ── IZQUIERDA: filtros + lista ────────────────────────────────────── */}
+      {/* ── Columna 1: filtros + lista (mismo ancho/breakpoint que la bandeja) ── */}
       <section className={cn(
-        "flex min-h-0 w-full flex-col border-r sm:w-80 sm:shrink-0",
-        selectedId ? "hidden sm:flex" : "flex",
+        "flex min-h-0 flex-col lg:w-[360px] lg:shrink-0 lg:border-r",
+        selectedId ? "hidden w-full lg:flex" : "flex w-full",
       )}>
-        {/* Búsqueda + filtros */}
-        <div className="shrink-0 space-y-2 border-b px-3 py-3">
-          <div className="flex items-center gap-2">
-            <div className="relative flex-1">
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                type="text"
-                placeholder="Buscar afiliado…"
-                value={searchInput}
-                onChange={e => setSearchInput(e.target.value)}
-                onKeyDown={e => { if (e.key === "Enter") applySearch(); }}
-                onBlur={applySearch}
-                className={cn(inputCls, "pl-8")}
-              />
-            </div>
-            <button
-              onClick={() => setFiltersOpen(v => !v)}
-              title="Filtros"
-              aria-expanded={filtersOpen}
-              className={cn(
-                "flex h-9 shrink-0 items-center gap-1 rounded-lg px-2.5 text-[11px] transition-colors",
-                activeFiltersCount > 0
-                  ? "bg-action/[0.08] font-medium text-action"
-                  : "text-muted-foreground hover:bg-muted hover:text-foreground",
-              )}
-            >
-              <SlidersHorizontal className="h-3.5 w-3.5" />
-              <span className="hidden min-[360px]:inline">Filtros</span>
-              {activeFiltersCount > 0 && (
-                <span className="flex h-4 w-4 items-center justify-center rounded-full bg-action text-[10px] font-bold text-action-foreground">
-                  {activeFiltersCount}
-                </span>
-              )}
-            </button>
+        {/* Header: vista activa + total + toggle de fechas (igual que la bandeja;
+            las vistas por estado viven en el submenú OperatorSidebar). */}
+        <div className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
+          <h2 className="text-[15px] font-semibold tracking-tight text-foreground">{HISTORY_LABELS[status] ?? "Todas"}</h2>
+          {!isLoading && (
+            <span className="text-xs tabular-nums text-muted-foreground">{total.toLocaleString("es-AR")}</span>
+          )}
+          {isFetching && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
+          <button
+            onClick={() => setFiltersOpen(v => !v)}
+            title="Filtrar por fecha"
+            aria-label="Filtrar por fecha"
+            aria-expanded={filtersOpen}
+            className={cn(
+              "ml-auto flex h-7 w-7 items-center justify-center rounded-lg transition-colors",
+              filtersOpen || hasDateFilter ? "bg-muted text-foreground" : "text-muted-foreground hover:bg-muted/70 hover:text-foreground",
+            )}
+          >
+            <SlidersHorizontal className="h-3.5 w-3.5" />
+          </button>
+        </div>
+
+        {/* Pills de estado — SOLO mobile (en desktop está el submenú) */}
+        <div className="shrink-0 px-3 pt-2 lg:hidden">
+          <div className="flex items-center gap-1 overflow-x-auto scrollbar-hide rounded-xl bg-muted/60 p-1">
+            {MOBILE_STATUS.map(v => {
+              const active = status === v.key;
+              return (
+                <Link
+                  key={v.key || "all"}
+                  href={viewHref(v.key)}
+                  aria-current={active ? "page" : undefined}
+                  className={cn(
+                    "flex shrink-0 items-center justify-center whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs font-medium transition-all",
+                    active ? "bg-card text-foreground font-semibold shadow-xs" : "text-muted-foreground",
+                  )}
+                >
+                  {v.label}
+                </Link>
+              );
+            })}
           </div>
+        </div>
 
-          {filtersOpen && (
-            <div className="space-y-2 pt-1">
-              <select
-                value={filters.status ?? ""}
-                onChange={e => setFilters(f => ({ ...f, status: e.target.value || undefined, page: 1 }))}
-                className={inputCls}
+        {/* Búsqueda — subfila (igual que la bandeja) */}
+        <div className="shrink-0 px-3 pb-2 pt-2">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              type="text"
+              aria-label="Buscar afiliado"
+              placeholder="Buscar afiliado…"
+              value={searchInput}
+              onChange={e => setSearchInput(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter") applySearch(); }}
+              onBlur={applySearch}
+              className={cn(inputCls, "h-8 pl-8 text-[13px]")}
+            />
+            {searchInput && (
+              <button
+                aria-label="Limpiar búsqueda"
+                onClick={() => { setSearchInput(""); setQ(undefined); }}
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:text-foreground"
               >
-                {STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+        </div>
 
-              <div className="flex items-center gap-1.5">
-                <input
-                  type="date"
-                  value={filters.dateFrom ?? ""}
-                  onChange={e => setFilters(f => ({ ...f, dateFrom: e.target.value || undefined, page: 1 }))}
-                  className={cn(inputCls, "flex-1")}
-                />
-                <span className="text-xs text-muted-foreground" aria-hidden>→</span>
-                <input
-                  type="date"
-                  value={filters.dateTo ?? ""}
-                  onChange={e => setFilters(f => ({ ...f, dateTo: e.target.value || undefined, page: 1 }))}
-                  className={cn(inputCls, "flex-1")}
-                />
-              </div>
-
-              {activeFiltersCount > 0 && (
-                <Button size="sm" variant="ghost" className="h-7 w-full text-xs" onClick={clearFilters}>
-                  <X className="mr-1 h-3 w-3" /> Limpiar filtros
+        {/* Filtro de fechas — colapsable, compacto (igual que la bandeja) */}
+        {filtersOpen && (
+          <div className="shrink-0 space-y-2 border-b px-3 pb-3">
+            <div className="flex items-center gap-1.5">
+              <input
+                type="date"
+                aria-label="Desde"
+                value={dateFrom}
+                max={dateTo || undefined}
+                onChange={e => setDateFrom(e.target.value)}
+                className={cn(inputCls, "h-8 flex-1")}
+              />
+              <span className="text-xs text-muted-foreground" aria-hidden>→</span>
+              <input
+                type="date"
+                aria-label="Hasta"
+                value={dateTo}
+                min={dateFrom || undefined}
+                onChange={e => setDateTo(e.target.value)}
+                className={cn(inputCls, "h-8 flex-1")}
+              />
+              {hasDateFilter && (
+                <Button variant="ghost" size="sm" className="h-8 px-2 text-xs text-muted-foreground" onClick={() => { setDateFrom(""); setDateTo(""); }} aria-label="Limpiar fechas">
+                  <X className="h-3 w-3" />
                 </Button>
               )}
             </div>
-          )}
-
-          <div className="flex items-center gap-1 text-[10px] tabular-nums text-muted-foreground">
-            {isFetching && <Loader2 className="h-2.5 w-2.5 animate-spin" />}
-            <span>{total} resultado{total !== 1 ? "s" : ""}</span>
           </div>
-        </div>
+        )}
 
         {/* Lista */}
         <div className="min-h-0 flex-1 space-y-1 overflow-y-auto scrollbar-slim p-2">
@@ -171,9 +245,9 @@ export default function OperatorHistoryPage() {
             <div className="py-12 text-center text-muted-foreground">
               <MessageSquare className="mx-auto mb-2 h-8 w-8 opacity-20" />
               <p className="text-xs">Sin resultados</p>
-              {activeFiltersCount > 0 && (
-                <button onClick={clearFilters} className="mt-2 text-[11px] text-action hover:underline">
-                  Limpiar filtros
+              {(searchInput || hasDateFilter) && (
+                <button onClick={clearSearchAndDates} className="mt-2 text-[11px] text-action hover:underline">
+                  Limpiar búsqueda y fechas
                 </button>
               )}
             </div>
@@ -199,7 +273,7 @@ export default function OperatorHistoryPage() {
               <Button
                 size="sm" variant="outline" className="h-6 px-1.5"
                 disabled={page <= 1}
-                onClick={() => setFilters(f => ({ ...f, page: Math.max(1, (f.page ?? 1) - 1) }))}
+                onClick={() => setPage(p => Math.max(1, p - 1))}
                 aria-label="Página anterior"
               >
                 <ChevronLeft className="h-3 w-3" />
@@ -208,7 +282,7 @@ export default function OperatorHistoryPage() {
               <Button
                 size="sm" variant="outline" className="h-6 px-1.5"
                 disabled={page >= totalPages}
-                onClick={() => setFilters(f => ({ ...f, page: Math.min(totalPages, (f.page ?? 1) + 1) }))}
+                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
                 aria-label="Página siguiente"
               >
                 <ChevronRight className="h-3 w-3" />
@@ -218,10 +292,10 @@ export default function OperatorHistoryPage() {
         )}
       </section>
 
-      {/* ── DERECHA: detalle (solo lectura) ───────────────────────────────── */}
+      {/* ── Columna 2: detalle (solo lectura) ─────────────────────────────── */}
       <section className={cn(
         "flex min-w-0 flex-1 flex-col",
-        !selectedId && "hidden sm:flex",
+        !selectedId && "hidden lg:flex",
       )}>
         {!selectedId ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center text-muted-foreground">
@@ -247,25 +321,33 @@ export default function OperatorHistoryPage() {
             <div className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
               <button
                 onClick={() => setSelectedId(null)}
-                className="-ml-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground sm:hidden"
+                className="-ml-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground lg:hidden"
                 aria-label="Volver"
               >
                 <ChevronLeft className="h-4 w-4" />
               </button>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold text-foreground">{detail.afiliado_nombre || (detail.afiliado_ip ? `IP ${detail.afiliado_ip}` : "Afiliado anónimo")}</p>
-                <p className="truncate text-xs text-muted-foreground">
-                  {detail.sector_nombre}
-                  {detail.afiliado_email && ` · ${detail.afiliado_email}`}
-                  {detail.operator_name && ` · atendió ${detail.operator_name}`}
-                </p>
-              </div>
+              {/* Una sola línea: los datos (sector, email, quién atendió) viven en
+                  el panel de contexto de la derecha, no acá. */}
+              <p className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">{detail.afiliado_nombre || (detail.afiliado_ip ? `IP ${detail.afiliado_ip}` : "Afiliado anónimo")}</p>
               <StatusBadge status={detail.status} />
+
+              {/* Pin del panel de contexto: reaparece SOLO cuando está contraído,
+                  en pantallas anchas (igual que la bandeja). */}
+              {!contextOpen && (
+                <button
+                  onClick={() => setContextOpen(true)}
+                  className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground xl:flex focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring animate-fade-in"
+                  aria-label="Mostrar información del afiliado"
+                  title="Mostrar información del afiliado"
+                >
+                  <PanelRight className="h-4 w-4" />
+                </button>
+              )}
             </div>
 
             {/* Mensajes */}
             <div className="min-h-0 flex-1 overflow-y-auto scrollbar-slim p-4">
-              <div className="mx-auto w-full max-w-4xl space-y-3">
+              <div className="mx-auto w-full max-w-3xl space-y-3">
                 {botMessages.map(m => <MessageBubble key={m.id} msg={m} conversationId={detail.id} />)}
                 {operatorMessages.length > 0 && botMessages.length > 0 && (
                   <div className="flex items-center gap-2 py-1">
@@ -294,6 +376,29 @@ export default function OperatorHistoryPage() {
           </>
         ) : null}
       </section>
+
+      {/* ── Columna 3: contexto del afiliado (pantallas anchas, colapsable) ── */}
+      {/* Igual que la bandeja: el ancho anima entre 272px y 0; el contenido va en
+          un wrapper de ancho FIJO para que no se reacomode durante el slide. */}
+      {selectedId && (
+        <aside
+          className={cn(
+            "hidden min-h-0 shrink-0 flex-col overflow-hidden xl:flex",
+            "transition-[width,border-color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none",
+            contextOpen ? "w-[272px] border-l" : "w-0 border-l border-l-transparent",
+          )}
+          aria-label="Información del afiliado"
+          aria-hidden={!contextOpen}
+        >
+          <div className="flex min-h-0 w-[272px] shrink-0 flex-1 flex-col overflow-y-auto scrollbar-slim">
+            <ConversationContextPanel
+              detail={detail ?? null}
+              loading={detailLoading}
+              onCollapse={() => setContextOpen(false)}
+            />
+          </div>
+        </aside>
+      )}
     </div>
   );
 }

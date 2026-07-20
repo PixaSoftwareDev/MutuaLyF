@@ -769,7 +769,7 @@ function SystemViews({ focusRing, activeHref, onOpenChatTester }: {
 }
 
 /** Grupo plegable del panel (patrón referencia): título en negrita + chevron. */
-function CollapsibleGroup({ label, className, defaultOpen = true, children }: {
+export function CollapsibleGroup({ label, className, defaultOpen = true, children }: {
   label: string;
   className?: string;
   defaultOpen?: boolean;

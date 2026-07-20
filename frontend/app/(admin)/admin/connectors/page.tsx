@@ -87,20 +87,26 @@ export default function ConnectorsPage() {
   });
 
   return (
-    <PageShell>
-      <PageHeader title="Fuentes de datos" />
+    <PageShell width="wide">
+      {/* Mismo molde que Configuración → Canales (WhatsApp): título "Configuración"
+          que cruza el ancho completo + contenido centrado a max-w-5xl. Así Fuentes
+          de datos queda idéntico a las demás pestañas de esta sección. */}
+      <PageHeader title="Configuración" />
 
+      <div className="mx-auto w-full max-w-5xl">
       {isLoading ? (
         <div className="grid sm:grid-cols-2 gap-4">
           {[1, 2].map(i => <Skeleton key={i} className="h-40 rounded-2xl" />)}
         </div>
       ) : connectors.length === 0 ? (
-        /* Estado inicial: hero centrado con el CTA en el medio (patrón WhatsApp) */
-        <div className="mx-auto w-full max-w-3xl xl:max-w-4xl">
+        /* Estado inicial: hero centrado con el CTA en el medio (patrón WhatsApp).
+           Ocupa el ancho del shell (content) para no quedar más angosto que el resto. */
+        <div className="w-full">
           <Card className="rounded-2xl">
             <CardContent className="flex flex-col items-center px-6 py-14 text-center">
-              <span className="flex h-16 w-16 items-center justify-center rounded-2xl bg-action-gradient-soft text-action shadow-sm">
-                <Database className="h-8 w-8" />
+              {/* Ícono neutro, igual que el resto de los estados vacíos (EmptyState). */}
+              <span className="flex h-12 w-12 items-center justify-center rounded-full bg-muted">
+                <Database className="h-6 w-6 text-muted-foreground" />
               </span>
               <h3 className="mt-5 text-lg font-semibold tracking-tight text-foreground">
                 Conectá una fuente de datos
@@ -183,6 +189,7 @@ export default function ConnectorsPage() {
           </button>
         </div>
       )}
+      </div>
 
       {/* Crear conector — modal centrado */}
       <Dialog open={showCreate} onOpenChange={setShowCreate}>

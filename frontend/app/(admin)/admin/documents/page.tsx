@@ -129,12 +129,14 @@ export default function DocumentsPage() {
           /* Estado inicial: hero centrado con el uploader */
           <div className="mx-auto w-full max-w-2xl">
             <div className="mb-5 text-center">
-              <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-action-gradient-soft text-action">
-                <FileText className="h-7 w-7" />
-              </span>
+              {/* Ícono neutro, igual que el resto de los estados vacíos (EmptyState). */}
+              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-muted">
+                <FileText className="h-6 w-6 text-muted-foreground" />
+              </div>
               <h2 className="mt-4 text-lg font-semibold tracking-tight">Subí tu primer documento</h2>
+              {/* Los formatos y el tamaño máximo ya los muestra el dropzone; acá no se repiten. */}
               <p className="mx-auto mt-1.5 max-w-md text-sm leading-relaxed text-muted-foreground">
-                El asistente lo lee y lo usa para responder. Aceptamos PDF, DOCX, TXT, HTML y JSON.
+                El asistente lo lee y lo usa para responder.
               </p>
             </div>
             <DocumentUploader onUploaded={() => {
