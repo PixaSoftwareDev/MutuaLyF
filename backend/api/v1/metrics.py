@@ -27,10 +27,19 @@ router = APIRouter()
 
 @router.get("/metrics")
 async def get_metrics(
+    days: int = 30,
     tenant_id: str = Depends(get_tenant_id),
     current_user: CurrentUser = Depends(require_admin),
 ):
-    """Dashboard de métricas del tenant autenticado."""
+    """Dashboard de métricas del tenant autenticado.
+
+    `days` (7 | 30 | 90) define la ventana de los informes Asistente y Atención y
+    de la serie de actividad. Se restringe a esos tres valores; cualquier otro
+    cae a 30. Las cuotas del plan (mes en curso) y los KPIs de uso etiquetados
+    (hoy / 7d / 30d) NO dependen de este parámetro.
+    """
+    days = days if days in (7, 30, 90) else 30
+    prev_days = days * 2  # ventana previa para los chips "vs período anterior"
     # 1. Uso global (tabla usage_events, schema global) ─────────────────────────
     async with get_pg_session(None) as session:
         tenant_row = (await session.execute(
@@ -70,12 +79,12 @@ async def get_metrics(
         ingest_daily = [{"day": r["day"].isoformat(), "total": int(r["total"])} for r in aux_daily_rows if r["event_type"] == "ingest"]
         tokens_daily = [{"day": r["day"].isoformat(), "total": int(r["total"])} for r in aux_daily_rows if r["event_type"] == "llm_tokens"]
 
-        # 90 días para que el frontend pueda ofrecer rangos de 7/30/90 sin re-pedir
-        daily_rows = (await session.execute(text("""
+        # Serie de actividad acotada a la ventana pedida (7/30/90).
+        daily_rows = (await session.execute(text(f"""
             SELECT DATE(created_at) AS day, SUM(value)::int AS total
             FROM usage_events
             WHERE tenant_id = :tid AND event_type = 'query'
-              AND created_at >= NOW() - INTERVAL '90 days'
+              AND created_at >= NOW() - INTERVAL '{days} days'
             GROUP BY DATE(created_at)
             ORDER BY day
         """), {"tid": tenant_id})).mappings().all()
@@ -88,7 +97,7 @@ async def get_metrics(
     assistant_daily: list = []
     try:
         async with get_pg_session(tenant_id) as session:
-            perf_row = (await session.execute(text("""
+            perf_row = (await session.execute(text(f"""
                 SELECT
                     PERCENTILE_CONT(0.5)  WITHIN GROUP (ORDER BY latency_ms) AS p50,
                     PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY latency_ms) AS p95,
@@ -97,7 +106,7 @@ async def get_metrics(
                     COUNT(*) FILTER (WHERE intent_label IS NULL) AS unclassified,
                     COUNT(*) AS total_logged
                 FROM consultas_log
-                WHERE created_at >= NOW() - INTERVAL '30 days'
+                WHERE created_at >= NOW() - INTERVAL '{days} days'
             """))).mappings().fetchone()
             if perf_row and int(perf_row["total_logged"] or 0) > 0:
                 total_logged = int(perf_row["total_logged"])
@@ -119,12 +128,12 @@ async def get_metrics(
                     "avg_confidence": round(float(r["conf"]), 3) if r["conf"] is not None else None,
                     "total": int(r["total"]),
                 }
-                for r in (await session.execute(text("""
+                for r in (await session.execute(text(f"""
                     SELECT DATE(created_at) AS day,
                            AVG(intent_confidence) FILTER (WHERE intent_confidence IS NOT NULL) AS conf,
                            COUNT(*)::int AS total
                     FROM consultas_log
-                    WHERE created_at >= NOW() - INTERVAL '30 days'
+                    WHERE created_at >= NOW() - INTERVAL '{days} days'
                     GROUP BY DATE(created_at)
                     ORDER BY day
                 """))).mappings().all()
@@ -152,10 +161,10 @@ async def get_metrics(
                     "count":          int(r["cnt"]),
                     "avg_confidence": round(float(r["avg_conf"]), 2) if r["avg_conf"] else None,
                 }
-                for r in (await session.execute(text("""
+                for r in (await session.execute(text(f"""
                     SELECT intent_label, COUNT(*)::int AS cnt, AVG(intent_confidence) AS avg_conf
                     FROM consultas_log
-                    WHERE intent_label IS NOT NULL AND created_at >= NOW() - INTERVAL '30 days'
+                    WHERE intent_label IS NOT NULL AND created_at >= NOW() - INTERVAL '{days} days'
                     GROUP BY intent_label
                     ORDER BY cnt DESC LIMIT 8
                 """))).mappings().all()
@@ -163,11 +172,17 @@ async def get_metrics(
     except Exception as exc:
         logger.warning("metrics_log_failed tenant=%s err=%s", tenant_id, exc)
 
-    # 3. Documentos + quality gate ───────────────────────────────────────────────
+    # 3. Documentos + quality gate + usuarios ─────────────────────────────────────
     docs = {"total": 0, "ready": 0, "failed": 0, "processing": 0, "storage_bytes": 0}
     quality = {"passed": 0, "pending": 0, "skipped": 0}
+    user_count = 0
     try:
         async with get_pg_session(tenant_id) as session:
+            # Usuarios del tenant — para la cuota de usuarios del plan.
+            user_count = int((await session.execute(
+                text("SELECT COUNT(*) FROM usuarios")
+            )).scalar() or 0)
+
             doc_row = (await session.execute(text("""
                 SELECT
                     COUNT(*)::int                                     AS total,
@@ -198,7 +213,7 @@ async def get_metrics(
     }
     try:
         async with get_pg_session(tenant_id) as session:
-            conv_row = (await session.execute(text("""
+            conv_row = (await session.execute(text(f"""
                 SELECT
                     COUNT(*)::int                                                   AS total,
                     COUNT(*) FILTER (WHERE channel='widget')::int                   AS widget,
@@ -207,7 +222,7 @@ async def get_metrics(
                     AVG(EXTRACT(EPOCH FROM (closed_at - created_at)))
                         FILTER (WHERE closed_at IS NOT NULL)                         AS avg_resolution_seconds
                 FROM conversaciones
-                WHERE created_at >= NOW() - INTERVAL '30 days'
+                WHERE created_at >= NOW() - INTERVAL '{days} days'
                   AND is_test IS NOT TRUE
             """))).mappings().fetchone()
             if conv_row and int(conv_row["total"] or 0) > 0:
@@ -223,17 +238,17 @@ async def get_metrics(
                     "avg_resolution_seconds": int(conv_row["avg_resolution_seconds"]) if conv_row["avg_resolution_seconds"] else None,
                 })
 
-            # Ventana previa (60→30 días) para el chip "vs período anterior"
-            prev_conv = (await session.execute(text("""
+            # Ventana previa (2× la actual) para el chip "vs período anterior"
+            prev_conv = (await session.execute(text(f"""
                 SELECT COUNT(*)::int AS total FROM conversaciones
-                WHERE created_at >= NOW() - INTERVAL '60 days'
-                  AND created_at <  NOW() - INTERVAL '30 days'
+                WHERE created_at >= NOW() - INTERVAL '{prev_days} days'
+                  AND created_at <  NOW() - INTERVAL '{days} days'
                   AND is_test IS NOT TRUE
             """))).scalar()
             conversations["prev_total"] = int(prev_conv or 0)
 
             # Espera promedio: del pedido de operador al primer mensaje humano
-            wait_row = (await session.execute(text("""
+            wait_row = (await session.execute(text(f"""
                 SELECT AVG(EXTRACT(EPOCH FROM (fo.created_at - c.handoff_requested_at))) AS avg_wait
                 FROM conversaciones c
                 JOIN LATERAL (
@@ -243,7 +258,7 @@ async def get_metrics(
                     ORDER BY created_at LIMIT 1
                 ) fo ON TRUE
                 WHERE c.handoff_requested_at IS NOT NULL
-                  AND c.created_at >= NOW() - INTERVAL '30 days'
+                  AND c.created_at >= NOW() - INTERVAL '{days} days'
                   AND c.is_test IS NOT TRUE
             """))).scalar()
             conversations["avg_wait_seconds"] = int(wait_row) if wait_row else None
@@ -251,11 +266,11 @@ async def get_metrics(
             # Serie diaria (total + derivadas) para el gráfico del informe Atención
             conversations["daily"] = [
                 {"day": r["day"].isoformat(), "total": int(r["total"]), "handoffs": int(r["handoffs"])}
-                for r in (await session.execute(text("""
+                for r in (await session.execute(text(f"""
                     SELECT DATE(created_at) AS day, COUNT(*)::int AS total,
                            COUNT(*) FILTER (WHERE handoff_requested_at IS NOT NULL)::int AS handoffs
                     FROM conversaciones
-                    WHERE created_at >= NOW() - INTERVAL '30 days' AND is_test IS NOT TRUE
+                    WHERE created_at >= NOW() - INTERVAL '{days} days' AND is_test IS NOT TRUE
                     GROUP BY DATE(created_at) ORDER BY day
                 """))).mappings().all()
             ]
@@ -263,11 +278,11 @@ async def get_metrics(
             # Desglose por sector (top 8)
             conversations["by_sector"] = [
                 {"nombre": r["nombre"], "total": int(r["total"])}
-                for r in (await session.execute(text("""
+                for r in (await session.execute(text(f"""
                     SELECT COALESCE(s.nombre, 'Sin sector') AS nombre, COUNT(*)::int AS total
                     FROM conversaciones c
                     LEFT JOIN sectores s ON s.id = c.sector_id
-                    WHERE c.created_at >= NOW() - INTERVAL '30 days' AND c.is_test IS NOT TRUE
+                    WHERE c.created_at >= NOW() - INTERVAL '{days} days' AND c.is_test IS NOT TRUE
                     GROUP BY 1 ORDER BY 2 DESC LIMIT 8
                 """))).mappings().all()
             ]
@@ -315,5 +330,6 @@ async def get_metrics(
         "quota": {
             "queries_month": quota_entry(q_used, limits.get("queries_month", -1)),
             "documents":     quota_entry(d_used, limits.get("documents", -1)),
+            "users":         quota_entry(user_count, limits.get("users", -1)),
         },
     }

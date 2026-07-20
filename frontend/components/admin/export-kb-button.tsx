@@ -72,9 +72,9 @@ export function ExportKbButton() {
   return (
     <Dialog open={open} onOpenChange={(v) => !exportM.isPending && setOpen(v)}>
       <DialogTrigger asChild>
-        <Button variant="outline" size="sm">
-          <Download className="h-4 w-4 mr-1.5" />
-          Exportar base
+        <Button variant="outline" size="sm" aria-label="Exportar base">
+          <Download className="h-4 w-4 sm:mr-1.5" />
+          <span className="hidden sm:inline">Exportar base</span>
         </Button>
       </DialogTrigger>
 

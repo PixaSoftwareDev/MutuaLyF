@@ -603,6 +603,7 @@ export interface TenantMetrics {
   quota: {
     queries_month: { used: number; limit: number; pct: number | null };
     documents: { used: number; limit: number; pct: number | null };
+    users: { used: number; limit: number; pct: number | null };
   };
 }
 
@@ -610,8 +611,12 @@ export interface TenantMetrics {
 
 export const api = {
   metrics: {
-    get: async (): Promise<TenantMetrics> => {
-      const { data } = await apiClient.get<TenantMetrics>("/metrics");
+    // `days` (7 | 30 | 90) acota la ventana de los informes Asistente/Atención y
+    // la serie de actividad. Las cuotas del plan no dependen de este parámetro.
+    get: async (days?: number): Promise<TenantMetrics> => {
+      const { data } = await apiClient.get<TenantMetrics>("/metrics", {
+        params: days ? { days } : undefined,
+      });
       return data;
     },
   },

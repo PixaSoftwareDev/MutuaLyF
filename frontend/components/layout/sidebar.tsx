@@ -75,10 +75,8 @@ export const navGroups: NavGroup[] = [
     items: [
       { href: "/admin/metrics", label: "Resumen", icon: BarChart3, adminOnly: true,
         tooltip: "Uso, rendimiento, temas más consultados y atención — el pulso del asistente." },
-      { href: "/admin/metrics?view=asistente",    label: "Asistente",    icon: Bot,      adminOnly: true },
-      { href: "/admin/metrics?view=atencion",     label: "Atención",     icon: UserCheck, adminOnly: true },
-      { href: "/admin/metrics?view=conocimiento", label: "Conocimiento", icon: FileText, adminOnly: true },
-      { href: "/admin/metrics?view=plan",         label: "Plan",         icon: Layers,   adminOnly: true },
+      { href: "/admin/metrics/asistente",         label: "Asistente",    icon: Bot,      adminOnly: true },
+      { href: "/admin/metrics/atencion",          label: "Atención",     icon: UserCheck, adminOnly: true },
     ],
   },
   {
@@ -162,11 +160,15 @@ export function WhatsAppIcon({ className }: { className?: string }) {
 }
 
 export const CANAL_LINKS = [
-  { href: "/admin/settings?tab=canales&canal=all",      label: "Todos",           icon: Grid3x3 },
-  { href: "/admin/settings?tab=canales&canal=widget",   label: "Widget web",      icon: Globe },
-  { href: "/admin/settings?tab=canales&canal=whatsapp", label: "WhatsApp",        icon: WhatsAppIcon },
-  { href: "/admin/connectors",                          label: "Fuentes de datos", icon: Database },
+  { href: "/admin/settings/canales?canal=all",      label: "Todos",           icon: Grid3x3 },
+  { href: "/admin/settings/canales?canal=widget",   label: "Widget web",      icon: Globe },
+  { href: "/admin/settings/canales?canal=whatsapp", label: "WhatsApp",        icon: WhatsAppIcon },
+  { href: "/admin/connectors",                      label: "Fuentes de datos", icon: Database },
 ] as const;
+
+// Ruta de cada tab de Configuración (asistente es la base).
+const settingsHref = (tabKey: string) =>
+  tabKey === "asistente" ? "/admin/settings" : `/admin/settings/${tabKey}`;
 
 /** Destinos extra para el buscador Ctrl+K (deep-links que no están en navGroups). */
 export const searchExtras: Array<NavItem & { group: string }> = [
@@ -175,7 +177,7 @@ export const searchExtras: Array<NavItem & { group: string }> = [
     adminOnly: true, group: "Bandeja de entrada",
   })),
   ...CONFIG_TABS.map(t => ({
-    href: `/admin/settings?tab=${t.key}`, label: t.label, icon: t.icon,
+    href: settingsHref(t.key), label: t.label, icon: t.icon,
     adminOnly: true, group: "Configuración",
   })),
   ...CANAL_LINKS.filter(c => c.href !== "/admin/connectors").map(c => ({
@@ -580,10 +582,11 @@ function MobileNav({ activeHref, focusRing, duplicatesPending, onNavClick, onOpe
   const isActive = (href: string) =>
     href.includes("?")
       ? href === currentUrl
-      // Rutas con vistas por query (bandeja, informes): el ítem "base" solo está
-      // activo sin query. El resto, por el matcheo de prefijos del sidebar.
-      : href === "/admin/conversations" || href === "/admin/metrics"
-        ? currentUrl === href
+      // Rutas "base" de secciones con sub-rutas/vistas (bandeja, informes,
+      // configuración): activas SOLO en la ruta exacta, para que estar en una
+      // sub-ruta (ej. /admin/settings/canales) no marque también la base.
+      : href === "/admin/conversations" || href === "/admin/metrics" || href === "/admin/settings"
+        ? pathname === href
         : activeHref === href;
 
   const itemCls = (active: boolean) => cn(
@@ -624,14 +627,12 @@ function MobileNav({ activeHref, focusRing, duplicatesPending, onNavClick, onOpe
 
       <CollapsibleGroup label="Informes" defaultOpen={openFor("/admin/metrics")}>
         {item("/admin/metrics", "Resumen", BarChart3)}
-        {item("/admin/metrics?view=asistente", "Asistente", Bot)}
-        {item("/admin/metrics?view=atencion", "Atención", UserCheck)}
-        {item("/admin/metrics?view=conocimiento", "Conocimiento", FileText)}
-        {item("/admin/metrics?view=plan", "Plan", Layers)}
+        {item("/admin/metrics/asistente", "Asistente", Bot)}
+        {item("/admin/metrics/atencion", "Atención", UserCheck)}
       </CollapsibleGroup>
 
       <CollapsibleGroup label="Configuración" defaultOpen={openFor("/admin/settings")}>
-        {CONFIG_TABS.map(t => item(`/admin/settings?tab=${t.key}`, t.label, t.icon))}
+        {CONFIG_TABS.map(t => item(settingsHref(t.key), t.label, t.icon))}
         <button
           onClick={() => { onNavClick(); onOpenChatTester(); }}
           className={cn(itemCls(false), "w-full text-left")}
@@ -654,15 +655,13 @@ function MobileNav({ activeHref, focusRing, duplicatesPending, onNavClick, onOpe
 // Cada informe es una vista propia (?view=) — el panel navega entre ellas.
 
 function MetricsViews({ focusRing }: { focusRing: string }) {
-  const params = useSearchParams();
-  const view = params.get("view") ?? "resumen";
+  const pathname = usePathname();
 
+  // Cada informe es su propia ruta anidada; el Resumen es la base.
   const VIEWS = [
-    { key: "resumen",      label: "Resumen",      icon: BarChart3 },
-    { key: "asistente",    label: "Asistente",    icon: Bot },
-    { key: "atencion",     label: "Atención",     icon: UserCheck },
-    { key: "conocimiento", label: "Conocimiento", icon: FileText },
-    { key: "plan",         label: "Plan",         icon: Layers },
+    { key: "resumen",   label: "Resumen",   icon: BarChart3, href: "/admin/metrics" },
+    { key: "asistente", label: "Asistente", icon: Bot,       href: "/admin/metrics/asistente" },
+    { key: "atencion",  label: "Atención",  icon: UserCheck, href: "/admin/metrics/atencion" },
   ];
 
   const itemCls = (isActive: boolean) => cn(
@@ -676,10 +675,10 @@ function MetricsViews({ focusRing }: { focusRing: string }) {
   return (
     <div className="space-y-0.5" role="group" aria-label="Informes">
       {VIEWS.map(v => {
-        const active = view === v.key;
-        const href = v.key === "resumen" ? "/admin/metrics" : `/admin/metrics?view=${v.key}`;
+        // Resumen activo solo en la ruta base; los otros por match exacto.
+        const active = pathname === v.href;
         return (
-          <Link key={v.key} href={href} className={itemCls(active)} aria-current={active ? "page" : undefined}>
+          <Link key={v.key} href={v.href} className={itemCls(active)} aria-current={active ? "page" : undefined}>
             <v.icon className="h-4 w-4 shrink-0" />
             <span className="flex-1">{v.label}</span>
           </Link>
@@ -701,14 +700,12 @@ function SystemViews({ focusRing, activeHref, onOpenChatTester }: {
   const pathname = usePathname();
   const params = useSearchParams();
 
-  // Mismos alias que resolveTab de la página de settings (links viejos incluidos)
-  const raw = params.get("tab");
-  const tab = raw === "apariencia" || raw === "branding" ? "apariencia"
-    : raw === "derivacion" || raw === "handoff" ? "derivacion"
-    : raw === "canales" ? "canales"
+  // El tab activo viene de la RUTA (asistente = base). ?canal= sigue por query.
+  const tab = pathname === "/admin/settings/canales" ? "canales"
+    : pathname === "/admin/settings/derivacion" ? "derivacion"
     : "asistente";
   const canal = params.get("canal");
-  const onSettings = pathname === "/admin/settings";
+  const onSettings = pathname.startsWith("/admin/settings");
 
   const TABS = CONFIG_TABS;
 
@@ -741,7 +738,7 @@ function SystemViews({ focusRing, activeHref, onOpenChatTester }: {
         {TABS.map(t => {
           const active = onSettings && tab === t.key;
           return (
-            <Link key={t.key} href={`/admin/settings?tab=${t.key}`} className={itemCls(active)} aria-current={active ? "page" : undefined}>
+            <Link key={t.key} href={settingsHref(t.key)} className={itemCls(active)} aria-current={active ? "page" : undefined}>
               <t.icon className="h-4 w-4 shrink-0" />
               <span className="min-w-0 flex-1 truncate">{t.label}</span>
             </Link>

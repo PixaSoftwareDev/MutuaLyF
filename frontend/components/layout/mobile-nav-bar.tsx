@@ -4,26 +4,17 @@ import { Menu } from "lucide-react";
 import Image from "next/image";
 import { useUIStore } from "@/lib/store";
 import { useTenantBranding } from "@/lib/use-tenant-branding";
-import { cn } from "@/lib/utils";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
-function fullLogoUrl(url: string | null): string | null {
-  if (!url) return null;
-  if (url.startsWith("http")) return url;
-  return `${API_URL}${url}`;
-}
 
 export function MobileNavBar() {
   const { openMobileSidebar } = useUIStore();
   const { branding } = useTenantBranding();
-  const logoUrl = fullLogoUrl(branding.logo_url);
 
   return (
-    // Identidad Intellix (superficie clara + marca), igual que el sidebar y el
-    // topbar del operador. El color del tenant NO pinta el panel — el tenant
-    // aparece como contexto a la derecha. Antes esta barra usaba
-    // branding.primary_color de fondo y en mobile el admin se veía "rojo".
-    <header className="relative flex h-14 shrink-0 items-center gap-2.5 border-b bg-card px-3 text-muted-foreground lg:hidden">
+    // Identidad Intellix, mismo formato que el TopBar desktop y el topbar del
+    // operador: SOLO la marca Intellix (el panel es identidad Intellix fija; el
+    // logo del tenant va de cara al afiliado, no acá). El nombre del tenant queda
+    // como contexto en texto, sin un segundo logo compitiendo.
+    <header className="relative flex h-14 shrink-0 items-center gap-2.5 border-b bg-card px-3 lg:hidden">
       {/* Mesh de marca sutil — mismo lenguaje que sidebar/login/topbar operador */}
       <div
         aria-hidden
@@ -43,8 +34,8 @@ export function MobileNavBar() {
         <Menu className="h-5 w-5" />
       </button>
 
-      {/* Marca Intellix — misma composición que el sidebar */}
-      <div className="flex items-center gap-2 min-w-0">
+      {/* Marca Intellix — mark siempre + wordmark desde 520px (igual que operador) */}
+      <div className="relative flex min-w-0 items-center gap-2" aria-label="Intellix">
         <Image
           src="/brand/intellix-mark.png"
           alt=""
@@ -52,7 +43,7 @@ export function MobileNavBar() {
           height={1400}
           priority
           unoptimized
-          className="h-6 w-6 object-contain shrink-0"
+          className="h-7 w-7 shrink-0 object-contain"
         />
         <Image
           src="/brand/intellix-wordmark.png"
@@ -61,43 +52,16 @@ export function MobileNavBar() {
           height={174}
           priority
           unoptimized
-          className="h-[12px] w-auto object-contain"
+          className="hidden h-[14px] w-auto object-contain min-[520px]:block"
         />
       </div>
 
       <div className="flex-1" />
 
-      {/* Contexto del tenant — logo + nombre, como en el pie del sidebar */}
-      <div className="flex items-center gap-2 min-w-0">
-        {/* Sin logo → gradient de marca, no el primary_color del tenant: el
-            panel es identidad Intellix y el fallback (p.ej. super-admin sin
-            tenant) se veía rojo. */}
-        <div
-          className={cn(
-            "relative w-6 h-6 flex items-center justify-center shrink-0 rounded-md overflow-hidden ring-1 ring-border",
-            !logoUrl && "bg-action-gradient",
-          )}
-        >
-          {logoUrl ? (
-            <Image
-              src={logoUrl}
-              alt={branding.display_name}
-              width={24}
-              height={24}
-              className="w-full h-full object-contain"
-              priority
-              unoptimized
-            />
-          ) : (
-            <span className="text-white font-bold text-[10px]">
-              {(branding.display_name.trim()[0] ?? "?").toUpperCase()}
-            </span>
-          )}
-        </div>
-        <span className="text-[13px] font-medium text-foreground truncate max-w-[120px]">
-          {branding.display_name}
-        </span>
-      </div>
+      {/* Contexto del tenant — solo el nombre (sin logo), como etiqueta discreta */}
+      <span className="relative max-w-[150px] truncate text-[13px] font-medium text-muted-foreground">
+        {branding.display_name}
+      </span>
     </header>
   );
 }

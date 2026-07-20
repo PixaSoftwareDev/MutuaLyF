@@ -261,7 +261,9 @@ function SectorRowItem({ sector, selected, onSelect }: {
       aria-selected={selected}
       className={cn("cursor-pointer", selected ? "bg-muted/60" : sector.is_default && "bg-action/[0.03]")}
     >
-      <TableCell>
+      {/* w-full + max-w-0: la columna toma el espacio restante y el nombre trunca
+          (sin esto, en mobile los nombres largos ensanchaban la tabla). */}
+      <TableCell className="w-full max-w-0">
         <div className="flex min-w-0 items-center gap-2">
           <span className="truncate font-medium text-foreground">{sector.nombre}</span>
           {sector.is_default && <DefaultBadge />}

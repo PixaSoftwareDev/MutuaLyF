@@ -228,7 +228,7 @@ function ChannelsOverview({ channels }: { channels: ChannelsState }) {
               El chat embebido en tu sitio y la página de consulta. Se instala con un fragmento de código y atiende al instante.
             </p>
             <Button asChild className="mt-5">
-              <Link href="/admin/settings?tab=canales&canal=widget">Configurar</Link>
+              <Link href="/admin/settings/canales?canal=widget">Configurar</Link>
             </Button>
           </div>
           {/* Ilustración con fondo (banco de imagen) — theme-aware */}
@@ -259,7 +259,7 @@ function ChannelsOverview({ channels }: { channels: ChannelsState }) {
           title="WhatsApp"
           desc="Atendé por WhatsApp con el mismo asistente y operadores."
           state={waState}
-          href="/admin/settings?tab=canales&canal=whatsapp"
+          href="/admin/settings/canales?canal=whatsapp"
         />
         <ChannelMiniCard
           icon={<span className="flex h-10 w-10 items-center justify-center rounded-xl bg-muted text-muted-foreground"><Database className="h-5 w-5" /></span>}

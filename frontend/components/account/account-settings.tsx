@@ -90,31 +90,31 @@ export function AccountSettings({ nameHint, emailHint, showSectors }: Props) {
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto scrollbar-slim p-4 sm:p-6">
-        <div className="mx-auto w-full max-w-5xl space-y-4 sm:space-y-6">
+        {/* Una sola columna centrada (patrón de ajustes): simple y prolijo tanto
+            en monitor como en notebook chica. Sin grillas ni columnas laterales. */}
+        <div className="mx-auto w-full max-w-2xl space-y-4 sm:space-y-6">
           {isLoading || !me ? (
             <>
-              <Skeleton className="h-28 rounded-2xl" />
-              <div className="grid gap-4 sm:gap-6 lg:grid-cols-2">
-                <Skeleton className="h-52 rounded-2xl" />
-                <Skeleton className="h-80 rounded-2xl" />
-              </div>
+              <Skeleton className="h-24 rounded-2xl" />
+              <Skeleton className="h-44 rounded-2xl" />
+              <Skeleton className="h-80 rounded-2xl" />
             </>
           ) : (
             <>
-              {/* Hero de identidad — avatar de marca grande + datos */}
+              {/* Identidad — fila compacta: avatar + datos + rol */}
               <div className="relative overflow-hidden rounded-2xl border bg-card">
-                <div className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-action/[0.09] to-transparent" aria-hidden />
-                <div className="relative flex flex-col items-start gap-4 p-5 sm:flex-row sm:items-center sm:p-6">
+                <div className="pointer-events-none absolute inset-x-0 top-0 h-20 bg-gradient-to-b from-action/[0.09] to-transparent" aria-hidden />
+                <div className="relative flex items-center gap-4 p-5">
                   <div
-                    className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl text-2xl font-bold text-white shadow-md"
+                    className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl text-xl font-bold text-white shadow-md"
                     style={{ background: "linear-gradient(135deg, #22d3ee 0%, #6366f1 55%, #7A2DFF 100%)" }}
                   >
                     {initial}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <h2 className="truncate text-lg font-semibold tracking-tight text-foreground">{me.name}</h2>
+                    <h2 className="truncate text-base font-semibold tracking-tight text-foreground">{me.name}</h2>
                     <p className="truncate text-sm text-muted-foreground">{me.email}</p>
-                    <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+                    <div className="mt-2 flex flex-wrap items-center gap-1.5">
                       <span className="inline-flex items-center rounded-full border border-action/30 bg-action/[0.06] px-2.5 py-0.5 text-[11px] font-semibold text-action">
                         {ROLE_LABEL[me.role] ?? me.role}
                       </span>
@@ -131,104 +131,101 @@ export function AccountSettings({ nameHint, emailHint, showSectors }: Props) {
                 </div>
               </div>
 
-              {/* Formularios */}
-              <div className="grid items-start gap-4 sm:gap-6 lg:grid-cols-2">
               {/* Perfil */}
               <Card className="rounded-2xl">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Perfil</CardTitle>
-          <CardDescription>Cómo aparecés en la plataforma.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-1.5 max-w-md">
-            <Label htmlFor="account-name">Nombre completo</Label>
-            <Input
-              id="account-name"
-              type="text"
-              value={name}
-              onChange={e => setName(e.target.value)}
-              maxLength={120}
-              placeholder="Ej: María García"
-            />
-            {nameHint && (
-              <p className="text-[11px] text-muted-foreground/80">{nameHint}</p>
-            )}
-          </div>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">Perfil</CardTitle>
+                  <CardDescription>Cómo aparecés en la plataforma.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="account-name">Nombre completo</Label>
+                    <Input
+                      id="account-name"
+                      type="text"
+                      value={name}
+                      onChange={e => setName(e.target.value)}
+                      maxLength={120}
+                      placeholder="Ej: María García"
+                    />
+                    {nameHint && (
+                      <p className="text-[11px] text-muted-foreground/80">{nameHint}</p>
+                    )}
+                  </div>
+                  <div className="flex justify-end pt-1">
+                    <Button
+                      onClick={() => saveProfileM.mutate()}
+                      disabled={!dirty || !name.trim() || saveProfileM.isPending}
+                    >
+                      {saveProfileM.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+                      Guardar cambios
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
 
-          <div className="flex justify-end pt-1">
-            <Button
-              onClick={() => saveProfileM.mutate()}
-              disabled={!dirty || !name.trim() || saveProfileM.isPending}
-            >
-              {saveProfileM.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
-              Guardar cambios
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+              {/* Contraseña */}
+              <Card className="rounded-2xl">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">Cambiar contraseña</CardTitle>
+                  <CardDescription>Tu nueva clave de acceso a la plataforma.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-4">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="pwd-current">Contraseña actual</Label>
+                      <PasswordInput
+                        id="pwd-current"
+                        value={currentPwd}
+                        onChange={setCurrentPwd}
+                        show={showPwd}
+                        onToggleShow={() => setShowPwd(v => !v)}
+                        placeholder="Tu contraseña actual"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="pwd-new">Contraseña nueva</Label>
+                      <PasswordInput
+                        id="pwd-new"
+                        value={newPwd}
+                        onChange={setNewPwd}
+                        show={showPwd}
+                        onToggleShow={() => setShowPwd(v => !v)}
+                        placeholder="Mínimo 8 caracteres"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="pwd-confirm">Confirmar nueva</Label>
+                      <PasswordInput
+                        id="pwd-confirm"
+                        value={confirmPwd}
+                        onChange={setConfirmPwd}
+                        show={showPwd}
+                        onToggleShow={() => setShowPwd(v => !v)}
+                        placeholder="Repetí la nueva contraseña"
+                      />
+                    </div>
+                  </div>
 
-      {/* Contraseña */}
-      <Card className="rounded-2xl">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Cambiar contraseña</CardTitle>
-          <CardDescription>Tu nueva clave de acceso a la plataforma.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="max-w-md space-y-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="pwd-current">Contraseña actual</Label>
-              <PasswordInput
-                id="pwd-current"
-                value={currentPwd}
-                onChange={setCurrentPwd}
-                show={showPwd}
-                onToggleShow={() => setShowPwd(v => !v)}
-                placeholder="Tu contraseña actual"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="pwd-new">Contraseña nueva</Label>
-              <PasswordInput
-                id="pwd-new"
-                value={newPwd}
-                onChange={setNewPwd}
-                show={showPwd}
-                onToggleShow={() => setShowPwd(v => !v)}
-                placeholder="Mínimo 8 caracteres"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="pwd-confirm">Confirmar nueva</Label>
-              <PasswordInput
-                id="pwd-confirm"
-                value={confirmPwd}
-                onChange={setConfirmPwd}
-                show={showPwd}
-                onToggleShow={() => setShowPwd(v => !v)}
-                placeholder="Repetí la nueva contraseña"
-              />
-            </div>
-          </div>
+                  {/* Checklist en vivo — reemplaza los mensajes de error sueltos */}
+                  <ul className="space-y-1.5">
+                    <Requirement ok={pwdLengthOk} label="Al menos 8 caracteres" />
+                    <Requirement ok={pwdLengthOk && pwdDifferent} label="Distinta de la actual" />
+                    <Requirement ok={pwdMatch} label="Las contraseñas coinciden" />
+                  </ul>
 
-          {/* Checklist en vivo — reemplaza los mensajes de error sueltos */}
-          <ul className="space-y-1.5">
-            <Requirement ok={pwdLengthOk} label="Al menos 8 caracteres" />
-            <Requirement ok={pwdLengthOk && pwdDifferent} label="Distinta de la actual" />
-            <Requirement ok={pwdMatch} label="Las contraseñas coinciden" />
-          </ul>
+                  <div className="flex justify-end pt-1">
+                    <Button
+                      onClick={() => changePwdM.mutate()}
+                      disabled={!pwdReady || changePwdM.isPending}
+                    >
+                      {changePwdM.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+                      Actualizar contraseña
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
 
-          <div className="flex justify-end pt-1">
-            <Button
-              onClick={() => changePwdM.mutate()}
-              disabled={!pwdReady || changePwdM.isPending}
-            >
-              {changePwdM.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
-              Actualizar contraseña
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-              </div>
               <p className="px-1 text-[11px] leading-snug text-muted-foreground/70">{emailHint}</p>
             </>
           )}

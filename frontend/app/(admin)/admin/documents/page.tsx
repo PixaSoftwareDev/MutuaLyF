@@ -101,13 +101,15 @@ export default function DocumentsPage() {
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* Header bar */}
-      <div className="flex h-12 shrink-0 items-center justify-between gap-3 border-b px-4 sm:px-6">
-        <h1 className="text-[15px] font-semibold tracking-tight text-foreground">Documentos</h1>
+      <div className="flex h-12 shrink-0 items-center justify-between gap-2 border-b px-4 sm:px-6">
+        <h1 className="min-w-0 truncate text-[15px] font-semibold tracking-tight text-foreground">Documentos</h1>
         {!isEmpty && (
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2">
             <ExportKbButton />
             <Button size="sm" className="shrink-0" onClick={() => setUploadOpen(true)}>
-              <Plus className="mr-1.5 h-4 w-4" /> Subir documento
+              <Plus className="h-4 w-4 sm:mr-1.5" />
+              <span className="hidden sm:inline">Subir documento</span>
+              <span className="sm:hidden">Subir</span>
             </Button>
           </div>
         )}
@@ -222,7 +224,10 @@ function DocumentTableRow({
       onClick={() => router.push(`/admin/documents/${doc.id}`)}
       onMouseEnter={() => router.prefetch(`/admin/documents/${doc.id}`)}
     >
-      <TableCell className="py-2.5">
+      {/* w-full + max-w-0: la columna toma el espacio restante y el título trunca
+          (sin esto, en mobile los títulos largos ensanchan la tabla y hacían
+          scroll lateral interno). */}
+      <TableCell className="w-full max-w-0 py-2.5">
         <div className="flex items-center gap-3 min-w-0">
           <div className="relative h-9 w-9 rounded-lg bg-muted flex flex-col items-center justify-center shrink-0 text-muted-foreground">
             {processing ? (
