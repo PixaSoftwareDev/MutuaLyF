@@ -9,6 +9,7 @@ Etapa 3 improvements:
 
 import asyncio
 import logging
+import re
 from dataclasses import dataclass
 from functools import lru_cache
 
@@ -544,7 +545,18 @@ async def _bm25_search(query: str, tenant_id: str, limit: int = 20) -> list[dict
     # matchea pocos/ningún chunk → BM25 no contamina y el embedding manda (lo correcto
     # para queries semánticas). Si AND da 0 hits (término raro faltante), cae a
     # embedding-only, que para nombres propios ya funciona bien.
-    words = [w for w in query.replace("'", " ").split() if len(w) > 1]
+    # Sanitizar cada token a alfanumérico ANTES de armar el tsquery: caracteres
+    # como ( ) ? ! & | * : son sintaxis de to_tsquery y un input de usuario con
+    # paréntesis desbalanceados o "?!!" rompía la query SQL → BM25 devolvía []
+    # en silencio y ese turno perdía todo el recall léxico (bug encontrado por
+    # fuzzing accidental durante el eval de tool-routing, 2026-07-21).
+    words = [
+        w for w in (
+            re.sub(r"[^0-9a-zñáéíóúü]+", "", t, flags=re.IGNORECASE)
+            for t in query.replace("'", " ").split()
+        )
+        if len(w) > 1
+    ]
     if not words:
         return []
     tsquery = " & ".join(words)
