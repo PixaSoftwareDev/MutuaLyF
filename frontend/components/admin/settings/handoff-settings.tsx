@@ -149,7 +149,6 @@ export function HandoffSettings() {
               onChange={e => { setAttentionHours(e.target.value); setDirty(true); }}
               placeholder="Lunes a viernes de 7:30 a 18 hs"
             />
-            <p className="text-[11px] leading-snug text-muted-foreground">Vacío = no se muestra.</p>
           </div>
           <div className="space-y-1.5">
             <Label className="text-sm">Contacto alternativo</Label>
@@ -158,7 +157,6 @@ export function HandoffSettings() {
               onChange={e => { setContactInfo(e.target.value); setDirty(true); }}
               placeholder="Tel. 0342 452 0074 · recepcion@…"
             />
-            <p className="text-[11px] leading-snug text-muted-foreground">Un teléfono o email al que recurrir.</p>
           </div>
         </div>
       </SectionCard>
