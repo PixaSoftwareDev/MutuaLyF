@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { PageShell } from "@/components/layout/page-shell";
 import { PageHeader, CountChip } from "@/components/layout/page-header";
 import {
-  fmtNum, fmtBytes, Section, StatTile, BackupStat, DiskStat, ErrorRow,
+  fmtNum, fmtBytes, Section, StatTile, BackupStat, DiskStat, ErrorRow, ErrorSummary,
 } from "@/components/superadmin/shared";
 import { cn } from "@/lib/utils";
 
@@ -268,9 +268,12 @@ export default function MonitoringPage() {
               <CheckCircle2 className="h-4 w-4 shrink-0" /> Sin registros recientes.
             </p>
           ) : (
-            <div className="rounded-lg border divide-y max-h-[420px] overflow-y-auto scrollbar-slim">
-              {errors.map((e, i) => <ErrorRow key={i} e={e} />)}
-            </div>
+            <>
+              <ErrorSummary errors={errors} />
+              <div className="rounded-lg border divide-y max-h-[420px] overflow-y-auto scrollbar-slim">
+                {errors.map((e, i) => <ErrorRow key={i} e={e} />)}
+              </div>
+            </>
           )}
         </Section>
 

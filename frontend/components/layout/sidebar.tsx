@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   Inbox, FileText, Tags, Settings, LogOut,
-  Home, Building2, GitMerge, Users, MessageSquareShare, ClipboardList, Bot, Network, X, Layers, BarChart3,
+  Home, Building2, GitMerge, Users, MessageSquareShare, ClipboardList, Bot, Cpu, Network, X, Layers, BarChart3,
   MessageSquare, Clock, UserCheck, Archive, UserRound, ChevronDown, Globe, Database, Grid3x3, Pin, PinOff,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -121,9 +121,12 @@ export const navGroups: NavGroup[] = [
   },
   {
     sectionId: "sa-prompts",
+    label: "Bots y prompts",
     items: [
-      { href: "/superadmin/prompts", label: "Bots / Prompts", icon: Bot, superAdminOnly: true,
-        tooltip: "Creá y asignás templates de prompt a los tenants." },
+      { href: "/superadmin/prompts", label: "Personalidades", icon: Bot, superAdminOnly: true,
+        tooltip: "Personalidades que los admins activan y asignás a las organizaciones." },
+      { href: "/superadmin/prompts/motor", label: "Motor del sistema", icon: Cpu, superAdminOnly: true,
+        tooltip: "Prompts internos del motor (ingesta, consultas, clustering)." },
     ],
   },
   {

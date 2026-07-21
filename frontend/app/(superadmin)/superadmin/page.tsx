@@ -13,7 +13,7 @@ import { useAuthStore } from "@/lib/store";
 import { PageShell } from "@/components/layout/page-shell";
 import { PageHeader } from "@/components/layout/page-header";
 import { Skeleton } from "@/components/ui/skeleton";
-import { fmtNum, Kpi } from "@/components/superadmin/shared";
+import { fmtNum, Kpi, ErrorSummary } from "@/components/superadmin/shared";
 import { cn } from "@/lib/utils";
 
 /**
@@ -46,7 +46,7 @@ function DimChip({ label, tone }: { label: string; tone: Tone }) {
   return (
     <Link
       href="/superadmin/monitoring"
-      className="inline-flex items-center gap-1.5 rounded-full border bg-card/70 px-3 py-1 text-[12px] font-medium text-foreground/80 shadow-xs backdrop-blur transition-colors hover:bg-card hover:text-foreground"
+      className="inline-flex items-center gap-1.5 rounded-full border bg-card/70 px-2.5 py-1 text-[11px] font-medium text-foreground/80 shadow-xs backdrop-blur transition-colors hover:bg-card hover:text-foreground"
     >
       <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", DOT[tone])} />
       {label}
@@ -116,7 +116,8 @@ export default function PlatformHomePage() {
   const healthLoading = !system || !alertsData || !errorsData;
 
   const alerts = alertsData?.alerts ?? [];
-  const recentErrors = (errorsData?.errors ?? []).filter(e => e.level === "ERROR");
+  const allErrors = errorsData?.errors ?? [];
+  const recentErrors = allErrors.filter(e => e.level === "ERROR");
 
   // ── Chequeos de salud de PLATAFORMA (la infra es del super-admin; lo operativo
   //    de cada tenant no entra acá). El detalle de cada uno vive en Monitoreo. ──
@@ -198,41 +199,50 @@ export default function PlatformHomePage() {
         badge={<span className="text-xs text-muted-foreground first-letter:uppercase">{fechaLabel}</span>}
       />
 
-      {/* ── Hero de estado ── */}
-      <div className={cn("relative overflow-hidden rounded-2xl border bg-gradient-to-br p-5 sm:p-6", hero.ring, hero.grad)}>
-        <div aria-hidden className="pointer-events-none absolute -right-16 -top-20 h-52 w-52 rounded-full opacity-[0.18] blur-3xl" style={{ background: hero.glow }} />
-        <div className="relative flex items-start gap-4">
-          <div className={cn("flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl shadow-sm", hero.iconBg)}>
-            {healthLoading ? <Skeleton className="h-7 w-7 rounded-full" /> : <HeroIcon className="h-7 w-7" />}
-          </div>
-          <div className="min-w-0 flex-1">
-            {healthLoading ? <Skeleton className="h-7 w-44" /> : <p className="text-xl sm:text-2xl font-semibold tracking-tight">{globalLabel}</p>}
-            <p className="mt-1 text-sm text-muted-foreground leading-relaxed">{heroSummary}</p>
-          </div>
-        </div>
-        <div className="relative mt-5 flex flex-wrap gap-2">
-          {dims.map(d => <DimChip key={d.label} label={d.label} tone={healthLoading ? "ok" : d.tone} />)}
-        </div>
-      </div>
+      {/* ── Estado de plataforma — barra compacta: veredicto + dimensiones en una
+           línea; el detalle accionable se despliega debajo solo si hay algo. ── */}
+      <div className={cn("relative overflow-hidden rounded-xl border bg-gradient-to-br", hero.ring, hero.grad)}>
+        <div aria-hidden className="pointer-events-none absolute -right-10 -top-12 h-32 w-32 rounded-full opacity-[0.12] blur-3xl" style={{ background: hero.glow }} />
 
-      {/* ── Requiere atención — solo si hay algo ── */}
-      {!healthLoading && issues.length > 0 && (
-        <div className="overflow-hidden rounded-2xl border border-warning/30 bg-warning/[0.05]">
-          <div className="flex items-center justify-between gap-3 border-b border-warning/20 px-4 py-2.5">
-            <p className="flex items-center gap-2 text-sm font-semibold"><AlertTriangle className="h-4 w-4 text-warning" /> Requiere tu atención</p>
-            <Link href="/superadmin/monitoring" className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground">Ver en Monitoreo <ArrowRight className="h-3.5 w-3.5" /></Link>
+        <div className="relative flex flex-col gap-3 p-3.5 sm:flex-row sm:items-center sm:gap-4">
+          <div className="flex min-w-0 flex-1 items-center gap-3">
+            <div className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-lg", hero.iconBg)}>
+              {healthLoading ? <Skeleton className="h-4 w-4 rounded-full" /> : <HeroIcon className="h-[18px] w-[18px]" />}
+            </div>
+            <div className="min-w-0">
+              {healthLoading
+                ? <Skeleton className="h-4 w-36" />
+                : <p className="truncate text-[15px] font-semibold leading-tight text-foreground">{globalLabel}</p>}
+              <p className="mt-0.5 truncate text-xs text-muted-foreground">{heroSummary}</p>
+            </div>
           </div>
-          <div className="divide-y divide-border/60">
-            {issues.map((it, i) => (
-              <Link key={i} href="/superadmin/monitoring" className="flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-warning/[0.06]">
-                <span className={cn("h-2 w-2 shrink-0 rounded-full", DOT[it.tone])} />
-                <span className={cn("flex-1 min-w-0 truncate text-sm", it.tone === "down" ? "text-destructive font-medium" : "text-foreground")}>{it.text}</span>
-                <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/60" />
-              </Link>
-            ))}
+          <div className="flex flex-wrap items-center gap-1.5 sm:shrink-0 sm:justify-end">
+            {dims.map(d => <DimChip key={d.label} label={d.label} tone={healthLoading ? "ok" : d.tone} />)}
           </div>
         </div>
-      )}
+
+        {/* Detalle accionable — dentro del mismo bloque, solo si hay algo */}
+        {!healthLoading && issues.length > 0 && (
+          <div className="relative border-t border-warning/20 bg-warning/[0.04]">
+            <div className="divide-y divide-border/40">
+              {issues.map((it, i) => (
+                <Link key={i} href="/superadmin/monitoring" className="flex items-center gap-2.5 px-3.5 py-2 transition-colors hover:bg-warning/[0.06]">
+                  <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", DOT[it.tone])} />
+                  <span className={cn("flex-1 min-w-0 truncate text-[13px]", it.tone === "down" ? "text-destructive font-medium" : "text-foreground")}>{it.text}</span>
+                  <span className="inline-flex shrink-0 items-center gap-1 text-[11px] font-medium text-muted-foreground/70">Monitoreo <ChevronRight className="h-3.5 w-3.5" /></span>
+                </Link>
+              ))}
+            </div>
+            {/* Qué está fallando, en palabras — resumen por dominio de los errores */}
+            {allErrors.length > 0 && (
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 border-t border-warning/20 px-3.5 py-2.5">
+                <span className="text-[11px] font-medium text-muted-foreground/70">Qué está fallando:</span>
+                <ErrorSummary errors={allErrors} inline />
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* ── Números del negocio (últimos 30 días) ── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
@@ -240,7 +250,7 @@ export default function PlatformHomePage() {
         <Kpi icon={MessageSquare} label="Consultas · 30 días"    value={fmtNum(totalQueries)} loading={!traffic} />
         <Kpi
           icon={Coins}
-          label="Gasto OpenAI · 30 días"
+          label="Gasto IA · 30 días"
           value={costs?.available
             ? `US$ ${costs.total_usd.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
             : "—"}

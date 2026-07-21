@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  Layers, Plus, Loader2, Pencil, Users, FileText, MessageSquare, HardDrive, Infinity as InfinityIcon,
+  Layers, Plus, Loader2, Pencil, Users, FileText, MessageSquare, HardDrive, Coins,
 } from "lucide-react";
 import { api, type PlanRow, type PlanBody } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -54,15 +54,11 @@ export default function PlansPage() {
         />
 
         {isLoading ? (
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {[1, 2, 3].map(i => <Skeleton key={i} className="h-56 rounded-2xl" />)}
-          </div>
+          <Skeleton className="h-64 rounded-2xl" />
         ) : plans.length === 0 ? (
           <EmptyState icon={Layers} title="Sin planes" description="Creá el primer plan de la plataforma." className="rounded-2xl border bg-card" />
         ) : (
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {plans.map(p => <PlanCard key={p.id} plan={p} onEdit={() => setEditing(p)} />)}
-          </div>
+          <PlansComparison plans={plans} onEdit={setEditing} />
         )}
       </PageShell>
 
@@ -77,74 +73,71 @@ export default function PlansPage() {
   );
 }
 
-// ── Card de plan ────────────────────────────────────────────────────────────
-function PlanCard({ plan: p, onEdit }: { plan: PlanRow; onEdit: () => void }) {
-  const rows: Array<{ icon: typeof Users; label: string; value: string; unlimited: boolean }> = [
-    { icon: Users,         label: "Usuarios",        value: fmtLimit(p.users),         unlimited: p.users === -1 },
-    { icon: FileText,      label: "Documentos",      value: fmtLimit(p.documents),     unlimited: p.documents === -1 },
-    { icon: MessageSquare, label: "Consultas / mes", value: fmtLimit(p.queries_month), unlimited: p.queries_month === -1 },
-    { icon: HardDrive,     label: "Tamaño máx.",     value: `${p.max_mb} MB`,          unlimited: false },
+// ── Tabla comparativa de planes ───────────────────────────────────────────────
+// Planes en columnas, límites en filas: la forma más simple de comparar y leer.
+function PlansComparison({ plans, onEdit }: { plans: PlanRow[]; onEdit: (p: PlanRow) => void }) {
+  const price = (p: PlanRow) => p.price_usd != null
+    ? `US$ ${p.price_usd.toLocaleString("en-US", { minimumFractionDigits: p.price_usd % 1 === 0 ? 0 : 2, maximumFractionDigits: 2 })}`
+    : "—";
+  const features: Array<{ icon: typeof Users; label: string; get: (p: PlanRow) => string; strong?: boolean }> = [
+    { icon: Coins,         label: "Precio / mes",    get: price,                             strong: true },
+    { icon: Users,         label: "Usuarios",        get: p => fmtLimit(p.users) },
+    { icon: FileText,      label: "Documentos",      get: p => fmtLimit(p.documents) },
+    { icon: MessageSquare, label: "Consultas / mes", get: p => fmtLimit(p.queries_month) },
+    { icon: HardDrive,     label: "Tamaño máx. / archivo", get: p => `${p.max_mb} MB` },
   ];
   return (
-    <div className={cn(
-      "group relative flex flex-col overflow-hidden rounded-2xl border bg-card hover:border-foreground/20",
-      !p.is_active && "opacity-60",
-    )}>
-      {/* Acento de marca */}
-      <div className="h-1 w-full bg-action-gradient" />
-
-      <div className="flex flex-1 flex-col p-5">
-        {/* Cabecera */}
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <h3 className="truncate text-lg font-semibold tracking-tight">{p.name}</h3>
-              {p.is_active
-                ? <span className="rounded-full bg-success/10 px-2 py-0.5 text-[10px] font-semibold text-success">Activo</span>
-                : <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">Inactivo</span>}
-            </div>
-            <p className="mt-0.5 font-mono text-[11px] text-muted-foreground/70">{p.id}</p>
-          </div>
-          <Button size="sm" variant="ghost" className="h-8 shrink-0 gap-1.5 text-xs" onClick={onEdit}>
-            <Pencil className="h-3.5 w-3.5" /> Editar
-          </Button>
-        </div>
-
-        {/* Precio protagonista */}
-        <div className="mt-4 flex items-baseline gap-1.5">
-          {p.price_usd != null ? (
-            <>
-              <span className="text-3xl font-bold tracking-tight tabular-nums">
-                ${p.price_usd.toLocaleString("en-US", { minimumFractionDigits: p.price_usd % 1 === 0 ? 0 : 2, maximumFractionDigits: 2 })}
-              </span>
-              <span className="text-sm text-muted-foreground">/ mes</span>
-            </>
-          ) : (
-            <span className="text-lg font-semibold text-muted-foreground">Sin precio definido</span>
-          )}
-        </div>
-
-        {/* Límites */}
-        <div className="mt-4 divide-y rounded-xl border bg-muted/10">
-          {rows.map(r => {
-            const Icon = r.icon;
+    <div className="overflow-x-auto rounded-2xl border bg-card scrollbar-slim">
+      <table className="w-full min-w-[520px] border-collapse text-sm">
+        <thead>
+          <tr className="border-b bg-muted/30">
+            <th className="w-44 px-4 py-3 text-left text-xs font-medium text-muted-foreground">Plan</th>
+            {plans.map(p => (
+              <th key={p.id} className={cn("min-w-[150px] px-4 py-3 text-left align-top", !p.is_active && "opacity-55")}>
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold text-foreground">{p.name}</span>
+                  {p.is_active
+                    ? <span className="rounded-full bg-success/10 px-1.5 py-0.5 text-[10px] font-semibold text-success">Activo</span>
+                    : <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">Inactivo</span>}
+                </div>
+                <div className="mt-0.5 font-mono text-[10px] text-muted-foreground/60">{p.id}</div>
+                <button
+                  onClick={() => onEdit(p)}
+                  className="mt-2 inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs font-medium text-action transition-colors hover:bg-action/10"
+                >
+                  <Pencil className="h-3.5 w-3.5" /> Editar
+                </button>
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {features.map(f => {
+            const Icon = f.icon;
             return (
-              <div key={r.label} className="flex items-center justify-between gap-2 px-3.5 py-2.5">
-                <span className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Icon className="h-4 w-4 shrink-0 text-action/60" /> {r.label}
-                </span>
-                {r.unlimited ? (
-                  <span className="flex items-center gap-1 text-sm font-semibold text-action">
-                    <InfinityIcon className="h-4 w-4" /> Ilimitado
+              <tr key={f.label} className="border-b last:border-0">
+                <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
+                  <span className="inline-flex items-center gap-2">
+                    <Icon className="h-4 w-4 shrink-0 text-muted-foreground/60" /> {f.label}
                   </span>
-                ) : (
-                  <span className="text-sm font-semibold tabular-nums">{r.value}</span>
-                )}
-              </div>
+                </td>
+                {plans.map(p => {
+                  const v = f.get(p);
+                  const unlimited = v === "Ilimitado";
+                  return (
+                    <td key={p.id} className={cn("px-4 py-3 tabular-nums", !p.is_active && "opacity-55")}>
+                      <span className={cn(
+                        f.strong ? "text-base font-bold text-foreground" : "font-semibold text-foreground",
+                        unlimited && "text-action",
+                      )}>{v}</span>
+                    </td>
+                  );
+                })}
+              </tr>
             );
           })}
-        </div>
-      </div>
+        </tbody>
+      </table>
     </div>
   );
 }
