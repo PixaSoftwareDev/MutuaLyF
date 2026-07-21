@@ -1072,15 +1072,6 @@ function ConvCard({ conv, now, selected, readOnly, onlineNames, onSelect, onAcce
 
   const attending = conv.status === "human_attending";
 
-  // Cada conversación es una "burbuja": fondo propio + borde teñido según
-  // estado. El borde de color refuerza la urgencia sin depender solo del fill.
-  const cardBg =
-    urgencyLevel === "critical" ? "bg-destructive/10 hover:bg-destructive/15 border-destructive/25" :
-    urgencyLevel === "urgent"   ? "bg-warning/10 hover:bg-warning/15 border-warning/25"             :
-    yourTurn                    ? "bg-attention/10 hover:bg-attention/15 border-attention/25"       :
-    attending                   ? "bg-success/10 hover:bg-success/15 border-success/25"             :
-    "bg-card hover:bg-muted/50 border-border/60";
-
   const dotColor =
     urgencyLevel === "critical" ? "bg-destructive" :
     urgencyLevel === "urgent"   ? "bg-warning"     :
@@ -1113,22 +1104,54 @@ function ConvCard({ conv, now, selected, readOnly, onlineNames, onSelect, onAcce
   // every message is unread by definition, so the badge adds no information.
   const showUnread = conv.unread_count > 0 && conv.status === "human_attending";
 
+  // Señal de triage: barra de acento a la izquierda (ancho FIJO 3px, transparente
+  // cuando no hay estado → todas las filas alinean) + tinte suave del fondo según
+  // urgencia. Fuerte en lo accionable (en espera / tu turno), calmo en lo que ya
+  // se atiende. Corrés la vista por el borde y detectás qué requiere acción.
+  const accentBar =
+    urgencyLevel === "critical" ? "border-l-destructive" :
+    urgencyLevel === "urgent"   ? "border-l-warning"     :
+    urgencyLevel === "warn"     ? "border-l-warning"     :
+    yourTurn                    ? "border-l-attention"   :
+    attending                   ? "border-l-success"     :
+    "border-l-transparent";
+  const rowTint = selected
+    ? "bg-muted/70"
+    : urgencyLevel === "critical" ? "bg-destructive/[0.07] hover:bg-destructive/10" :
+      urgencyLevel === "urgent"   ? "bg-warning/[0.08] hover:bg-warning/[0.12]"     :
+      urgencyLevel === "warn"     ? "bg-warning/[0.05] hover:bg-warning/[0.09]"     :
+      yourTurn                    ? "bg-attention/[0.07] hover:bg-attention/[0.11]" :
+      attending                   ? "bg-success/[0.04] hover:bg-success/[0.08]"     :
+      "hover:bg-muted/40";
+
   return (
     <div
       className={cn(
-        "rounded-xl border shadow-sm transition-colors group",
-        selected ? "bg-accent border-ring/60" : cardBg,
+        "group rounded-lg border-l-[3px] transition-colors",
+        accentBar,
+        rowTint,
       )}
     >
-      <div className="flex items-center gap-2.5 px-3 py-2.5">
-        <span
-          className={cn(
-            "w-2 h-2 rounded-full shrink-0 mt-0.5 self-start",
-            dotColor,
-            dotPulse && "animate-pulse motion-reduce:animate-none",
+      <div className="flex items-start gap-3 px-3 py-2.5">
+        {/* Avatar con punto de estado en la esquina — misma fila limpia que el
+            inbox del admin; el color de urgencia va en el punto y en la hora,
+            sin teñir toda la burbuja. */}
+        <span className="relative mt-0.5 shrink-0">
+          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-muted text-sm font-semibold text-muted-foreground">
+            {conv.afiliado_nombre?.trim()[0]?.toUpperCase()
+              ?? (conv.channel === "whatsapp" ? <WhatsAppIcon className="h-4 w-4" /> : <User className="h-4 w-4" />)}
+          </span>
+          {dotColor !== "bg-transparent" && (
+            <span
+              className={cn(
+                "absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-background",
+                dotColor,
+                dotPulse && "animate-pulse motion-reduce:animate-none",
+              )}
+              aria-hidden
+            />
           )}
-          aria-hidden
-        />
+        </span>
 
         <button onClick={onSelect} className="flex-1 min-w-0 text-left">
           <p className="text-sm font-medium leading-tight flex items-center gap-1.5 min-w-0">
