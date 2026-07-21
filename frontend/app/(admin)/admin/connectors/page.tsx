@@ -3,9 +3,9 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Plug, Loader2, Trash2, ShieldCheck, ShieldAlert, KeyRound, ChevronRight, Database } from "lucide-react";
+import { Plus, Plug, Loader2, Trash2, ShieldCheck, ShieldAlert, KeyRound, ChevronRight, ChevronDown, Database } from "lucide-react";
 import { api, type ConnectorRow } from "@/lib/api";
-import { cn } from "@/lib/utils";
+import { cn, toSlug } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -36,12 +36,20 @@ export default function ConnectorsPage() {
 
   const [showCreate, setShowCreate] = useState(false);
   const [slug, setSlug]             = useState("");
+  const [slugEdited, setSlugEdited] = useState(false);   // el usuario lo tocó a mano
   const [name, setName]             = useState("");
   const [baseUrl, setBaseUrl]       = useState("");
   const [hosts, setHosts]           = useState("");
   const [authType, setAuthType]     = useState("none");
   const [secret, setSecret]         = useState("");
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [deleting, setDeleting]     = useState<ConnectorRow | null>(null);
+
+  // El slug se deriva del Nombre salvo que el usuario lo haya editado a mano.
+  const onNameChange = (v: string) => {
+    setName(v);
+    if (!slugEdited) setSlug(toSlug(v));
+  };
 
   const { data, isLoading } = useQuery({
     queryKey: ["connectors"],
@@ -68,7 +76,8 @@ export default function ConnectorsPage() {
     onSuccess: () => {
       inv();
       setShowCreate(false);
-      setSlug(""); setName(""); setBaseUrl(""); setHosts(""); setAuthType("none"); setSecret("");
+      setSlug(""); setSlugEdited(false); setName(""); setBaseUrl(""); setHosts("");
+      setAuthType("none"); setSecret(""); setShowAdvanced(false);
       toast({ title: "Conector creado", description: "Configurá sus operaciones y probalo antes de activar.", variant: "success" });
     },
     onError: (e) => toast({ title: "No se pudo crear", description: errDetail(e), variant: "destructive" }),
@@ -208,24 +217,16 @@ export default function ConnectorsPage() {
             </div>
           </DialogHeader>
 
-          <div className="-mr-1 max-h-[min(60vh,32rem)] space-y-4 overflow-y-auto pr-1">
+          {/* px/py 1.5 + margen negativo: da aire para el ring de foco (el
+              overflow-y recorta también en horizontal) sin correr el contenido. */}
+          <div className="-mx-1.5 -my-1.5 max-h-[min(60vh,32rem)] space-y-4 overflow-y-auto px-1.5 py-1.5">
             <div className="space-y-2">
               <Label>Nombre</Label>
-              <Input placeholder="Ej. Proveedor de datos" value={name} onChange={e => setName(e.target.value)} />
-            </div>
-            <div className="space-y-2">
-              <Label>Identificador (slug)</Label>
-              <Input placeholder="proveedor" value={slug} onChange={e => setSlug(e.target.value.toLowerCase())} />
-              <p className="text-xs leading-relaxed text-muted-foreground">Minúsculas, números, guiones. No se puede cambiar después.</p>
+              <Input placeholder="Ej. Proveedor de datos" value={name} onChange={e => onNameChange(e.target.value)} />
             </div>
             <div className="space-y-2">
               <Label>URL base del API</Label>
               <Input placeholder="https://api.proveedor.com.ar" value={baseUrl} onChange={e => setBaseUrl(e.target.value)} />
-            </div>
-            <div className="space-y-2">
-              <Label>Hosts permitidos (egress)</Label>
-              <Input placeholder="api.proveedor.com.ar (separados por coma)" value={hosts} onChange={e => setHosts(e.target.value)} />
-              <p className="text-xs leading-relaxed text-muted-foreground">Si lo dejás vacío, se usa el host de la URL base. Activar hacia un host nuevo requiere aprobación del super-admin.</p>
             </div>
             <div className="space-y-2">
               <Label>Autenticación</Label>
@@ -243,6 +244,39 @@ export default function ConnectorsPage() {
                 <p className="text-xs leading-relaxed text-muted-foreground">Se guarda cifrada y nunca se vuelve a mostrar. Podés cargarla o cambiarla después.</p>
               </div>
             )}
+
+            {/* Opciones avanzadas — el identificador se autogenera del nombre y el
+                egress se infiere de la URL; sólo se tocan si hace falta. */}
+            <div className="border-t pt-3">
+              <button
+                type="button"
+                onClick={() => setShowAdvanced(v => !v)}
+                className="flex w-full items-center gap-1.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+                aria-expanded={showAdvanced}
+              >
+                <ChevronDown className={cn("h-4 w-4 transition-transform", showAdvanced && "rotate-180")} />
+                Opciones avanzadas
+              </button>
+
+              {showAdvanced && (
+                <div className="mt-3 space-y-4 animate-fade-in">
+                  <div className="space-y-2">
+                    <Label>Identificador (slug)</Label>
+                    <Input
+                      placeholder="proveedor"
+                      value={slug}
+                      onChange={e => { setSlug(toSlug(e.target.value)); setSlugEdited(true); }}
+                    />
+                    <p className="text-xs leading-relaxed text-muted-foreground">Se genera del nombre. Minúsculas, números y guiones. No se puede cambiar después de crear.</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Hosts permitidos (egress)</Label>
+                    <Input placeholder="api.proveedor.com.ar (separados por coma)" value={hosts} onChange={e => setHosts(e.target.value)} />
+                    <p className="text-xs leading-relaxed text-muted-foreground">Si lo dejás vacío, se usa el host de la URL base. Activar hacia un host nuevo requiere aprobación del super-admin.</p>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
 
           <DialogFooter>
