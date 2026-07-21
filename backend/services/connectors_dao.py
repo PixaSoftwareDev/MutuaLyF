@@ -437,6 +437,71 @@ async def delete_binding(tenant_id: str, binding_id: str) -> bool:
     return res.rowcount > 0
 
 
+# ── Usuarios autorizados por conector (registro de identidad de nuestro lado) ────
+# Para conectores cuyo sistema externo no modela usuarios (identity_validation=
+# 'platform_registry'): la lista blanca de quién puede consultar vive acá. El login
+# busca por documento y manda OTP al email registrado. Ver migración 033.
+async def list_connector_users(tenant_id: str, connector_id: str) -> list[dict]:
+    async with get_pg_session(tenant_id) as session:
+        rows = (await session.execute(text("""
+            SELECT id::text, documento, email, nombre, is_active, created_at
+            FROM connector_users WHERE connector_id = CAST(:cid AS uuid)
+            ORDER BY nombre
+        """), {"cid": connector_id})).mappings().all()
+    return [dict(r) for r in rows]
+
+
+async def create_connector_user(tenant_id: str, connector_id: str, data: dict) -> str:
+    async with get_pg_session(tenant_id) as session:
+        uid = (await session.execute(text("""
+            INSERT INTO connector_users (connector_id, documento, email, nombre, is_active)
+            VALUES (CAST(:cid AS uuid), :documento, :email, :nombre, :is_active)
+            RETURNING id::text
+        """), {"cid": connector_id, "documento": data["documento"], "email": data["email"],
+               "nombre": data["nombre"], "is_active": data.get("is_active", True)})).scalar()
+        await session.commit()
+    return uid
+
+
+async def update_connector_user(tenant_id: str, user_id: str, data: dict) -> bool:
+    cols = [c for c in ("documento", "email", "nombre", "is_active") if c in data]
+    if not cols:
+        return False
+    params = {c: data[c] for c in cols}
+    params["id"] = user_id
+    set_sql = ", ".join(f"{c} = :{c}" for c in cols)
+    async with get_pg_session(tenant_id) as session:
+        res = await session.execute(text(
+            f"UPDATE connector_users SET {set_sql}, updated_at = NOW() WHERE id = CAST(:id AS uuid)"
+        ), params)
+        await session.commit()
+    return res.rowcount > 0
+
+
+async def delete_connector_user(tenant_id: str, user_id: str) -> bool:
+    async with get_pg_session(tenant_id) as session:
+        res = await session.execute(text(
+            "DELETE FROM connector_users WHERE id = CAST(:id AS uuid)"
+        ), {"id": user_id})
+        await session.commit()
+    return res.rowcount > 0
+
+
+async def get_connector_user_by_documento(tenant_id: str, connector_id: str, documento: str) -> dict | None:
+    """Resuelve el usuario ACTIVO por (connector_id, documento). None si no existe
+    o está inactivo. Base del login platform_registry: de acá sale el email del OTP."""
+    if not documento:
+        return None
+    async with get_pg_session(tenant_id) as session:
+        row = (await session.execute(text("""
+            SELECT id::text, documento, email, nombre
+            FROM connector_users
+            WHERE connector_id = CAST(:cid AS uuid) AND documento = :doc AND is_active
+            LIMIT 1
+        """), {"cid": connector_id, "doc": documento})).mappings().first()
+    return dict(row) if row else None
+
+
 # ── Allowlist global de hosts aprobados (decisión D2, schema public) ─────────────
 async def is_host_approved(host: str) -> bool:
     async with get_pg_session() as session:

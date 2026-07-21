@@ -20,6 +20,7 @@ el conector está inactivo.
 
 import asyncio
 import logging
+import re
 import time
 
 import httpx
@@ -134,6 +135,42 @@ class TestIn(BaseModel):
 class HostIn(BaseModel):
     host: str = Field(min_length=3, max_length=200)
     note: str | None = None
+
+
+# Usuarios autorizados por conector (registro de identidad, modo platform_registry).
+_EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+
+
+class ConnectorUserIn(BaseModel):
+    documento: str = Field(min_length=3, max_length=40)   # se normaliza a dígitos
+    email: str = Field(min_length=5, max_length=200)
+    nombre: str = Field(min_length=2, max_length=120)
+    is_active: bool = True
+
+
+class ConnectorUserUpdate(BaseModel):
+    documento: str | None = Field(default=None, min_length=3, max_length=40)
+    email: str | None = Field(default=None, min_length=5, max_length=200)
+    nombre: str | None = Field(default=None, min_length=2, max_length=120)
+    is_active: bool | None = None
+
+
+def _clean_user_fields(data: dict) -> dict:
+    """Normaliza documento a solo dígitos (así matchea el login, que hace lo mismo)
+    y valida el formato del email. Muta y devuelve el dict."""
+    if data.get("documento") is not None:
+        doc = re.sub(r"\D", "", data["documento"])
+        if len(doc) < 3:
+            raise HTTPException(status_code=422, detail="El documento debe tener al menos 3 dígitos")
+        data["documento"] = doc
+    if data.get("email") is not None:
+        email = data["email"].strip().lower()
+        if not _EMAIL_RE.match(email):
+            raise HTTPException(status_code=422, detail="Email inválido")
+        data["email"] = email
+    if data.get("nombre") is not None:
+        data["nombre"] = data["nombre"].strip()
+    return data
 
 
 def _validate_connector_payload(auth_type: str | None):
@@ -435,6 +472,73 @@ async def delete_binding(
     if not await dao.delete_binding(tenant_id, binding_id):
         raise HTTPException(status_code=404, detail="Binding no encontrado")
     _audit(request, current_user, "connector_binding_deleted", binding_id)
+    return {"ok": True}
+
+
+# ── Usuarios autorizados por conector (registro de identidad, platform_registry) ──
+# La identidad de quién puede consultar la validamos nosotros: lista blanca con
+# documento + email + nombre. El login busca por documento y manda OTP al email.
+# Solo admin del tenant (require_admin_or_super). Aislado por schema.
+
+@router.get("/admin/connectors/{connector_id}/users")
+async def list_connector_users(
+    connector_id: str, current_user: CurrentUser = Depends(require_admin_or_super),
+):
+    tenant_id = _own_tenant(current_user)
+    if await dao.get_connector(tenant_id, connector_id) is None:
+        raise HTTPException(status_code=404, detail="Conector no encontrado")
+    return {"users": await dao.list_connector_users(tenant_id, connector_id)}
+
+
+@router.post("/admin/connectors/{connector_id}/users", status_code=201)
+async def create_connector_user(
+    connector_id: str, body: ConnectorUserIn, request: Request,
+    current_user: CurrentUser = Depends(require_admin_or_super),
+):
+    tenant_id = _own_tenant(current_user)
+    if await dao.get_connector(tenant_id, connector_id) is None:
+        raise HTTPException(status_code=404, detail="Conector no encontrado")
+    data = _clean_user_fields(body.model_dump())
+    try:
+        uid = await dao.create_connector_user(tenant_id, connector_id, data)
+    except Exception as exc:
+        if "unique" in str(exc).lower() or "duplicate" in str(exc).lower():
+            raise HTTPException(status_code=409, detail="Ya existe un usuario con ese documento o email en este conector")
+        raise
+    _audit(request, current_user, "connector_user_created", connector_id, {"documento": data["documento"]})
+    return {"id": uid}
+
+
+@router.patch("/admin/connectors/users/{user_id}")
+async def update_connector_user(
+    user_id: str, body: ConnectorUserUpdate, request: Request,
+    current_user: CurrentUser = Depends(require_admin_or_super),
+):
+    tenant_id = _own_tenant(current_user)
+    data = _clean_user_fields({k: v for k, v in body.model_dump().items() if v is not None})
+    if not data:
+        raise HTTPException(status_code=422, detail="Nada para actualizar")
+    try:
+        ok = await dao.update_connector_user(tenant_id, user_id, data)
+    except Exception as exc:
+        if "unique" in str(exc).lower() or "duplicate" in str(exc).lower():
+            raise HTTPException(status_code=409, detail="Ya existe un usuario con ese documento o email en este conector")
+        raise
+    if not ok:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    _audit(request, current_user, "connector_user_updated", user_id, {"fields": list(data)})
+    return {"ok": True}
+
+
+@router.delete("/admin/connectors/users/{user_id}")
+async def delete_connector_user(
+    user_id: str, request: Request,
+    current_user: CurrentUser = Depends(require_admin_or_super),
+):
+    tenant_id = _own_tenant(current_user)
+    if not await dao.delete_connector_user(tenant_id, user_id):
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    _audit(request, current_user, "connector_user_deleted", user_id)
     return {"ok": True}
 
 

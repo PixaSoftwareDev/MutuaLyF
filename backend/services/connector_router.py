@@ -119,6 +119,17 @@ def _msg_codigo_enviado(masked: str | None) -> str:
     return ("Si tus datos están registrados, te va a llegar un *código de 6 dígitos* "
             "a tu email. Ingresalo acá.")
 
+
+def _msg_id_no_registrado(spec: dict) -> str:
+    # SOLO para platform_registry (lista blanca interna cargada por el admin):
+    # ahí decir "no estás registrado" no regala enumeración valiosa (es un equipo
+    # interno, no la base de afiliados) y evita dejar al usuario esperando un
+    # código que nunca va a llegar. Los modos de afiliados públicos
+    # (platform_otp / provider) conservan el mensaje neutro anti-enumeración.
+    return (f"Ese {spec['label']} no figura entre los usuarios autorizados. "
+            f"Revisá que esté bien escrito, o pedile al administrador de tu "
+            f"organización que te dé de alta. ¿Probás con otro {spec['label']}?")
+
 def _msg_limite_envios() -> str:
     return ("Ya te enviamos varios códigos. Esperá unos minutos antes de pedir otro, "
             "o comunicate con la organización si no te están llegando.")
@@ -131,7 +142,7 @@ def _msg_reenviado() -> str:
 
 def _msg_bloqueado() -> str:
     return ("Por seguridad bloqueé los intentos por *15 minutos*. Si no reconocés esta "
-            "actividad, comunicate con la Mutual. Podés reintentar más tarde.")
+            "actividad, comunicate con la organización. Podés reintentar más tarde.")
 
 def _msg_upstream() -> str:
     return ("No puedo verificar tu identidad en este momento por un problema técnico. "
@@ -141,7 +152,7 @@ def _msg_upstream() -> str:
 def _msg_no_existe(label: str) -> str:
     # Neutro: no confirmamos ni negamos existencia del identificador (anti-enumeración).
     return (f"No pude validar esos datos. Verificá el {label} y el código, o comunicate con "
-            "la Mutual si el problema persiste.")
+            "la organización si el problema persiste.")
 
 def _msg_sesion_cerrada() -> str:
     return "Cerré tu sesión. Tus datos personales quedan protegidos. ¿Algo más?"
@@ -221,7 +232,7 @@ def _format_tool_answer(tool_slug: str, result, nombre: str | None) -> str:
         return f"{saludo}no encontré resultados. ✅"
     if result.outcome == FORBIDDEN:
         return ("No puedo mostrar esa información con los datos de tu sesión. "
-                "Si creés que es un error, comunicate con la Mutual.")
+                "Si creés que es un error, comunicate con la organización.")
     if result.outcome in (UPSTREAM_ERROR, AUTH_REQUIRED):
         return _msg_upstream()
 
@@ -595,21 +606,48 @@ async def _dispatch_binding(
     return _resp(_msg_pide_id(spec))
 
 
+async def _resolve_pending_binding(tenant_id: str, pending: str):
+    """Binding del flujo pendiente del FSM. `pending` puede ser un label de
+    intención (modo cosine) o un slug de tool (modos tool_calling/unified, donde
+    la selección no pasa por intenciones y pending_intent guarda el slug).
+    Sin este fallback, en unified el FSM perdía el binding a mitad del login:
+    no encontraba el auth_config → no enviaba el OTP y mostraba el mensaje TOTP
+    genérico (bug encontrado en el QA de navegador 2026-07-21)."""
+    binding = await get_tool_for_intent(tenant_id, pending or "")
+    if binding is None:
+        binding = await get_tool_by_slug(tenant_id, pending or "")
+    return binding
+
+
 async def _send_platform_otp(tenant_id: str, conv_id: str, binding, identity: str) -> tuple[str | None, str | None]:
-    """OTP propio: busca el contacto en el proveedor, genera y envía el código.
+    """OTP propio: resuelve el email de contacto, genera y envía el código.
+
+    El email sale de dos fuentes según identity_validation del conector:
+      - 'platform_registry' → nuestra lista blanca (connector_users), por documento.
+        Para conectores cuyo sistema externo no modela usuarios (ej. un CRM con solo
+        token de servicio): la identidad la validamos nosotros de este lado.
+      - 'platform_otp'      → perfil del afiliado en el proveedor (lookup_identity).
 
     Devuelve (masked_contact, nombre). masked=None si la identidad no existe o el
     envío no se registró — el mensaje al usuario queda neutro (anti-enumeración).
     """
     from services import otp
-    from services.connector_executor import lookup_identity
 
     cfg = getattr(binding, "auth_config", {}) or {}
-    profile = await lookup_identity(binding, identity, cfg)
-    if profile is None:
-        return None, None
-    email = profile.get(cfg.get("contact_email_field", "email"))
-    nombre = profile.get(cfg.get("name_field", "nombre"))
+    if cfg.get("identity_validation") == "platform_registry":
+        from services.connectors_dao import get_connector_user_by_documento
+        user = await get_connector_user_by_documento(tenant_id, binding.connector_id, identity)
+        if user is None:
+            return None, None
+        email = user.get("email")
+        nombre = user.get("nombre")
+    else:
+        from services.connector_executor import lookup_identity
+        profile = await lookup_identity(binding, identity, cfg)
+        if profile is None:
+            return None, None
+        email = profile.get(cfg.get("contact_email_field", "email"))
+        nombre = profile.get(cfg.get("name_field", "nombre"))
     code = await otp.generate_and_store(tenant_id, conv_id, identity)
     if code is None:
         return None, nombre
@@ -621,7 +659,7 @@ async def _handle_id_input(tenant_id: str, conv_id: str, text: str, flow: dict) 
     kind = flow.get("identity_kind", "afiliado")
     is_prof = kind == "profesional"
     # El binding define el identificador (DNI/CUIT/legajo...) y el modo de validación.
-    binding = await get_tool_for_intent(tenant_id, flow.get("pending_intent") or "")
+    binding = await _resolve_pending_binding(tenant_id, flow.get("pending_intent") or "")
     cfg = (getattr(binding, "auth_config", {}) or {}) if binding else {}
     spec = identity_spec(kind, cfg)
     if not _valid_identity(text, spec):
@@ -630,13 +668,25 @@ async def _handle_id_input(tenant_id: str, conv_id: str, text: str, flow: dict) 
     flow["stage"] = _PIDIENDO_CODIGO
 
     # ¿El conector delega la validación al proveedor, o la hace la plataforma?
-    if binding is not None and cfg.get("identity_validation") == "platform_otp":
+    # platform_otp     → email leído del proveedor (perfil del afiliado).
+    # platform_registry→ email leído de NUESTRA lista blanca (connector_users).
+    # Ambos validan el código con el OTP propio → mismo flujo, distinto origen de email.
+    if binding is not None and cfg.get("identity_validation") in ("platform_otp", "platform_registry"):
         from services import otp
         flow["mode"] = "platform_otp"
         if not await otp.can_send(tenant_id, conv_id):
             await _set_flow(tenant_id, conv_id, flow)
             return _resp(_msg_limite_envios())
         masked, nombre = await _send_platform_otp(tenant_id, conv_id, binding, flow["identity"])
+        # Lista blanca y el documento NO está (masked=None y sin nombre = lookup
+        # falló, no un fallo de envío): decirlo claro y volver a pedir el
+        # identificador — no dejar al usuario esperando un código imposible.
+        if (masked is None and nombre is None
+                and cfg.get("identity_validation") == "platform_registry"):
+            flow["stage"] = _PIDIENDO_ID
+            flow.pop("identity", None)
+            await _set_flow(tenant_id, conv_id, flow)
+            return _resp(_msg_id_no_registrado(spec))
         if nombre:
             flow["nombre"] = nombre
         await _set_flow(tenant_id, conv_id, flow)
@@ -656,7 +706,7 @@ async def _handle_code_input(tenant_id: str, conv_id: str, text: str, flow: dict
 
     # Resolvemos el binding (conector para validar por HTTP, stub, o lookup OTP).
     pending = flow.get("pending_intent")
-    binding = await get_tool_for_intent(tenant_id, pending or "")
+    binding = await _resolve_pending_binding(tenant_id, pending or "")
     if binding is None:
         await _clear_flow(tenant_id, conv_id)
         return _resp(_msg_upstream())

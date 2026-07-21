@@ -58,6 +58,10 @@ def wired(monkeypatch):
     """Cablea el flujo con Redis fake, stub habilitado, clasificador/DAO/audit mockeados."""
     from core.config import settings
     monkeypatch.setattr(settings, "connectors_enabled", True)
+    # Estos tests ejercitan el flujo cosine (clasificador+binding). Se fija el
+    # modo explícito: sin esto heredan CONNECTOR_ROUTING_MODE del ambiente
+    # (p.ej. unified en dev local) y maybe_handle ni clasifica.
+    monkeypatch.setattr(settings, "connector_routing_mode", "cosine")
     monkeypatch.setattr(settings, "nexa_stub_enabled", True)
 
     fake_session = FakeRedis()
