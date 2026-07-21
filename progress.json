@@ -1,6 +1,6 @@
 {
   "version": "1.9",
-  "last_updated": "2026-07-08T13:30:00Z",
+  "last_updated": "2026-07-21",
   "current_stage": "etapa_3",
   "current_step": "completed",
   "overall_status": "etapa_3_complete",
@@ -197,6 +197,11 @@
       "decision": "Auto-promoción de clusters coherentes → intenciones (con gate de coherencia Groq)",
       "reason": "El sistema de intenciones tenía un cold-start: el unico camino cluster→intencion era aprobacion manual, que nunca ocurria (mutualyf: 59 clusters, 0 intenciones). Ahora los clusters coherentes se promueven solos; los incoherentes quedan para revision.",
       "date": "2026-07-08"
+    },
+    {
+      "decision": "Ruteo de conectores por LLM tool-calling (modos tool_calling/unified) en lugar del clasificador coseno; pipeline nocturno de intenciones apagado por flag",
+      "reason": "Datos de prod: el coseno ruteo 1/11 consultas CRM en toda la historia y asigno labels erroneos (futbol->crm_finanzas). Eval 46 casos reales: LLM tool-calling 46/46 estricto. Modo unified (la misma llamada RAG decide tool-vs-responder) medido con delta de latencia ~0 vs baseline. El pipeline nocturno (clustering/auto-promote/retrain) no aporta valor al producto hoy: queda tras INTENT_NIGHTLY_PIPELINE_ENABLED=false, reversible por env. Eliminacion total del subsistema de intenciones (Fase 3) diferida hasta validar unified en prod.",
+      "date": "2026-07-21"
     }
   ],
   "blockers": [],

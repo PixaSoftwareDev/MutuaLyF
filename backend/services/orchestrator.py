@@ -54,12 +54,33 @@ def _keyword_overlap(query: str, text: str) -> float:
     text_lower = text.lower()
     return sum(1 for t in tokens if t in text_lower) / len(tokens)
 
+async def _try_tool_pick(question: str, tool_schemas: list[dict], tenant_id: str) -> dict | None:
+    """Decisión de tool SOLA (para la rama hard_fallback del modo unificado).
+
+    Usa el prompt del router de conectores; el texto que genere el modelo se
+    descarta (solo importa si eligió tool) → sin riesgo de alucinación. Fail-open
+    a None ante cualquier error: el fallback determinístico sigue su curso.
+    """
+    try:
+        from services.connector_router import TOOL_ROUTER_SYSTEM  # lazy: sin ciclo de import
+        from services.groq_client import select_tool
+        msgs = [
+            {"role": "system", "content": TOOL_ROUTER_SYSTEM},
+            {"role": "user", "content": (question or "")[:1000]},
+        ]
+        return await select_tool(msgs, tool_schemas, tenant_id=tenant_id)
+    except Exception as exc:
+        logger.warning("tool_pick_on_fallback_failed tenant_id=%s error=%s", tenant_id, exc)
+        return None
+
+
 async def handle_query(
     question: str,
     tenant_id: str,
     user_id: str | None = None,
     language: str = "es",
     conversation_history: list[tuple[str, str]] | None = None,
+    tool_schemas: list[dict] | None = None,
 ) -> dict[str, Any]:
     """Main entry point for a user query.
 
@@ -68,9 +89,18 @@ async def handle_query(
         tenant_id: Tenant scope.
         user_id: Optional user ID for audit logging.
         language: Response language hint.
+        tool_schemas: Function schemas de conectores (modo unificado 2b). Si el LLM
+            elige una tool en vez de responder, se devuelve {"tool_call": {...}}
+            con answer=None y el CALLER (capa widget) la ejecuta — por acá pasa la
+            DECISIÓN, nunca el resultado de la tool (datos personales no entran al
+            cache compartido). Nota: los hits de cache exacto/semántico se sirven
+            ANTES de considerar tools; una respuesta RAG cacheada previa puede
+            opacar una consulta de tool similar (edge aceptado: intellix registra
+            0 hits históricos; revisar si aparece en telemetría).
 
     Returns:
-        Dict with keys: answer, sources, intent_label, intent_confidence, from_cache, latency_ms.
+        Dict with keys: answer, sources, intent_label, intent_confidence, from_cache,
+        latency_ms — y opcionalmente tool_call (solo modo unificado).
     """
     from core.tracing import get_tracer
     tracer = get_tracer()
@@ -477,6 +507,21 @@ async def handle_query(
     facts_note = await _canonical_facts_note(tenant_id, question)
     if facts_note:
         system_parts.append(facts_note)
+    if tool_schemas:
+        # Modo unificado (2b): el modelo tiene herramientas de datos EN VIVO
+        # adjuntas a esta misma llamada. Guía explícita de cuándo usarlas — sin
+        # esto tiende a responder desde el contexto documental aunque la consulta
+        # pida datos vivos del sistema del cliente (CRM etc.).
+        system_parts.append(
+            "=== DATOS EN VIVO (HERRAMIENTAS) ===\n"
+            "Tenés herramientas que consultan datos EN VIVO y PRIVADOS del sistema de "
+            "la organización (por ejemplo un CRM: clientes, proyectos, oportunidades, "
+            "finanzas, tareas). Si la consulta pide específicamente esos datos, llamá "
+            "la herramienta correspondiente EN VEZ de responder desde el contexto "
+            "documental (el contexto puede estar desactualizado para datos vivos). "
+            "Para todo lo demás —información general, horarios, servicios, personas "
+            "del equipo— respondé normalmente sin herramientas."
+        )
     system_parts.append(
         "FORMATO DE ENLACES: escribí las URLs completas en texto plano "
         "(por ejemplo https://www.ejemplo.com/pagina). NUNCA uses formato Markdown "
@@ -527,6 +572,26 @@ async def handle_query(
         # Corte duro: respuesta determinística con el contacto del tenant, sin LLM.
         # Imposible alucinar porque no hay generación. Reusa el contact_info del
         # config del handoff (mismo campo que el mensaje de "no hay operadores").
+        #
+        # PERO: con tools presentes, este es EXACTAMENTE el camino donde caen las
+        # consultas de datos vivos ("¿qué oportunidades tenemos?" no tiene docs →
+        # score bajo). Antes de rendirnos, una llamada de SOLO-decisión (el texto
+        # se descarta → cero riesgo de alucinación): si el LLM elige tool, el
+        # caller la ejecuta; si no, sigue el mensaje determinístico de siempre.
+        if tool_schemas:
+            pick = await _try_tool_pick(question, tool_schemas, tenant_id)
+            if pick:
+                latency_ms = int(time.monotonic() * 1000) - start_ms
+                logger.info("unified_tool_pick_on_fallback tenant_id=%s tool=%s", tenant_id, pick["name"])
+                return {
+                    "answer": None,
+                    "tool_call": pick,
+                    "sources": [],
+                    "intent_label": intent_result.label if intent_result else None,
+                    "intent_confidence": intent_result.confidence if intent_result else None,
+                    "from_cache": False,
+                    "latency_ms": latency_ms,
+                }
         from services.handoff import _get_handoff_config, build_no_info_message
         handoff_cfg = await _get_handoff_config(tenant_id)
         answer = build_no_info_message(handoff_cfg)
@@ -542,11 +607,34 @@ async def handle_query(
         }
 
     try:
-        answer = await complete(
-            messages=messages,
-            complexity=complexity,
-            tenant_id=tenant_id,
-        )
+        if tool_schemas:
+            # Modo unificado (2b): UNA llamada decide tool-vs-respuesta. Cero hops
+            # extra en turnos RAG; si elige tool, la salida es corta (más rápida
+            # que generar respuesta) y el caller ejecuta.
+            from services.groq_client import complete_with_tools
+            answer, tool_pick = await complete_with_tools(
+                messages=messages,
+                tools=tool_schemas,
+                complexity=complexity,
+                tenant_id=tenant_id,
+            )
+            if tool_pick:
+                latency_ms = int(time.monotonic() * 1000) - start_ms
+                return {
+                    "answer": None,
+                    "tool_call": tool_pick,
+                    "sources": [],
+                    "intent_label": intent_result.label if intent_result else None,
+                    "intent_confidence": intent_result.confidence if intent_result else None,
+                    "from_cache": False,
+                    "latency_ms": latency_ms,
+                }
+        else:
+            answer = await complete(
+                messages=messages,
+                complexity=complexity,
+                tenant_id=tenant_id,
+            )
     except (APITimeoutError, RateLimitError, APIError, httpx.HTTPError) as exc:
         # APITimeoutError/RateLimitError/APIError come from the `groq` SDK.
         # httpx.HTTPError covers OpenAI (called via raw httpx in groq_client.complete)

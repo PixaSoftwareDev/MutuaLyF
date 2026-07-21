@@ -126,6 +126,93 @@ async def get_tool_for_intent(tenant_id: str, intent_label: str) -> ToolBinding 
     )
 
 
+# ── Tool calling: catálogo + resolución por slug (sin pasar por intenciones) ─────
+async def list_tools_for_tool_calling(tenant_id: str) -> list[dict]:
+    """Todas las tools ACTIVAS de conectores activos del tenant, para armar el
+    catálogo de function-calling que se le ofrece al LLM. Sin JOIN a intenciones:
+    en modo tool_calling la selección la hace el LLM, no el binding.
+
+    Devuelve por tool: slug, display_name, params_schema, identity_kind, is_read_only.
+    """
+    async with get_pg_session(tenant_id) as session:
+        rows = (await session.execute(text("""
+            SELECT t.slug, t.display_name, t.params_schema,
+                   t.identity_kind, t.is_read_only
+            FROM connector_tools t
+            JOIN tenant_connectors c ON c.id = t.connector_id
+            WHERE t.is_active AND c.is_active
+            ORDER BY t.slug
+        """))).mappings().all()
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["params_schema"] = _as_dict(d.get("params_schema"))
+        d["is_read_only"] = bool(d["is_read_only"])
+        out.append(d)
+    return out
+
+
+async def get_tool_by_slug(tenant_id: str, tool_slug: str) -> ToolBinding | None:
+    """Resuelve una tool activa por su slug (para EJECUTAR lo que eligió el LLM).
+
+    Mismo hidratado que get_tool_for_intent pero sin depender de un binding de
+    intención. `intent_label` queda como el slug (solo para logging/auditoría) y
+    `min_confidence` en 0.0 (en modo tool_calling el gate lo pone el LLM, no un
+    umbral de coseno). Fail-closed: None si la tool/connector no están activos.
+    """
+    if not tool_slug:
+        return None
+
+    async with get_pg_session(tenant_id) as session:
+        row = (await session.execute(text("""
+            SELECT t.id::text          AS tool_id,
+                   t.slug              AS tool_slug,
+                   t.http_method, t.path_template,
+                   t.params_schema, t.response_map,
+                   t.identity_kind, t.is_read_only,
+                   c.id::text          AS connector_id,
+                   c.slug              AS connector_slug,
+                   c.base_url, c.egress_allow,
+                   c.auth_type, c.auth_secret_ref, c.timeout_ms,
+                   c.auth_config, c.auth_secret_enc
+            FROM connector_tools t
+            JOIN tenant_connectors c ON c.id = t.connector_id
+            WHERE t.slug = :slug AND t.is_active AND c.is_active
+            LIMIT 1
+        """), {"slug": tool_slug})).mappings().first()
+
+        if row is None:
+            return None
+
+        roles = (await session.execute(text("""
+            SELECT role FROM connector_roles WHERE tool_id = CAST(:tid AS uuid)
+        """), {"tid": row["tool_id"]})).fetchall()
+
+    return ToolBinding(
+        tenant_id=tenant_id,
+        intent_label=row["tool_slug"],
+        min_confidence=0.0,
+        tool_id=row["tool_id"],
+        tool_slug=row["tool_slug"],
+        http_method=row["http_method"],
+        path_template=row["path_template"],
+        params_schema=_as_dict(row["params_schema"]),
+        response_map=_as_dict(row["response_map"]),
+        identity_kind=row["identity_kind"],
+        is_read_only=bool(row["is_read_only"]),
+        connector_id=row["connector_id"],
+        connector_slug=row["connector_slug"],
+        base_url=row["base_url"],
+        egress_allow=list(row["egress_allow"] or []),
+        auth_type=row["auth_type"],
+        auth_secret_ref=row["auth_secret_ref"],
+        timeout_ms=int(row["timeout_ms"]),
+        auth_config=_as_dict(row["auth_config"]),
+        auth_secret_enc=row["auth_secret_enc"],
+        roles={r[0] for r in roles},
+    )
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # CRUD para la pantalla de conectores (Fase 1). Todo tenant-scoped vía search_path.
 # El secreto NUNCA se lee acá en claro: auth_secret_enc se devuelve como bool

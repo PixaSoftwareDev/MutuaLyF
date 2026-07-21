@@ -28,7 +28,11 @@ import re
 from core.config import settings
 from core.database import get_redis_ratelimit, get_redis_session
 from services import session_store
-from services.connectors_dao import get_tool_for_intent
+from services.connectors_dao import (
+    get_tool_by_slug,
+    get_tool_for_intent,
+    list_tools_for_tool_calling,
+)
 from services.connector_executor import (
     AUTH_REQUIRED, EMPTY, FORBIDDEN, OK, UPSTREAM_ERROR,
     execute_tool, validate_second_factor,
@@ -366,6 +370,87 @@ async def _run_tool_and_format(binding, *, tenant_id: str, question: str,
     return _resp(answer, outcome=result.outcome)
 
 
+# ── Selección de tool por LLM (modo tool_calling) ───────────────────────────────
+# Prompt del router. Constante de módulo: el harness de eval (eval_tool_routing.py)
+# evalúa EXACTAMENTE este texto — si se ajusta acá, el eval lo mide sin drift.
+TOOL_ROUTER_SYSTEM = (
+    "Sos el router de un asistente conversacional. Tenés herramientas que "
+    "consultan datos EN VIVO y PRIVADOS del sistema del cliente (por ejemplo un "
+    "CRM: clientes, proyectos, oportunidades, finanzas). "
+    "Si el mensaje pide consultar o listar esos datos, llamá la herramienta "
+    "correspondiente con los parámetros que puedas extraer — también cuando lo "
+    "pide de forma coloquial ('contame sobre nuestros proyectos', 'tengo alguna "
+    "tarea?'). "
+    "NO llames ninguna herramienta para: saludos, preguntas generales sobre la "
+    "empresa o sus servicios, o preguntas sobre las personas de la propia "
+    "organización (quién es alguien, su rol o su experiencia)."
+)
+
+
+def _build_tool_schemas(catalog: list[dict]) -> list[dict]:
+    """connector_tools → function schemas para el LLM. name=slug, params=params_schema."""
+    schemas = []
+    for t in catalog:
+        ps = t.get("params_schema") or {}
+        if ps.get("type") == "object":
+            parameters = ps
+        else:
+            parameters = {
+                "type": "object",
+                "properties": ps.get("properties", {}),
+                "required": ps.get("required", []),
+            }
+        schemas.append({
+            "type": "function",
+            "function": {
+                "name": t["slug"],
+                "description": t.get("display_name") or t["slug"],
+                "parameters": parameters,
+            },
+        })
+    return schemas
+
+
+async def _resolve_tool_via_llm(
+    tenant_id: str, text: str,
+) -> tuple["object", dict] | None:
+    """Deja que el LLM elija una tool del catálogo del tenant, o None → RAG.
+
+    Reemplaza al clasificador de coseno en la DECISIÓN de qué tool disparar. El
+    resto (login FSM, roles, execute_tool) es idéntico. Devuelve (binding, params).
+    """
+    catalog = await list_tools_for_tool_calling(tenant_id)
+    if not catalog:
+        return None
+
+    tools = _build_tool_schemas(catalog)
+    messages = [
+        {"role": "system", "content": TOOL_ROUTER_SYSTEM},
+        {"role": "user", "content": (text or "")[:1000]},
+    ]
+
+    from services.groq_client import select_tool
+    try:
+        picked = await select_tool(messages, tools, tenant_id=tenant_id)
+    except Exception as exc:
+        logger.warning("tool_calling_select_failed tenant_id=%s error=%s", tenant_id, exc)
+        return None  # fail-safe → RAG
+
+    if not picked:
+        return None
+
+    binding = await get_tool_by_slug(tenant_id, picked["name"])
+    if binding is None:
+        # El LLM inventó un slug fuera del catálogo → fail-closed a RAG.
+        logger.info("tool_calling_unknown_slug tenant_id=%s slug=%s", tenant_id, picked["name"])
+        return None
+
+    # Solo params declarados en el schema de la tool (descarta alucinaciones).
+    allowed = set((binding.params_schema or {}).get("properties", {}).keys())
+    params = {k: v for k, v in (picked.get("arguments") or {}).items() if k in allowed}
+    return binding, params
+
+
 # ── Entrada principal ──────────────────────────────────────────────────────────
 async def maybe_handle(
     tenant_id: str,
@@ -408,27 +493,78 @@ async def maybe_handle(
         if flow["stage"] == _PIDIENDO_CODIGO:
             return await _handle_code_input(tenant_id, conv_id, text, flow)
 
-    # ── No hay FSM activo: clasificar y ver si la intención dispara una tool ───
-    from services.classifier import classify_intent
-    from services.query_normalizer import normalize_query
-    # Se clasifica la query NORMALIZADA (misma forma canónica que usa el RAG):
-    # así la clasificación queda memoizada y el turno que sigue al RAG no paga
-    # una segunda búsqueda en Qdrant.
-    intent = await classify_intent(normalize_query(text), tenant_id)
-    binding = await get_tool_for_intent(tenant_id, intent.label or "")
-    if binding is None:
-        return None  # no es datos personales → RAG
-    if intent.confidence is not None and intent.confidence < binding.min_confidence:
-        return None  # confianza insuficiente para ir a la tool → RAG (fail-safe)
+    # ── No hay FSM activo: decidir si el turno dispara una tool ────────────────
+    # Tres modos (settings.connector_routing_mode):
+    #   unified      → la decisión ocurre DENTRO de la llamada RAG (handle_query con
+    #                  tool_schemas → handle_tool_signal). Acá solo se atendió el FSM.
+    #   tool_calling → llamada LLM separada elige la tool del catálogo (2a).
+    #   cosine       → clasificador de intenciones + binding (legacy).
+    if settings.connector_routing_mode == "unified":
+        return None
 
+    llm_params: dict | None = None
+    if settings.connector_routing_mode == "tool_calling":
+        resolved = await _resolve_tool_via_llm(tenant_id, text)
+        if resolved is None:
+            return None  # ninguna tool aplica → RAG
+        binding, llm_params = resolved
+    else:
+        from services.classifier import classify_intent
+        from services.query_normalizer import normalize_query
+        # Se clasifica la query NORMALIZADA (misma forma canónica que usa el RAG):
+        # así la clasificación queda memoizada y el turno que sigue al RAG no paga
+        # una segunda búsqueda en Qdrant.
+        intent = await classify_intent(normalize_query(text), tenant_id)
+        binding = await get_tool_for_intent(tenant_id, intent.label or "")
+        if binding is None:
+            return None  # no es datos personales → RAG
+        if intent.confidence is not None and intent.confidence < binding.min_confidence:
+            return None  # confianza insuficiente para ir a la tool → RAG (fail-safe)
+
+    return await _dispatch_binding(binding, llm_params, tenant_id, conv_id, text)
+
+
+async def handle_tool_signal(
+    tenant_id: str,
+    conversation_id: str,
+    message: str,
+    tool_slug: str,
+    params: dict | None,
+) -> dict | None:
+    """Modo unificado (2b): la llamada RAG devolvió un tool_call. Resuelve el slug y
+    despacha por el MISMO camino que los otros modos (público / sesión / FSM login).
+
+    Fail-closed: None si el slug no existe o su tool/conector están inactivos
+    (el LLM alucinó un nombre) — el caller decide el fallback.
+    """
+    binding = await get_tool_by_slug(tenant_id, tool_slug)
+    if binding is None:
+        logger.info("tool_signal_unknown_slug tenant_id=%s slug=%s", tenant_id, tool_slug)
+        return None
+    allowed = set((binding.params_schema or {}).get("properties", {}).keys())
+    clean = {k: v for k, v in (params or {}).items() if k in allowed}
+    return await _dispatch_binding(binding, clean, tenant_id, str(conversation_id), message)
+
+
+async def _dispatch_binding(
+    binding, llm_params: dict | None, tenant_id: str, conv_id: str, text: str,
+) -> dict:
+    """Despacho común post-selección (los 3 modos convergen acá):
+    tool pública → ejecutar; personal con sesión → ejecutar; sin sesión → FSM login.
+    """
     # ── Tool PÚBLICA (sin login): ejecutar directo con params del mensaje ──────
     if binding.identity_kind == "publico":
-        params = extract_params(text, binding.params_schema)
+        # Base léxica (enum/pattern del mensaje) + lo del LLM PISA lo léxico.
+        # Así, si el LLM eligió la tool pero olvidó un param que sí está en el
+        # mensaje, el extractor lo rellena y no re-preguntamos al usuario.
+        params = dict(extract_params(text, binding.params_schema))
+        if llm_params:
+            params.update(llm_params)
         required = (binding.params_schema or {}).get("required", [])
         missing = [r for r in required if r not in params]
         if missing:
-            # La intención matchea esta tool pero falta un dato requerido. NO caer
-            # al RAG (responde inventando desde el historial — visto en vivo con
+            # La tool matchea pero falta un dato requerido. NO caer al RAG
+            # (responde inventando desde el historial — visto en vivo con
             # "cuáles entregaron?" → re-etiquetó los activos como entregados).
             # Pedimos el dato; si tiene enum, ofrecemos las opciones.
             spec = (binding.params_schema or {}).get("properties", {}).get(missing[0], {})

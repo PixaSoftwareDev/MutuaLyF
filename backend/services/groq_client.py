@@ -247,6 +247,141 @@ async def complete(
     return content
 
 
+def _parse_tool_pick(msg: dict) -> dict | None:
+    """Extrae la PRIMERA tool call del message del LLM (forma normalizada dict).
+
+    Returns {"name": str, "arguments": dict} o None si el modelo respondió texto.
+    """
+    import json as _json
+
+    tool_calls = msg.get("tool_calls") or []
+    if not tool_calls:
+        return None
+    fn = tool_calls[0].get("function") or {}
+    name = fn.get("name")
+    if not name:
+        return None
+    raw_args = fn.get("arguments") or "{}"
+    try:
+        args = raw_args if isinstance(raw_args, dict) else _json.loads(raw_args)
+    except (TypeError, ValueError):
+        args = {}
+    return {"name": name, "arguments": args if isinstance(args, dict) else {}}
+
+
+@retry(
+    retry=retry_if_exception(_is_retryable_llm_error),
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=1, max=10),
+    before_sleep=before_sleep_log(logger, logging.WARNING),
+    reraise=True,
+)
+async def complete_with_tools(
+    messages: list[dict[str, str]],
+    tools: list[dict],
+    *,
+    complexity: str = QueryComplexity.SIMPLE,
+    temperature: float = 0.0,
+    max_tokens: int = 1024,
+    tenant_id: str | None = None,
+    timeout_s: float | None = None,
+) -> tuple[str, dict | None]:
+    """Chat completion CON function-calling (`tool_choice="auto"`).
+
+    La primitiva del modo unificado (2b): una sola llamada donde el modelo decide
+    entre generar la respuesta o pedir una tool. También la usa select_tool (2a).
+
+    Returns:
+        (texto, tool_pick): si el modelo eligió tool, tool_pick={"name","arguments"}
+        y texto puede ser "". Si respondió texto, tool_pick=None.
+    """
+    provider = (settings.llm_provider or "groq").lower()
+    default_timeout = (
+        settings.llm_reasoning_timeout_ms / 1000
+        if complexity == QueryComplexity.COMPLEX
+        else settings.llm_fast_timeout_ms / 1000
+    )
+    timeout = timeout_s if timeout_s is not None else default_timeout
+
+    if provider == "openai":
+        model = settings.openai_model
+        client = _get_openai_http_client()
+        async with _get_groq_semaphore():
+            r = await client.post(
+                "/chat/completions",
+                json={
+                    "model": model,
+                    "messages": messages,
+                    "temperature": temperature,
+                    "max_tokens": max_tokens,
+                    "tools": tools,
+                    "tool_choice": "auto",
+                },
+                # Sin timeout_s explícito, mismo piso de 30s que complete(): es la
+                # llamada de respuesta. Con timeout_s (router 2a), corta agresivo.
+                timeout=timeout if timeout_s is not None else max(timeout, 30.0),
+            )
+            r.raise_for_status()
+            data = r.json()
+        msg = data["choices"][0]["message"]
+        content = msg.get("content") or ""
+        total_tokens = (data.get("usage") or {}).get("total_tokens", 0)
+    else:
+        model = _model_for_complexity(complexity)
+        client = get_groq_client()
+        async with _get_groq_semaphore():
+            response = await client.chat.completions.create(
+                model=model,
+                messages=messages,  # type: ignore[arg-type]
+                temperature=temperature,
+                max_tokens=max_tokens,
+                tools=tools,  # type: ignore[arg-type]
+                tool_choice="auto",
+                timeout=timeout,
+            )
+        # Normalizar a la misma forma dict que el path openai.
+        _m = response.choices[0].message
+        msg = {
+            "tool_calls": [
+                {"function": {"name": tc.function.name, "arguments": tc.function.arguments}}
+                for tc in (_m.tool_calls or [])
+            ]
+        }
+        content = _m.content or ""
+        total_tokens = response.usage.total_tokens if response.usage else 0
+
+    if tenant_id and total_tokens > 0:
+        try:
+            asyncio.create_task(_log_llm_tokens(tenant_id, total_tokens))
+        except RuntimeError:
+            pass
+
+    pick = _parse_tool_pick(msg)
+    if pick:
+        logger.info("tool_pick provider=%s tool=%s args=%s", provider, pick["name"], pick["arguments"])
+    return content, pick
+
+
+async def select_tool(
+    messages: list[dict[str, str]],
+    tools: list[dict],
+    *,
+    tenant_id: str | None = None,
+) -> dict | None:
+    """Solo la decisión de tool (modo 2a / hard-fallback): ofrece `tools` y devuelve
+    la elegida o None. Wrapper de complete_with_tools con timeout AJUSTADO: corre en
+    el hot path ANTES del RAG; si el proveedor se cuelga, mejor cortar a los pocos
+    segundos y caer al RAG (fail-open) que bloquear el turno 30s.
+    """
+    _, pick = await complete_with_tools(
+        messages, tools,
+        max_tokens=512,
+        tenant_id=tenant_id,
+        timeout_s=max(settings.llm_fast_timeout_ms / 1000, 6.0),
+    )
+    return pick
+
+
 async def _log_llm_tokens(tenant_id: str, tokens: int) -> None:
     """Fire-and-forget logger of LLM token usage to usage_events for billing."""
     try:

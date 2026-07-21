@@ -142,6 +142,16 @@ class Settings(BaseSettings):
     # a nivel sistema — el bot sigue siendo solo-RAG). Se activa por tenant vía la
     # config de conectores, pero este flag lo apaga globalmente si hace falta.
     connectors_enabled: bool = False
+    # Cómo decide el router QUÉ tool disparar:
+    #   "cosine"       → clasificador de intenciones por embeddings + binding intención→tool
+    #                    (legacy: empíricamente poco fiable — mislabels y confianza baja).
+    #   "tool_calling" → llamada LLM SEPARADA pre-RAG elige la tool (2a). Ruteo correcto
+    #                    (eval 46/46) pero suma ~0.9-1.2s a CADA turno del widget.
+    #   "unified"      → la MISMA llamada LLM que genera la respuesta RAG recibe el
+    #                    catálogo (tool_choice=auto) y decide tool-vs-responder (2b).
+    #                    Cero latencia extra en turnos RAG; recomendado.
+    # El flujo posterior (FSM de login, roles, execute_tool) es idéntico en los 3 modos.
+    connector_routing_mode: str = "cosine"
     # Stub in-process de NEXA para dev/tests (no llama a NEXA real). Solo en dev.
     nexa_stub_enabled: bool = False
     # Sesión autenticada: TTL y throttle del segundo factor.
@@ -285,6 +295,16 @@ class Settings(BaseSettings):
     intent_auto_learn_cap: float = 0.30
     intent_cluster_min_size: int = 15
     intent_cluster_dismiss_days: int = 60
+
+    # ── Pipeline nocturno de intenciones (clustering + retrain + auto-promote) ──
+    # OFF por default: en la práctica no aporta valor hoy — la intención clasificada
+    # no altera la respuesta del RAG (solo telemetría/curación) y el único uso
+    # funcional (ruteo a conectores) no depende de este pipeline sino de la creación
+    # manual de intents/bindings. Corría cada noche generando candidatos que nadie
+    # cura y reentrenamientos que nadie consume. Se apaga vía flag (no se borra) para
+    # poder reactivarlo por env sin tocar código mientras se migra a LLM tool-calling.
+    # Reactivar SOLO si se vuelve a apostar por la curación automática de intenciones.
+    intent_nightly_pipeline_enabled: bool = False
 
     # ── Auto-promoción de clusters → intenciones ────────────────────────────────
     # Modo sugerencia por defecto (False): el clustering nocturno solo genera

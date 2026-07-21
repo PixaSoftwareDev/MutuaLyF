@@ -337,6 +337,22 @@ async def send_message(
                       "Por favor, comunicate directamente con la organización.")
         sources = []
     else:
+        # Modo unificado (2b): la MISMA llamada LLM del RAG recibe el catálogo de
+        # tools del tenant y decide tool-vs-responder (cero hops extra en turnos
+        # RAG). Si eligió tool, se ejecuta acá — capa de conversación, con estado —
+        # por el mismo camino que los otros modos (público / sesión / FSM login).
+        from core.config import settings as _settings
+        tool_schemas = None
+        if _settings.connectors_enabled and _settings.connector_routing_mode == "unified":
+            try:
+                from services.connector_router import _build_tool_schemas
+                from services.connectors_dao import list_tools_for_tool_calling
+                catalog = await list_tools_for_tool_calling(tenant_id)
+                if catalog:
+                    tool_schemas = _build_tool_schemas(catalog)
+            except Exception as exc:
+                # Sin catálogo no hay tools este turno; el RAG sigue normal.
+                logger.warning("tool_catalog_failed tenant_id=%s error=%s", tenant_id, exc)
         try:
             rag_result = await handle_query(
                 question=body.content,
@@ -344,9 +360,35 @@ async def send_message(
                 user_id=None,
                 language="es",
                 conversation_history=conversation_history,
+                tool_schemas=tool_schemas,
             )
-            bot_answer = rag_result["answer"]
-            sources = rag_result.get("sources", [])
+            if rag_result.get("tool_call"):
+                from services.connector_router import handle_tool_signal
+                tc = rag_result["tool_call"]
+                connector_result = await handle_tool_signal(
+                    tenant_id, conversation_id, body.content,
+                    tc["name"], tc.get("arguments"),
+                )
+                if connector_result is not None:
+                    bot_answer = connector_result["answer"]
+                    sources = []
+                else:
+                    # Slug alucinado / tool desactivada entre medio (raro): la llamada
+                    # devolvió tool_call sin texto → reintento RAG puro, sin tools.
+                    logger.warning("tool_signal_unresolved tenant_id=%s tool=%s — retry RAG",
+                                   tenant_id, tc.get("name"))
+                    rag_result = await handle_query(
+                        question=body.content,
+                        tenant_id=tenant_id,
+                        user_id=None,
+                        language="es",
+                        conversation_history=conversation_history,
+                    )
+                    bot_answer = rag_result["answer"]
+                    sources = rag_result.get("sources", [])
+            else:
+                bot_answer = rag_result["answer"]
+                sources = rag_result.get("sources", [])
         except Exception as exc:
             logger.error("widget_rag_failed conversation_id=%s error=%s", conversation_id, exc)
             bot_answer = "Lo siento, ocurrió un error. Intentá de nuevo en un momento."
