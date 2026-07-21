@@ -128,3 +128,6 @@ secrets/
 .playwright-mcp/
 /*.png
 frontend/public/widget/test.html
+
+# Demo local del widget embebido (contiene widget_token — no commitear)
+frontend/public/demo-embed.html

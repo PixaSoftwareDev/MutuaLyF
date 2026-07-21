@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Check, Pipette, Bot, Lock, X, Send, Loader2, Palette, Contrast, ChevronRight, ChevronLeft, Maximize2, Minimize2, MoveHorizontal } from "lucide-react";
+import { Check, Pipette, Bot, Lock, X, Send, Loader2, Palette, Contrast, ChevronRight, ChevronLeft, Maximize2, Minimize2, MoveHorizontal, Paperclip } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { Card, CardContent } from "@/components/ui/card";
@@ -458,7 +458,7 @@ function PreviewWidget({ primaryColor, textColor, dark, botName, greeting, posit
       {/* Cuerpo: tarjeta de identidad flotante + conversación */}
       <div ref={bodyRef} className="flex-1 overflow-y-auto scrollbar-slim px-3.5 pb-4" style={{ background: T.panel }}>
         {/* Tarjeta de identidad — el nombre y el estado del bot */}
-        <div className="mx-auto mb-5 mt-1 flex w-fit max-w-[90%] items-center gap-2.5 rounded-2xl border px-3.5 py-2.5 shadow-sm" style={{ background: T.cardBg, borderColor: T.border }}>
+        <div className="mx-auto mb-5 mt-1 flex w-fit max-w-[90%] items-center gap-2.5 rounded-2xl border px-3.5 py-2.5 shadow-[0_4px_12px_-3px_rgba(0,0,0,0.10),0_1px_4px_-1px_rgba(0,0,0,0.06)]" style={{ background: T.cardBg, borderColor: T.border }}>
           {avatar(34)}
           <div className="min-w-0 text-left">
             <p className="truncate text-[13px] font-semibold leading-tight" style={{ color: T.botText }}>{name}</p>
@@ -491,13 +491,16 @@ function PreviewWidget({ primaryColor, textColor, dark, botName, greeting, posit
 
       {/* Input pill */}
       <div className="shrink-0 px-3 py-2.5" style={{ background: T.panel }}>
-        <div className="flex items-center gap-2 rounded-full px-3 py-1.5" style={{ background: T.inputBg }}>
+        <div className="flex items-center gap-1 rounded-full py-1 pl-1.5 pr-1" style={{ background: T.inputBg }}>
+          <button type="button" aria-label="Adjuntar archivo" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full transition-colors" style={{ color: T.icon }}>
+            <Paperclip className="h-[18px] w-[18px]" />
+          </button>
           <input
             value={input}
             onChange={e => setInput(e.target.value)}
             onKeyDown={e => { if (e.key === "Enter") send(); }}
             placeholder="Escribí un mensaje…"
-            className="min-w-0 flex-1 bg-transparent text-[13px] outline-none"
+            className="min-w-0 flex-1 bg-transparent px-1 text-[13px] outline-none"
             style={{ color: T.botText }}
           />
           <button onClick={send} disabled={!input.trim()} aria-label="Enviar" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-white transition-opacity disabled:opacity-40" style={{ background: bubbleGrad }}>

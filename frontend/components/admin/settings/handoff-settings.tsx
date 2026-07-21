@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Workflow, Repeat, Timer, MessagesSquare, CalendarClock, Bot, UserCheck } from "lucide-react";
+import { Workflow, Repeat, Timer, MessagesSquare, CalendarClock, Bot, Headphones } from "lucide-react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
@@ -239,31 +239,41 @@ function HandoffPreview({ messages, focusedKey }: {
     </div>
   );
 
+  // Avatar del bot (redondo, con punto "en línea") — igual que el chat real.
+  const avatar = (
+    <span className="relative h-6 w-6 shrink-0">
+      <span className="flex h-full w-full items-center justify-center rounded-full bg-gradient-to-br from-brand-light to-brand-dark">
+        <Bot className="h-3 w-3 text-brand-foreground" />
+      </span>
+      <span className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full border-2 border-white bg-emerald-500 dark:border-[#15181b]" />
+    </span>
+  );
+
   return (
-    <div className="rounded-2xl border bg-gradient-to-br from-violet-100 via-indigo-50 to-transparent p-3.5 dark:from-violet-500/15 dark:via-indigo-500/10 dark:to-transparent lg:sticky lg:top-4 lg:self-start">
+    <div className="rounded-2xl border bg-muted/30 p-3.5 lg:sticky lg:top-4 lg:self-start">
       <p className="mb-2.5 px-1 text-[11px] font-medium text-muted-foreground">Vista previa</p>
-      <div className="space-y-2 rounded-xl bg-white p-3 shadow-sm dark:bg-[#15181b]">
+      <div className="space-y-2.5 rounded-xl bg-white p-3 shadow-sm dark:bg-[#15181b]">
         {/* Contexto: mensaje del bot que dispara la oferta */}
         <div className="flex items-end gap-2">
-          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand-light to-brand-dark shadow-sm">
-            <Bot className="h-3 w-3 text-brand-foreground" />
-          </span>
-          <div className="max-w-[80%] rounded-2xl rounded-bl-sm bg-slate-100 px-2.5 py-1.5 text-[11px] leading-snug text-slate-600 dark:bg-white/10 dark:text-slate-200">
+          {avatar}
+          <div className="max-w-[80%] rounded-2xl rounded-bl-md bg-slate-100 px-2.5 py-1.5 text-[11px] leading-snug text-slate-600 dark:bg-white/10 dark:text-slate-200">
             No tengo esa información a mano.
           </div>
         </div>
 
-        {/* 1. Oferta del bot — cartel ámbar con botón */}
-        <div className={cn(
-          "rounded-xl border px-3 py-2 text-center transition-all",
-          hl("handoff_offer")
-            ? "border-warning/40 bg-warning/15 ring-2 ring-warning/25"
-            : "border-warning/20 bg-warning/10",
-        )}>
-          <p className="text-[11px] leading-snug text-warning">{val("handoff_offer")}</p>
-          <span className="mt-1.5 inline-flex items-center gap-1 rounded-lg bg-warning px-2 py-1 text-[10px] font-medium text-warning-foreground">
-            <UserCheck className="h-3 w-3" /> Sí, conectarme
-          </span>
+        {/* 1. Oferta del bot — formato burbuja con botón de marca (igual que el chat) */}
+        <div className="flex items-end gap-2">
+          {avatar}
+          <div className={cn(
+            "flex max-w-[85%] flex-col gap-2 rounded-2xl rounded-bl-md bg-slate-100 px-3 py-2.5 transition-all dark:bg-white/10",
+            hl("handoff_offer") && "ring-2 ring-action/30",
+          )}>
+            <p className="text-[11px] leading-snug text-slate-700 dark:text-slate-200">{val("handoff_offer")}</p>
+            <span className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-gradient-to-br from-brand to-brand-dark px-2.5 py-1.5 text-[10px] font-semibold text-brand-foreground shadow-sm">
+              <Headphones className="h-3 w-3" /> Conectarme con un operador
+            </span>
+            <span className="self-center text-[10px] text-slate-400">Seguir con el asistente</span>
+          </div>
         </div>
 
         {/* 2 y 3. Avisos del sistema */}

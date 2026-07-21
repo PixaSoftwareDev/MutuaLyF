@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
-import { Loader2, Send, Bot, UserCheck, AlertTriangle, Paperclip, Plus } from "lucide-react";
+import { Loader2, Send, Bot, UserCheck, AlertTriangle, Paperclip, Headphones, RotateCcw, Tag } from "lucide-react";
 import { api, type TenantBranding } from "@/lib/api";
 import { applyBrandingVars, readCachedBranding, writeCachedBranding } from "@/lib/use-tenant-branding";
 import { renderWithLinks } from "@/lib/render-with-links";
@@ -13,7 +13,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 interface Sector { id: string; nombre: string; descripcion: string | null; is_default: boolean; }
 interface Message {
   id: string;
-  role: "user" | "bot" | "operator" | "system";
+  role: "user" | "bot" | "operator" | "system" | "error";
   content: string;
   handoffOffer?: boolean;
   attachment?: { name: string; mime: string } | null;
@@ -39,11 +39,14 @@ export default function ChatPage() {
 function BotBubble({ content }: { content: string }) {
   return (
     <div className="flex gap-3 items-end group animate-fade-in-up">
-      <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-brand-light to-brand-dark flex items-center justify-center shrink-0 shadow-md shadow-black/20">
-        <Bot className="h-4 w-4 text-brand-foreground" />
+      <div className="relative w-8 h-8 shrink-0">
+        <div className="w-full h-full rounded-full bg-gradient-to-br from-brand-light to-brand-dark flex items-center justify-center">
+          <Bot className="h-4 w-4 text-brand-foreground" />
+        </div>
+        <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-emerald-500 border-2 border-white" />
       </div>
       <div className="max-w-[78%] sm:max-w-[65%]">
-        <div className="bg-white text-slate-800 rounded-2xl rounded-bl-sm px-4 py-3 text-sm leading-relaxed shadow-sm border border-slate-100">
+        <div className="bg-[#f4f5f7] text-slate-800 rounded-2xl rounded-bl-md px-4 py-3 text-sm leading-relaxed">
           {renderWithLinks(content)}
         </div>
       </div>
@@ -55,7 +58,7 @@ function UserBubble({ content }: { content: string }) {
   return (
     <div className="flex justify-end animate-fade-in-up">
       <div className="max-w-[78%] sm:max-w-[65%]">
-        <div className="bg-gradient-to-br from-brand to-brand-dark text-brand-foreground rounded-2xl rounded-br-sm px-4 py-3 text-sm leading-relaxed shadow-md shadow-black/15">
+        <div className="bg-gradient-to-br from-brand to-brand-dark text-brand-foreground rounded-2xl rounded-br-md px-4 py-3 text-sm leading-relaxed shadow-sm">
           {renderWithLinks(content)}
         </div>
       </div>
@@ -126,7 +129,7 @@ function AttachmentMessage({ msg, url, headers, operatorName }: {
     return (
       <div className="flex justify-end animate-fade-in-up">
         <div className="max-w-[78%] sm:max-w-[65%]">
-          <div className="bg-gradient-to-br from-brand to-brand-dark text-brand-foreground rounded-2xl rounded-br-sm px-3 py-2.5 shadow-md shadow-black/15">
+          <div className="bg-gradient-to-br from-brand to-brand-dark text-brand-foreground rounded-2xl rounded-br-md px-3 py-2.5 shadow-sm">
             {inner}
           </div>
         </div>
@@ -135,12 +138,15 @@ function AttachmentMessage({ msg, url, headers, operatorName }: {
   }
   return (
     <div className="flex gap-3 items-end animate-fade-in-up">
-      <div className="w-8 h-8 rounded-xl bg-success flex items-center justify-center shrink-0 shadow-md shadow-black/10">
-        <UserCheck className="h-4 w-4 text-success-foreground" />
+      <div className="relative w-8 h-8 shrink-0">
+        <div className="w-full h-full rounded-full bg-gradient-to-br from-emerald-400 to-teal-600 flex items-center justify-center">
+          <UserCheck className="h-4 w-4 text-white" />
+        </div>
+        <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-emerald-500 border-2 border-white" />
       </div>
       <div className="max-w-[78%] sm:max-w-[65%]">
         {operatorName && <p className="text-[11px] text-muted-foreground mb-1 ml-1">{operatorName}</p>}
-        <div className="bg-white text-slate-800 rounded-2xl rounded-bl-sm px-3 py-2.5 shadow-sm border border-slate-100">
+        <div className="bg-emerald-50 text-slate-800 rounded-2xl rounded-bl-md px-3 py-2.5 border border-emerald-200">
           {inner}
         </div>
       </div>
@@ -151,11 +157,14 @@ function AttachmentMessage({ msg, url, headers, operatorName }: {
 function OperatorBubble({ content, operatorName }: { content: string; operatorName?: string | null }) {
   return (
     <div className="flex gap-3 items-end animate-fade-in-up">
-      <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-emerald-400 to-teal-600 flex items-center justify-center shrink-0 shadow-md shadow-emerald-500/30">
-        <UserCheck className="h-4 w-4 text-white" />
+      <div className="relative w-8 h-8 shrink-0">
+        <div className="w-full h-full rounded-full bg-gradient-to-br from-emerald-400 to-teal-600 flex items-center justify-center">
+          <UserCheck className="h-4 w-4 text-white" />
+        </div>
+        <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-emerald-500 border-2 border-white" />
       </div>
       <div className="max-w-[78%] sm:max-w-[65%]">
-        <div className="bg-white text-slate-800 rounded-2xl rounded-bl-sm px-4 py-3 text-sm leading-relaxed shadow-sm border border-emerald-100">
+        <div className="bg-emerald-50 text-slate-800 rounded-2xl rounded-bl-md px-4 py-3 text-sm leading-relaxed border border-emerald-200">
           {renderWithLinks(content)}
         </div>
         <p className="text-xs text-emerald-600 mt-1 ml-1 font-medium">{operatorName || "Operador"}</p>
@@ -167,9 +176,32 @@ function OperatorBubble({ content, operatorName }: { content: string; operatorNa
 function SystemBubble({ content }: { content: string }) {
   return (
     <div className="flex justify-center py-1 animate-fade-in-up">
-      <span className="text-xs text-slate-400 bg-slate-100 rounded-full px-4 py-1.5">
+      <span className="inline-flex max-w-[90%] items-center rounded-full bg-slate-100 px-3.5 py-1.5 text-xs leading-snug text-slate-500">
         {renderWithLinks(content)}
       </span>
+    </div>
+  );
+}
+
+// Error como mini-card (sin borde duro): círculo de ícono + texto. Opcional retry.
+function ErrorBubble({ content, onRetry }: { content: string; onRetry?: () => void }) {
+  return (
+    <div className="flex justify-center py-1 animate-fade-in-up">
+      <div className="flex max-w-[92%] items-center gap-2.5 rounded-2xl bg-red-50 py-2 pl-2.5 pr-3.5">
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-red-100 text-red-600">
+          <AlertTriangle className="h-4 w-4" />
+        </span>
+        <span className="text-[12.5px] leading-snug text-red-800">{content}</span>
+        {onRetry && (
+          <button
+            onClick={onRetry}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-white px-2.5 py-1.5 text-xs font-semibold text-red-600 shadow-sm transition-colors hover:bg-red-50"
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+            Reintentar
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -215,69 +247,61 @@ function HandoffOfferBubble({
     });
   }
 
+  const [dismissed, setDismissed] = useState(false);
+  // El área solo se pregunta acá si NO se eligió antes (en la lista bajo el saludo).
+  const askSector = sectors.length > 1 && !preselectedSectorId;
+  const inputCls = "w-full rounded-[10px] border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-brand focus:ring-[3px] focus:ring-brand/25";
+
   return (
-    <div className="flex justify-center py-2 animate-fade-in-up">
-      <div className="max-w-[85%] bg-warning/10 border border-warning/20 rounded-2xl px-4 py-3 text-center space-y-3">
-        <p className="text-sm text-warning">{renderWithLinks(content)}</p>
-        {confirmed ? (
-          <span className="inline-flex items-center gap-1.5 text-xs text-warning font-medium">
-            <Loader2 className="h-3 w-3 animate-spin" />
+    // Formato burbuja: avatar del bot + burbuja gris con la acción adentro.
+    <div className="flex items-end gap-3 animate-fade-in-up">
+      <div className="relative h-8 w-8 shrink-0">
+        <div className="flex h-full w-full items-center justify-center rounded-full bg-gradient-to-br from-brand-light to-brand-dark">
+          <Bot className="h-4 w-4 text-brand-foreground" />
+        </div>
+        <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-white bg-emerald-500" />
+      </div>
+      <div className="flex max-w-[85%] flex-col gap-3 rounded-2xl rounded-bl-md bg-[#f4f5f7] px-4 py-3">
+        <p className="text-sm leading-relaxed text-slate-800">{renderWithLinks(content)}</p>
+        {dismissed ? null : confirmed ? (
+          <span className="inline-flex items-center gap-2 text-sm text-slate-500">
+            <Loader2 className="h-4 w-4 animate-spin text-brand" />
             Buscando operador disponible…
           </span>
         ) : phase === "offer" ? (
-          <button
-            onClick={() => identified
-              ? onConfirm(preselectedSectorId ? { sector_id: preselectedSectorId } : undefined)
-              : setPhase("identify")}
-            className="inline-flex items-center gap-2 bg-warning text-warning-foreground hover:bg-warning/90 active:scale-95 text-sm font-medium rounded-xl px-4 py-2 transition-all"
-          >
-            <UserCheck className="h-4 w-4" />
-            Sí, conectarme con un operador
-          </button>
+          <>
+            <button
+              onClick={() => identified
+                ? onConfirm(preselectedSectorId ? { sector_id: preselectedSectorId } : undefined)
+                : setPhase("identify")}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-br from-brand to-brand-dark px-4 py-2.5 text-sm font-semibold text-brand-foreground shadow-sm transition-all hover:brightness-105 active:scale-95"
+            >
+              <Headphones className="h-4 w-4" />
+              Conectarme con un operador
+            </button>
+            <button
+              onClick={() => setDismissed(true)}
+              className="self-center text-xs text-slate-400 transition-colors hover:text-slate-600"
+            >
+              Seguir con el asistente
+            </button>
+          </>
         ) : (
-          <div className="text-left space-y-2">
-            <p className="text-xs font-semibold text-warning">Antes de conectarte con un operador</p>
-            <p className="text-[11px] text-warning leading-relaxed">
-              Para una mejor atención, decinos tu nombre y DNI:
-            </p>
-            <input
-              type="text"
-              value={nombre}
-              onChange={e => setNombre(e.target.value)}
-              placeholder="Nombre y apellido"
-              maxLength={200}
-              autoFocus
-              className="w-full px-3 py-2 rounded-md border border-warning/20 text-sm text-warning placeholder:text-warning/40 bg-white focus:outline-none focus:ring-2 focus:ring-warning/40"
-            />
-            <input
-              type="text"
-              inputMode="numeric"
-              value={dni}
-              onChange={e => setDni(e.target.value)}
-              placeholder="DNI (sin puntos)"
-              maxLength={20}
-              className="w-full px-3 py-2 rounded-md border border-warning/20 text-sm text-warning placeholder:text-warning/40 bg-white focus:outline-none focus:ring-2 focus:ring-warning/40"
-              onKeyDown={e => { if (e.key === "Enter") submit(); }}
-            />
-            {sectors.length > 1 && (
+          <div className="flex flex-col gap-2.5 text-left">
+            <p className="text-sm font-semibold text-slate-800">Antes de conectarte con un operador</p>
+            <input type="text" value={nombre} onChange={e => setNombre(e.target.value)} placeholder="Nombre y apellido" maxLength={200} autoFocus className={inputCls} />
+            <input type="text" inputMode="numeric" value={dni} onChange={e => setDni(e.target.value)} placeholder="DNI (sin puntos)" maxLength={20} className={inputCls} onKeyDown={e => { if (e.key === "Enter") submit(); }} />
+            {askSector && (
               <>
-                <p className="text-[11px] text-warning leading-relaxed">¿Con qué área querés hablar?</p>
-                <select
-                  value={sectorId}
-                  onChange={e => setSectorId(e.target.value)}
-                  aria-label="Área que te va a atender"
-                  className="w-full px-3 py-2 rounded-md border border-warning/20 text-sm text-warning bg-white focus:outline-none focus:ring-2 focus:ring-warning/40"
-                >
+                <p className="text-xs text-slate-500">¿Con qué área querés hablar?</p>
+                <select value={sectorId} onChange={e => setSectorId(e.target.value)} aria-label="Área que te va a atender" className={inputCls}>
                   {sectors.map(s => <option key={s.id} value={s.id}>{s.nombre}</option>)}
                 </select>
               </>
             )}
             {err && <p className="text-[11px] text-destructive">{err}</p>}
-            <div className="flex items-center justify-end pt-1">
-              <button
-                onClick={submit}
-                className="bg-warning text-warning-foreground hover:bg-warning/90 active:scale-95 text-sm font-medium rounded-xl px-4 py-2 transition-all"
-              >
+            <div className="flex justify-end pt-0.5">
+              <button onClick={submit} className="rounded-xl bg-gradient-to-br from-brand to-brand-dark px-5 py-2 text-sm font-semibold text-brand-foreground shadow-sm transition-all hover:brightness-105 active:scale-95">
                 Continuar
               </button>
             </div>
@@ -298,51 +322,45 @@ function SectorChooser({ sectors, selected, onSelect }: {
   selected: Sector | null;
   onSelect: (s: Sector) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  // Sin globito: la lista aparece directa. "No importa" descarta (queda en general).
+  const [dismissed, setDismissed] = useState(false);
 
   if (selected) {
     return (
-      <div className="flex justify-center animate-fade-in-up">
-        <span className="text-xs text-muted-foreground bg-muted rounded-full px-4 py-1.5">
-          Área elegida: <span className="font-medium text-foreground">{selected.nombre}</span>
+      <div className="flex justify-center py-1 animate-fade-in-up">
+        <span className="inline-flex max-w-[90%] items-center gap-1.5 rounded-full bg-slate-100 px-3.5 py-1.5 text-xs text-slate-500">
+          <Tag className="h-3.5 w-3.5 shrink-0" />
+          <span>Consulta dirigida al área <span className="font-semibold text-slate-700">{selected.nombre}</span></span>
         </span>
       </div>
     );
   }
+  if (dismissed) return null;
 
   return (
     <div className="flex justify-center animate-fade-in-up">
-      {open ? (
-        <div className="w-full max-w-sm rounded-2xl border bg-card shadow-md overflow-hidden">
-          <p className="border-b bg-muted/40 px-4 py-2.5 text-xs font-semibold text-muted-foreground">
-            ¿Con qué área querés hablar?
-          </p>
-          <div className="max-h-64 overflow-y-auto">
-            {sectors.map(s => (
-              <button
-                key={s.id}
-                onClick={() => onSelect(s)}
-                className="block w-full border-b px-4 py-2.5 text-left text-sm transition-colors last:border-b-0 hover:bg-brand/5 hover:text-brand"
-              >
-                {s.nombre}
-              </button>
-            ))}
+      <div className="w-full max-w-sm overflow-hidden rounded-2xl border bg-card shadow-md">
+        <p className="border-b bg-muted/40 px-4 py-2.5 text-xs font-semibold text-muted-foreground">
+          ¿Con qué área querés hablar?
+        </p>
+        <div className="max-h-64 overflow-y-auto">
+          {sectors.map(s => (
             <button
-              onClick={() => setOpen(false)}
-              className="block w-full px-4 py-2.5 text-left text-xs text-muted-foreground transition-colors hover:bg-muted/50"
+              key={s.id}
+              onClick={() => onSelect(s)}
+              className="block w-full border-b px-4 py-2.5 text-left text-sm transition-colors hover:bg-brand/5 hover:text-brand"
             >
-              No importa, sigo con el asistente
+              {s.nombre}
             </button>
-          </div>
+          ))}
+          <button
+            onClick={() => setDismissed(true)}
+            className="block w-full px-4 py-2.5 text-left text-xs text-muted-foreground transition-colors hover:bg-muted/50"
+          >
+            No importa, sigo con el asistente
+          </button>
         </div>
-      ) : (
-        <button
-          onClick={() => setOpen(true)}
-          className="rounded-full border bg-card px-4 py-1.5 text-xs text-muted-foreground shadow-sm transition-colors hover:border-brand/30 hover:text-brand"
-        >
-          ¿Preferís hablar con un área específica?
-        </button>
-      )}
+      </div>
     </div>
   );
 }
@@ -585,7 +603,7 @@ function ChatInner() {
       if (pendingMessage) await sendMessageTo(data.conversation_id, pendingMessage);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Error desconocido";
-      setMessages([{ id: "err", role: "system", content: `Error al iniciar el chat: ${msg}` }]);
+      setMessages([{ id: "err", role: "error", content: `Error al iniciar el chat: ${msg}` }]);
     }
   }
 
@@ -611,7 +629,7 @@ function ChatInner() {
       // Inserts optimistas quitados: causaban duplicados + parpadeo al ser
       // reemplazados por el snapshot real del siguiente poll cycle.
     } catch {
-      setMessages(prev => [...prev, { id: Date.now().toString() + "e", role: "system", content: "Error al enviar. Intentá de nuevo." }]);
+      setMessages(prev => [...prev, { id: Date.now().toString() + "e", role: "error", content: "Error al enviar. Intentá de nuevo." }]);
     } finally {
       setSending(false);
     }
@@ -630,11 +648,11 @@ function ChatInner() {
   async function uploadAttachment(file: File) {
     if (!conversationId || uploadingFile) return;
     if (!ALLOWED_ATTACH.includes(file.type)) {
-      setMessages(prev => [...prev, { id: Date.now() + "av", role: "system", content: "Solo se pueden enviar imágenes (PNG/JPG/WEBP) o PDF." }]);
+      setMessages(prev => [...prev, { id: Date.now() + "av", role: "error", content: "Solo se pueden enviar imágenes (PNG/JPG/WEBP) o PDF." }]);
       return;
     }
     if (file.size > 10 * 1024 * 1024) {
-      setMessages(prev => [...prev, { id: Date.now() + "as", role: "system", content: "El archivo supera el máximo de 10 MB." }]);
+      setMessages(prev => [...prev, { id: Date.now() + "as", role: "error", content: "El archivo supera el máximo de 10 MB." }]);
       return;
     }
     setUploadingFile(true);
@@ -656,7 +674,7 @@ function ChatInner() {
       await pollMessages(conversationId);  // refleja el adjunto recién subido
     } catch (e) {
       const msg = e instanceof Error ? e.message : "No se pudo enviar el archivo. Probá de nuevo.";
-      setMessages(prev => [...prev, { id: Date.now() + "ae", role: "system", content: msg }]);
+      setMessages(prev => [...prev, { id: Date.now() + "ae", role: "error", content: msg }]);
     } finally {
       setUploadingFile(false);
     }
@@ -700,7 +718,7 @@ function ChatInner() {
       // y mostrarle el motivo en vez de dejarlo esperando sin feedback.
       setHandoffConfirmed(false);
       const msg = e instanceof Error ? e.message : "No se pudo conectar con un operador. Probá de nuevo.";
-      setMessages(prev => [...prev, { id: Date.now().toString() + "he", role: "system", content: msg }]);
+      setMessages(prev => [...prev, { id: Date.now().toString() + "he", role: "error", content: msg }]);
     }
   }
 
@@ -713,6 +731,37 @@ function ChatInner() {
     status === "human_attending"    ? "bg-success" :
     status === "handoff_requested"  ? "bg-warning animate-pulse" :
     "bg-success animate-pulse";
+
+  // Texto de estado combinado (nombre aparte) — dispara la animación al cambiar.
+  const statusSuffix =
+    operatorsOnline !== null && status === "bot_active"
+      ? (operatorsOnline.count > 0
+          ? ` · ${operatorsOnline.count === 1 ? "1 operador disponible" : `${operatorsOnline.count} operadores disponibles`}`
+          : " · Sin operadores")
+      : "";
+  const statusText = statusLabel + statusSuffix;
+
+  // Efecto "Dynamic Island" (igual que el widget): la tarjeta de identidad crece
+  // o se achica con un spring suave cuando cambia el texto de estado, en vez de
+  // saltar. Mide el ancho natural nuevo, fija el viejo y transiciona al nuevo.
+  const idCardRef = useRef<HTMLDivElement>(null);
+  const prevCardW = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    const card = idCardRef.current;
+    if (!card) return;
+    const w1 = card.offsetWidth;              // ancho natural con el texto ya actualizado
+    const w0 = prevCardW.current;
+    if (w0 != null && w0 !== w1) {
+      card.style.width = `${w0}px`;
+      void card.offsetWidth;                  // reflow para fijar el punto de partida
+      card.style.width = `${w1}px`;           // animar hacia el nuevo ancho
+      const id = setTimeout(() => {
+        if (idCardRef.current) { idCardRef.current.style.width = ""; prevCardW.current = idCardRef.current.offsetWidth; }
+      }, 480);
+      return () => clearTimeout(id);
+    }
+    prevCardW.current = w1;
+  }, [statusText]);
 
   // ── Error ────────────────────────────────────────────────────────────────────
   if (error) {
@@ -758,23 +807,19 @@ function ChatInner() {
 
         {/* Card de identidad FLOTANTE — centrada arriba (como el widget) */}
         <div className="pointer-events-none absolute inset-x-0 top-4 z-20 flex flex-col items-center px-4">
-          <div className="pointer-events-auto flex items-center gap-3 rounded-2xl border border-slate-200/80 bg-white px-4 py-2.5 shadow-lg shadow-black/[0.06]">
+          <div
+            ref={idCardRef}
+            className="pointer-events-auto flex items-center gap-3 overflow-hidden rounded-2xl border border-slate-200/80 bg-white px-4 py-2.5 shadow-[0_4px_12px_-3px_rgba(0,0,0,0.10),0_1px_4px_-1px_rgba(0,0,0,0.06)] transition-[width] duration-[380ms] ease-[cubic-bezier(0.34,1.4,0.5,1)]"
+          >
             <div className="relative shrink-0">
               <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-brand-light to-brand-dark shadow-sm">
                 <Bot className="h-[18px] w-[18px] text-brand-foreground" />
               </div>
               <span className={`absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-white ${statusDot}`} />
             </div>
-            <div className="pr-1 leading-tight">
-              <p className="text-sm font-semibold text-slate-900">{botName}</p>
-              <p className="text-xs text-slate-500">
-                {statusLabel}
-                {operatorsOnline !== null && status === "bot_active" && (
-                  operatorsOnline.count > 0
-                    ? ` · ${operatorsOnline.count === 1 ? "1 operador disponible" : `${operatorsOnline.count} operadores disponibles`}`
-                    : " · Sin operadores"
-                )}
-              </p>
+            <div className="min-w-0 pr-1 leading-tight">
+              <p className="truncate text-sm font-semibold text-slate-900">{botName}</p>
+              <p key={statusText} className="animate-fade-in truncate text-xs text-slate-500">{statusText}</p>
             </div>
           </div>
         </div>
@@ -804,6 +849,7 @@ function ChatInner() {
                 if (m.role === "operator") return <OperatorBubble key={m.id} content={m.content} operatorName={operatorName} />;
                 if (m.role === "system" && m.handoffOffer)
                   return <HandoffOfferBubble key={m.id} content={m.content} onConfirm={confirmHandoff} confirmed={handoffConfirmed} identified={afiliadoIdentified} sectors={sectors} preselectedSectorId={selectedSector?.id ?? null} />;
+                if (m.role === "error")    return <ErrorBubble    key={m.id} content={m.content} />;
                 if (m.role === "system")   return <SystemBubble   key={m.id} content={m.content} />;
                 return                            <BotBubble      key={m.id} content={m.content} />;
               })}
@@ -823,7 +869,7 @@ function ChatInner() {
 
         {/* ── Input FLOTANTE — pill blanca con sombra, con margen (como Text) ── */}
         <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 px-4 pb-4 sm:pb-5">
-          <div className="pointer-events-auto mx-auto flex max-w-2xl items-center gap-1 rounded-full border border-slate-200/80 bg-white py-1.5 pl-2 pr-1.5 shadow-lg shadow-black/[0.07]">
+          <div className="pointer-events-auto mx-auto flex max-w-2xl items-center gap-1 rounded-full border border-transparent bg-slate-100 py-1.5 pl-2 pr-1.5 shadow-sm transition-colors focus-within:border-transparent focus-within:bg-white focus-within:ring-2 focus-within:ring-brand/25">
             {/* Adjuntar — solo con conversación activa */}
             {conversationId && (
               <>
@@ -848,7 +894,7 @@ function ChatInner() {
                 >
                   {uploadingFile
                     ? <Loader2 className="h-4 w-4 animate-spin" />
-                    : <Plus className="h-5 w-5" />}
+                    : <Paperclip className="h-[18px] w-[18px]" />}
                 </button>
               </>
             )}

@@ -381,7 +381,7 @@ function WidgetCard({ channels, onChanged }: { channels: ChannelsState; onChange
   });
 
   const widgetScript = widgetToken
-    ? `<script\n  src="${window.location.origin}/widget/widget.js"\n  data-api-url="${window.location.origin}"\n  data-token="${widgetToken}"\n  data-title="${botConfig?.bot_name || DEFAULT_BOT_NAME}"\n  data-placeholder="Hacé tu consulta..."\n></script>`
+    ? `<script\n  src="${window.location.origin}/widget/widget.js"\n  data-api-url="${window.location.origin}"\n  data-token="${widgetToken}"\n  data-title="${botConfig?.bot_name || DEFAULT_BOT_NAME}"\n></script>`
     : null;
 
   const hasToken = channels.widget.has_token || !!widgetToken;
