@@ -71,10 +71,24 @@ async def can_send(tenant_id: str, conv_id: str) -> bool:
         return True
 
 
+def _dev_fixed_code() -> str | None:
+    """Código OTP fijo para pruebas locales (OTP_DEV_FIXED_CODE en .env.local).
+
+    DOBLE gate: además de estar seteado, el environment NO puede ser production —
+    aunque la variable se filtre a un deploy, en prod se ignora y el flujo sigue
+    siendo CSPRNG + email. Con código fijo activo tampoco se envía email (ver
+    send_code): las corridas de QA no queman la cuota de Resend ni spamean.
+    """
+    code = (settings.otp_dev_fixed_code or "").strip()
+    if code and settings.environment.lower() != "production" and len(code) == 6 and code.isdigit():
+        return code
+    return None
+
+
 async def generate_and_store(tenant_id: str, conv_id: str, identity: str) -> str | None:
     """Genera un código nuevo (invalida el anterior) y lo persiste hasheado.
     None si no se pudo persistir (fail-closed: sin registro no hay validación)."""
-    code = f"{secrets.randbelow(1_000_000):06d}"
+    code = _dev_fixed_code() or f"{secrets.randbelow(1_000_000):06d}"
     blob = json.dumps({"identity": identity, "hash": _hash(code)})
     try:
         await get_redis_session().setex(_key(tenant_id, conv_id), OTP_TTL_S, blob)
@@ -108,6 +122,10 @@ async def send_code(code: str, *, email: str | None, tenant_name: str | None = N
     SMS/WhatsApp: canal futuro — el contrato de esta función no cambia.
     """
     org = tenant_name or "tu organización"
+    if _dev_fixed_code():
+        # Código fijo de dev activo: no hay nada que enviar (el tester ya lo conoce).
+        logger.info("otp_dev_fixed_code activo — email NO enviado (email=%s)", email)
+        return "fixed"
     if email and settings.smtp_host:
         from core.email import send_email
         sent = await send_email(

@@ -48,7 +48,12 @@ _PIDIENDO_ID = "pidiendo_id"
 _PIDIENDO_CODIGO = "pidiendo_codigo"
 
 # Frases gatillo.
-_CANCEL_RE = re.compile(r"\b(cancelar|salir|dej[aá]|olvidalo|nada)\b", re.I)
+# "dejalo/dejálo" y "no importa / gracias igual" son abandonos reales vistos en QA:
+# el usuario cortés quedaba trabado en "Ese DNI no parece válido" (2026-07-21).
+_CANCEL_RE = re.compile(
+    r"\b(cancelar|salir|dej[aá](lo)?|dejalo|olvidalo|olvidate|no importa|gracias igual|nada)\b",
+    re.I,
+)
 _LOGOUT_RE = re.compile(r"\b(cerrar sesi[oó]n|desconectarme|logout|salir de mi cuenta)\b", re.I)
 _RESEND_RE = re.compile(r"\b(reenviar|no me lleg[oó]|mand[aá] otro|otro c[oó]digo)\b", re.I)
 

@@ -157,6 +157,11 @@ class Settings(BaseSettings):
     # Sesión autenticada: TTL y throttle del segundo factor.
     session_ttl_seconds: int = 1800          # 30 min (renovable con actividad)
     connector_auth_max_attempts: int = 5     # intentos de código antes de bloquear
+    # SOLO DEV/QA: código OTP fijo (6 dígitos) para probar el login de conectores
+    # sin depender del email (Resend sandbox solo entrega a la casilla dueña de la
+    # cuenta hasta verificar dominio). Ignorado SIEMPRE en environment=production
+    # (doble gate en services/otp.py::_dev_fixed_code). Vacío = OTP real por email.
+    otp_dev_fixed_code: str = ""
     connector_auth_lockout_window_s: int = 900  # ventana de 15 min
     # Timeout y circuit breaker del executor HTTP hacia terceros.
     connector_http_timeout_ms: int = 4000
