@@ -513,14 +513,22 @@ async def handle_query(
         # esto tiende a responder desde el contexto documental aunque la consulta
         # pida datos vivos del sistema del cliente (CRM etc.).
         system_parts.append(
-            "=== DATOS EN VIVO (HERRAMIENTAS) ===\n"
+            "=== DATOS EN VIVO (HERRAMIENTAS) — TIENEN PRIORIDAD ===\n"
             "Tenés herramientas que consultan datos EN VIVO y PRIVADOS del sistema de "
-            "la organización (por ejemplo un CRM: clientes, proyectos, oportunidades, "
-            "finanzas, tareas). Si la consulta pide específicamente esos datos, llamá "
-            "la herramienta correspondiente EN VEZ de responder desde el contexto "
-            "documental (el contexto puede estar desactualizado para datos vivos). "
-            "Para todo lo demás —información general, horarios, servicios, personas "
-            "del equipo— respondé normalmente sin herramientas."
+            "la organización (CRM: proyectos, finanzas, clientes, oportunidades, tareas). "
+            "REGLA: el contexto documental de abajo describe a la organización en general, "
+            "pero NO contiene los datos personales de cada persona ni el estado actual del "
+            "sistema. Por eso:\n"
+            "• Si la consulta está en PRIMERA PERSONA o pide algo PROPIO del usuario "
+            "(«mi/mis/mío», «yo», «cuánto facturé», «cómo vengo», «qué tengo», «mis "
+            "números/plata/cuenta/proyectos/horas»), DEBÉS llamar la herramienta que "
+            "corresponda. NUNCA respondas eso desde el contexto documental ni digas que "
+            "no lo encontraste: esos datos SOLO están en la herramienta.\n"
+            "• Si pide el estado ACTUAL o la lista VIVA de algo del negocio (proyectos "
+            "en curso, clientes, cobros), llamá la herramienta aunque el contexto "
+            "mencione algo parecido: el contexto puede estar incompleto o desactualizado.\n"
+            "• Solo respondé sin herramienta cuando la consulta es claramente general "
+            "(qué es la empresa, quién es alguien del equipo, horarios, contacto)."
         )
     system_parts.append(
         "FORMATO DE ENLACES: escribí las URLs completas en texto plano "
