@@ -142,11 +142,10 @@ async def start_conversation(
             except ValueError:
                 sector_id = None
 
-        sector_name = "consultas"
         sector_row = None
         if sector_id:
             sector_result = await session.execute(
-                text("SELECT nombre FROM sectores WHERE id = :id AND is_active = TRUE"),
+                text("SELECT 1 FROM sectores WHERE id = :id AND is_active = TRUE"),
                 {"id": sector_id},
             )
             sector_row = sector_result.fetchone()
@@ -154,27 +153,20 @@ async def start_conversation(
         if not sector_row:
             # sector inválido/inactivo/ausente → default del tenant
             sector_id = await get_default_sector_id(tenant_id)
-            if sector_id:
-                default_result = await session.execute(
-                    text("SELECT nombre FROM sectores WHERE id = :id"), {"id": sector_id}
-                )
-                default_row = default_result.fetchone()
-                if default_row:
-                    sector_name = default_row[0]
-        else:
-            sector_name = sector_row[0]
 
-        # Personalización del saludo: greeting_message custom y bot_name del tenant
-        # (tabla global public.tenants). Si el admin configuró un saludo propio se
-        # usa tal cual; si no, el nombre del bot entra en el saludo por defecto.
-        # Sin esto el bot saluda genérico e ignora lo configurado en el panel.
+        # Personalización del saludo: greeting_message custom, bot_name y nombre de
+        # la organización (tabla global public.tenants). Si el admin configuró un
+        # saludo propio se usa tal cual; si no, el default se presenta como asistente
+        # DE LA ORGANIZACIÓN — no del sector, que es un detalle interno de ruteo y
+        # confunde al visitante ("el asistente de Consultas Generales").
         tenant_cfg = await session.execute(
-            text("SELECT greeting_message, bot_name FROM public.tenants WHERE id = :tid"),
+            text("SELECT greeting_message, bot_name, name FROM public.tenants WHERE id = :tid"),
             {"tid": tenant_id},
         )
         cfg_row = tenant_cfg.mappings().fetchone()
         custom_greeting = cfg_row["greeting_message"] if cfg_row else None
-        bot_name = (cfg_row["bot_name"] if cfg_row else None) or "Asistente"
+        bot_name = (cfg_row["bot_name"] or "").strip() if cfg_row else ""
+        org_name = (cfg_row["name"] if cfg_row else None) or "la organización"
 
         conv_id = str(uuid.uuid4())
         # IP: X-Forwarded-For (Nginx) tiene prioridad; fallback al IP directo
@@ -197,8 +189,12 @@ async def start_conversation(
         # Insert greeting as first bot message so it survives polling
         if custom_greeting:
             greeting = custom_greeting
+        elif bot_name:
+            greeting = f"¡Hola! Soy {bot_name}, el asistente de {org_name}. ¿En qué te puedo ayudar hoy?"
         else:
-            greeting = f"¡Hola! Soy {bot_name}, el asistente de {sector_name}. ¿En qué te puedo ayudar hoy?"
+            # Sin bot_name configurado: presentarse solo con la organización,
+            # no con un "Asistente" genérico que parece nombre propio.
+            greeting = f"¡Hola! Soy el asistente de {org_name}. ¿En qué te puedo ayudar hoy?"
         await session.execute(text("""
             INSERT INTO mensajes (conversation_id, sender_type, content)
             VALUES (:cid, 'bot', :msg)
