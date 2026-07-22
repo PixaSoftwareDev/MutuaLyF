@@ -61,6 +61,9 @@ _RESEND_RE = re.compile(r"\b(reenviar|no me lleg[oó]|mand[aá] otro|otro c[oó]
 # Con qué dato se identifica la persona (DNI, CUIT, legajo, nro de socio...).
 # Defaults por identity_kind; un proveedor que identifica por otro dato lo pisa
 # en auth_config del conector: identity_label, identity_min_digits, identity_max_digits.
+# Presets de conveniencia por identity_kind (default si el conector no configuró
+# identity_label). 'afiliado'/'profesional' quedan por compat con conectores
+# viejos; lo genérico ('personal' o cualquier otro) cae en _GENERIC_ID.
 _ID_SPEC_DEFAULTS = {
     "afiliado":    {"label": "DNI",  "min": 7,  "max": 8,  "hint": "sin puntos"},
     "profesional": {"label": "CUIT", "min": 11, "max": 11, "hint": "sin guiones"},
@@ -68,12 +71,16 @@ _ID_SPEC_DEFAULTS = {
 # Identificador custom sin longitudes configuradas: 3–12 dígitos (los legajos
 # suelen ser cortos; heredar el 7-8 del DNI los rechazaría).
 _CUSTOM_MIN_DIGITS, _CUSTOM_MAX_DIGITS = 3, 12
+# Fallback agnóstico de rubro: cuando el conector no es un preset conocido ni
+# configuró identity_label, pedimos un "documento" flexible en vez de forzar "DNI".
+_GENERIC_ID = {"label": "documento", "min": _CUSTOM_MIN_DIGITS,
+               "max": _CUSTOM_MAX_DIGITS, "hint": "solo números"}
 
 
 def identity_spec(identity_kind: str, auth_config: dict | None) -> dict:
     """{label, min, max, hint} del identificador que pide el FSM para esta tool."""
     cfg = auth_config or {}
-    spec = dict(_ID_SPEC_DEFAULTS.get(identity_kind) or _ID_SPEC_DEFAULTS["afiliado"])
+    spec = dict(_ID_SPEC_DEFAULTS.get(identity_kind) or _GENERIC_ID)
     label = str(cfg.get("identity_label") or "").strip()
     if label:
         spec.update(label=label, min=_CUSTOM_MIN_DIGITS, max=_CUSTOM_MAX_DIGITS,
@@ -223,16 +230,14 @@ async def _is_locked(tenant_id: str, conv_id: str) -> bool:
         return False
 
 
-# ── Formateo de la respuesta de la tool (determinista, sin LLM en F1) ──────────
-def _fmt_horarios(horarios: list) -> str:
-    return "; ".join(f"{h.get('dia')} {h.get('desde')}-{h.get('hasta')}" for h in horarios) or "sin horarios cargados"
-
-
+# ── Formateo de la respuesta de la tool ───────────────────────────────────────
+# Fallback determinista y agnóstico de rubro. Sin ramas por-slug: la redacción
+# linda de cada resultado la hace _phrase_with_llm() (LLM sobre el JSON) para
+# CUALQUIER tool; acá solo se cubren los outcomes canónicos y un último fallback
+# de JSON crudo si el LLM no está disponible o el dato es demasiado grande.
 def _format_tool_answer(tool_slug: str, result, nombre: str | None) -> str:
     saludo = f"{nombre}, " if nombre else ""
     if result.outcome == EMPTY:
-        if tool_slug == "profesionales_por_especialidad":
-            return "No encontré profesionales para esa especialidad."
         return f"{saludo}no encontré resultados. ✅"
     if result.outcome == FORBIDDEN:
         return ("No puedo mostrar esa información con los datos de tu sesión. "
@@ -240,31 +245,7 @@ def _format_tool_answer(tool_slug: str, result, nombre: str | None) -> str:
     if result.outcome in (UPSTREAM_ERROR, AUTH_REQUIRED):
         return _msg_upstream()
 
-    data = result.data
-    # ── Tools personales ──────────────────────────────────────────────────────
-    if tool_slug == "ordenes_pendientes" and isinstance(data, list):
-        lineas = [f"• {o.get('tipo','(sin detalle)')} — {o.get('prestador','')} (vence {o.get('vence','?')})"
-                  for o in data]
-        return f"{saludo}tenés {len(data)} orden(es) pendiente(s):\n" + "\n".join(lineas)
-
-    if tool_slug == "cuenta_afiliado" and isinstance(data, dict):
-        if data.get("al_dia"):
-            return f"{saludo}tu cuenta está al día. ✅ {data.get('detalle','')}".strip()
-        return f"{saludo}tenés un saldo pendiente de ${data.get('saldo','?')}. {data.get('detalle','')}".strip()
-
-    # ── Tools públicas ────────────────────────────────────────────────────────
-    if tool_slug == "profesionales_por_especialidad" and isinstance(data, list):
-        lineas = [f"• {p.get('nombre')} ({p.get('consultorio')}) — {_fmt_horarios(p.get('horarios', []))}"
-                  for p in data]
-        return f"Profesionales disponibles:\n" + "\n".join(lineas)
-
-    if tool_slug == "horarios_profesional" and isinstance(data, dict):
-        if not data.get("encontrado", True):
-            return "No encontré un profesional con esa matrícula."
-        return (f"{data.get('nombre')} — {data.get('especialidad')} ({data.get('consultorio')}).\n"
-                f"Horarios: {_fmt_horarios(data.get('horarios', []))}")
-
-    return f"{saludo}esto es lo que encontré: {json.dumps(data, ensure_ascii=False)}"
+    return f"{saludo}esto es lo que encontré: {json.dumps(result.data, ensure_ascii=False)}"
 
 
 # ── Redacción natural con LLM (genérica, para tools config-driven) ─────────────
@@ -390,12 +371,13 @@ async def _run_tool_and_format(binding, *, tenant_id: str, question: str,
 # evalúa EXACTAMENTE este texto — si se ajusta acá, el eval lo mide sin drift.
 TOOL_ROUTER_SYSTEM = (
     "Sos el router de un asistente conversacional. Tenés herramientas que "
-    "consultan datos EN VIVO y PRIVADOS del sistema del cliente (por ejemplo un "
-    "CRM: clientes, proyectos, oportunidades, finanzas). "
+    "consultan datos EN VIVO y PRIVADOS del sistema del cliente, sea cual sea su "
+    "rubro (por ejemplo un CRM, un ERP, un sistema de turnos, de stock o de "
+    "gestión: clientes, pedidos, turnos, cuentas, saldos, proyectos). "
     "Si el mensaje pide consultar o listar esos datos, llamá la herramienta "
     "correspondiente con los parámetros que puedas extraer — también cuando lo "
-    "pide de forma coloquial ('contame sobre nuestros proyectos', 'tengo alguna "
-    "tarea?'). "
+    "pide de forma coloquial ('contame sobre nuestros pedidos', 'tengo algún "
+    "turno?'). "
     "NO llames ninguna herramienta para: saludos, preguntas generales sobre la "
     "empresa o sus servicios, o preguntas sobre las personas de la propia "
     "organización (quién es alguien, su rol o su experiencia)."
@@ -642,7 +624,7 @@ async def _send_platform_otp(tenant_id: str, conv_id: str, binding, identity: st
 
 
 async def _handle_id_input(tenant_id: str, conv_id: str, text: str, flow: dict) -> dict:
-    kind = flow.get("identity_kind", "afiliado")
+    kind = flow.get("identity_kind", "personal")
     is_prof = kind == "profesional"
     # El binding define el identificador (DNI/CUIT/legajo...) y el modo de validación.
     binding = await _resolve_pending_binding(tenant_id, flow.get("pending_intent") or "")
@@ -716,7 +698,7 @@ async def _handle_code_input(tenant_id: str, conv_id: str, text: str, flow: dict
     # es el usuario corrigiendo su DNI/legajo — se reinicia el pedido de código
     # con la nueva identidad, en vez de quemarle un intento como "código malo"
     # y dejarlo trabado (antes la única salida era escribir "cancelar").
-    spec = identity_spec(flow.get("identity_kind", "afiliado"),
+    spec = identity_spec(flow.get("identity_kind", "personal"),
                          getattr(binding, "auth_config", {}) or {})
     if len(code) != 6 and _valid_identity(text, spec):
         flow["stage"] = _PIDIENDO_ID
@@ -731,7 +713,7 @@ async def _handle_code_input(tenant_id: str, conv_id: str, text: str, flow: dict
         verdict = await validate_second_factor(binding, identity, code)
 
     if verdict.get("ok"):
-        rol = flow.get("identity_kind", "afiliado")
+        rol = flow.get("identity_kind", "personal")
         await session_store.create_session(
             tenant_id, conv_id,
             identity=identity, rol=rol, nombre=verdict.get("nombre"),
@@ -757,7 +739,7 @@ async def _handle_code_input(tenant_id: str, conv_id: str, text: str, flow: dict
         n = await _register_attempt(tenant_id, conv_id)
         if n >= settings.connector_auth_max_attempts:
             return _resp(_msg_bloqueado())
-        spec = identity_spec(flow.get("identity_kind", "afiliado"),
+        spec = identity_spec(flow.get("identity_kind", "personal"),
                              getattr(binding, "auth_config", {}) or {})
         return _resp(_msg_no_existe(spec["label"]))
 

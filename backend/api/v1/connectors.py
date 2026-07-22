@@ -38,7 +38,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 _HTTP_METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE"}
-_IDENTITY_KINDS = {"publico", "afiliado", "profesional"}
+# 'publico' = abierto a cualquiera · 'personal' = requiere identificar a la persona.
+# 'afiliado'/'profesional' se aceptan por compat con conectores ya creados.
+_IDENTITY_KINDS = {"publico", "personal", "afiliado", "profesional"}
 
 
 def _own_tenant(current_user: CurrentUser) -> str:
@@ -176,6 +178,43 @@ def _validate_tool_payload(method: str | None, identity_kind: str | None, path: 
         raise HTTPException(status_code=422, detail=f"identity_kind debe ser uno de {sorted(_IDENTITY_KINDS)}")
     if path is not None and not path.startswith("/"):
         raise HTTPException(status_code=422, detail="path_template debe empezar con '/'")
+
+
+# ── Identificador de la persona: derivado del parámetro que detecta el discovery ──
+# 100% automático: el admin no escribe cómo se llama el dato. El discovery extrae el
+# nombre EXACTO del parámetro de la API (dni, id_cliente, patente...) y de ahí sale
+# el nombre visible + el formato. Preset conocido → label + longitudes; desconocido
+# → se prolija el nombre del parámetro con rango genérico.
+_ID_PARAM_PRESETS: dict[str, tuple[str, int, int]] = {
+    "dni":         ("DNI", 7, 8),
+    "documento":   ("documento", 6, 12),
+    "cuit":        ("CUIT", 11, 11),
+    "cuil":        ("CUIL", 11, 11),
+    "legajo":      ("legajo", 3, 12),
+    "matricula":   ("matrícula", 3, 12),
+    "patente":     ("patente", 5, 8),
+    "id_cliente":  ("número de cliente", 3, 12),
+    "nro_cliente": ("número de cliente", 3, 12),
+    "cliente":     ("número de cliente", 3, 12),
+    "id_socio":    ("número de socio", 3, 12),
+    "nro_socio":   ("número de socio", 3, 12),
+    "socio":       ("número de socio", 3, 12),
+}
+_ID_ABBR = {"nro": "número", "num": "número", "id": "número de", "doc": "documento", "cod": "código"}
+
+
+def _identifier_config(param_name: str | None) -> dict:
+    """Deriva {identity_label, identity_min_digits, identity_max_digits} desde el
+    nombre del parámetro detectado. None/'identity' → genérico 'documento'."""
+    key = (param_name or "").strip().lower()
+    if key in ("", "identity"):
+        label, lo, hi = "documento", 3, 12
+    elif key in _ID_PARAM_PRESETS:
+        label, lo, hi = _ID_PARAM_PRESETS[key]
+    else:
+        words = [_ID_ABBR.get(w, w) for w in re.split(r"[_\s\-]+", key) if w]
+        label, lo, hi = (" ".join(words) or "documento"), 3, 12
+    return {"identity_label": label, "identity_min_digits": lo, "identity_max_digits": hi}
 
 
 # ── Hosts aprobados (D2) — rutas estáticas ANTES de /{connector_id} ───────────
@@ -613,6 +652,7 @@ async def apply_proposal(
         raise HTTPException(status_code=404, detail="Conector no encontrado")
 
     created, lookup_path, lookup_param = [], None, None
+    id_params: list[str] = []   # identity_param de las operaciones personales
     for t in body.tools:
         _validate_tool_payload(t.http_method, t.identity_kind, t.path_template)
         if t.is_lookup:
@@ -629,21 +669,34 @@ async def apply_proposal(
                 logger.info("apply_skip_duplicate slug=%s", t.slug)
                 continue
             raise
-        roles = ["afiliado"] if t.identity_kind != "publico" else ["publico", "afiliado"]
+        # El rol requerido = el propio identity_kind de la tool (genérico, no atado
+        # a un rubro): el FSM setea session.rol = identity_kind al validar, y acá
+        # se exige ese mismo rol. Las públicas no chequean rol (short-circuit).
+        roles = ["publico"] if t.identity_kind == "publico" else [t.identity_kind]
         await dao.set_tool_roles(tenant_id, tool_id, roles)
         await dao.update_tool(tenant_id, tool_id, {"is_active": True})
+        if t.identity_kind != "publico" and t.identity_param:
+            id_params.append(t.identity_param.strip())
         created.append(t.slug)
 
+    # Identificador de la persona: 100% automático desde lo que detectó el discovery.
+    # Se toma el parámetro más frecuente entre las operaciones personales (o el de la
+    # ruta de perfil), y de ahí salen el nombre visible y el formato — el admin no
+    # escribe nada.
+    detected_param = None
+    if id_params:
+        detected_param = max(set(id_params), key=id_params.count)
+    elif lookup_param:
+        detected_param = lookup_param
+
+    cfg_updates: dict = {}
+    if detected_param:
+        cfg_updates.update(_identifier_config(detected_param))
     if lookup_path:
-        new_cfg = {
-            **(conn.get("auth_config") or {}),
-            "identity_validation": "platform_otp",
-            "identity_lookup_path": lookup_path,
-        }
-        # Si el proveedor identifica por otro dato (legajo, nro de socio...), el
-        # FSM del chat lo pide con ese nombre en vez del default "DNI".
-        if lookup_param and lookup_param.strip().lower() not in ("dni", "identity"):
-            new_cfg["identity_label"] = lookup_param.strip()
+        cfg_updates["identity_validation"] = "platform_otp"
+        cfg_updates["identity_lookup_path"] = lookup_path
+    if cfg_updates:
+        new_cfg = {**(conn.get("auth_config") or {}), **cfg_updates}
         await dao.update_connector(tenant_id, connector_id, {"auth_config": new_cfg})
 
     _audit(request, current_user, "connector_proposal_applied", connector_id,

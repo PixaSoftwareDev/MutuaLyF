@@ -98,7 +98,7 @@ def parse_openapi(spec: dict) -> list[dict]:
 # ── 3. Clasificación con IA ────────────────────────────────────────────────────
 
 _CLASSIFY_SYSTEM = """Sos el asistente de configuración de conectores de una plataforma de chatbots
-para organizaciones (mutuales, clínicas, empresas). Te paso las rutas GET del API de un proveedor
+para organizaciones de cualquier rubro. Te paso las rutas GET del API de un proveedor
 y devolvés SOLO un JSON array (sin markdown, sin explicación) con un objeto por ruta:
 
 {
@@ -108,22 +108,23 @@ y devolvés SOLO un JSON array (sin markdown, sin explicación) con un objeto po
  "discard_reason": "...",        // solo si include=false, en español, corto
  "slug": "snake_case_corto",
  "display_name": "Nombre humano en español",
- "identity_kind": "publico"|"afiliado",  // afiliado si la ruta expone datos de UNA persona
-                                 // identificada por DNI/legajo/nro de socio en el path
- "identity_param": "dni"|"legajo"|null,  // NOMBRE EXACTO del parámetro del path que identifica
+ "identity_kind": "publico"|"personal",  // "personal" si la ruta expone datos de UNA persona
+                                 // identificada por un documento/identificador en el path
+                                 // (DNI, legajo, nº de cliente, nº de socio, etc.)
+ "identity_param": "dni"|"id_cliente"|null,  // NOMBRE EXACTO del parámetro del path que identifica
                                  // a la persona, tal cual figura en el API (se reemplaza por la
                                  // identidad de la sesión, NUNCA la elige el bot)
  "is_lookup": true|false,        // true SOLO para la ruta que devuelve el perfil/datos de
-                                 // contacto del afiliado (sirve para enviar el código OTP)
+                                 // contacto de la persona (sirve para enviar el código OTP)
  "sample_params": {"param": "valor"}  // valores de prueba realistas para probar la ruta
                                  // (para el param de identidad usá "IDENTITY" literal)
 }
-Reglas: rutas que muestran listados generales (profesionales, sucursales, horarios) son "publico".
-Rutas con el documento de la persona en el path son "afiliado". La ruta de perfil del afiliado
-(datos de contacto) marcala is_lookup=true e include=true.
-IMPORTANTE: que una ruta devuelva información sensible o privada de la persona (finanzas, cuenta,
-historia clínica) NO es motivo de descarte — es el caso de uso central: incluila con
-identity_kind="afiliado" (la plataforma la protege con login + código de verificación).
+Reglas: rutas que muestran listados o catálogos generales (productos, sucursales, servicios,
+horarios) son "publico". Rutas con el documento/identificador de una persona en el path son
+"personal". La ruta de perfil de la persona (datos de contacto) marcala is_lookup=true e include=true.
+IMPORTANTE: que una ruta devuelva información sensible o privada de la persona (facturación, cuenta,
+saldos, historial) NO es motivo de descarte — es el caso de uso central: incluila con
+identity_kind="personal" (la plataforma la protege con login + código de verificación).
 Descartá ÚNICAMENTE infraestructura (health/metrics/docs) y validación de códigos/OTP."""
 
 
@@ -138,11 +139,43 @@ def _parse_llm_json_array(raw: str) -> list[dict]:
     return json.loads(text[start:end + 1])
 
 
+async def _tenant_context(tenant_id: str) -> str:
+    """Contexto del tenant (nombre + descripción/alcance del bot) para que el LLM
+    de discovery entienda el rubro SIN hardcodear ninguno — así una concesionaria,
+    un súper o una mutual clasifican bien sus propias rutas. Best-effort: si no hay
+    config, devuelve '' y el prompt queda genérico. public.tenants es global, se
+    consulta con prefijo de schema (no depende del search_path del tenant)."""
+    try:
+        from core.database import get_pg_session
+        from sqlalchemy import text
+        async with get_pg_session(tenant_id) as session:
+            row = (await session.execute(
+                text("SELECT name, bot_description, bot_scope FROM public.tenants WHERE id = :tid"),
+                {"tid": tenant_id},
+            )).mappings().first()
+    except Exception as exc:
+        logger.warning("tenant_context_failed tenant=%s error=%s", tenant_id, exc)
+        return ""
+    if not row:
+        return ""
+    parts = []
+    if row["name"]:
+        parts.append(f"Organización: {row['name']}.")
+    if row["bot_description"]:
+        parts.append(f"Qué hace su asistente: {str(row['bot_description'])[:600]}")
+    if row["bot_scope"]:
+        parts.append(f"Alcance/temas: {str(row['bot_scope'])[:400]}")
+    if not parts:
+        return ""
+    return ("\n\nContexto de esta organización (usalo para elegir nombres claros y para decidir "
+            "qué rutas exponen datos personales):\n" + " ".join(parts))
+
+
 async def classify_routes(routes: list[dict], tenant_id: str) -> list[dict]:
     from services.groq_client import complete
     payload = json.dumps(routes, ensure_ascii=False)
     raw = await complete(
-        [{"role": "system", "content": _CLASSIFY_SYSTEM},
+        [{"role": "system", "content": _CLASSIFY_SYSTEM + await _tenant_context(tenant_id)},
          {"role": "user", "content": f"Rutas del proveedor:\n{payload}"}],
         temperature=0.1, max_tokens=8000, tenant_id=tenant_id, timeout_s=120,
     )
@@ -180,7 +213,7 @@ async def routes_from_document(doc_text: str, tenant_id: str) -> list[dict]:
     """Extrae rutas GET desde documentación en texto libre. Misma forma que parse_openapi()."""
     from services.groq_client import complete
     raw = await complete(
-        [{"role": "system", "content": _EXTRACT_ROUTES_SYSTEM},
+        [{"role": "system", "content": _EXTRACT_ROUTES_SYSTEM + await _tenant_context(tenant_id)},
          {"role": "user", "content": f"Documentación del API:\n{doc_text[:_MAX_DOC_CHARS]}"}],
         temperature=0.0, max_tokens=8000, tenant_id=tenant_id, timeout_s=120,
     )
@@ -324,8 +357,12 @@ async def propose_from_routes(connector: dict, secret_enc: str | None, tenant_id
         item["path_template"] = path_template
         item["params_schema"] = params_schema
         item["response_map"] = {}
-        if item["include"]:
-            # Probar en vivo con los valores de ejemplo del LLM.
+        # Probar en vivo solo lo que se puede sin un dato de prueba: las rutas que
+        # necesitan identidad ({identity} en el path) sin test_identity quedan "sin
+        # probar" (item["test"]=None) — se prueban después por operación. Así no
+        # pedimos un dato antes de tiempo ni mostramos "Revisar" engañoso.
+        needs_identity = "{identity}" in path_template
+        if item["include"] and not (needs_identity and not test_identity):
             sample = dict(cls.get("sample_params") or {})
             sample.pop(cls.get("identity_param") or "", None)
             query = {k: v for k, v in sample.items()

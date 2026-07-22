@@ -217,9 +217,12 @@ async def _invoke_http(binding, path: str, query: dict) -> dict | list:
 
 
 async def validate_second_factor(binding, identity: str, code: str) -> dict:
-    """Valida el 2º factor (DNI/CUIT + código) contra el conector.
+    """Valida el 2º factor (identificador + código) contra el conector.
 
-    stub → in-process; conector real → HTTP GET {base_url}/afiliados/{identity}/validar.
+    stub → in-process; conector real → HTTP GET a la ruta de validación del
+    proveedor. La ruta es config-driven vía `connector.auth_validate_path`
+    (ej. '/clientes/{identity}/validar'); si no está seteada se usa la
+    convención histórica '/afiliados/{identity}/validar' (compat).
     Devuelve {'ok': bool, 'nombre'?: str, 'reason'?: str}. Fail-closed: cualquier
     error upstream → ok=False, reason='upstream' (no se autentica ante la duda).
     """
@@ -227,8 +230,10 @@ async def validate_second_factor(binding, identity: str, code: str) -> dict:
         from services.connector_stub import validar_totp
         return validar_totp(identity, code)
 
-    # Convención afiliado (Fase 2 la hará config-driven vía columna auth_validate_path).
-    url = binding.base_url.rstrip("/") + f"/afiliados/{identity}/validar"
+    tmpl = (getattr(binding, "auth_validate_path", None) or "/afiliados/{identity}/validar")
+    if not tmpl.startswith("/"):
+        tmpl = "/" + tmpl
+    url = binding.base_url.rstrip("/") + tmpl.replace("{identity}", identity)
     allow_http = _allow_http_for(url)
     try:
         assert_egress_allowed(
@@ -252,12 +257,12 @@ async def validate_second_factor(binding, identity: str, code: str) -> dict:
 
 
 async def lookup_identity(binding, identity: str, cfg: dict | None = None) -> dict | None:
-    """Busca el perfil del afiliado en el proveedor (datos de contacto para el
+    """Busca el perfil de la persona en el proveedor (datos de contacto para el
     OTP propio). GET {base_url}{identity_lookup_path}. None si no existe o falla
     (fail-closed: sin perfil no se envía código).
 
-    cfg (de connector.auth_config): identity_lookup_path (default
-    '/afiliados/{identity}'), found_field (default 'encontrado').
+    cfg (de connector.auth_config): identity_lookup_path (config-driven; default
+    de compat '/afiliados/{identity}'), found_field (default 'encontrado').
     """
     cfg = cfg or {}
     path = (cfg.get("identity_lookup_path") or "/afiliados/{identity}").replace("{identity}", identity)

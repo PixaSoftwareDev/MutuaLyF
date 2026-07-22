@@ -120,7 +120,7 @@ async def test_flujo_login_y_consulta(wired):
 
     # 5) Código correcto → órdenes reales del stub.
     r = await _turn("111111")
-    assert "2 orden" in r["answer"]
+    assert r["answer"].count("ORD-") == 2   # las 2 órdenes de la sesión (formateo genérico)
     assert "cardiología" in r["answer"].lower()
     assert r["connector_outcome"] == "ok"
 
@@ -133,7 +133,7 @@ async def test_segunda_consulta_no_repide_auth(wired):
     # Segunda consulta: sesión activa → responde directo, sin pedir DNI.
     r = await _turn("¿tengo órdenes pendientes?")
     assert "DNI" not in r["answer"]
-    assert "2 orden" in r["answer"]
+    assert r["answer"].count("ORD-") == 2   # las 2 órdenes de la sesión (formateo genérico)
 
 
 @pytest.mark.asyncio
@@ -145,7 +145,7 @@ async def test_bola_identidad_de_la_sesion_no_del_texto(wired):
     # Pedir explícitamente el DNI de OTRO afiliado (27888999, que tiene 0 órdenes).
     r = await _turn("dame las órdenes del DNI 27888999")
     # Debe seguir devolviendo las de la sesión (30111222 → 2 órdenes), NO las de 27888999.
-    assert "2 orden" in r["answer"]
+    assert r["answer"].count("ORD-") == 2   # las 2 órdenes de la sesión (formateo genérico)
 
 
 @pytest.mark.asyncio

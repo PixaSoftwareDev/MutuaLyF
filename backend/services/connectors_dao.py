@@ -36,7 +36,7 @@ class ToolBinding:
     path_template: str
     params_schema: dict
     response_map: dict
-    identity_kind: str          # 'afiliado' | 'profesional'
+    identity_kind: str          # 'publico' = abierto · cualquier otro = requiere identidad
     is_read_only: bool
     connector_id: str
     connector_slug: str
@@ -47,6 +47,7 @@ class ToolBinding:
     timeout_ms: int
     auth_config: dict = field(default_factory=dict)
     auth_secret_enc: str | None = None
+    auth_validate_path: str | None = None
     roles: set[str] = field(default_factory=set)
 
 
@@ -109,7 +110,7 @@ async def get_tool_by_slug(tenant_id: str, tool_slug: str) -> ToolBinding | None
                    c.slug              AS connector_slug,
                    c.base_url, c.egress_allow,
                    c.auth_type, c.auth_secret_ref, c.timeout_ms,
-                   c.auth_config, c.auth_secret_enc
+                   c.auth_config, c.auth_secret_enc, c.auth_validate_path
             FROM connector_tools t
             JOIN tenant_connectors c ON c.id = t.connector_id
             WHERE t.slug = :slug AND t.is_active AND c.is_active
@@ -144,6 +145,7 @@ async def get_tool_by_slug(tenant_id: str, tool_slug: str) -> ToolBinding | None
         timeout_ms=int(row["timeout_ms"]),
         auth_config=_as_dict(row["auth_config"]),
         auth_secret_enc=row["auth_secret_enc"],
+        auth_validate_path=row["auth_validate_path"],
         roles={r[0] for r in roles},
     )
 
