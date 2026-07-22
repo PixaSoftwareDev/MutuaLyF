@@ -235,3 +235,94 @@ CREATE TABLE IF NOT EXISTS audit_log (
 );
 CREATE INDEX IF NOT EXISTS ix_audit_log_created ON audit_log (created_at DESC);
 CREATE INDEX IF NOT EXISTS ix_audit_log_action  ON audit_log (action);
+
+
+-- ── Framework de conectores (Tool Calling) ─────────────────────────────────────
+-- Estado final consolidado de las migraciones 031 (tablas) + 032 (auth real) +
+-- 036 (registro de identidad). Las migraciones solo alcanzan schemas que existen
+-- al momento de correr; este archivo garantiza que los tenants provisionados
+-- después nazcan completos (mismo drift que rompió is_test en conversaciones).
+
+CREATE TABLE IF NOT EXISTS tenant_connectors (
+    id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    slug               TEXT NOT NULL,
+    display_name       TEXT NOT NULL,
+    base_url           TEXT NOT NULL,
+    egress_allow       TEXT[] NOT NULL DEFAULT '{}',
+    auth_type          TEXT NOT NULL,
+    auth_secret_ref    TEXT,
+    auth_config        JSONB NOT NULL DEFAULT '{}',   -- 032
+    auth_secret_enc    TEXT,                          -- 032: secreto cifrado (Fernet)
+    auth_validate_path TEXT,                          -- 032
+    is_active          BOOLEAN NOT NULL DEFAULT FALSE,
+    timeout_ms         INTEGER NOT NULL DEFAULT 4000,
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (slug)
+);
+
+CREATE TABLE IF NOT EXISTS connector_tools (
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    connector_id  UUID NOT NULL REFERENCES tenant_connectors(id) ON DELETE CASCADE,
+    slug          TEXT NOT NULL,
+    display_name  TEXT NOT NULL,
+    http_method   TEXT NOT NULL DEFAULT 'GET',
+    path_template TEXT NOT NULL,
+    params_schema JSONB NOT NULL DEFAULT '{}',
+    response_map  JSONB NOT NULL DEFAULT '{}',
+    identity_kind TEXT NOT NULL,
+    is_read_only  BOOLEAN NOT NULL DEFAULT TRUE,
+    is_active     BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (connector_id, slug)
+);
+
+-- RBAC por tool. Sin fila → denegado (fail-closed).
+CREATE TABLE IF NOT EXISTS connector_roles (
+    tool_id UUID NOT NULL REFERENCES connector_tools(id) ON DELETE CASCADE,
+    role    TEXT NOT NULL,
+    PRIMARY KEY (tool_id, role)
+);
+
+-- Puente intención → tool.
+CREATE TABLE IF NOT EXISTS connector_intent_bindings (
+    id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    intencion_id   UUID NOT NULL REFERENCES intenciones(id) ON DELETE CASCADE,
+    tool_id        UUID NOT NULL REFERENCES connector_tools(id) ON DELETE CASCADE,
+    min_confidence REAL NOT NULL DEFAULT 0.70,
+    is_active      BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (intencion_id, tool_id)
+);
+
+-- Rastro inmutable de cada invocación (incl. denegadas). Sin FK dura: sobrevive
+-- borrados de tool/conversación. Base para detectar sondeo BOLA.
+CREATE TABLE IF NOT EXISTS tool_call_audit (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    conversation_id UUID,
+    tool_id         UUID,
+    tool_slug       TEXT NOT NULL,
+    actor_ref       TEXT,
+    outcome         TEXT NOT NULL,
+    latency_ms      INTEGER,
+    detail          JSONB,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS ix_tool_audit_actor   ON tool_call_audit (actor_ref, created_at DESC);
+CREATE INDEX IF NOT EXISTS ix_tool_audit_outcome ON tool_call_audit (outcome, created_at DESC);
+
+-- Registro de identidad por conector: usuarios autorizados de NUESTRO lado
+-- (para sistemas externos sin modelo de usuarios, ej. CRM con token de servicio).
+CREATE TABLE IF NOT EXISTS connector_users (
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    connector_id  UUID NOT NULL REFERENCES tenant_connectors(id) ON DELETE CASCADE,
+    documento     TEXT NOT NULL,
+    email         TEXT NOT NULL,
+    nombre        TEXT NOT NULL,
+    is_active     BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (connector_id, documento),
+    UNIQUE (connector_id, email)
+);
+CREATE INDEX IF NOT EXISTS idx_connector_users_lookup ON connector_users (connector_id, documento) WHERE is_active;
