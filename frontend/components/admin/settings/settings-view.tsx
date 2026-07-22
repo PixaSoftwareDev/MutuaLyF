@@ -55,9 +55,14 @@ function SettingsContent({ tab }: { tab: SettingsTab }) {
     </div>
   ) : undefined;
 
+  // Título específico de la pestaña (no el genérico "Configuración"): coherente
+  // con Documentos/Operadores, que muestran el nombre de la sección.
+  const current = TABS.find(t => t.key === tab);
+  const title = current?.labelLg ?? current?.label ?? "Configuración";
+
   return (
     <PageShell width="wide">
-      <PageHeader title="Configuración" actions={widgetSubTabs} />
+      <PageHeader title={title} actions={widgetSubTabs} />
 
       {/* Tabs SOLO en mobile (links de ruta); en desktop las reemplaza el submenú. */}
       <div className="lg:hidden">

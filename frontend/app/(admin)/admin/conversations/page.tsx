@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { useQuery, useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Search, ChevronLeft, MessageSquare, CalendarDays,
-  SlidersHorizontal, X, AlertCircle, Inbox as InboxIcon, Loader2, Bot,
+  SlidersHorizontal, X, Inbox as InboxIcon, Loader2, Bot,
   PanelRight, CornerDownLeft,
 } from "lucide-react";
 import { api, type ConversationHistoryRow, type ConversationDetail } from "@/lib/api";
@@ -16,6 +16,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
 
 // ── Types & constants ──────────────────────────────────────────────────────────
 // Estructura de referencia (inbox Text): las vistas por estado y el filtro por
@@ -245,21 +247,19 @@ function ConversationsInbox() {
             {historyQuery.isLoading ? (
               <div>{Array.from({ length: 12 }).map((_, i) => <RowSkeleton key={i} />)}</div>
             ) : historyQuery.isError ? (
-              <div className="flex flex-col items-center justify-center gap-2 py-16 text-muted-foreground">
-                <AlertCircle className="h-8 w-8 opacity-40" />
-                <p className="text-sm">Error al cargar las conversaciones</p>
-                <Button variant="outline" size="sm" onClick={() => qc.invalidateQueries({ queryKey: ["admin-conversations"] })}>
-                  Reintentar
-                </Button>
-              </div>
+              <ErrorState
+                className="py-16"
+                title="Error al cargar las conversaciones"
+                description="No pudimos traer las conversaciones. Revisá la conexión y probá de nuevo."
+                onRetry={() => qc.invalidateQueries({ queryKey: ["admin-conversations"] })}
+              />
             ) : items.length === 0 ? (
-              <div className="flex flex-col items-center justify-center gap-2 py-16 text-muted-foreground">
-                <MessageSquare className="h-10 w-10 opacity-30" />
-                <p className="text-sm font-medium text-foreground/70">Sin conversaciones</p>
-                <p className="text-xs">
-                  {debouncedSearch || hasDateFilter || sectorId ? "Probá con otra vista o filtros" : "Aún no hay conversaciones registradas"}
-                </p>
-              </div>
+              <EmptyState
+                className="py-16"
+                icon={MessageSquare}
+                title="Sin conversaciones"
+                description={debouncedSearch || hasDateFilter || sectorId ? "Probá con otra vista o con otros filtros." : "Aún no hay conversaciones registradas."}
+              />
             ) : (
               <>
                 {items.map(conv => (
@@ -504,15 +504,13 @@ function ConvDetail({ detail, loading, isError, onRetry, onClose, backArrow, con
               <Skeleton className="h-16 w-3/4 rounded-2xl" />
             </div>
           ) : isError ? (
-            <div className="flex h-40 flex-col items-center justify-center gap-2 text-muted-foreground">
-              <AlertCircle className="h-7 w-7 opacity-40" />
-              <p className="text-sm">No se pudo cargar la conversación</p>
-              <Button variant="outline" size="sm" onClick={onRetry}>Reintentar</Button>
-            </div>
+            <ErrorState
+              title="No se pudo cargar la conversación"
+              description="Hubo un problema al traer los mensajes. Probá de nuevo."
+              onRetry={onRetry}
+            />
           ) : !detail || detail.messages?.length === 0 ? (
-            <div className="flex h-40 items-center justify-center text-muted-foreground">
-              <p className="text-sm">Sin mensajes</p>
-            </div>
+            <EmptyState icon={MessageSquare} title="Sin mensajes" description="Esta conversación todavía no tiene mensajes." />
           ) : (
             <>
               {detail.messages.map(m => <MessageBubble key={m.id} msg={m} conversationId={detail.id} senderName={detail.afiliado_nombre} />)}

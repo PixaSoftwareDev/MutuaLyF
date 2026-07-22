@@ -19,6 +19,7 @@ import {
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import { ListDetailShell } from "@/components/admin/list-detail-shell";
+import { DetailShell as Shell } from "@/components/admin/detail-shell";
 import {
   DOC_STATUS_CONFIG, QG_DOC_CONFIG, fileExt, partStatus, PartDetailPanel,
 } from "@/components/documents/document-shared";
@@ -320,26 +321,6 @@ function PartRow({ chunk, selected, onSelect }: { chunk: ChunkResponse; selected
 }
 
 // ── Shell simple (loading / no procesado / no encontrado) ─────────────────────
-
-function Shell({ leading, title, actions, children }: {
-  leading?: React.ReactNode;
-  title: string;
-  actions?: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="flex h-12 shrink-0 items-center justify-between gap-3 border-b px-4 sm:px-6">
-        <div className="flex min-w-0 items-center gap-2">
-          {leading}
-          <h1 className="truncate text-[15px] font-semibold tracking-tight text-foreground">{title}</h1>
-        </div>
-        {actions}
-      </div>
-      <div className="min-h-0 flex-1 overflow-y-auto scrollbar-slim p-4 sm:p-6">{children}</div>
-    </div>
-  );
-}
 
 // ── Confirmación de eliminación ───────────────────────────────────────────────
 
