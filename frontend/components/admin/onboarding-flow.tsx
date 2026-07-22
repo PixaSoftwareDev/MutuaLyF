@@ -160,7 +160,7 @@ export function OnboardingFlow() {
             <div className="space-y-5">
               <StepTitle
                 title={`¿A qué se dedica ${orgName.trim() || "tu organización"}?`}
-                subtitle="Contanos qué hace y qué ofrece. Con esto la IA entiende de qué puede responder el asistente."
+                subtitle="Presentale tu negocio a tu asistente: qué hacen, qué ofrecen, qué los hace únicos. Cuanto mejor te conozca, mejor va a atender a tus clientes."
               />
               <Textarea
                 value={description}

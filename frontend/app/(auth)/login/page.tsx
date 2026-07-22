@@ -53,16 +53,13 @@ const DEV_LOGIN_ENABLED =
   process.env.NODE_ENV === "development" ||
   process.env.NEXT_PUBLIC_ENABLE_DEV_LOGIN === "true";
 const DEV_PASSWORD = process.env.NEXT_PUBLIC_DEV_QUICK_PASSWORD || "local1234";
-type DevUser = { org: string; label: string; email: string; tenant: string; role: string };
-// Usuarios que EXISTEN en la base local clonada (solo tenants con schema:
-// nexo y pixs — intellix/mutualyf no se clonaron). Passwords reseteadas a
-// DEV_PASSWORD en la DB local para que los botones logueen de un clic.
+type DevUser = { org: string; label: string; email: string; tenant: string; role: string; password?: string };
+// Usuarios que EXISTEN en la base local (recreada 2026-07-22: solo tenant
+// intellix + super admin de plataforma). `password` pisa a DEV_PASSWORD cuando
+// el usuario no usa la clave rápida compartida.
 const DEV_USERS: DevUser[] = DEV_LOGIN_ENABLED ? [
-  { org: "Plataforma", label: "Super Admin", email: "pixs@gmail.com",              tenant: "",     role: "super_admin" },
-  { org: "Pixs",       label: "Admin",       email: "admin@pixs.local",            tenant: "pixs", role: "admin" },
-  { org: "Pixs",       label: "Operador",    email: "sofia.perez@pixs.local",      tenant: "pixs", role: "operator" },
-  { org: "Nexo",       label: "Admin",       email: "admin@nexoconsultora.com.ar", tenant: "nexo", role: "admin" },
-  { org: "Nexo",       label: "Operador",    email: "pedro@gmail.com",             tenant: "nexo", role: "operator" },
+  { org: "Plataforma", label: "Super Admin", email: "pixs@platform.local", tenant: "",         role: "super_admin", password: "pixs1234!" },
+  { org: "Intellix",   label: "Admin",       email: "admin@intellix.com",  tenant: "intellix", role: "admin",       password: "intellix1234!" },
 ] : [];
 
 export default function LoginPage() {
@@ -120,10 +117,11 @@ function LoginForm() {
   // dispara doLogin con credenciales explícitas (no espera al setState).
   const quickLogin = (u: DevUser) => {
     if (loading) return;
+    const pwd = u.password ?? DEV_PASSWORD;
     setEmail(u.email);
-    setPassword(DEV_PASSWORD);
+    setPassword(pwd);
     setError(null);
-    doLogin(u.tenant, { email: u.email, password: DEV_PASSWORD });
+    doLogin(u.tenant, { email: u.email, password: pwd });
   };
 
   // ── Handlers ─────────────────────────────────────────────────────────────

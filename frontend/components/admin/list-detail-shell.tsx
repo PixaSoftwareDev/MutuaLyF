@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
  */
 export function ListDetailShell({
   title, leading, actions, children, panelTitle = "detalle", panel, open, hasSelection, onExpand,
+  panelWidth = 336,
 }: {
   title: string;
   /** Nodo opcional antes del título (ej. botón volver). */
@@ -28,6 +29,9 @@ export function ListDetailShell({
   open: boolean;
   hasSelection: boolean;
   onExpand: () => void;
+  /** Ancho del panel expandido en px. Subirlo cuando el detalle es texto largo
+      (ej. partes de un documento) para que se lea cómodo. */
+  panelWidth?: number;
 }) {
   const expanded = open && !!panel;
   return (
@@ -53,11 +57,12 @@ export function ListDetailShell({
         className={cn(
           "hidden shrink-0 overflow-hidden border-l lg:block",
           "transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none",
-          expanded ? "w-[336px]" : "w-12",
+          !expanded && "w-12",
         )}
+        style={expanded ? { width: panelWidth } : undefined}
       >
         {expanded ? (
-          <div className="h-full w-[336px] overflow-y-auto scrollbar-slim">{panel}</div>
+          <div className="h-full overflow-y-auto scrollbar-slim" style={{ width: panelWidth }}>{panel}</div>
         ) : (
           <div className="flex w-12 flex-col items-center">
             <div className="flex h-12 shrink-0 items-center justify-center border-b">

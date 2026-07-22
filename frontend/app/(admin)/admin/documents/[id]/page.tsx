@@ -202,6 +202,7 @@ export default function DocumentDetailPage() {
         open={panelOpen}
         hasSelection={!!selectedChunk}
         onExpand={() => setPanelOpen(true)}
+        panelWidth={520}
         panel={selectedChunk ? (
           <PartDetailPanel
             key={selectedChunk.id}
