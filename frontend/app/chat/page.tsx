@@ -384,11 +384,33 @@ function TypingIndicator() {
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
+/**
+ * Traduce un fallo al iniciar/usar el chat a un mensaje que el usuario pueda
+ * accionar. Nunca mostramos "HTTP 401" crudo: el caso más común es que el
+ * token del tester fue revocado (cada "Probar chat" genera uno nuevo y mata
+ * los anteriores) y eso tiene solución conocida — reabrir desde el panel.
+ */
+function friendlyChatError(status: number | null, isTest: boolean): string {
+  if (status === 401 || status === 403) {
+    return isTest
+      ? "Este link de prueba ya no es válido: cada vez que abrís «Probar chat» se genera un link nuevo y los anteriores se desactivan. Cerrá esta pestaña y volvé a abrirlo desde el panel."
+      : "El chat no está disponible en este momento. Recargá la página para intentar de nuevo.";
+  }
+  if (status === 429) return "Se alcanzó el límite de consultas por ahora. Esperá unos minutos e intentá de nuevo.";
+  if (status !== null && status >= 500) return "El servicio está teniendo un problema temporal. Intentá de nuevo en unos minutos.";
+  return "No pudimos conectar con el chat. Revisá tu conexión a internet e intentá de nuevo.";
+}
+
 function ChatInner() {
   const params   = useSearchParams();
   const token    = params.get("token") || "";
   const tenantId = params.get("tenant") || "";
   const isTest   = params.get("test") === "1";
+  // Flags de completitud que setea el panel admin al abrir "Probar chat":
+  // el tester avisa qué falta (docs/sectores) para que una prueba "vacía"
+  // no parezca un error del bot.
+  const missingKb      = isTest && params.get("kb") === "0";
+  const missingSectors = isTest && params.get("sectors") === "0";
 
   const [sectors, setSectors]               = useState<Sector[]>([]);
   // El branding arranca null y el cache se lee en useLayoutEffect (post-mount,
@@ -447,9 +469,12 @@ function ChatInner() {
       return;
     }
     fetch(`${API_BASE}/api/v1/public/chat-token`, { headers: { "X-Tenant-ID": tenantId } })
-      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+      .then(r => { if (!r.ok) throw Object.assign(new Error("chat_token_failed"), { status: r.status }); return r.json(); })
       .then(data => setResolvedToken(data.widget_token))
-      .catch(e => { setError(`No se pudo conectar: ${e.message}`); setSectorsLoading(false); });
+      .catch((e: { status?: number }) => {
+        setError(friendlyChatError(e?.status ?? null, isTest));
+        setSectorsLoading(false);
+      });
   }, [token, tenantId]);
 
   // Load tenant branding (public endpoint) + apply CSS variables.
@@ -593,7 +618,11 @@ function ChatInner() {
         // decide al derivar (confirm-handoff la re-etiqueta).
         body: JSON.stringify({ widget_session_id: sessionId.current, sector_id: selectedSector?.id ?? null, is_test: isTest }),
       });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      if (!r.ok) {
+        // Pantalla completa con explicación accionable, no una burbuja "HTTP 401".
+        setError(friendlyChatError(r.status, isTest));
+        return;
+      }
       const data = await r.json();
       setConversationId(data.conversation_id);
       setStatus(data.status);
@@ -601,9 +630,9 @@ function ChatInner() {
       await pollMessages(data.conversation_id);
       startPolling(data.conversation_id);
       if (pendingMessage) await sendMessageTo(data.conversation_id, pendingMessage);
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Error desconocido";
-      setMessages([{ id: "err", role: "error", content: `Error al iniciar el chat: ${msg}` }]);
+    } catch {
+      // fetch lanzó sin respuesta (red caída / backend inaccesible).
+      setError(friendlyChatError(null, isTest));
     }
   }
 
@@ -621,6 +650,12 @@ function ChatInner() {
         // Limpiar el "user" optimista para que no quede duplicado en la nueva conv
         setMessages(prev => prev.filter(m => m.content !== text || m.role !== "user"));
         await startChat(text);
+        return;
+      }
+      // Token revocado a mitad de conversación (p.ej. se reabrió "Probar chat"
+      // en otra pestaña): explicar qué pasó en vez de un error de envío genérico.
+      if (r.status === 401 || r.status === 403) {
+        setError(friendlyChatError(r.status, isTest));
         return;
       }
       const data = await r.json();
@@ -828,6 +863,27 @@ function ChatInner() {
         <div className="flex-1 overflow-y-auto">
           <div className="mx-auto flex min-h-full max-w-2xl flex-col px-4 pb-28 pt-24 sm:px-6">
             <div className="flex-1" />
+            {/* Aviso de completitud en modo prueba: qué le falta al asistente
+                para que una respuesta "vacía" no se confunda con un error. */}
+            {(missingKb || missingSectors) && (
+              <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] leading-relaxed text-amber-900">
+                <p className="mb-1 font-semibold">Modo prueba — a tu asistente todavía le falta configuración</p>
+                <ul className="list-disc space-y-0.5 pl-4">
+                  {missingKb && (
+                    <li>
+                      No hay documentos en la base de conocimiento: va a responder solo con la
+                      descripción general de tu organización. Cargalos desde <b>Documentos</b> en el panel.
+                    </li>
+                  )}
+                  {missingSectors && (
+                    <li>
+                      No hay sectores configurados: no va a poder derivar consultas a un operador.
+                      Crealos desde <b>Configuración</b> en el panel.
+                    </li>
+                  )}
+                </ul>
+              </div>
+            )}
             {messages.length === 0 && (
               <div className="flex justify-center py-8">
                 <Loader2 className="h-5 w-5 animate-spin text-slate-400" />

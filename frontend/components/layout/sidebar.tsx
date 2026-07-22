@@ -282,8 +282,18 @@ export function Sidebar() {
     if (!tenantId) return;
     try {
       const data = await api.tenants.generateWidgetToken(tenantId);
+      // Chequeo de completitud (best-effort, no bloquea la apertura): el tester
+      // muestra un aviso de lo que falta — sin docs ni sectores, una prueba
+      // "vacía" parecería un bot roto. Si el chequeo falla, no marcamos nada.
+      const [docs, sectors] = await Promise.all([
+        api.documents.list().catch(() => null),
+        api.sectors.list().catch(() => null),
+      ]);
+      const flags =
+        (docs !== null && docs.length === 0 ? "&kb=0" : "") +
+        (sectors !== null && sectors.length === 0 ? "&sectors=0" : "");
       const brand = branding.primary_color ? `&brand=${encodeURIComponent(branding.primary_color)}` : "";
-      const url = `/chat?token=${encodeURIComponent(data.widget_token)}&tenant=${encodeURIComponent(tenantId)}&test=1${brand}`;
+      const url = `/chat?token=${encodeURIComponent(data.widget_token)}&tenant=${encodeURIComponent(tenantId)}&test=1${flags}${brand}`;
       window.open(url, "_blank", "noopener");
     } catch {
       toast({ title: "No se pudo generar el link de prueba", variant: "destructive" });
