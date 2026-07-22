@@ -301,15 +301,15 @@ function PartRow({ chunk, selected, onSelect }: { chunk: ChunkResponse; selected
   const isSkipped = chunk.quality_gate_status === "skipped";
   return (
     <TableRow onClick={onSelect} aria-selected={selected} className={cn("cursor-pointer", selected && "bg-muted/60")}>
-      <TableCell className="py-3 text-center align-top text-xs tabular-nums text-muted-foreground/60">
+      <TableCell className="py-4 text-center align-middle text-xs tabular-nums text-muted-foreground/60">
         {chunk.chunk_index + 1}
       </TableCell>
-      <TableCell className="py-3">
-        <p className={cn("line-clamp-2 text-sm leading-relaxed", isSkipped ? "text-muted-foreground" : "text-foreground")}>
+      <TableCell className="py-4 align-middle">
+        <p className={cn("line-clamp-1 text-sm", isSkipped ? "text-muted-foreground" : "text-foreground/80")}>
           {chunk.text}
         </p>
       </TableCell>
-      <TableCell className="whitespace-nowrap py-3 text-right align-top">
+      <TableCell className="whitespace-nowrap py-4 text-right align-middle">
         <span className={cn("inline-flex items-center gap-1.5 text-xs font-medium", st.text)}>
           <span className={cn("h-1.5 w-1.5 rounded-full", st.dot)} /> {st.label}
         </span>

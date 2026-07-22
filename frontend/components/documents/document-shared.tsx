@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Check, X, Pencil, PanelRight, UserCheck } from "lucide-react";
+import { Loader2, Check, X, Pencil, PanelRight } from "lucide-react";
 import { api, type DocumentResponse, type ChunkResponse } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -76,6 +76,17 @@ export function PartDetailPanel({ chunk, documentId, onCollapse }: {
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState(chunk.text);
 
+  // El editor crece hasta el alto del contenido (como se lee, sin caja chica
+  // con scroll interno). El panel de la derecha es el que scrollea, igual que
+  // en modo lectura.
+  const taRef = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    const el = taRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [editText, editing]);
+
   const isSkipped   = chunk.quality_gate_status === "skipped";
   const needsReview = chunk.quality_gate_status === "pending";
   const inUse       = !isSkipped;
@@ -128,43 +139,52 @@ export function PartDetailPanel({ chunk, documentId, onCollapse }: {
   return (
     <div className="w-full bg-card">
       <DetailPanelHeader label={`Parte ${chunk.chunk_index + 1}`}>
+        {/* Toggle "en uso" compacto en el header. Reemplaza la pastilla de estado
+            y la fila de abajo — el estado + la acción viven en un solo lugar. */}
+        {!editing && !needsReview && (
+          <button
+            type="button"
+            role="switch"
+            aria-checked={inUse}
+            disabled={reviewing}
+            onClick={() => review(inUse ? "reject" : "approve")}
+            title={inUse ? "En uso — tocá para que el asistente la ignore" : "Sin usar — tocá para que el asistente la use"}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md pl-1.5 pr-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/60 disabled:opacity-50"
+          >
+            <span className={cn("relative h-4 w-7 shrink-0 rounded-full transition-colors", inUse ? "bg-success" : "bg-muted-foreground/30")}>
+              <span className={cn("absolute top-0.5 h-3 w-3 rounded-full bg-white shadow-sm transition-all", inUse ? "left-[14px]" : "left-0.5")} />
+            </span>
+            {inUse ? "En uso" : "Sin usar"}
+          </button>
+        )}
         {!editing && (
           <PanelIconButton onClick={startEdit} label="Editar texto"><Pencil className="h-4 w-4" /></PanelIconButton>
         )}
         <PanelIconButton onClick={onCollapse} label="Ocultar panel"><PanelRight className="h-4 w-4" /></PanelIconButton>
       </DetailPanelHeader>
 
-      {/* Estado + aviso de revisión */}
-      <div className="border-b px-4 py-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className={cn("inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-semibold", st.pill)}>
-            <span className={cn("h-1.5 w-1.5 rounded-full", st.dot)} /> {st.label}
-          </span>
-          {chunk.manually_reviewed && (
-            <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground"
-              title={`Revisado manualmente${chunk.reviewed_by ? ` por ${chunk.reviewed_by}` : ""}`}>
-              <UserCheck className="h-3 w-3" /> revisado
-            </span>
-          )}
-        </div>
-        {needsReview && (
-          <p className="mt-2.5 rounded-lg border border-warning/20 bg-warning/[0.07] px-2.5 py-2 text-xs leading-relaxed text-warning">
+      {/* Aviso — solo cuando el chunk está "Por revisar". El estado "en uso"
+          vive en el toggle del header; un chunk normal va directo al texto. */}
+      {needsReview && (
+        <div className="border-b px-4 py-3">
+          <p className="rounded-lg border border-warning/20 bg-warning/[0.07] px-2.5 py-2 text-xs leading-relaxed text-warning">
             {humanMsg ?? "El asistente no está seguro de esta parte. Revisala y decidí si la usa para responder."}
           </p>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Texto / editor */}
       <div className="px-4 py-4">
         {editing ? (
           <>
             <Textarea
+              ref={taRef}
               value={editText}
               onChange={(e) => setEditText(e.target.value)}
               maxLength={8000}
               autoFocus
               disabled={saving}
-              className="min-h-[240px] w-full resize-none text-sm leading-relaxed"
+              className="min-h-[140px] w-full resize-none overflow-hidden text-sm leading-relaxed"
             />
             <p className="mt-1.5 text-[11px] tabular-nums text-muted-foreground">{editText.length} / 8000</p>
           </>
@@ -175,65 +195,41 @@ export function PartDetailPanel({ chunk, documentId, onCollapse }: {
         )}
       </div>
 
-      {/* Acciones */}
-      <div className="border-t p-4">
-        {editing ? (
-          <div className="flex items-center justify-end gap-2">
-            <Button variant="outline" size="sm" onClick={cancelEdit} disabled={saving}>Cancelar</Button>
-            <Button size="sm" onClick={() => save()} disabled={!dirty || !valid || saving}>
-              {saving ? <><Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> Guardando…</> : "Guardar cambios"}
-            </Button>
-          </div>
-        ) : needsReview ? (
-          <div className="space-y-2.5">
-            <p className="text-xs font-medium text-foreground">¿El asistente usa esta parte para responder?</p>
-            <div className="flex gap-2">
-              <Button
-                variant="outline" size="sm"
-                className="flex-1 border-success/30 text-success hover:bg-success/10 hover:text-success"
-                onClick={() => review("approve")} disabled={reviewing}
-              >
-                <Check className="mr-1.5 h-4 w-4" /> Sí, usarla
-              </Button>
-              <Button
-                variant="outline" size="sm"
-                className="flex-1 border-destructive/30 text-destructive hover:bg-destructive/10 hover:text-destructive"
-                onClick={() => review("reject")} disabled={reviewing}
-              >
-                <X className="mr-1.5 h-4 w-4" /> No usarla
+      {/* Acciones — solo al editar o cuando está pendiente de revisión. El
+          toggle "en uso" de un chunk normal vive ahora en el header. */}
+      {(editing || needsReview) && (
+        <div className="border-t p-4">
+          {editing ? (
+            <div className="flex items-center justify-end gap-2">
+              <Button variant="outline" size="sm" onClick={cancelEdit} disabled={saving}>Cancelar</Button>
+              <Button size="sm" onClick={() => save()} disabled={!dirty || !valid || saving}>
+                {saving ? <><Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> Guardando…</> : "Guardar cambios"}
               </Button>
             </div>
-          </div>
-        ) : (
-          <UseRow inUse={inUse} disabled={reviewing} onChange={(next) => review(next ? "approve" : "reject")} />
-        )}
-      </div>
+          ) : (
+            <div className="space-y-2.5">
+              <p className="text-xs font-medium text-foreground">¿El asistente usa esta parte para responder?</p>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline" size="sm"
+                  className="flex-1 border-success/30 text-success hover:bg-success/10 hover:text-success"
+                  onClick={() => review("approve")} disabled={reviewing}
+                >
+                  <Check className="mr-1.5 h-4 w-4" /> Sí, usarla
+                </Button>
+                <Button
+                  variant="outline" size="sm"
+                  className="flex-1 border-destructive/30 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                  onClick={() => review("reject")} disabled={reviewing}
+                >
+                  <X className="mr-1.5 h-4 w-4" /> No usarla
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
-// ── UseRow ────────────────────────────────────────────────────────────────────
-// Interruptor "Usar para responder" como fila completa. On = el asistente usa
-// esta parte, Off = la ignora. Un toque, reversible.
-function UseRow({ inUse, onChange, disabled }: { inUse: boolean; onChange: (next: boolean) => void; disabled?: boolean }) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={inUse}
-      disabled={disabled}
-      onClick={() => onChange(!inUse)}
-      className="flex w-full items-center justify-between gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors hover:bg-muted/50 disabled:opacity-50"
-    >
-      <span className="min-w-0">
-        <span className="block text-sm font-medium text-foreground">Usar para responder</span>
-        <span className="block text-[11px] text-muted-foreground">
-          {inUse ? "El asistente la tiene en cuenta" : "El asistente la ignora"}
-        </span>
-      </span>
-      <span className={cn("relative h-5 w-9 shrink-0 rounded-full transition-colors", inUse ? "bg-success" : "bg-muted-foreground/30")}>
-        <span className={cn("absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-all", inUse ? "left-[18px]" : "left-0.5")} />
-      </span>
-    </button>
-  );
-}
