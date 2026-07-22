@@ -149,7 +149,7 @@ async def classify_routes(routes: list[dict], tenant_id: str) -> list[dict]:
     raw = await complete(
         [{"role": "system", "content": _CLASSIFY_SYSTEM},
          {"role": "user", "content": f"Rutas del proveedor:\n{payload}"}],
-        temperature=0.1, max_tokens=3000, tenant_id=tenant_id,
+        temperature=0.1, max_tokens=8000, tenant_id=tenant_id, timeout_s=120,
     )
     return _parse_llm_json_array(raw)
 
@@ -187,7 +187,7 @@ async def routes_from_document(doc_text: str, tenant_id: str) -> list[dict]:
     raw = await complete(
         [{"role": "system", "content": _EXTRACT_ROUTES_SYSTEM},
          {"role": "user", "content": f"Documentación del API:\n{doc_text[:_MAX_DOC_CHARS]}"}],
-        temperature=0.0, max_tokens=3000, tenant_id=tenant_id,
+        temperature=0.0, max_tokens=8000, tenant_id=tenant_id, timeout_s=120,
     )
     routes = _parse_llm_json_array(raw)
     # Normalizar a la forma de parse_openapi y filtrar basura del LLM.

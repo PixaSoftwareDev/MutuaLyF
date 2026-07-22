@@ -164,6 +164,7 @@ async def complete(
     temperature: float = 0.0,
     max_tokens: int = 1024,
     tenant_id: str | None = None,
+    timeout_s: float | None = None,
 ) -> str:
     """Send a chat completion request to Groq.
 
@@ -178,7 +179,9 @@ async def complete(
         The model's response text.
     """
     provider = (settings.llm_provider or "groq").lower()
-    timeout = (
+    # timeout_s explícito (p.ej. tareas largas como el análisis de un PDF de
+    # documentación) tiene prioridad; si no, se deriva de la complejidad.
+    timeout = timeout_s if timeout_s is not None else (
         settings.llm_reasoning_timeout_ms / 1000
         if complexity == QueryComplexity.COMPLEX
         else settings.llm_fast_timeout_ms / 1000
