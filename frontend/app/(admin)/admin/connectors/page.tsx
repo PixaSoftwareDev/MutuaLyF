@@ -41,7 +41,6 @@ export default function ConnectorsPage() {
   const [baseUrl, setBaseUrl]       = useState("");
   const [hosts, setHosts]           = useState("");
   const [authType, setAuthType]     = useState("none");
-  const [secret, setSecret]         = useState("");
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [deleting, setDeleting]     = useState<ConnectorRow | null>(null);
 
@@ -70,14 +69,13 @@ export default function ConnectorsPage() {
         slug: slug.trim(), display_name: name.trim(), base_url: baseUrl.trim(),
         egress_allow: egress, auth_type: authType,
       });
-      if (secret.trim() && authType !== "none") await api.connectors.setSecret(id, secret.trim());
       return id;
     },
     onSuccess: () => {
       inv();
       setShowCreate(false);
       setSlug(""); setSlugEdited(false); setName(""); setBaseUrl(""); setHosts("");
-      setAuthType("none"); setSecret(""); setShowAdvanced(false);
+      setAuthType("none"); setShowAdvanced(false);
       toast({ title: "Conector creado", description: "Configurá sus operaciones y probalo antes de activar.", variant: "success" });
     },
     onError: (e) => toast({ title: "No se pudo crear", description: errDetail(e), variant: "destructive" }),
@@ -238,11 +236,9 @@ export default function ConnectorsPage() {
               </Select>
             </div>
             {authType !== "none" && (
-              <div className="space-y-2">
-                <Label>Credencial</Label>
-                <Input type="password" placeholder={authType === "basic" ? "contraseña" : "API key / token"} value={secret} onChange={e => setSecret(e.target.value)} />
-                <p className="text-xs leading-relaxed text-muted-foreground">Se guarda cifrada y nunca se vuelve a mostrar. Podés cargarla o cambiarla después.</p>
-              </div>
+              <p className="rounded-lg border bg-muted/30 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
+                La credencial ({authType === "basic" ? "usuario + contraseña" : authType === "bearer" ? "token" : "API key"}) se carga en el paso siguiente, al Configurar el conector.
+              </p>
             )}
 
             {/* Opciones avanzadas — el identificador se autogenera del nombre y el

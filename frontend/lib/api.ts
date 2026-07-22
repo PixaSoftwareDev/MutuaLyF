@@ -935,9 +935,32 @@ export const api = {
       const { data } = await apiClient.patch(`/admin/connectors/${id}/active`, { is_active: isActive });
       return data as { ok: boolean; is_active: boolean };
     },
-    approvedHosts: async (): Promise<{ hosts: Array<{ host: string; approved_by: string | null; note: string | null }> }> => {
+    approvedHosts: async (): Promise<{ hosts: Array<{ host: string; approved_by: string | null; note: string | null; created_at: string | null }> }> => {
       const { data } = await apiClient.get("/admin/connectors/approved-hosts");
       return data;
+    },
+    addApprovedHost: async (host: string, note?: string) => {
+      const { data } = await apiClient.post("/admin/connectors/approved-hosts", { host, note: note || null });
+      return data as { host: string; approved: boolean };
+    },
+    removeApprovedHost: async (host: string) => {
+      await apiClient.delete(`/admin/connectors/approved-hosts/${encodeURIComponent(host)}`);
+    },
+    // Usuarios autorizados por conector (modo platform_registry): lista blanca
+    // documento + email + nombre. El login busca por documento y manda OTP al email.
+    listConnectorUsers: async (connectorId: string) => {
+      const { data } = await apiClient.get(`/admin/connectors/${connectorId}/users`);
+      return data as { users: Array<{ id: string; documento: string; email: string; nombre: string; is_active: boolean }> };
+    },
+    createConnectorUser: async (connectorId: string, body: { documento: string; email: string; nombre: string }) => {
+      const { data } = await apiClient.post(`/admin/connectors/${connectorId}/users`, body);
+      return data as { id: string };
+    },
+    updateConnectorUser: async (userId: string, body: Partial<{ documento: string; email: string; nombre: string; is_active: boolean }>) => {
+      await apiClient.patch(`/admin/connectors/users/${userId}`, body);
+    },
+    deleteConnectorUser: async (userId: string) => {
+      await apiClient.delete(`/admin/connectors/users/${userId}`);
     },
     createTool: async (connectorId: string, body: ConnectorToolPayload): Promise<{ id: string }> => {
       const { data } = await apiClient.post(`/admin/connectors/${connectorId}/tools`, body);

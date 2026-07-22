@@ -5,7 +5,7 @@ import { useParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Loader2, Trash2, FlaskConical, ChevronDown, CheckCircle2, XCircle,
-  Globe, Lock, Link2, Wand2, FileUp, Database,
+  Globe, Lock, Link2, Wand2, FileUp, Database, Pencil, Plus,
 } from "lucide-react";
 import { api, type ConnectorTool, type ConnectorTestResult, type DiscoveryProposal } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -17,9 +17,17 @@ import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/toast";
 import { PageShell } from "@/components/layout/page-shell";
 import { PageHeader } from "@/components/layout/page-header";
+
+const AUTH_TYPES = [
+  { value: "none",    label: "Sin autenticación" },
+  { value: "api_key", label: "API key (header)" },
+  { value: "bearer",  label: "Bearer token" },
+  { value: "basic",   label: "Basic (usuario + contraseña)" },
+];
 
 function errDetail(e: unknown): string {
   const anyE = e as { response?: { data?: { detail?: string } } };
@@ -58,6 +66,150 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
+// ── Propuesta de discovery: pill de estado + fila de una operación ────────────
+type PropRoute = {
+  path: string; path_template?: string | null; http_method?: string;
+  display_name: string; include: boolean; discard_reason?: string;
+  identity_kind?: string; is_lookup?: boolean; intent_label?: string | null;
+  examples?: unknown[];
+  test?: { ok?: boolean; status?: number | string | null; latency_ms?: number; error?: string } | null;
+};
+
+function RouteStatus({ test }: { test?: PropRoute["test"] }) {
+  if (!test) return <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">sin probar</span>;
+  if (test.ok) return (
+    <span className="inline-flex items-center gap-1 rounded-full bg-success/10 px-2 py-0.5 text-[10px] font-semibold text-success">
+      <CheckCircle2 className="h-3 w-3" /> Anda
+    </span>
+  );
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full bg-warning/10 px-2 py-0.5 text-[10px] font-semibold text-warning">
+      <XCircle className="h-3 w-3" /> Revisar {test.status ?? test.error}
+    </span>
+  );
+}
+
+function RouteRow({ r, checked, onCheck, access, onToggleAccess, discarded }: {
+  r: PropRoute; checked: boolean; onCheck: (v: boolean) => void;
+  access: string; onToggleAccess: () => void; discarded?: boolean;
+}) {
+  const isPublic = access === "publico";
+  return (
+    <div className="flex items-start gap-3 py-2.5">
+      <input
+        type="checkbox"
+        className="mt-1 h-4 w-4 shrink-0 accent-primary"
+        checked={checked}
+        disabled={!r.path_template}
+        onChange={e => onCheck(e.target.checked)}
+        aria-label={`Incluir ${r.display_name}`}
+      />
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm font-medium text-foreground">{r.display_name}</span>
+          {r.is_lookup ? (
+            <span className="rounded-full border bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">perfil (para el código)</span>
+          ) : (
+            <button
+              type="button"
+              onClick={onToggleAccess}
+              title="Cambiá quién puede consultarla (Público = cualquiera · Personal = pide identificarse)"
+              className={cn(
+                "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium transition-colors",
+                isPublic ? "border-border bg-muted/60 text-muted-foreground hover:bg-muted"
+                         : "border-warning/30 bg-warning/[0.08] text-warning hover:bg-warning/15",
+              )}
+            >
+              {isPublic ? <Globe className="h-3 w-3" /> : <Lock className="h-3 w-3" />}
+              {isPublic ? "Público" : "Personal"}
+            </button>
+          )}
+          {!discarded && <RouteStatus test={r.test} />}
+        </div>
+        <p className="mt-0.5 truncate text-[11px] text-muted-foreground/80">
+          <span className="font-mono">{r.http_method ?? "GET"} {r.path_template ?? r.path}</span>
+          {!discarded && r.intent_label ? <> · intención: {r.intent_label}</> : null}
+          {discarded && r.discard_reason ? <> · {r.discard_reason}</> : null}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ── Usuarios autorizados (modo lista propia / platform_registry) ──────────────
+function ConnectorUsersManager({ connectorId }: { connectorId: string }) {
+  const qc = useQueryClient();
+  const [doc, setDoc]       = useState("");
+  const [email, setEmail]   = useState("");
+  const [nombre, setNombre] = useState("");
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["connector-users", connectorId],
+    queryFn: () => api.connectors.listConnectorUsers(connectorId),
+    staleTime: 15_000,
+  });
+  const users = data?.users ?? [];
+  const inv = () => qc.invalidateQueries({ queryKey: ["connector-users", connectorId] });
+
+  const addM = useMutation({
+    mutationFn: () => api.connectors.createConnectorUser(connectorId, { documento: doc.trim(), email: email.trim(), nombre: nombre.trim() }),
+    onSuccess: () => { inv(); setDoc(""); setEmail(""); setNombre(""); toast({ title: "Usuario agregado", variant: "success" }); },
+    onError: (e) => toast({ title: "No se pudo agregar", description: errDetail(e), variant: "destructive" }),
+  });
+  const delM = useMutation({
+    mutationFn: (uid: string) => api.connectors.deleteConnectorUser(uid),
+    onSuccess: () => { inv(); toast({ title: "Usuario quitado", variant: "success" }); },
+    onError: (e) => toast({ title: "No se pudo quitar", description: errDetail(e), variant: "destructive" }),
+  });
+
+  const canAdd = doc.trim().length >= 3 && /.+@.+\..+/.test(email.trim()) && nombre.trim().length >= 2;
+
+  return (
+    <div className="space-y-3 rounded-xl bg-muted/40 p-3.5">
+      <div>
+        <Label className="text-xs">Usuarios autorizados</Label>
+        <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
+          Quién puede consultar sus datos. En el chat se identifica con el documento y recibe el código en el email que cargues acá.
+        </p>
+      </div>
+
+      {/* Agregar */}
+      <div className="grid gap-2 sm:grid-cols-[1fr_1.4fr_1.4fr_auto]">
+        <Input placeholder="Documento" value={doc} onChange={e => setDoc(e.target.value)} className="h-9 font-mono" />
+        <Input placeholder="Email" type="email" value={email} onChange={e => setEmail(e.target.value)} className="h-9" />
+        <Input placeholder="Nombre" value={nombre} onChange={e => setNombre(e.target.value)} className="h-9" />
+        <Button size="sm" className="h-9 gap-1.5" disabled={!canAdd || addM.isPending} onClick={() => addM.mutate()}>
+          {addM.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Agregar
+        </Button>
+      </div>
+
+      {/* Lista */}
+      {isLoading ? (
+        <Skeleton className="h-14 rounded-lg" />
+      ) : users.length === 0 ? (
+        <p className="py-2 text-center text-xs text-muted-foreground">Todavía no cargaste usuarios autorizados.</p>
+      ) : (
+        <div className="divide-y rounded-lg border bg-card">
+          {users.map(u => (
+            <div key={u.id} className="flex items-center gap-3 px-3 py-2">
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium text-foreground">
+                  {u.nombre} <span className="font-mono text-xs font-normal text-muted-foreground">· {u.documento}</span>
+                </p>
+                <p className="truncate text-xs text-muted-foreground">{u.email}</p>
+              </div>
+              <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0 text-destructive"
+                disabled={delM.isPending} onClick={() => delM.mutate(u.id)} aria-label={`Quitar ${u.nombre}`}>
+                <Trash2 className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ConnectorDetailPage() {
   const { id } = useParams<{ id: string }>();
   const qc = useQueryClient();
@@ -69,12 +221,45 @@ export default function ConnectorDetailPage() {
     queryFn: () => api.connectors.get(id),
   });
 
+  // ── editar conector (nombre / URL base / tipo de auth) ─────────────────────
+  const [showEdit, setShowEdit]   = useState(false);
+  const [eName, setEName]         = useState("");
+  const [eBaseUrl, setEBaseUrl]   = useState("");
+  const [eAuth, setEAuth]         = useState("none");
+  const openEdit = () => {
+    if (!conn) return;
+    setEName(conn.display_name); setEBaseUrl(conn.base_url); setEAuth(conn.auth_type);
+    setShowEdit(true);
+  };
+  const updateM = useMutation({
+    mutationFn: () => api.connectors.update(id, {
+      display_name: eName.trim(), base_url: eBaseUrl.trim(), auth_type: eAuth,
+    } as never),
+    onSuccess: () => {
+      invAll(); setShowEdit(false);
+      toast({ title: "Conector actualizado", description: "Si cambiaste la autenticación, revisá la credencial.", variant: "success" });
+    },
+    onError: (e) => toast({ title: "No se pudo actualizar", description: errDetail(e), variant: "destructive" }),
+  });
+
   // ── credencial (write-only) ────────────────────────────────────────────────
+  // Basic auth: el USUARIO va en auth_config (no es secreto) y la CONTRASEÑA es
+  // el secreto cifrado. Por eso el guardado hace dos cosas cuando es basic.
   const [showCred, setShowCred] = useState(false);
   const [secret, setSecret] = useState("");
-  const secretM = useMutation({
-    mutationFn: () => api.connectors.setSecret(id, secret.trim()),
-    onSuccess: () => { inv(); setSecret(""); setShowCred(false); toast({ title: "Credencial guardada (cifrada)", variant: "success" }); },
+  const [basicUser, setBasicUser] = useState<string | null>(null);
+  const saveCredM = useMutation({
+    mutationFn: async () => {
+      if (conn?.auth_type === "basic") {
+        const username = (basicUser ?? String((conn?.auth_config as Record<string, unknown>)?.username ?? "")).trim();
+        await api.connectors.update(id, { auth_config: { ...(conn?.auth_config ?? {}), username } } as never);
+      }
+      if (secret.trim()) await api.connectors.setSecret(id, secret.trim());
+    },
+    onSuccess: () => {
+      invAll(); setSecret(""); setBasicUser(null); setShowCred(false);
+      toast({ title: "Credencial guardada (cifrada)", variant: "success" });
+    },
     onError: (e) => toast({ title: "No se pudo guardar", description: errDetail(e), variant: "destructive" }),
   });
 
@@ -110,6 +295,12 @@ export default function ConnectorDetailPage() {
   const [wizIdentity, setWizIdentity] = useState("");
   const [proposal, setProposal]       = useState<DiscoveryProposal | null>(null);
   const [selected, setSelected]       = useState<Record<string, boolean>>({});
+  // Override del acceso (público/personal) por ruta: la IA lo propone pero el
+  // admin puede corregirlo antes de crear (clave = path).
+  const [routeKind, setRouteKind]     = useState<Record<string, string>>({});
+  const [showDiscarded, setShowDiscarded] = useState(false);
+  const accessOf = (r: { path: string; identity_kind?: string }) =>
+    routeKind[r.path] ?? (r.identity_kind === "afiliado" ? "afiliado" : "publico");
   // Cuenta lo tildado (las descartadas por la IA también se pueden re-incluir).
   // El perfil (is_lookup) se cuenta aparte: no se crea como operación de chat,
   // se convierte en la config del OTP — el botón lo dice para que el número cierre.
@@ -141,7 +332,9 @@ export default function ConnectorDetailPage() {
   const wizBusy = discoverM.isPending || discoverFileM.isPending;
 
   const applyM = useMutation({
-    mutationFn: () => api.connectors.apply(id, selectedRoutes),
+    mutationFn: () => api.connectors.apply(id, selectedRoutes.map(r => ({
+      ...r, identity_kind: accessOf(r),
+    }))),
     onSuccess: (d) => {
       invAll(); setShowWizard(false); setProposal(null);
       toast({
@@ -174,10 +367,17 @@ export default function ConnectorDetailPage() {
   }
 
   const needsAuth = conn.auth_type !== "none";
+  const isBasic   = conn.auth_type === "basic";
   const authLabel =
     conn.auth_type === "api_key" ? "API key (header)" :
     conn.auth_type === "bearer"  ? "Bearer token" :
-    conn.auth_type === "basic"   ? "Usuario + contraseña" : "Sin autenticación";
+    isBasic                      ? "Usuario + contraseña" : "Sin autenticación";
+  // Basic: el usuario vive en auth_config; la contraseña es el secreto.
+  const currentUser = String((conn.auth_config as Record<string, unknown>)?.username ?? "");
+  const userVal     = basicUser ?? currentUser;
+  const credLabel   = isBasic ? "Contraseña" : conn.auth_type === "bearer" ? "Bearer token" : "API key";
+  const credDisabled = saveCredM.isPending ||
+    (isBasic ? (!userVal.trim() || (!conn.has_secret && !secret.trim())) : !secret.trim());
   const hosts = conn.egress_allow?.join(", ") || "—";
 
   const statusMsg = conn.is_active
@@ -208,16 +408,21 @@ export default function ConnectorDetailPage() {
                   <p className="mt-0.5 break-all font-mono text-xs text-muted-foreground">{conn.base_url}</p>
                 </div>
               </div>
-              <Button
-                size="sm"
-                variant={conn.is_active ? "outline" : "default"}
-                disabled={toggleM.isPending || (!conn.is_active && conn.tools.length === 0)}
-                onClick={() => toggleM.mutate(!conn.is_active)}
-                title={!conn.is_active && conn.tools.length === 0 ? "Necesitás al menos una operación para activar" : undefined}
-              >
-                {toggleM.isPending && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
-                {conn.is_active ? "Desactivar" : "Activar"}
-              </Button>
+              <div className="flex shrink-0 items-center gap-2">
+                <Button size="sm" variant="ghost" onClick={openEdit} className="gap-1.5">
+                  <Pencil className="h-3.5 w-3.5" /> Editar
+                </Button>
+                <Button
+                  size="sm"
+                  variant={conn.is_active ? "outline" : "default"}
+                  disabled={toggleM.isPending || (!conn.is_active && conn.tools.length === 0)}
+                  onClick={() => toggleM.mutate(!conn.is_active)}
+                  title={!conn.is_active && conn.tools.length === 0 ? "Necesitás al menos una operación para activar" : undefined}
+                >
+                  {toggleM.isPending && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
+                  {conn.is_active ? "Desactivar" : "Activar"}
+                </Button>
+              </div>
             </div>
 
             {/* Estado en una frase */}
@@ -235,11 +440,14 @@ export default function ConnectorDetailPage() {
             <div className="mt-5 grid grid-cols-2 gap-x-6 gap-y-4 border-t pt-4 sm:grid-cols-3">
               <Field label="Autenticación">{authLabel}</Field>
               {needsAuth && (
-                <Field label="Credencial">
+                <Field label={isBasic ? "Usuario y contraseña" : "Credencial"}>
                   <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                    {isBasic && currentUser && (
+                      <span className="font-mono text-xs text-foreground">{currentUser} ·</span>
+                    )}
                     {conn.has_secret
-                      ? <span className="inline-flex items-center gap-1 text-success"><CheckCircle2 className="h-3.5 w-3.5" /> Cargada</span>
-                      : <span className="text-muted-foreground">Sin cargar</span>}
+                      ? <span className="inline-flex items-center gap-1 text-success"><CheckCircle2 className="h-3.5 w-3.5" /> {isBasic ? "contraseña ok" : "Cargada"}</span>
+                      : <span className="text-muted-foreground">{isBasic ? "sin contraseña" : "Sin cargar"}</span>}
                     <button
                       onClick={() => setShowCred(v => !v)}
                       className="text-xs font-medium text-action transition-colors hover:underline"
@@ -254,23 +462,39 @@ export default function ConnectorDetailPage() {
               </Field>
             </div>
 
-            {/* Editor de credencial — aparece inline al tocar Cargar/Cambiar */}
+            {/* Editor de credencial — aparece inline al tocar Cargar/Cambiar.
+                Basic pide Usuario (auth_config) + Contraseña (secreto). */}
             {needsAuth && showCred && (
-              <div className="mt-3 flex flex-wrap items-end gap-3 rounded-xl bg-muted/40 p-3.5 animate-fade-in">
-                <div className="min-w-[220px] flex-1 space-y-1.5">
-                  <Label className="text-xs">La clave o token que te dio el proveedor. Se cifra al guardarse.</Label>
+              <div className="mt-3 space-y-3 rounded-xl bg-muted/40 p-3.5 animate-fade-in">
+                {isBasic && (
+                  <div className="max-w-sm space-y-1.5">
+                    <Label className="text-xs">Usuario</Label>
+                    <Input
+                      autoFocus
+                      placeholder="usuario del proveedor"
+                      value={userVal}
+                      onChange={e => setBasicUser(e.target.value)}
+                    />
+                  </div>
+                )}
+                <div className="max-w-sm space-y-1.5">
+                  <Label className="text-xs">{credLabel}</Label>
                   <Input
                     type="password"
-                    autoFocus
-                    placeholder={conn.has_secret ? "•••••••• (reemplazar)" : "API key / token / contraseña"}
+                    autoFocus={!isBasic}
+                    placeholder={conn.has_secret ? "•••••••• (reemplazar)" : credLabel.toLowerCase()}
                     value={secret}
                     onChange={e => setSecret(e.target.value)}
                   />
+                  <p className="text-[11px] text-muted-foreground">Se guarda cifrada y nunca se vuelve a mostrar.</p>
                 </div>
-                <Button size="sm" disabled={!secret.trim() || secretM.isPending} onClick={() => secretM.mutate()}>
-                  {secretM.isPending && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
-                  Guardar
-                </Button>
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" size="sm" onClick={() => { setShowCred(false); setSecret(""); setBasicUser(null); }}>Cancelar</Button>
+                  <Button size="sm" disabled={credDisabled} onClick={() => saveCredM.mutate()}>
+                    {saveCredM.isPending && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
+                    Guardar
+                  </Button>
+                </div>
               </div>
             )}
           </CardContent>
@@ -285,10 +509,16 @@ export default function ConnectorDetailPage() {
                   Operaciones <span className="font-normal text-muted-foreground">({conn.tools.length})</span>
                 </h2>
                 <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
-                  Cada operación es un endpoint del proveedor que el bot puede consultar. Detectalas automáticamente y el sistema las arma por vos.
+                  Cada operación es un endpoint del proveedor que el bot puede consultar.
                 </p>
               </div>
-              <Button size="sm" onClick={() => setShowWizard(s => !s)}>Detectar automáticamente</Button>
+              {/* Con operaciones o wizard abierto, el botón vive en el header.
+                  Vacío → el CTA está centrado en el hero (abajo), como WhatsApp. */}
+              {(conn.tools.length > 0 || showWizard) && (
+                <Button size="sm" variant={showWizard ? "outline" : "default"} onClick={() => setShowWizard(s => !s)}>
+                  {showWizard ? "Ocultar detección" : "Detectar automáticamente"}
+                </Button>
+              )}
             </div>
 
             {/* Wizard — inline, separado por un divisor, sin caja propia */}
@@ -315,7 +545,9 @@ export default function ConnectorDetailPage() {
                       ? <><Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> Analizando…</>
                       : "Detectar"}
                   </Button>
-                  <Button size="sm" variant="outline" disabled={wizBusy || !wizIdentity.trim()}
+                  {/* Subir doc solo parsea el PDF: no necesita el dato de prueba
+                      (ese es para probar rutas en vivo con "Detectar"). */}
+                  <Button size="sm" variant="outline" disabled={wizBusy}
                     onClick={() => fileInputRef.current?.click()}>
                     {discoverFileM.isPending
                       ? <><Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> Leyendo…</>
@@ -338,67 +570,106 @@ export default function ConnectorDetailPage() {
                   <p className="text-sm text-destructive">{proposal.hint}</p>
                 )}
 
-                {proposal?.spec_found && (
-                  <div className="space-y-3">
-                    <p className="font-mono text-xs text-muted-foreground">fuente: {proposal.spec_url}</p>
-                    <div className="divide-y">
-                      {proposal.routes.map(r => (
-                        <div key={r.path} className={cn("flex flex-wrap items-center gap-x-3 gap-y-1 py-2.5",
-                          !r.include && !selected[r.path] && "opacity-60")}>
-                          <input
-                            type="checkbox"
-                            className="h-4 w-4 accent-primary"
-                            checked={!!selected[r.path]}
-                            disabled={!r.path_template}
-                            onChange={e => setSelected(s => ({ ...s, [r.path]: e.target.checked }))}
-                            aria-label={`Incluir ${r.path}`}
-                          />
-                          <span className="text-sm font-medium">{r.display_name}</span>
-                          <Badge variant="secondary" className="font-mono text-[11px]">GET {r.path_template ?? r.path}</Badge>
-                          <Badge variant="outline" className="inline-flex items-center gap-1">
-                            {r.identity_kind === "publico" ? <Globe className="h-3 w-3" /> : <Lock className="h-3 w-3" />}
-                            {r.is_lookup ? "perfil (para el código)" : r.identity_kind}
-                          </Badge>
-                          {r.test && (r.test.ok
-                            ? <span className="inline-flex items-center gap-1 text-xs font-medium text-success">
-                                <CheckCircle2 className="h-3.5 w-3.5" /> probada {r.test.status} · {r.test.latency_ms}ms</span>
-                            : <span className="inline-flex items-center gap-1 text-xs font-medium text-destructive">
-                                <XCircle className="h-3.5 w-3.5" /> falló ({r.test.status ?? r.test.error})</span>)}
-                          {!r.include && (
-                            <span className="w-full pl-7 text-xs text-warning">
-                              la IA la descartó: {r.discard_reason} — podés tildarla igual si corresponde
-                            </span>
-                          )}
-                          {r.include && r.intent_label && (
-                            <span className="w-full pl-7 text-xs text-muted-foreground">
-                              intención: <code>{r.intent_label}</code> · {(r.examples ?? []).length} frases de ejemplo generadas
-                            </span>
-                          )}
+                {proposal?.spec_found && (() => {
+                  const routes = (proposal.routes ?? []) as PropRoute[];
+                  const gReady = routes.filter(r => r.include && (!r.test || r.test.ok));
+                  const gWarn  = routes.filter(r => r.include && r.test && !r.test.ok);
+                  const gDisc  = routes.filter(r => !r.include);
+                  const toggleKind = (r: PropRoute) =>
+                    setRouteKind(k => ({ ...k, [r.path]: accessOf(r) === "publico" ? "afiliado" : "publico" }));
+                  const rowProps = (r: PropRoute) => ({
+                    r, checked: !!selected[r.path],
+                    onCheck: (v: boolean) => setSelected(s => ({ ...s, [r.path]: v })),
+                    access: accessOf(r), onToggleAccess: () => toggleKind(r),
+                  });
+                  const Group = ({ list, discarded }: { list: PropRoute[]; discarded?: boolean }) => (
+                    <div className="divide-y rounded-lg border">
+                      {list.map(r => <div key={r.path} className="px-3"><RouteRow {...rowProps(r)} discarded={discarded} /></div>)}
+                    </div>
+                  );
+                  return (
+                    <div className="space-y-4">
+                      {/* Resumen + acciones rápidas */}
+                      <div className="rounded-xl border bg-card p-3.5">
+                        <p className="text-sm leading-relaxed text-foreground">
+                          Detectamos <strong>{routes.length}</strong> operaciones:{" "}
+                          <span className="font-medium text-success">{gReady.length} listas</span> ·{" "}
+                          <span className="font-medium text-warning">{gWarn.length} con avisos</span> ·{" "}
+                          <span className="text-muted-foreground">{gDisc.length} descartadas</span>. Tildá las que quieras usar y confirmá.
+                        </p>
+                        <div className="mt-2.5 flex flex-wrap gap-2">
+                          <Button size="sm" variant="outline" onClick={() => setSelected(s => {
+                            const n = { ...s }; gReady.forEach(r => { if (r.path_template) n[r.path] = true; }); return n;
+                          })}>Seleccionar las que andan</Button>
+                          <Button size="sm" variant="ghost" onClick={() => setSelected({})}>Ninguna</Button>
                         </div>
-                      ))}
-                    </div>
-                    <div className="flex items-center justify-end gap-3">
-                      {lookupSelected && (
-                        <span className="text-xs text-muted-foreground">
-                          el perfil no cuenta como operación: configura la verificación por código (OTP)
-                        </span>
+                        <p className="mt-2 truncate font-mono text-[11px] text-muted-foreground/50">fuente: {proposal.spec_url}</p>
+                      </div>
+
+                      {gReady.length > 0 && (
+                        <div>
+                          <p className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-success">
+                            <CheckCircle2 className="h-3.5 w-3.5" /> Listas para usar ({gReady.length})
+                          </p>
+                          <Group list={gReady} />
+                        </div>
                       )}
-                      <Button disabled={applyM.isPending || selectedRoutes.length === 0} onClick={() => applyM.mutate()}>
-                        {applyM.isPending && <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />}
-                        Crear {selectedCount} {selectedCount === 1 ? "operación" : "operaciones"}{lookupSelected ? " + OTP" : ""}
-                      </Button>
+
+                      {gWarn.length > 0 && (
+                        <div>
+                          <p className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-warning">
+                            <XCircle className="h-3.5 w-3.5" /> Necesitan un vistazo ({gWarn.length})
+                          </p>
+                          <p className="mb-1.5 text-[11px] leading-snug text-muted-foreground">
+                            Fallaron al probarlas: puede que pidan un dato obligatorio, o que probamos con un id de ejemplo que no existe.
+                            Igual podés incluirlas — en uso real el bot usa datos válidos.
+                          </p>
+                          <Group list={gWarn} />
+                        </div>
+                      )}
+
+                      {gDisc.length > 0 && (
+                        <div>
+                          <button
+                            type="button"
+                            onClick={() => setShowDiscarded(v => !v)}
+                            className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+                          >
+                            <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", showDiscarded && "rotate-180")} />
+                            Descartadas por la IA ({gDisc.length})
+                          </button>
+                          {showDiscarded && <div className="mt-1.5"><Group list={gDisc} discarded /></div>}
+                        </div>
+                      )}
+
+                      <div className="flex items-center justify-end gap-3 border-t pt-3">
+                        {lookupSelected && (
+                          <span className="text-xs text-muted-foreground">el perfil no cuenta como operación: configura la verificación por código (OTP)</span>
+                        )}
+                        <Button disabled={applyM.isPending || selectedRoutes.length === 0} onClick={() => applyM.mutate()}>
+                          {applyM.isPending && <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />}
+                          Crear {selectedCount} {selectedCount === 1 ? "operación" : "operaciones"}{lookupSelected ? " + OTP" : ""}
+                        </Button>
+                      </div>
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
               </div>
             )}
 
             {/* Lista de operaciones — filas divididas, no una card por item */}
             {conn.tools.length === 0 ? (
               !showWizard && (
-                <p className="py-8 text-center text-sm text-muted-foreground">
-                  Todavía sin operaciones. Tocá “Detectar automáticamente” para que el sistema las arme.
-                </p>
+                <div className="flex flex-col items-center gap-2 py-8 text-center">
+                  <span className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
+                    <Link2 className="h-4 w-4 text-muted-foreground" />
+                  </span>
+                  <p className="text-sm font-medium text-foreground/80">Todavía no hay operaciones</p>
+                  <p className="mx-auto max-w-xs text-xs leading-relaxed text-muted-foreground">
+                    La IA las arma desde la documentación del proveedor. Primero las revisás; después se activan.
+                  </p>
+                  <Button size="sm" className="mt-1.5" onClick={() => setShowWizard(true)}>Detectar automáticamente</Button>
+                </div>
               )
             ) : (
               <div className="mt-2 divide-y border-t">
@@ -458,18 +729,21 @@ export default function ConnectorDetailPage() {
                               <SelectTrigger><SelectValue /></SelectTrigger>
                               <SelectContent>
                                 <SelectItem value="provider">El proveedor lo valida</SelectItem>
-                                <SelectItem value="platform_otp">La plataforma lo valida (OTP)</SelectItem>
+                                <SelectItem value="platform_otp">La plataforma lo valida — email leído del proveedor</SelectItem>
+                                <SelectItem value="platform_registry">La plataforma lo valida — lista propia (documento + email)</SelectItem>
                               </SelectContent>
                             </Select>
                           </div>
                           <p className="max-w-2xl text-[11px] leading-snug text-muted-foreground">
                             {flow === "platform_otp"
-                              ? "La plataforma lee el email del afiliado, le envía un código de 6 dígitos y lo valida. El proveedor no construye nada."
-                              : "El backend le pasa el DNI + el código al endpoint de validación del proveedor."}
+                              ? "La plataforma lee el email del afiliado desde el proveedor, le envía un código de 6 dígitos y lo valida."
+                              : flow === "platform_registry"
+                              ? "Vos cargás la lista de quién puede consultar (documento + email). Al identificarse con el documento, recibe un código en su email y accede a sus datos."
+                              : "El backend le pasa el documento + el código al endpoint de validación del proveedor."}
                           </p>
                         </div>
 
-                        {/* 2 · Ruta del perfil (solo OTP propio) */}
+                        {/* 2a · Ruta del perfil (solo OTP leído del proveedor) */}
                         {flow === "platform_otp" && (
                           <div className="space-y-1.5">
                             <Label className="text-xs">Ruta del perfil del afiliado</Label>
@@ -477,6 +751,9 @@ export default function ConnectorDetailPage() {
                             <p className="text-[11px] leading-snug text-muted-foreground">De dónde leemos su email para enviarle el código.</p>
                           </div>
                         )}
+
+                        {/* 2b · Lista de usuarios autorizados (solo lista propia) */}
+                        {flow === "platform_registry" && <ConnectorUsersManager connectorId={id} />}
 
                         {/* 3 · Identificador que se le pide */}
                         <div className="space-y-1.5">
@@ -500,6 +777,59 @@ export default function ConnectorDetailPage() {
           )}
         </div>
       </div>
+
+      {/* Editar conector — modal centrado (mismo formato que "Conectar una fuente") */}
+      <Dialog open={showEdit} onOpenChange={(v) => !v && setShowEdit(false)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <div className="flex items-start gap-3 text-left">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-muted text-muted-foreground">
+                <Database className="h-5 w-5" />
+              </span>
+              <div className="min-w-0 space-y-1 pt-0.5">
+                <DialogTitle>Editar conector</DialogTitle>
+                <DialogDescription>Cambiá el nombre, la URL base o el tipo de autenticación.</DialogDescription>
+              </div>
+            </div>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Nombre</Label>
+              <Input value={eName} onChange={e => setEName(e.target.value)} placeholder="Ej. CRM Pixs" />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">URL base del API</Label>
+              <Input className="font-mono" value={eBaseUrl} onChange={e => setEBaseUrl(e.target.value)} placeholder="https://api.proveedor.com" />
+              <p className="text-[11px] leading-snug text-muted-foreground">
+                Sin barra final. Si las rutas del proveedor ya empiezan con /api, no lo repitas acá.
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Autenticación</Label>
+              <Select value={eAuth} onValueChange={setEAuth}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {AUTH_TYPES.map(a => <SelectItem key={a.value} value={a.value}>{a.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              {eAuth !== conn.auth_type && eAuth !== "none" && (
+                <p className="text-[11px] leading-snug text-warning">
+                  Cambiaste el tipo de auth: después vas a tener que cargar la credencial ({eAuth === "basic" ? "usuario + contraseña" : eAuth === "bearer" ? "token" : "API key"}) en la fila Credencial.
+                </p>
+              )}
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowEdit(false)}>Cancelar</Button>
+            <Button disabled={!eName.trim() || !eBaseUrl.trim() || updateM.isPending} onClick={() => updateM.mutate()}>
+              {updateM.isPending && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+              Guardar cambios
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </PageShell>
   );
 }
