@@ -129,6 +129,7 @@ CREATE TABLE IF NOT EXISTS conversaciones (
     afiliado_ip             VARCHAR(45),
     channel                 VARCHAR(20) NOT NULL DEFAULT 'widget',  -- 'widget' | 'whatsapp'
     external_id             VARCHAR(64),                            -- wa_id (telefono) si channel='whatsapp'
+    is_test                 BOOLEAN NOT NULL DEFAULT FALSE,         -- "Probar chat" del admin: excluida de métricas
     created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     handoff_requested_at    TIMESTAMPTZ,
