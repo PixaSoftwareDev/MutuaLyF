@@ -30,7 +30,6 @@ from core.database import get_redis_ratelimit, get_redis_session
 from services import session_store
 from services.connectors_dao import (
     get_tool_by_slug,
-    get_tool_for_intent,
     list_tools_for_tool_calling,
 )
 from services.connector_executor import (
@@ -510,32 +509,19 @@ async def maybe_handle(
             return await _handle_code_input(tenant_id, conv_id, text, flow)
 
     # ── No hay FSM activo: decidir si el turno dispara una tool ────────────────
-    # Tres modos (settings.connector_routing_mode):
+    # Dos modos (settings.connector_routing_mode):
     #   unified      → la decisión ocurre DENTRO de la llamada RAG (handle_query con
     #                  tool_schemas → handle_tool_signal). Acá solo se atendió el FSM.
     #   tool_calling → llamada LLM separada elige la tool del catálogo (2a).
-    #   cosine       → clasificador de intenciones + binding (legacy).
+    # (El modo "cosine" — clasificador de intenciones + binding — se eliminó
+    # 2026-07-22: ruteaba mal, ver decisión en memoria del proyecto.)
     if settings.connector_routing_mode == "unified":
         return None
 
-    llm_params: dict | None = None
-    if settings.connector_routing_mode == "tool_calling":
-        resolved = await _resolve_tool_via_llm(tenant_id, text)
-        if resolved is None:
-            return None  # ninguna tool aplica → RAG
-        binding, llm_params = resolved
-    else:
-        from services.classifier import classify_intent
-        from services.query_normalizer import normalize_query
-        # Se clasifica la query NORMALIZADA (misma forma canónica que usa el RAG):
-        # así la clasificación queda memoizada y el turno que sigue al RAG no paga
-        # una segunda búsqueda en Qdrant.
-        intent = await classify_intent(normalize_query(text), tenant_id)
-        binding = await get_tool_for_intent(tenant_id, intent.label or "")
-        if binding is None:
-            return None  # no es datos personales → RAG
-        if intent.confidence is not None and intent.confidence < binding.min_confidence:
-            return None  # confianza insuficiente para ir a la tool → RAG (fail-safe)
+    resolved = await _resolve_tool_via_llm(tenant_id, text)
+    if resolved is None:
+        return None  # ninguna tool aplica → RAG
+    binding, llm_params = resolved
 
     return await _dispatch_binding(binding, llm_params, tenant_id, conv_id, text)
 
@@ -602,7 +588,9 @@ async def _dispatch_binding(
     new_flow = {
         "stage": _PIDIENDO_ID,
         "identity_kind": binding.identity_kind,
-        "pending_intent": binding.intent_label,
+        # Guarda el SLUG de la tool (clave estable para rehidratar el binding a
+        # mitad del login). El nombre del campo quedó de la era de intenciones.
+        "pending_intent": binding.tool_slug,
         # La pregunta original: la respuesta post-login se redacta en su contexto.
         "pending_question": text[:300],
     }
@@ -612,16 +600,9 @@ async def _dispatch_binding(
 
 
 async def _resolve_pending_binding(tenant_id: str, pending: str):
-    """Binding del flujo pendiente del FSM. `pending` puede ser un label de
-    intención (modo cosine) o un slug de tool (modos tool_calling/unified, donde
-    la selección no pasa por intenciones y pending_intent guarda el slug).
-    Sin este fallback, en unified el FSM perdía el binding a mitad del login:
-    no encontraba el auth_config → no enviaba el OTP y mostraba el mensaje TOTP
-    genérico (bug encontrado en el QA de navegador 2026-07-21)."""
-    binding = await get_tool_for_intent(tenant_id, pending or "")
-    if binding is None:
-        binding = await get_tool_by_slug(tenant_id, pending or "")
-    return binding
+    """Binding del flujo pendiente del FSM: `pending` es el slug de la tool
+    (guardado en pending_intent al arrancar el login)."""
+    return await get_tool_by_slug(tenant_id, pending or "")
 
 
 async def _send_platform_otp(tenant_id: str, conv_id: str, binding, identity: str) -> tuple[str | None, str | None]:

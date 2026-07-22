@@ -54,15 +54,9 @@ export function MessageBubble({ message }: MessageBubbleProps) {
           {renderWithLinks(message.content)}
         </div>
 
-        {/* Meta: intent + cache + latency */}
-        {!isUser && (message.intent_label || message.from_cache || message.latency_ms) && (
+        {/* Meta: cache + latency */}
+        {!isUser && (message.from_cache || message.latency_ms) && (
           <div className="flex items-center gap-2 flex-wrap">
-            {message.intent_label && (
-              <Badge variant="secondary" className="text-xs gap-1">
-                <Zap className="h-2.5 w-2.5" />
-                {message.intent_label}
-              </Badge>
-            )}
             {message.from_cache && (
               <Badge variant="outline" className="text-xs text-success border-success/30">
                 cache

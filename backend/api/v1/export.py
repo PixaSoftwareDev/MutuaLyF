@@ -1,7 +1,7 @@
 """KB export endpoint — JSON portable, re-importable, legible.
 
 Exporta la base de conocimiento de un tenant en un JSON estructurado
-con metadata + chunks + intenciones + (opcional) conversaciones + (opcional)
+con metadata + chunks + (opcional) conversaciones + (opcional)
 embeddings. Pensado para:
   - Backup manual del contenido
   - Migracion entre instancias del SaaS
@@ -49,7 +49,6 @@ async def export_kb_json(
         tenant_config:      bot_name, bot_description, greeting, branding
         sectors:            sectores del tenant
         documents:          docs con sus parent_chunks (texto + metadata)
-        intentions:         intenciones aprendidas con ejemplos
         conversations:      (opcional) historial de chats con mensajes
         embeddings:         (opcional) vectores Qdrant por chunk
 
@@ -102,7 +101,7 @@ async def export_kb_json(
         else:
             payload["tenant_config"] = {}
 
-    # ── 2. Datos del tenant schema: sectores, docs, intents, etc ────────────
+    # ── 2. Datos del tenant schema: sectores, docs, etc ─────────────────────
     async with get_pg_session(tenant_id) as session:
         # Sectores
         result = await session.execute(
@@ -166,53 +165,6 @@ async def export_kb_json(
                 "parent_chunks": parent_chunks_by_doc.get(str(r["id"]), []),
             }
             for r in docs_rows
-        ]
-
-        # Intenciones + ejemplos (las intenciones aprendidas del bot)
-        intents_result = await session.execute(
-            text(
-                "SELECT id, label, description, example_count, auto_learned_count, "
-                "is_active, model_version, last_accuracy, created_at "
-                "FROM intenciones ORDER BY label"
-            )
-        )
-        intents_rows = intents_result.mappings().all()
-        intent_ids = [r["id"] for r in intents_rows]
-
-        examples_by_intent: dict[str, list[dict]] = {}
-        if intent_ids:
-            examples_result = await session.execute(
-                text(
-                    "SELECT id, intencion_id, question_text, question_hash, created_at "
-                    "FROM intencion_ejemplos WHERE intencion_id = ANY(:intent_ids) "
-                    "ORDER BY intencion_id, created_at"
-                ),
-                {"intent_ids": intent_ids},
-            )
-            for e in examples_result.mappings().all():
-                key = str(e["intencion_id"])
-                examples_by_intent.setdefault(key, []).append(
-                    {
-                        "texto": e["question_text"],
-                        "source": e["question_hash"],
-                        "created_at": e["created_at"].isoformat() if e["created_at"] else None,
-                    }
-                )
-
-        payload["intentions"] = [
-            {
-                "id": str(r["id"]),
-                "label": r["label"],
-                "description": r["description"],
-                "example_count": r["example_count"],
-                "auto_learned_count": r["auto_learned_count"],
-                "is_active": r["is_active"],
-                "model_version": r["model_version"],
-                "last_accuracy": r["last_accuracy"],
-                "created_at": r["created_at"].isoformat() if r["created_at"] else None,
-                "examples": examples_by_intent.get(str(r["id"]), []),
-            }
-            for r in intents_rows
         ]
 
         # Conversaciones (opcional — contienen datos de usuarios)
@@ -307,7 +259,6 @@ async def export_kb_json(
     # ── 4. Audit log (fire-and-forget, no bloquea) ───────────────────────────
     counts = {
         "documents": len(payload.get("documents") or []),
-        "intentions": len(payload.get("intentions") or []),
         "conversations": len(payload["conversations"]) if include_conversations and payload.get("conversations") else 0,
         "embeddings": len(payload["embeddings"]) if include_embeddings and isinstance(payload.get("embeddings"), list) else 0,
     }
@@ -338,8 +289,8 @@ async def export_kb_json(
     filename = f"{tenant_id}-kb-export-{datetime.now(timezone.utc).strftime('%Y-%m-%d-%H%M')}.json"
 
     logger.info(
-        "kb_export_completed tenant_id=%s docs=%d intents=%d convs=%d size_bytes=%d",
-        tenant_id, counts["documents"], counts["intentions"], counts["conversations"], len(body),
+        "kb_export_completed tenant_id=%s docs=%d convs=%d size_bytes=%d",
+        tenant_id, counts["documents"], counts["conversations"], len(body),
     )
 
     return Response(

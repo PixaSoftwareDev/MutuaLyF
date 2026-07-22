@@ -62,70 +62,6 @@ def _as_dict(value) -> dict:
         return {}
 
 
-async def get_tool_for_intent(tenant_id: str, intent_label: str) -> ToolBinding | None:
-    """Resuelve la tool activa disparada por `intent_label`, o None.
-
-    Devuelve None si: no hay binding, o el binding/tool/connector están inactivos
-    (fail-closed: nada se invoca sin config explícitamente activa).
-    """
-    if not intent_label:
-        return None
-
-    async with get_pg_session(tenant_id) as session:
-        row = (await session.execute(text("""
-            SELECT b.min_confidence,
-                   t.id::text          AS tool_id,
-                   t.slug              AS tool_slug,
-                   t.http_method, t.path_template,
-                   t.params_schema, t.response_map,
-                   t.identity_kind, t.is_read_only,
-                   c.id::text          AS connector_id,
-                   c.slug              AS connector_slug,
-                   c.base_url, c.egress_allow,
-                   c.auth_type, c.auth_secret_ref, c.timeout_ms,
-                   c.auth_config, c.auth_secret_enc
-            FROM connector_intent_bindings b
-            JOIN intenciones i        ON i.id = b.intencion_id
-            JOIN connector_tools t     ON t.id = b.tool_id
-            JOIN tenant_connectors c   ON c.id = t.connector_id
-            WHERE i.label = :label
-              AND b.is_active AND t.is_active AND c.is_active
-            ORDER BY b.min_confidence ASC
-            LIMIT 1
-        """), {"label": intent_label})).mappings().first()
-
-        if row is None:
-            return None
-
-        roles = (await session.execute(text("""
-            SELECT role FROM connector_roles WHERE tool_id = CAST(:tid AS uuid)
-        """), {"tid": row["tool_id"]})).fetchall()
-
-    return ToolBinding(
-        tenant_id=tenant_id,
-        intent_label=intent_label,
-        min_confidence=float(row["min_confidence"]),
-        tool_id=row["tool_id"],
-        tool_slug=row["tool_slug"],
-        http_method=row["http_method"],
-        path_template=row["path_template"],
-        params_schema=_as_dict(row["params_schema"]),
-        response_map=_as_dict(row["response_map"]),
-        identity_kind=row["identity_kind"],
-        is_read_only=bool(row["is_read_only"]),
-        connector_id=row["connector_id"],
-        connector_slug=row["connector_slug"],
-        base_url=row["base_url"],
-        egress_allow=list(row["egress_allow"] or []),
-        auth_type=row["auth_type"],
-        auth_secret_ref=row["auth_secret_ref"],
-        timeout_ms=int(row["timeout_ms"]),
-        auth_config=_as_dict(row["auth_config"]),
-        auth_secret_enc=row["auth_secret_enc"],
-        roles={r[0] for r in roles},
-    )
-
-
 # ── Tool calling: catálogo + resolución por slug (sin pasar por intenciones) ─────
 async def list_tools_for_tool_calling(tenant_id: str) -> list[dict]:
     """Todas las tools ACTIVAS de conectores activos del tenant, para armar el
@@ -155,8 +91,7 @@ async def list_tools_for_tool_calling(tenant_id: str) -> list[dict]:
 async def get_tool_by_slug(tenant_id: str, tool_slug: str) -> ToolBinding | None:
     """Resuelve una tool activa por su slug (para EJECUTAR lo que eligió el LLM).
 
-    Mismo hidratado que get_tool_for_intent pero sin depender de un binding de
-    intención. `intent_label` queda como el slug (solo para logging/auditoría) y
+    `intent_label` queda como el slug (solo para logging/auditoría) y
     `min_confidence` en 0.0 (en modo tool_calling el gate lo pone el LLM, no un
     umbral de coseno). Fail-closed: None si la tool/connector no están activos.
     """
@@ -402,45 +337,6 @@ async def set_tool_roles(tenant_id: str, tool_id: str, roles: list[str]) -> None
 
 
 # ── Bindings intención → tool ────────────────────────────────────────────────────
-async def list_bindings(tenant_id: str, tool_id: str) -> list[dict]:
-    async with get_pg_session(tenant_id) as session:
-        rows = (await session.execute(text("""
-            SELECT b.id::text, b.intencion_id::text, i.label AS intent_label,
-                   b.min_confidence, b.is_active
-            FROM connector_intent_bindings b
-            JOIN intenciones i ON i.id = b.intencion_id
-            WHERE b.tool_id = CAST(:tid AS uuid) ORDER BY i.label
-        """), {"tid": tool_id})).mappings().all()
-    return [dict(r) for r in rows]
-
-
-async def upsert_binding(tenant_id: str, tool_id: str, intencion_id: str,
-                         min_confidence: float, is_active: bool) -> str:
-    async with get_pg_session(tenant_id) as session:
-        bid = (await session.execute(text("""
-            INSERT INTO connector_intent_bindings (intencion_id, tool_id, min_confidence, is_active)
-            VALUES (CAST(:iid AS uuid), CAST(:tid AS uuid), :conf, :active)
-            ON CONFLICT (intencion_id, tool_id)
-            DO UPDATE SET min_confidence = EXCLUDED.min_confidence, is_active = EXCLUDED.is_active
-            RETURNING id::text
-        """), {"iid": intencion_id, "tid": tool_id, "conf": min_confidence, "active": is_active})).scalar()
-        await session.commit()
-    return bid
-
-
-async def delete_binding(tenant_id: str, binding_id: str) -> bool:
-    async with get_pg_session(tenant_id) as session:
-        res = await session.execute(text(
-            "DELETE FROM connector_intent_bindings WHERE id = CAST(:id AS uuid)"
-        ), {"id": binding_id})
-        await session.commit()
-    return res.rowcount > 0
-
-
-# ── Usuarios autorizados por conector (registro de identidad de nuestro lado) ────
-# Para conectores cuyo sistema externo no modela usuarios (identity_validation=
-# 'platform_registry'): la lista blanca de quién puede consultar vive acá. El login
-# busca por documento y manda OTP al email registrado. Ver migración 033.
 async def list_connector_users(tenant_id: str, connector_id: str) -> list[dict]:
     async with get_pg_session(tenant_id) as session:
         rows = (await session.execute(text("""

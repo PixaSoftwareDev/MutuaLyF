@@ -143,15 +143,27 @@ class Settings(BaseSettings):
     # config de conectores, pero este flag lo apaga globalmente si hace falta.
     connectors_enabled: bool = False
     # Cómo decide el router QUÉ tool disparar:
-    #   "cosine"       → clasificador de intenciones por embeddings + binding intención→tool
-    #                    (legacy: empíricamente poco fiable — mislabels y confianza baja).
     #   "tool_calling" → llamada LLM SEPARADA pre-RAG elige la tool (2a). Ruteo correcto
     #                    (eval 46/46) pero suma ~0.9-1.2s a CADA turno del widget.
     #   "unified"      → la MISMA llamada LLM que genera la respuesta RAG recibe el
     #                    catálogo (tool_choice=auto) y decide tool-vs-responder (2b).
     #                    Cero latencia extra en turnos RAG; recomendado.
-    # El flujo posterior (FSM de login, roles, execute_tool) es idéntico en los 3 modos.
-    connector_routing_mode: str = "cosine"
+    # El flujo posterior (FSM de login, roles, execute_tool) es idéntico en ambos.
+    # El modo "cosine" (clasificador de intenciones + binding) se eliminó 2026-07-22
+    # por ruteo poco fiable; un env legacy con ese valor se coerciona a "unified".
+    connector_routing_mode: str = "unified"
+
+    @field_validator("connector_routing_mode")
+    @classmethod
+    def _coerce_routing_mode(cls, v: str) -> str:
+        valid = {"unified", "tool_calling"}
+        if v not in valid:
+            import logging
+            logging.getLogger(__name__).warning(
+                "connector_routing_mode=%r no soportado (modo cosine eliminado) — usando 'unified'", v
+            )
+            return "unified"
+        return v
     # Doble de pruebas in-process del framework de conectores (services/
     # connector_stub.py) — no llama a ningún sistema real. Solo dev/tests.
     connector_stub_enabled: bool = False
@@ -304,35 +316,6 @@ class Settings(BaseSettings):
     cache_ttl_seconds: int = 3600
     semantic_cache_threshold: float = 0.97   # cosine similarity to consider a semantic hit
     semantic_cache_enabled: bool = True
-
-    # ── Intent classifier ─────────────────────────────────────────────────────
-    intent_confidence_high: float = 0.95
-    intent_confidence_mid: float = 0.70
-    intent_auto_learn_cap: float = 0.30
-    intent_cluster_min_size: int = 15
-    intent_cluster_dismiss_days: int = 60
-
-    # ── Pipeline nocturno de intenciones (clustering + retrain + auto-promote) ──
-    # OFF por default: en la práctica no aporta valor hoy — la intención clasificada
-    # no altera la respuesta del RAG (solo telemetría/curación) y el único uso
-    # funcional (ruteo a conectores) no depende de este pipeline sino de la creación
-    # manual de intents/bindings. Corría cada noche generando candidatos que nadie
-    # cura y reentrenamientos que nadie consume. Se apaga vía flag (no se borra) para
-    # poder reactivarlo por env sin tocar código mientras se migra a LLM tool-calling.
-    # Reactivar SOLO si se vuelve a apostar por la curación automática de intenciones.
-    intent_nightly_pipeline_enabled: bool = False
-
-    # ── Auto-promoción de clusters → intenciones ────────────────────────────────
-    # Modo sugerencia por defecto (False): el clustering nocturno solo genera
-    # candidatos y el admin los aprueba desde el panel. El botón manual del panel
-    # sigue funcionando (pasa force=True). Reactivar la promoción totalmente
-    # automática (beat nocturno + inline post-clustering) recién cuando el volumen
-    # de tenants haga inviable la revisión humana — y con tests de intent_promotion.
-    intent_auto_promote_enabled: bool = False
-    intent_auto_promote_min_size: int = 20   # ≥ intent_cluster_min_size
-    # A. Subdivisión: un cluster incoherente se re-clusteriza fino; cada sub-grupo
-    # con ≥ este tamaño y coherente se promueve (recupera cobertura perdida).
-    intent_subdivide_min_size: int = 6
 
     # ── Email ─────────────────────────────────────────────────────────────────
     smtp_host: str = ""

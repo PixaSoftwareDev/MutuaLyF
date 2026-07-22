@@ -2,7 +2,7 @@
 
 Materializa la Fase 1 de docs/PANTALLA_CONECTORES_PLAN.md: CRUD de la config
 que el executor genérico interpreta (tenant_connectors / connector_tools /
-connector_roles / connector_intent_bindings), más:
+connector_roles), más:
 
   POST /admin/connectors/{id}/tools/{tool_id}/test  → dry-run REAL contra el
        tercero: arma la ruta, valida egress, llama, devuelve crudo + mapeado
@@ -116,15 +116,6 @@ class ToolUpdate(BaseModel):
     is_active: bool | None = None
     roles: list[str] | None = None
 
-
-class BindingIn(BaseModel):
-    # O bien una intención existente por id, o crear/reusar por label.
-    intencion_id: str | None = None
-    intent_label: str | None = Field(default=None, min_length=3, max_length=80)
-    intent_description: str | None = None
-    min_confidence: float = Field(default=0.70, ge=0.0, le=1.0)
-    is_active: bool = True
-    examples: list[str] = Field(default_factory=list, max_length=30)
 
 
 class TestIn(BaseModel):
@@ -254,8 +245,6 @@ async def get_connector(connector_id: str, current_user: CurrentUser = Depends(r
     if conn is None:
         raise HTTPException(status_code=404, detail="Conector no encontrado")
     conn["tools"] = await dao.list_tools(tenant_id, connector_id)
-    for t in conn["tools"]:
-        t["bindings"] = await dao.list_bindings(tenant_id, t["id"])
     return conn
 
 
@@ -405,76 +394,6 @@ async def delete_tool(
     return {"ok": True}
 
 
-# ── Bindings intención → tool ─────────────────────────────────────────────────
-
-@router.put("/admin/connectors/tools/{tool_id}/bindings")
-async def upsert_binding(
-    tool_id: str, body: BindingIn, request: Request,
-    current_user: CurrentUser = Depends(require_admin_or_super),
-):
-    """Vincula una intención a la tool. Si viene intent_label y no existe, crea la
-    intención. Si vienen examples, los siembra en PG + Qdrant para que el
-    clasificador dispare la tool (sin esto el binding existe pero nunca matchea)."""
-    from sqlalchemy import text
-    from core.database import get_pg_session
-
-    tenant_id = _own_tenant(current_user)
-
-    intencion_id = body.intencion_id
-    label = body.intent_label
-    if not intencion_id and not label:
-        raise HTTPException(status_code=422, detail="Falta intencion_id o intent_label")
-
-    async with get_pg_session(tenant_id) as session:
-        if not intencion_id:
-            intencion_id = (await session.execute(text("""
-                INSERT INTO intenciones (label, description, is_active)
-                VALUES (:l, :d, TRUE)
-                ON CONFLICT (label) DO UPDATE SET is_active = TRUE
-                RETURNING id::text
-            """), {"l": label, "d": body.intent_description or f"Dispara la tool ({label})"})).scalar()
-        else:
-            row = (await session.execute(text(
-                "SELECT label FROM intenciones WHERE id = CAST(:i AS uuid)"
-            ), {"i": intencion_id})).first()
-            if row is None:
-                raise HTTPException(status_code=404, detail="Intención no encontrada")
-            label = row[0]
-
-        if body.examples:
-            from services.intent_examples import insert_examples
-            await insert_examples(session, intencion_id, body.examples)
-        await session.commit()
-
-    if body.examples:
-        # Indexar en Qdrant con la misma maquinaria del retrain (embeddings reales).
-        import uuid as _uuid
-        from services.classifier_trainer import _embed_and_upsert
-        examples = [{"question_text": t, "label": label, "intencion_id": intencion_id,
-                     "example_id": str(_uuid.uuid4())} for t in body.examples if t.strip()]
-        try:
-            await _embed_and_upsert(tenant_id, examples, "ui-seed")
-        except Exception as exc:
-            logger.warning("binding_examples_index_failed tenant=%s error=%s", tenant_id, exc)
-
-    bid = await dao.upsert_binding(tenant_id, tool_id, intencion_id, body.min_confidence, body.is_active)
-    _audit(request, current_user, "connector_binding_upserted", f"{tool_id}→{label}",
-           {"examples": len(body.examples)})
-    return {"id": bid, "intencion_id": intencion_id, "intent_label": label}
-
-
-@router.delete("/admin/connectors/bindings/{binding_id}")
-async def delete_binding(
-    binding_id: str, request: Request,
-    current_user: CurrentUser = Depends(require_admin_or_super),
-):
-    tenant_id = _own_tenant(current_user)
-    if not await dao.delete_binding(tenant_id, binding_id):
-        raise HTTPException(status_code=404, detail="Binding no encontrado")
-    _audit(request, current_user, "connector_binding_deleted", binding_id)
-    return {"ok": True}
-
-
 # ── Usuarios autorizados por conector (registro de identidad, platform_registry) ──
 # La identidad de quién puede consultar la validamos nosotros: lista blanca con
 # documento + email + nombre. El login busca por documento y manda OTP al email.
@@ -558,44 +477,10 @@ class ApplyToolIn(BaseModel):
     identity_kind: str = "publico"
     is_lookup: bool = False
     identity_param: str | None = None  # nombre del identificador en el API (dni, legajo...)
-    intent_label: str | None = None
-    intent_description: str | None = None
-    examples: list[str] = Field(default_factory=list, max_length=30)
 
 
 class ApplyIn(BaseModel):
     tools: list[ApplyToolIn]
-
-
-async def _bind_intent_with_examples(tenant_id: str, tool_id: str, label: str,
-                                     description: str | None, examples: list[str]) -> None:
-    """Crea/reusa la intención, siembra ejemplos (PG + Qdrant) y bindea la tool."""
-    from sqlalchemy import text
-    from core.database import get_pg_session
-
-    async with get_pg_session(tenant_id) as session:
-        intencion_id = (await session.execute(text("""
-            INSERT INTO intenciones (label, description, is_active)
-            VALUES (:l, :d, TRUE)
-            ON CONFLICT (label) DO UPDATE SET is_active = TRUE
-            RETURNING id::text
-        """), {"l": label, "d": description or f"Dispara la tool ({label})"})).scalar()
-        if examples:
-            from services.intent_examples import insert_examples
-            await insert_examples(session, intencion_id, examples)
-        await session.commit()
-
-    if examples:
-        import uuid as _uuid
-        from services.classifier_trainer import _embed_and_upsert
-        rows = [{"question_text": t, "label": label, "intencion_id": intencion_id,
-                 "example_id": str(_uuid.uuid4())} for t in examples if t.strip()]
-        try:
-            await _embed_and_upsert(tenant_id, rows, "auto-discovery")
-        except Exception as exc:
-            logger.warning("discovery_examples_index_failed tenant=%s error=%s", tenant_id, exc)
-
-    await dao.upsert_binding(tenant_id, tool_id, intencion_id, 0.70, True)
 
 
 @router.post("/admin/connectors/{connector_id}/discover")
@@ -719,10 +604,9 @@ async def apply_proposal(
     connector_id: str, body: ApplyIn, request: Request,
     current_user: CurrentUser = Depends(require_admin_or_super),
 ):
-    """Crea en bloque las tools confirmadas por el admin (+roles, intenciones,
-    ejemplos y bindings). Si hay ruta de perfil (is_lookup), configura el OTP
-    propio automáticamente. El conector NO se activa: eso sigue siendo un clic
-    explícito del admin."""
+    """Crea en bloque las tools confirmadas por el admin (+roles). Si hay ruta de
+    perfil (is_lookup), configura el OTP propio automáticamente. El conector NO
+    se activa: eso sigue siendo un clic explícito del admin."""
     tenant_id = _own_tenant(current_user)
     conn = await dao.get_connector(tenant_id, connector_id)
     if conn is None:
@@ -735,8 +619,7 @@ async def apply_proposal(
             lookup_path = t.path_template
             lookup_param = t.identity_param
             continue  # el perfil no es una tool de chat: solo config del OTP
-        data = t.model_dump(exclude={"is_lookup", "identity_param", "intent_label",
-                                     "intent_description", "examples"})
+        data = t.model_dump(exclude={"is_lookup", "identity_param"})
         data["http_method"] = data["http_method"].upper()
         data["is_read_only"] = True
         try:
@@ -749,9 +632,6 @@ async def apply_proposal(
         roles = ["afiliado"] if t.identity_kind != "publico" else ["publico", "afiliado"]
         await dao.set_tool_roles(tenant_id, tool_id, roles)
         await dao.update_tool(tenant_id, tool_id, {"is_active": True})
-        if t.intent_label:
-            await _bind_intent_with_examples(tenant_id, tool_id, t.intent_label,
-                                             t.intent_description, t.examples)
         created.append(t.slug)
 
     if lookup_path:

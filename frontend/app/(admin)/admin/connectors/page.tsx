@@ -294,7 +294,7 @@ export default function ConnectorsPage() {
           <DialogHeader>
             <DialogTitle>¿Eliminar “{deleting?.display_name}”?</DialogTitle>
             <DialogDescription>
-              Se borran sus {deleting?.tool_count} operación(es) y vínculos con intenciones. Esta acción no se puede deshacer.
+              Se borran sus {deleting?.tool_count} operación(es). Esta acción no se puede deshacer.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

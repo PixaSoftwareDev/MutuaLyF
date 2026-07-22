@@ -83,7 +83,6 @@ export interface ChatMessage {
     content_excerpt: string;
     score: number;
   }>;
-  intent_label?: string | null;
   from_cache?: boolean;
   latency_ms?: number;
   timestamp: number;

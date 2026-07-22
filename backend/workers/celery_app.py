@@ -11,8 +11,6 @@ app = Celery(
     backend=settings.redis_url_broker,
     include=[
         "workers.ingest_tasks",
-        "workers.clustering_tasks",
-        "workers.training_tasks",
         "workers.handoff_tasks",
         "workers.cleanup_tasks",
         "workers.maintenance_tasks",
@@ -61,9 +59,8 @@ _beat_schedule = {
         "task": "workers.maintenance_tasks.detect_contradictions_all_tenants",
         "schedule": crontab(hour=3, minute=30),
     },
-    # Consistencia de datos: repara deriva PG↔Qdrant de ejemplos de intenciones
-    # (red de seguridad que el ruteo a conectores necesita) y purga puntos
-    # huérfanos del cache semántico. Al final del ciclo nocturno.
+    # Consistencia de datos: purga puntos huérfanos del cache semántico
+    # (Redis con TTL 1h ya expiró; el punto en Qdrant quedaría para siempre).
     "nightly-data-consistency": {
         "task": "workers.maintenance_tasks.data_consistency_all_tenants",
         "schedule": crontab(hour=4, minute=0),
@@ -78,30 +75,9 @@ _beat_schedule = {
     },
     "cleanup-expired-attachments": {
         "task": "workers.cleanup_tasks.delete_expired_attachments",
-        "schedule": crontab(hour=1, minute=30),  # diario, antes del clustering de las 02:00
+        "schedule": crontab(hour=1, minute=30),  # diario, antes del ciclo nocturno
     },
 }
-
-# Pipeline nocturno de intenciones (clustering → auto-promote → retrain). OFF por
-# default: no aporta valor hoy (ver settings.intent_nightly_pipeline_enabled). Se
-# agenda solo si el flag está activo, para poder reactivarlo por env sin tocar código.
-if settings.intent_nightly_pipeline_enabled:
-    _beat_schedule.update({
-        "nightly-clustering": {
-            "task": "workers.clustering_tasks.run_hdbscan_clustering",
-            "schedule": crontab(hour=2, minute=0),
-        },
-        # Respaldo del promote inline del clustering. NO-OP adicional salvo que
-        # INTENT_AUTO_PROMOTE_ENABLED=true (modo sugerencia por default).
-        "nightly-auto-promote": {
-            "task": "workers.clustering_tasks.promote_all_tenants",
-            "schedule": crontab(hour=2, minute=30),
-        },
-        "nightly-retraining": {
-            "task": "workers.training_tasks.retrain_all_tenants",
-            "schedule": crontab(hour=3, minute=0),
-        },
-    })
 
 app.conf.update(
     task_serializer="json",
@@ -114,8 +90,6 @@ app.conf.update(
     worker_prefetch_multiplier=1,  # Fair dispatch — don't prefetch more than one task per worker
     task_routes={
         "workers.ingest_tasks.*": {"queue": "ingest"},
-        "workers.clustering_tasks.*": {"queue": "clustering"},
-        "workers.training_tasks.*": {"queue": "training"},
         "workers.maintenance_tasks.*": {"queue": "clustering"},
     },
     beat_schedule=_beat_schedule,

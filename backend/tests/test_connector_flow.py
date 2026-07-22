@@ -58,10 +58,9 @@ def wired(monkeypatch):
     """Cablea el flujo con Redis fake, stub habilitado, clasificador/DAO/audit mockeados."""
     from core.config import settings
     monkeypatch.setattr(settings, "connectors_enabled", True)
-    # Estos tests ejercitan el flujo cosine (clasificador+binding). Se fija el
-    # modo explícito: sin esto heredan CONNECTOR_ROUTING_MODE del ambiente
-    # (p.ej. unified en dev local) y maybe_handle ni clasifica.
-    monkeypatch.setattr(settings, "connector_routing_mode", "cosine")
+    # Modo tool_calling explícito: sin esto heredan CONNECTOR_ROUTING_MODE del
+    # ambiente (p.ej. unified en dev local) y maybe_handle ni selecciona.
+    monkeypatch.setattr(settings, "connector_routing_mode", "tool_calling")
     monkeypatch.setattr(settings, "connector_stub_enabled", True)
 
     fake_session = FakeRedis()
@@ -77,17 +76,16 @@ def wired(monkeypatch):
         return None
     monkeypatch.setattr("services.connector_router._phrase_with_llm", _no_llm)
 
-    # Clasificador (caído en dev por 429) → devolvemos la intención de la tool.
-    from services.classifier import IntentResult
+    # Selección de tool por LLM mockeada (sin red): las preguntas de órdenes
+    # eligen la tool; el resto va al RAG. "rden" matchea "orden" y "órdenes".
+    async def _resolve(tenant_id, text):
+        return (_binding(), {}) if "rden" in text.lower() else None
+    monkeypatch.setattr("services.connector_router._resolve_tool_via_llm", _resolve)
 
-    async def _classify(q, tenant_id):
-        return IntentResult(label="consulta_ordenes_pendientes", confidence=0.9, band="mid")
-    monkeypatch.setattr("services.classifier.classify_intent", _classify)
-
-    # DAO: sin PG en el test.
-    async def _get_tool(tenant_id, label):
-        return _binding() if label == "consulta_ordenes_pendientes" else None
-    monkeypatch.setattr("services.connector_router.get_tool_for_intent", _get_tool)
+    # Rehidratación del binding a mitad del FSM (pending_intent guarda el slug).
+    async def _by_slug(tenant_id, slug):
+        return _binding() if slug == "ordenes_pendientes" else None
+    monkeypatch.setattr("services.connector_router.get_tool_by_slug", _by_slug)
 
     # Auditoría: sin PG.
     async def _noop_audit(*a, **k):
@@ -211,14 +209,10 @@ async def test_cambio_de_tema_abandona_el_fsm(wired):
 
 
 @pytest.mark.asyncio
-async def test_intencion_no_personal_va_a_rag(wired, monkeypatch):
-    from services.classifier import IntentResult
-
-    async def _other(q, tenant_id):
-        return IntentResult(label="horarios_atencion", confidence=0.9, band="mid")
-    monkeypatch.setattr("services.classifier.classify_intent", _other)
+async def test_consulta_sin_tool_va_a_rag(wired):
+    # El selector LLM no elige ninguna tool para esta pregunta → RAG.
     r = await _turn("¿a qué hora abren?")
-    assert r is None  # no hay tool bindeada → RAG
+    assert r is None  # no hay tool que aplique → RAG
 
 
 @pytest.mark.asyncio
@@ -260,16 +254,11 @@ def _public_binding():
 
 @pytest.mark.asyncio
 async def test_tool_publica_no_pide_login(wired, monkeypatch):
-    from services.classifier import IntentResult
     from services.connector_executor import ExecResult, OK
 
-    async def _classify(q, tenant_id):
-        return IntentResult(label="buscar_profesional_especialidad", confidence=0.9, band="mid")
-    monkeypatch.setattr("services.classifier.classify_intent", _classify)
-
-    async def _get_tool(t, l):
-        return _public_binding() if l else None
-    monkeypatch.setattr("services.connector_router.get_tool_for_intent", _get_tool)
+    async def _resolve(tenant_id, text):
+        return (_public_binding(), {})
+    monkeypatch.setattr("services.connector_router._resolve_tool_via_llm", _resolve)
 
     async def _exec(binding, identity, params=None):
         # La tool pública se ejecuta SIN identidad (sin login).
@@ -310,9 +299,13 @@ def _binding_legajo():
 
 @pytest.mark.asyncio
 async def test_fsm_pide_identificador_custom(wired, monkeypatch):
-    async def _get_tool(tenant_id, label):
-        return _binding_legajo() if label == "consulta_ordenes_pendientes" else None
-    monkeypatch.setattr("services.connector_router.get_tool_for_intent", _get_tool)
+    async def _resolve(tenant_id, text):
+        return (_binding_legajo(), {}) if "rden" in text.lower() else None
+    monkeypatch.setattr("services.connector_router._resolve_tool_via_llm", _resolve)
+
+    async def _by_slug(tenant_id, slug):
+        return _binding_legajo() if slug == "ordenes_pendientes" else None
+    monkeypatch.setattr("services.connector_router.get_tool_by_slug", _by_slug)
 
     # 1) Pregunta personal → pide legajo, no DNI.
     r = await _turn("¿tengo órdenes pendientes?")

@@ -1,5 +1,5 @@
 """Conexión automática: descubre las rutas del proveedor, la IA las clasifica,
-las prueba en vivo y propone la config completa (tools + intenciones + ejemplos).
+las prueba en vivo y propone la config completa de tools.
 
 Pipeline (docs/PANTALLA_CONECTORES_PLAN.md → wizard):
   1. fetch_spec()      — busca el catálogo OpenAPI del proveedor (con su credencial).
@@ -115,17 +115,12 @@ y devolvés SOLO un JSON array (sin markdown, sin explicación) con un objeto po
                                  // identidad de la sesión, NUNCA la elige el bot)
  "is_lookup": true|false,        // true SOLO para la ruta que devuelve el perfil/datos de
                                  // contacto del afiliado (sirve para enviar el código OTP)
- "intent_label": "snake_case",   // intención de chat que dispara esta ruta (null si is_lookup
-                                 // o include=false: el perfil no se consulta por chat)
- "intent_description": "…",      // 1 línea en español
- "examples": ["...", ...],       // 6 frases REALES que un afiliado escribiría en un chat
-                                 // informal argentino para pedir esto (null si no aplica)
  "sample_params": {"param": "valor"}  // valores de prueba realistas para probar la ruta
                                  // (para el param de identidad usá "IDENTITY" literal)
 }
 Reglas: rutas que muestran listados generales (profesionales, sucursales, horarios) son "publico".
 Rutas con el documento de la persona en el path son "afiliado". La ruta de perfil del afiliado
-(datos de contacto) marcala is_lookup=true e include=true pero sin intención.
+(datos de contacto) marcala is_lookup=true e include=true.
 IMPORTANTE: que una ruta devuelva información sensible o privada de la persona (finanzas, cuenta,
 historia clínica) NO es motivo de descarte — es el caso de uso central: incluila con
 identity_kind="afiliado" (la plataforma la protege con login + código de verificación).
@@ -321,9 +316,6 @@ async def propose_from_routes(connector: dict, secret_enc: str | None, tenant_id
             "identity_kind": cls.get("identity_kind") or "publico",
             "identity_param": cls.get("identity_param"),
             "is_lookup": bool(cls.get("is_lookup")),
-            "intent_label": cls.get("intent_label"),
-            "intent_description": cls.get("intent_description"),
-            "examples": cls.get("examples") or [],
         }
         # La config del tool se arma SIEMPRE (también en descartadas, para que el
         # admin pueda corregir a la IA y re-incluirlas). El dry-run solo corre en

@@ -90,11 +90,8 @@ async def get_metrics(
         """), {"tid": tenant_id})).mappings().all()
 
     # 2. consultas_log del tenant (rendimiento + temas + recientes) ──────────────
-    perf = {"latency_p50": None, "latency_p95": None, "cache_hit_rate": None, "avg_confidence": None,
-            "total_logged": 0, "unclassified_30d": 0, "classified_30d": 0}
+    perf = {"latency_p50": None, "latency_p95": None, "cache_hit_rate": None, "total_logged": 0}
     recent_queries: list = []
-    top_intents: list = []
-    assistant_daily: list = []
     try:
         async with get_pg_session(tenant_id) as session:
             perf_row = (await session.execute(text(f"""
@@ -102,71 +99,29 @@ async def get_metrics(
                     PERCENTILE_CONT(0.5)  WITHIN GROUP (ORDER BY latency_ms) AS p50,
                     PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY latency_ms) AS p95,
                     AVG(CASE WHEN from_cache THEN 1.0 ELSE 0.0 END)          AS cache_hit_rate,
-                    AVG(intent_confidence) FILTER (WHERE intent_confidence IS NOT NULL) AS avg_confidence,
-                    COUNT(*) FILTER (WHERE intent_label IS NULL) AS unclassified,
                     COUNT(*) AS total_logged
                 FROM consultas_log
                 WHERE created_at >= NOW() - INTERVAL '{days} days'
             """))).mappings().fetchone()
             if perf_row and int(perf_row["total_logged"] or 0) > 0:
-                total_logged = int(perf_row["total_logged"])
-                unclassified = int(perf_row["unclassified"] or 0)
                 perf = {
                     "latency_p50":    int(perf_row["p50"]) if perf_row["p50"] else None,
                     "latency_p95":    int(perf_row["p95"]) if perf_row["p95"] else None,
                     "cache_hit_rate": round(float(perf_row["cache_hit_rate"] or 0), 3),
-                    "avg_confidence": round(float(perf_row["avg_confidence"]), 3) if perf_row["avg_confidence"] else None,
-                    "total_logged":   total_logged,
-                    "unclassified_30d": unclassified,
-                    "classified_30d":   total_logged - unclassified,
+                    "total_logged":   int(perf_row["total_logged"]),
                 }
-
-            # Confianza promedio por día — la serie del informe Asistente
-            assistant_daily = [
-                {
-                    "day": r["day"].isoformat(),
-                    "avg_confidence": round(float(r["conf"]), 3) if r["conf"] is not None else None,
-                    "total": int(r["total"]),
-                }
-                for r in (await session.execute(text(f"""
-                    SELECT DATE(created_at) AS day,
-                           AVG(intent_confidence) FILTER (WHERE intent_confidence IS NOT NULL) AS conf,
-                           COUNT(*)::int AS total
-                    FROM consultas_log
-                    WHERE created_at >= NOW() - INTERVAL '{days} days'
-                    GROUP BY DATE(created_at)
-                    ORDER BY day
-                """))).mappings().all()
-            ]
 
             recent_queries = [
                 {
                     "question_text":     r["question_text"],
-                    "intent_label":      r["intent_label"],
-                    "intent_confidence": round(float(r["intent_confidence"]), 2) if r["intent_confidence"] else None,
                     "latency_ms":        r["latency_ms"],
                     "from_cache":        r["from_cache"],
                     "created_at":        r["created_at"].isoformat(),
                 }
                 for r in (await session.execute(text("""
-                    SELECT question_text, intent_label, intent_confidence, latency_ms, from_cache, created_at
+                    SELECT question_text, latency_ms, from_cache, created_at
                     FROM consultas_log
                     ORDER BY created_at DESC LIMIT 10
-                """))).mappings().all()
-            ]
-
-            top_intents = [
-                {
-                    "label":          r["intent_label"],
-                    "count":          int(r["cnt"]),
-                    "avg_confidence": round(float(r["avg_conf"]), 2) if r["avg_conf"] else None,
-                }
-                for r in (await session.execute(text(f"""
-                    SELECT intent_label, COUNT(*)::int AS cnt, AVG(intent_confidence) AS avg_conf
-                    FROM consultas_log
-                    WHERE intent_label IS NOT NULL AND created_at >= NOW() - INTERVAL '{days} days'
-                    GROUP BY intent_label
-                    ORDER BY cnt DESC LIMIT 8
                 """))).mappings().all()
             ]
     except Exception as exc:
@@ -320,12 +275,10 @@ async def get_metrics(
             "ingest_daily":       ingest_daily,
             "tokens_daily":       tokens_daily,
         },
-        "assistant":     {"daily": assistant_daily},
         "performance":   perf,
         "docs":          docs,
         "quality":       quality,
         "conversations": conversations,
-        "top_intents":   top_intents,
         "recent_queries": recent_queries,
         "quota": {
             "queries_month": quota_entry(q_used, limits.get("queries_month", -1)),

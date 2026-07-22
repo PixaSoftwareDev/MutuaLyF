@@ -24,7 +24,6 @@ import { toast } from "@/components/ui/toast";
  *   - tenant config (bot_name, bot_description, branding)
  *   - sectores
  *   - documentos con sus parent_chunks (texto)
- *   - intenciones aprendidas + ejemplos
  *   - opcional: conversaciones (datos de usuarios)
  *   - opcional: embeddings (vectores ~10x size)
  *
@@ -83,8 +82,7 @@ export function ExportKbButton() {
           <DialogTitle>Exportar base de conocimiento</DialogTitle>
           <DialogDescription>
             Descarga un archivo JSON con todo el contenido del bot:
-            configuración, sectores, documentos con su texto y las
-            intenciones que aprendió.
+            configuración, sectores y documentos con su texto.
           </DialogDescription>
         </DialogHeader>
 

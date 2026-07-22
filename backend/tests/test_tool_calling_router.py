@@ -91,7 +91,7 @@ async def test_unified_maybe_handle_no_selecciona(monkeypatch):
             return None
     monkeypatch.setattr(connector_router, "get_redis_session", lambda: _NoFlowRedis())
 
-    called = {"select": False, "cosine": False}
+    called = {"select": False}
     async def _select(*a, **k):
         called["select"] = True
     monkeypatch.setattr("services.groq_client.select_tool", _select)

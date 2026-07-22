@@ -4,7 +4,7 @@ import React, { Suspense } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
-  Inbox, FileText, Tags, Settings, LogOut,
+  Inbox, FileText, Settings, LogOut,
   Home, Building2, GitMerge, Users, MessageSquareShare, ClipboardList, Bot, Cpu, Network, X, Layers, BarChart3,
   MessageSquare, Clock, UserCheck, Archive, UserRound, ChevronDown, Globe, Database, Grid3x3, Pin, PinOff, ShieldCheck,
 } from "lucide-react";
@@ -57,8 +57,6 @@ export const navGroups: NavGroup[] = [
       { href: "/admin/duplicates", label: "Duplicados", icon: GitMerge, adminOnly: true,
         badgeKey: "duplicates-pending",
         tooltip: "Documentos parecidos que conviene unificar para evitar respuestas contradictorias." },
-      { href: "/admin/intentions", label: "Temas reconocidos", icon: Tags, adminOnly: true,
-        tooltip: "Categorías de consulta que el bot identifica. Validá las que aprendió." },
     ],
   },
   {
@@ -200,7 +198,7 @@ export const searchExtras: Array<NavItem & { group: string }> = [
 // Sección activa: qué rutas pertenecen a cada sección del rail, y su título.
 const SECTIONS: Array<{ id: string; title: string; prefixes: string[] }> = [
   { id: "conversations", title: "Bandeja de entrada", prefixes: ["/admin/conversations"] },
-  { id: "knowledge",     title: "Conocimiento",       prefixes: ["/admin/documents", "/admin/duplicates", "/admin/intentions"] },
+  { id: "knowledge",     title: "Conocimiento",       prefixes: ["/admin/documents", "/admin/duplicates"] },
   { id: "team",          title: "Equipo",             prefixes: ["/admin/sectors", "/admin/operators"] },
   { id: "metrics",       title: "Informes",           prefixes: ["/admin/metrics"] },
   { id: "system",        title: "Sistema",            prefixes: ["/admin/settings", "/admin/connectors", "/admin/cuenta"] },
@@ -251,7 +249,6 @@ export function Sidebar() {
   const prefetchMap: Record<string, () => void> = {
     "/admin/conversations": () => queryClient.prefetchQuery({ queryKey: ["operator-conversations", "all", "admin-readonly"], queryFn: () => api.operator.listConversations(), staleTime: 4_000 }),
     "/admin/documents":     () => queryClient.prefetchQuery({ queryKey: ["documents"],   queryFn: api.documents.list,   staleTime: 10_000 }),
-    "/admin/intentions":    () => queryClient.prefetchQuery({ queryKey: ["intentions"],  queryFn: api.intentions.list,  staleTime: 30_000 }),
     "/admin/duplicates":    () => queryClient.prefetchQuery({ queryKey: ["duplicates"],  queryFn: api.duplicates.list,  staleTime: 30_000 }),
     "/admin/sectors":       () => queryClient.prefetchQuery({ queryKey: ["sectors"],     queryFn: api.sectors.list,     staleTime: 30_000 }),
     "/admin/operators":     () => queryClient.prefetchQuery({ queryKey: ["operators"],   queryFn: () => apiClient.get("/admin/operators").then(r => r.data), staleTime: 30_000 }),
@@ -636,10 +633,9 @@ function MobileNav({ activeHref, focusRing, duplicatesPending, onNavClick, onOpe
         ))}
       </CollapsibleGroup>
 
-      <CollapsibleGroup label="Conocimiento" defaultOpen={openFor("/admin/documents") || openFor("/admin/duplicates") || openFor("/admin/intentions")}>
+      <CollapsibleGroup label="Conocimiento" defaultOpen={openFor("/admin/documents") || openFor("/admin/duplicates")}>
         {item("/admin/documents", "Documentos", FileText)}
         {item("/admin/duplicates", "Duplicados", GitMerge, duplicatesPending)}
-        {item("/admin/intentions", "Temas reconocidos", Tags)}
       </CollapsibleGroup>
 
       <CollapsibleGroup label="Equipo" defaultOpen={openFor("/admin/sectors") || openFor("/admin/operators")}>

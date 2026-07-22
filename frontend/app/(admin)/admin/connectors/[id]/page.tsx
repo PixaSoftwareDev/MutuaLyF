@@ -70,8 +70,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 type PropRoute = {
   path: string; path_template?: string | null; http_method?: string;
   display_name: string; include: boolean; discard_reason?: string;
-  identity_kind?: string; is_lookup?: boolean; intent_label?: string | null;
-  examples?: unknown[];
+  identity_kind?: string; is_lookup?: boolean;
   test?: { ok?: boolean; status?: number | string | null; latency_ms?: number; error?: string } | null;
 };
 
@@ -128,7 +127,6 @@ function RouteRow({ r, checked, onCheck, access, onToggleAccess, discarded }: {
         </div>
         <p className="mt-0.5 truncate text-[11px] text-muted-foreground/80">
           <span className="font-mono">{r.http_method ?? "GET"} {r.path_template ?? r.path}</span>
-          {!discarded && r.intent_label ? <> · intención: {r.intent_label}</> : null}
           {discarded && r.discard_reason ? <> · {r.discard_reason}</> : null}
         </p>
       </div>
@@ -525,7 +523,7 @@ export default function ConnectorDetailPage() {
             {showWizard && (
               <div className="mt-4 space-y-4 border-t pt-4 animate-fade-in">
                 <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">
-                  Detectamos las rutas del proveedor, las probamos en vivo y te proponemos las intenciones.
+                  Detectamos las rutas del proveedor, las probamos en vivo y te proponemos la configuración.
                   Si no publica su catálogo, subí la documentación que te pasó (PDF, Word, TXT o JSON).
                 </p>
 
@@ -844,9 +842,6 @@ function ToolCard({ connectorId, tool, onDelete, onChanged }: {
   const [paramsStr, setParamsStr] = useState("");
   const [result, setResult]       = useState<ConnectorTestResult | null>(null);
 
-  const [showBind, setShowBind]   = useState(false);
-  const [bLabel, setBLabel]       = useState("");
-  const [bExamples, setBExamples] = useState("");
 
   const testM = useMutation({
     mutationFn: () => {
@@ -866,24 +861,6 @@ function ToolCard({ connectorId, tool, onDelete, onChanged }: {
     mutationFn: () => api.connectors.updateTool(tool.id, { response_map: result?.suggested_response_map ?? {} }),
     onSuccess: () => { onChanged(); toast({ title: "response_map aplicado", variant: "success" }); },
     onError: (e) => toast({ title: "No se pudo aplicar", description: errDetail(e), variant: "destructive" }),
-  });
-
-  const bindM = useMutation({
-    mutationFn: () => api.connectors.upsertBinding(tool.id, {
-      intent_label: bLabel.trim(),
-      examples: bExamples.split("\n").map(s => s.trim()).filter(Boolean),
-      min_confidence: 0.7, is_active: true,
-    }),
-    onSuccess: (d) => {
-      onChanged(); setShowBind(false); setBLabel(""); setBExamples("");
-      toast({ title: `Vinculada a “${d.intent_label}”`, description: "El bot disparará esta operación al reconocer la intención.", variant: "success" });
-    },
-    onError: (e) => toast({ title: "No se pudo vincular", description: errDetail(e), variant: "destructive" }),
-  });
-
-  const unbindM = useMutation({
-    mutationFn: (bindingId: string) => api.connectors.deleteBinding(bindingId),
-    onSuccess: () => { onChanged(); toast({ title: "Vínculo eliminado", variant: "success" }); },
   });
 
   const isPublic = tool.identity_kind === "publico";
@@ -913,26 +890,11 @@ function ToolCard({ connectorId, tool, onDelete, onChanged }: {
           <Button size="sm" variant="outline" onClick={() => { setShowTest(s => !s); setResult(null); }}>
             <FlaskConical className="h-3.5 w-3.5 mr-1" /> Probar
           </Button>
-          <Button size="sm" variant="outline" onClick={() => setShowBind(s => !s)}>
-            <Link2 className="h-3.5 w-3.5 mr-1" /> Vincular
-          </Button>
           <Button size="sm" variant="ghost" className="text-destructive" onClick={onDelete}>
             <Trash2 className="h-3.5 w-3.5" />
           </Button>
         </div>
       </div>
-
-      {/* Intenciones vinculadas */}
-      {tool.bindings.length > 0 && (
-        <div className="mt-3 flex flex-wrap gap-1.5">
-          {tool.bindings.map(b => (
-            <Badge key={b.id} variant="secondary" className="gap-1.5 font-mono text-[11px]">
-              {b.intent_label} ≥{b.min_confidence}
-              <button onClick={() => unbindM.mutate(b.id)} className="hover:text-destructive" aria-label="Quitar vínculo">×</button>
-            </Badge>
-          ))}
-        </div>
-      )}
 
       {/* Panel Probar */}
       {showTest && (
@@ -981,25 +943,6 @@ function ToolCard({ connectorId, tool, onDelete, onChanged }: {
         </div>
       )}
 
-      {/* Panel Vincular */}
-      {showBind && (
-        <div className="mt-3 space-y-3 rounded-xl bg-muted/40 p-3.5">
-          <div className="space-y-1.5">
-            <Label className="text-xs">Intención que dispara esta operación</Label>
-            <Input className="h-8 font-mono text-sm" placeholder="consulta_ordenes_pendientes" value={bLabel} onChange={e => setBLabel(e.target.value.toLowerCase().replace(/\s+/g, "_"))} />
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs">Frases de ejemplo (una por línea) — así el bot aprende a reconocerla</Label>
-            <Textarea className="font-mono text-xs" rows={4}
-              placeholder={"¿qué órdenes pendientes tengo?\nquiero ver mis órdenes\ntengo autorizaciones sin usar?"}
-              value={bExamples} onChange={e => setBExamples(e.target.value)} />
-          </div>
-          <Button size="sm" disabled={!bLabel.trim() || bindM.isPending} onClick={() => bindM.mutate()}>
-            {bindM.isPending && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
-            Vincular intención
-          </Button>
-        </div>
-      )}
     </div>
   );
 }

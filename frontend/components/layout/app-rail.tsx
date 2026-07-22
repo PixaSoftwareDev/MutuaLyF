@@ -33,7 +33,7 @@ const ADMIN_RAIL: RailItem[] = [
   { href: "/admin/conversations", label: "Conversaciones", icon: Inbox,
     prefixes: ["/admin/conversations"] },
   { href: "/admin/documents", label: "Conocimiento", icon: FileText,
-    prefixes: ["/admin/documents", "/admin/duplicates", "/admin/intentions"] },
+    prefixes: ["/admin/documents", "/admin/duplicates"] },
   { href: "/admin/sectors", label: "Equipo", icon: Users,
     prefixes: ["/admin/sectors", "/admin/operators"] },
   { href: "/admin/metrics", label: "Métricas", icon: BarChart3,

@@ -14,9 +14,6 @@ import { ErrorState } from "@/components/ui/error-state";
 
 const nf = (n: number) => n.toLocaleString("es-AR");
 
-const isoDay = (d: Date) =>
-  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-
 // Variación % contra el período anterior (null si no hay base de comparación)
 const pctChange = (cur: number, prev: number): number | null =>
   prev > 0 ? Math.round(((cur - prev) / prev) * 100) : null;
@@ -175,7 +172,6 @@ export function MetricsDashboard({ view }: { view: ViewKey }) {
 function Dashboard({ m, view, range, setRange }: { m: TenantMetrics; view: ViewKey; range: 7 | 30 | 90; setRange: (r: 7 | 30 | 90) => void }) {
   const series = useMemo(() => buildDailySeries(m.usage.daily, range), [m.usage.daily, range]);
   const rangeTotal = useMemo(() => series.reduce((a, s) => a + s.total, 0), [series]);
-  const conf = m.performance.avg_confidence;
   const cache = m.performance.cache_hit_rate;
 
   // Estado de cada KPI → lavado sutil de fondo. Solo se colorea lo notable;
@@ -185,8 +181,6 @@ function Dashboard({ m, view, range, setRange }: { m: TenantMetrics; view: ViewK
     : m.conversations.bot_resolved_pct >= 85 ? "good"
     : m.conversations.bot_resolved_pct < 65 ? "warn"
     : null;
-  const confTone: KpiTone | null =
-    conf == null ? null : conf >= 0.8 ? "good" : conf < 0.6 ? "warn" : null;
   const latencyTone: KpiTone | null =
     m.performance.latency_p50 == null ? null
     : m.performance.latency_p50 <= 2500 ? "good"
@@ -230,10 +224,9 @@ function Dashboard({ m, view, range, setRange }: { m: TenantMetrics; view: ViewK
             : <span className="text-muted-foreground">Sin conversaciones aún</span>}
         />
         <Kpi
-          label="Confianza promedio"
-          tone={confTone}
-          value={conf != null ? `${Math.round(conf * 100)}%` : "—"}
-          foot={<span className="text-muted-foreground">{cache != null ? `${Math.round(cache * 100)}% resuelto por caché` : "—"}</span>}
+          label="Resuelto por caché"
+          value={cache != null ? `${Math.round(cache * 100)}%` : "—"}
+          foot={<span className="text-muted-foreground">respuestas instantáneas</span>}
         />
         <Kpi
           label="Tiempo de respuesta"
@@ -261,11 +254,7 @@ function Dashboard({ m, view, range, setRange }: { m: TenantMetrics; view: ViewK
 
       {/* Highlights de un vistazo: qué preguntan + cómo termina la atención.
           Curados para el overview; el detalle vive en Asistente y Atención. */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <Card>
-          <CardTitle title="Temas más consultados" meta={`últimos ${range} días`} />
-          <TopIntents items={m.top_intents.slice(0, 5)} />
-        </Card>
+      <div className="grid grid-cols-1 gap-4">
         <Card className="space-y-5 p-6">
           {m.conversations.total === 0 ? (
             <Empty text="Todavía no hay conversaciones registradas." />
@@ -293,13 +282,7 @@ function Dashboard({ m, view, range, setRange }: { m: TenantMetrics; view: ViewK
 
       {/* ══ ASISTENTE ════════════════════════════════════════════════════════ */}
       {view === "asistente" && (<>
-      <div className="grid grid-cols-2 gap-4 stagger-children xl:grid-cols-4">
-        <Kpi
-          label="Confianza promedio"
-          tone={confTone}
-          value={conf != null ? `${Math.round(conf * 100)}%` : "—"}
-          foot={<span className="text-muted-foreground">al clasificar consultas</span>}
-        />
+      <div className="grid grid-cols-3 gap-4 stagger-children">
         <Kpi
           label="Resuelto por caché"
           value={cache != null ? `${Math.round(cache * 100)}%` : "—"}
@@ -312,33 +295,22 @@ function Dashboard({ m, view, range, setRange }: { m: TenantMetrics; view: ViewK
           foot={<span className="text-muted-foreground">{m.performance.latency_p95 != null ? `p95 ${(m.performance.latency_p95 / 1000).toFixed(1)}s` : "mediana"}</span>}
         />
         <Kpi
-          label="Sin clasificar"
-          tone={m.performance.total_logged > 0 && m.performance.unclassified_30d / m.performance.total_logged > 0.3 ? "warn" : null}
-          value={nf(m.performance.unclassified_30d)}
-          foot={<span className="text-muted-foreground">
-            {m.performance.total_logged > 0
-              ? `${Math.round((m.performance.unclassified_30d / m.performance.total_logged) * 100)}% de las consultas`
-              : "sin consultas aún"}
-          </span>}
+          label="Consultas registradas"
+          value={nf(m.performance.total_logged)}
+          foot={<span className="text-muted-foreground">últimos 30 días</span>}
         />
       </div>
 
       <Card className="p-6">
         <CardTitle title="Consultas al asistente por día" meta={`${range} días`} />
         <DailyBars
-          data={m.assistant.daily.map(d => ({ day: d.day, total: d.total }))}
-          titleFmt={s => {
-            const conf = m.assistant.daily.find(d => d.day === isoDay(s.date))?.avg_confidence;
-            return `${s.date.toLocaleDateString("es-AR", { day: "2-digit", month: "short" })}: ${nf(s.total)} consultas${conf != null ? ` · confianza ${Math.round(conf * 100)}%` : ""}`;
-          }}
+          data={m.usage.daily}
+          days={range}
+          titleFmt={s => `${s.date.toLocaleDateString("es-AR", { day: "2-digit", month: "short" })}: ${nf(s.total)} consultas`}
         />
       </Card>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <Card>
-          <CardTitle title="Temas más consultados" meta={`${range} días`} />
-          <TopIntents items={m.top_intents} />
-        </Card>
+      <div className="grid grid-cols-1 gap-4">
         <Card className="p-2">
           <div className="px-3 pb-1 pt-3"><CardTitle title="Consultas recientes" /></div>
           <RecentQueries items={m.recent_queries} />
@@ -518,29 +490,6 @@ function SplitBar({ label, segments }: {
   );
 }
 
-function TopIntents({ items }: { items: TenantMetrics["top_intents"] }) {
-  if (items.length === 0) return <Empty text="Todavía no hay temas clasificados." />;
-  const max = Math.max(...items.map((i) => i.count), 1);
-  const sum = items.reduce((a, i) => a + i.count, 0);
-  return (
-    <ul className="space-y-3.5">
-      {items.map((it, idx) => (
-        <li key={it.label} className="space-y-1.5">
-          <div className="flex items-baseline gap-2.5">
-            <span className="w-4 shrink-0 text-right text-[11px] font-semibold tabular-nums text-muted-foreground/60">{idx + 1}</span>
-            <span className="min-w-0 truncate text-sm text-foreground">{it.label}</span>
-            <span className="ml-auto shrink-0 text-xs font-semibold tabular-nums text-foreground">{nf(it.count)}</span>
-            <span className="w-8 shrink-0 text-right text-[11px] tabular-nums text-muted-foreground">{Math.round((it.count / sum) * 100)}%</span>
-          </div>
-          <div className="ml-[26px] h-2 overflow-hidden rounded-full bg-muted">
-            <div className="h-full rounded-full transition-all" style={{ width: `${(it.count / max) * 100}%`, backgroundColor: CHART_COLOR }} />
-          </div>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
 function RecentQueries({ items }: { items: TenantMetrics["recent_queries"] }) {
   if (items.length === 0) return <div className="px-3"><Empty text="Todavía no hay consultas registradas." /></div>;
   const fmtWhen = (iso: string) => new Date(iso).toLocaleString("es-AR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
@@ -552,7 +501,6 @@ function RecentQueries({ items }: { items: TenantMetrics["recent_queries"] }) {
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm text-foreground">{q.question_text ?? <span className="italic text-muted-foreground">Sin texto</span>}</p>
             <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-muted-foreground">
-              {q.intent_label && <span className="font-medium text-foreground/70">{q.intent_label}</span>}
               <span>{fmtWhen(q.created_at)}</span>
               {q.from_cache && <span>· caché</span>}
             </p>

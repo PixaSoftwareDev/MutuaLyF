@@ -425,10 +425,9 @@ export default function TenantDetailPage() {
             />
             <Kpi
               icon={Target}
-              label="Confianza prom."
-              value={m.performance.avg_confidence != null ? (m.performance.avg_confidence * 100).toFixed(0) + "%" : "—"}
-              tone={m.performance.avg_confidence == null ? "neutral" : m.performance.avg_confidence >= 0.8 ? "success" : m.performance.avg_confidence >= 0.6 ? "warn" : "danger"}
-              sublabel="calidad de las respuestas"
+              label="Consultas registradas"
+              value={fmtNum(m.performance.total_logged)}
+              sublabel="últimos 30 días"
             />
           </div>
 
@@ -477,32 +476,6 @@ export default function TenantDetailPage() {
           {/* ── Qué consultan + Últimas consultas (desplegables) ──────── */}
           <div className="space-y-3">
 
-            <CollapsiblePanel icon={Target} label="Qué consultan" sublabel="intenciones más frecuentes · 30d" count={m.top_intents.length}>
-              <div className="divide-y">
-                {m.top_intents.map((intent, i) => {
-                  const max = m.top_intents[0].count;
-                  const pct = Math.round((intent.count / max) * 100);
-                  return (
-                    <div key={intent.label} className="flex items-center gap-3 px-4 py-3">
-                      <span className="text-xs text-muted-foreground/50 w-4 tabular-nums shrink-0 font-semibold">{i + 1}</span>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate">{intent.label}</p>
-                        <div className="mt-1.5 h-1.5 bg-muted rounded-full overflow-hidden">
-                          <div className="h-full bg-action-gradient rounded-full" style={{ width: `${Math.max(pct, 4)}%` }} />
-                        </div>
-                      </div>
-                      <div className="shrink-0 text-right">
-                        <p className="text-sm font-semibold tabular-nums leading-none">{fmtNum(intent.count)}</p>
-                        {intent.avg_confidence != null && (
-                          <p className="text-[10px] tabular-nums text-muted-foreground mt-1">{(intent.avg_confidence * 100).toFixed(0)}% conf.</p>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </CollapsiblePanel>
-
             <CollapsiblePanel icon={MessageSquare} label="Últimas consultas" sublabel="las más recientes" count={m.recent_queries.length}>
               <div className="divide-y">
                 {m.recent_queries.map((q, i) => (
@@ -515,9 +488,6 @@ export default function TenantDetailPage() {
                         {q.question_text ?? "Consulta sin texto guardado"}
                       </p>
                       <div className="mt-1 flex items-center gap-x-2 gap-y-1 flex-wrap text-[10px] text-muted-foreground">
-                        {q.intent_label && (
-                          <span className="font-medium bg-muted text-muted-foreground px-1.5 py-0.5 rounded-full">{q.intent_label}</span>
-                        )}
                         {q.from_cache && (
                           <span className="font-medium bg-info/10 text-info px-1.5 py-0.5 rounded-full">cache</span>
                         )}

@@ -18,7 +18,7 @@ from core.database import connect_all, disconnect_all
 from core.tenant import TenantMiddleware
 from core.metrics import setup_metrics
 from core.tracing import setup_tracing
-from api.v1 import auth, query, ingest, intentions, tenants, widget_conversation, operator_panel, duplicates, audit_log, system_prompts, branding, export, attachments, channels, connectors, metrics
+from api.v1 import auth, query, ingest, tenants, widget_conversation, operator_panel, duplicates, audit_log, system_prompts, branding, export, attachments, channels, connectors, metrics
 # ENTITIES_DISABLED: from api.v1 import entities
 
 # ── Logging — must be first, before any other import that logs ─────────────────
@@ -208,7 +208,6 @@ setup_metrics(app)
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
 app.include_router(query.router, prefix="/api/v1", tags=["query"])
 app.include_router(ingest.router, prefix="/api/v1", tags=["ingest"])
-app.include_router(intentions.router, prefix="/api/v1", tags=["intentions"])
 app.include_router(tenants.router, prefix="/api/v1/tenants", tags=["tenants"])
 app.include_router(widget_conversation.router, prefix="/api/v1", tags=["widget-chat"])
 app.include_router(operator_panel.router, prefix="/api/v1", tags=["operator-panel"])
