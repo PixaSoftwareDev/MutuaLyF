@@ -1,6 +1,6 @@
 """Tests de integración del flujo de Tool Calling (Fase 1).
 
-Ejercita el router + FSM de login + executor + session store + stub NEXA con un
+Ejercita el router + FSM de login + executor + session store + connector_stub con un
 Redis en memoria y el clasificador/DAO mockeados. Cubre los criterios de
 aceptación de la Fase 1, incluyendo la defensa BOLA/IDOR.
 """
@@ -47,8 +47,8 @@ def _binding() -> ToolBinding:
         params_schema={}, response_map={"items_path": "ordenes", "empty_when_empty": True,
                                         "not_found_field": "encontrado", "not_found_value": False},
         identity_kind="afiliado", is_read_only=True,
-        connector_id="c1", connector_slug="nexa", base_url="https://api.nexa.com.ar",
-        egress_allow=["api.nexa.com.ar"], auth_type="stub", auth_secret_ref="X",
+        connector_id="c1", connector_slug="demo", base_url="https://api.ejemplo.com.ar",
+        egress_allow=["api.ejemplo.com.ar"], auth_type="stub", auth_secret_ref="X",
         timeout_ms=4000, roles={"afiliado"},
     )
 
@@ -62,7 +62,7 @@ def wired(monkeypatch):
     # modo explícito: sin esto heredan CONNECTOR_ROUTING_MODE del ambiente
     # (p.ej. unified en dev local) y maybe_handle ni clasifica.
     monkeypatch.setattr(settings, "connector_routing_mode", "cosine")
-    monkeypatch.setattr(settings, "nexa_stub_enabled", True)
+    monkeypatch.setattr(settings, "connector_stub_enabled", True)
 
     fake_session = FakeRedis()
     fake_rl = FakeRedis()

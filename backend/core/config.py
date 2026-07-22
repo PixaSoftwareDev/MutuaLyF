@@ -152,8 +152,9 @@ class Settings(BaseSettings):
     #                    Cero latencia extra en turnos RAG; recomendado.
     # El flujo posterior (FSM de login, roles, execute_tool) es idéntico en los 3 modos.
     connector_routing_mode: str = "cosine"
-    # Stub in-process de NEXA para dev/tests (no llama a NEXA real). Solo en dev.
-    nexa_stub_enabled: bool = False
+    # Doble de pruebas in-process del framework de conectores (services/
+    # connector_stub.py) — no llama a ningún sistema real. Solo dev/tests.
+    connector_stub_enabled: bool = False
     # Sesión autenticada: TTL y throttle del segundo factor.
     session_ttl_seconds: int = 1800          # 30 min (renovable con actividad)
     connector_auth_max_attempts: int = 5     # intentos de código antes de bloquear
@@ -166,7 +167,7 @@ class Settings(BaseSettings):
     # Timeout y circuit breaker del executor HTTP hacia terceros.
     connector_http_timeout_ms: int = 4000
     # Hosts internos de confianza (CSV) exentos de la verificación de IP privada
-    # del egress_guard — SOLO para servicios mock en dev (ej. "mock_nexa"). Vacío
+    # del egress_guard — SOLO para servicios mock en dev (ej. "mock_pixs"). Vacío
     # en producción → protección SSRF intacta.
     connector_trusted_internal_hosts: str = ""
 

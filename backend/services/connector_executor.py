@@ -175,7 +175,7 @@ def _apply_response_map(raw: dict | list, response_map: dict) -> ExecResult:
 
 
 async def _invoke_stub(binding, identity: str, query: dict) -> dict | list:
-    from services.nexa_stub import STUB_OPERATIONS
+    from services.connector_stub import STUB_OPERATIONS
     op = STUB_OPERATIONS.get((binding.connector_slug, binding.tool_slug))
     if op is None:
         raise RuntimeError(f"stub sin operación para {binding.connector_slug}/{binding.tool_slug}")
@@ -223,8 +223,8 @@ async def validate_second_factor(binding, identity: str, code: str) -> dict:
     Devuelve {'ok': bool, 'nombre'?: str, 'reason'?: str}. Fail-closed: cualquier
     error upstream → ok=False, reason='upstream' (no se autentica ante la duda).
     """
-    if settings.nexa_stub_enabled and binding.auth_type == "stub":
-        from services.nexa_stub import validar_totp
+    if settings.connector_stub_enabled and binding.auth_type == "stub":
+        from services.connector_stub import validar_totp
         return validar_totp(identity, code)
 
     # Convención afiliado (Fase 2 la hará config-driven vía columna auth_validate_path).
@@ -314,7 +314,7 @@ async def execute_tool(binding, identity: str, params: dict | None = None) -> Ex
                           latency_ms=int((time.monotonic() - start) * 1000))
 
     # 4) Invocar (stub in-process en dev, o httpx real).
-    is_stub = settings.nexa_stub_enabled and binding.auth_type == "stub"
+    is_stub = settings.connector_stub_enabled and binding.auth_type == "stub"
     try:
         async with asyncio.timeout(binding.timeout_ms / 1000 + 1):
             if is_stub:
