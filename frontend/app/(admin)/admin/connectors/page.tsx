@@ -1,26 +1,27 @@
 "use client";
 
-import { useState } from "react";
-import Link from "next/link";
+import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Plug, Loader2, Trash2, ShieldCheck, ShieldAlert, KeyRound, ChevronRight, ChevronDown, Database } from "lucide-react";
-import { api, type ConnectorRow } from "@/lib/api";
+import { Plus, Plug, Loader2, KeyRound, Database, ArrowRight, SearchX } from "lucide-react";
+import { api } from "@/lib/api";
 import { cn, toSlug } from "@/lib/utils";
+import { humanizeConnectorError } from "@/lib/connector-errors";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Card, CardContent } from "@/components/ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/toast";
-import { PageShell } from "@/components/layout/page-shell";
-import { PageHeader } from "@/components/layout/page-header";
+import { EmptyState } from "@/components/ui/empty-state";
+import { ListToolbar } from "@/components/admin/list-toolbar";
+import { useTableSort, applySort, SortHeader } from "@/components/admin/sortable";
 
 const AUTH_TYPES = [
   { value: "none",    label: "Sin autenticación" },
-  { value: "api_key", label: "API key (header)" },
+  { value: "api_key", label: "API key" },
   { value: "bearer",  label: "Bearer token" },
   { value: "basic",   label: "Basic (usuario + contraseña)" },
 ];
@@ -30,25 +31,36 @@ function errDetail(e: unknown): string {
   return anyE?.response?.data?.detail || "Ocurrió un error";
 }
 
+// Pastilla de estado con punto — verde al estar activo (mismo lenguaje que sectores/canales).
+function StatePill({ active }: { active: boolean }) {
+  return active ? (
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-success/30 bg-success/[0.08] px-2 py-0.5 text-[11px] font-semibold text-success">
+      <span className="h-1.5 w-1.5 rounded-full bg-success" /> Activo
+    </span>
+  ) : (
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/50 px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">
+      <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/40" /> Inactivo
+    </span>
+  );
+}
+
+type SortKey = "nombre" | "operaciones";
+
 export default function ConnectorsPage() {
+  const router = useRouter();
   const qc = useQueryClient();
   const inv = () => qc.invalidateQueries({ queryKey: ["connectors"] });
 
   const [showCreate, setShowCreate] = useState(false);
-  const [slug, setSlug]             = useState("");
-  const [slugEdited, setSlugEdited] = useState(false);   // el usuario lo tocó a mano
   const [name, setName]             = useState("");
   const [baseUrl, setBaseUrl]       = useState("");
-  const [hosts, setHosts]           = useState("");
   const [authType, setAuthType]     = useState("none");
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  const [deleting, setDeleting]     = useState<ConnectorRow | null>(null);
+  const [search, setSearch]         = useState("");
+  const { sort, toggle } = useTableSort<SortKey>({ nombre: "asc" });
 
-  // El slug se deriva del Nombre salvo que el usuario lo haya editado a mano.
-  const onNameChange = (v: string) => {
-    setName(v);
-    if (!slugEdited) setSlug(toSlug(v));
-  };
+  // El identificador (slug) se deriva del nombre automáticamente y no se edita a
+  // mano: es un detalle interno. El host de egress se infiere de la URL base.
+  const slug = toSlug(name.trim());
 
   const { data, isLoading } = useQuery({
     queryKey: ["connectors"],
@@ -57,145 +69,131 @@ export default function ConnectorsPage() {
   });
   const connectors = data?.connectors ?? [];
 
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return connectors;
+    return connectors.filter(c =>
+      c.display_name.toLowerCase().includes(q) || c.base_url.toLowerCase().includes(q));
+  }, [connectors, search]);
+
+  const sorted = useMemo(() => applySort(filtered, sort, (a, b, key) =>
+    key === "operaciones" ? a.tool_count - b.tool_count : a.display_name.localeCompare(b.display_name),
+  ), [filtered, sort]);
+
   const createM = useMutation({
     mutationFn: async () => {
+      // Egress = el host de la URL base (el único destino que promete la UI).
       const inferredHost = (() => {
         try { return new URL(baseUrl).hostname; } catch { return ""; }
       })();
-      const egress = hosts.trim()
-        ? hosts.split(",").map(h => h.trim()).filter(Boolean)
-        : (inferredHost ? [inferredHost] : []);
       const { id } = await api.connectors.create({
-        slug: slug.trim(), display_name: name.trim(), base_url: baseUrl.trim(),
-        egress_allow: egress, auth_type: authType,
+        slug, display_name: name.trim(), base_url: baseUrl.trim(),
+        egress_allow: inferredHost ? [inferredHost] : [], auth_type: authType,
       });
       return id;
     },
     onSuccess: () => {
       inv();
       setShowCreate(false);
-      setSlug(""); setSlugEdited(false); setName(""); setBaseUrl(""); setHosts("");
-      setAuthType("none"); setShowAdvanced(false);
+      setName(""); setBaseUrl(""); setAuthType("none");
       toast({ title: "Conector creado", description: "Configurá sus operaciones y probalo antes de activar.", variant: "success" });
     },
-    onError: (e) => toast({ title: "No se pudo crear", description: errDetail(e), variant: "destructive" }),
+    onError: (e) => toast({ title: "No se pudo crear", description: humanizeConnectorError(errDetail(e)), variant: "destructive" }),
   });
 
-  const toggleM = useMutation({
-    mutationFn: ({ id, active }: { id: string; active: boolean }) => api.connectors.setActive(id, active),
-    onSuccess: (_d, v) => { inv(); toast({ title: v.active ? "Conector activado" : "Conector desactivado", variant: "success" }); },
-    onError: (e) => toast({ title: "No se pudo activar", description: errDetail(e), variant: "destructive" }),
-  });
-
-  const deleteM = useMutation({
-    mutationFn: (id: string) => api.connectors.delete(id),
-    onSuccess: () => { inv(); setDeleting(null); toast({ title: "Conector eliminado", variant: "success" }); },
-    onError: (e) => toast({ title: "No se pudo eliminar", description: errDetail(e), variant: "destructive" }),
-  });
+  const isEmpty = !isLoading && connectors.length === 0;
 
   return (
-    <PageShell width="wide">
-      {/* Mismo molde que Configuración → Canales (WhatsApp): título "Configuración"
-          que cruza el ancho completo + contenido centrado a max-w-5xl. Así Fuentes
-          de datos queda idéntico a las demás pestañas de esta sección. */}
-      <PageHeader title="Configuración" />
+    <div className="flex h-full min-h-0 flex-col">
+      {/* Header bar — mismo molde que Documentos / Equipo */}
+      <div className="flex h-12 shrink-0 items-center justify-between gap-2 border-b px-4 sm:px-6">
+        <h1 className="min-w-0 truncate text-[15px] font-semibold tracking-tight text-foreground">Fuentes de datos</h1>
+        {!isEmpty && (
+          <Button size="sm" className="shrink-0" onClick={() => setShowCreate(true)}>
+            <Plus className="h-4 w-4 sm:mr-1.5" />
+            <span className="hidden sm:inline">Conectar una fuente</span>
+            <span className="sm:hidden">Conectar</span>
+          </Button>
+        )}
+      </div>
 
-      <div className="mx-auto w-full max-w-5xl">
-      {isLoading ? (
-        <div className="grid sm:grid-cols-2 gap-4">
-          {[1, 2].map(i => <Skeleton key={i} className="h-40 rounded-2xl" />)}
-        </div>
-      ) : connectors.length === 0 ? (
-        /* Estado inicial: hero centrado con el CTA en el medio (patrón WhatsApp).
-           Ocupa el ancho del shell (content) para no quedar más angosto que el resto. */
-        <div className="w-full">
-          <Card className="rounded-2xl">
-            <CardContent className="flex flex-col items-center px-6 py-14 text-center">
-              {/* Ícono neutro, igual que el resto de los estados vacíos (EmptyState). */}
-              <span className="flex h-12 w-12 items-center justify-center rounded-full bg-muted">
-                <Database className="h-6 w-6 text-muted-foreground" />
-              </span>
-              <h3 className="mt-5 text-lg font-semibold tracking-tight text-foreground">
-                Conectá una fuente de datos
-              </h3>
-              <p className="mt-1.5 max-w-md text-sm leading-relaxed text-muted-foreground">
-                Enlazá un sistema externo —turnos, cuentas, órdenes— para que el asistente
-                responda con datos en vivo. Primero lo probás; recién después se activa. Nada se conecta solo.
-              </p>
-              <Button className="mt-6" onClick={() => setShowCreate(true)}>
-                <Plus className="mr-1.5 h-[18px] w-[18px]" /> Conectar una fuente
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
-      ) : (
-        <div className="grid sm:grid-cols-2 gap-4">
-          {connectors.map(c => (
-            <div key={c.id} className="rounded-2xl border bg-card p-5 flex flex-col gap-3">
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <div className={cn("h-9 w-9 rounded-xl grid place-items-center shrink-0",
-                    c.is_active ? "bg-emerald-500/10 text-emerald-600" : "bg-muted text-muted-foreground")}>
-                    <Plug className="h-[18px] w-[18px]" />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="font-semibold truncate">{c.display_name}</p>
-                    <p className="text-xs text-muted-foreground font-mono truncate">{c.base_url}</p>
-                  </div>
-                </div>
-                <Badge variant={c.is_active ? "default" : "secondary"}>
-                  {c.is_active ? "Activo" : "Inactivo"}
-                </Badge>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                <span>{c.tool_count} operación{c.tool_count === 1 ? "" : "es"}</span>
-                <span className="inline-flex items-center gap-1">
-                  <KeyRound className="h-3 w-3" /> {c.auth_type === "none" ? "sin auth" : c.auth_type}{c.has_secret && " · credencial cargada"}
-                </span>
-                <span className="inline-flex items-center gap-1">
-                  {c.is_active
-                    ? <><ShieldCheck className="h-3 w-3 text-emerald-600" /> hosts: {c.egress_allow.join(", ") || "—"}</>
-                    : <><ShieldAlert className="h-3 w-3" /> hosts: {c.egress_allow.join(", ") || "—"}</>}
-                </span>
-              </div>
-
-              <div className="mt-auto flex items-center justify-between gap-2 pt-1">
-                <div className="flex items-center gap-2">
-                  <Button
-                    size="sm"
-                    variant={c.is_active ? "outline" : "default"}
-                    disabled={toggleM.isPending}
-                    onClick={() => toggleM.mutate({ id: c.id, active: !c.is_active })}
-                  >
-                    {toggleM.isPending && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
-                    {c.is_active ? "Desactivar" : "Activar"}
-                  </Button>
-                  <Button size="sm" variant="ghost" className="text-destructive" onClick={() => setDeleting(c)}>
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-                <Button size="sm" variant="ghost" asChild>
-                  <Link href={`/admin/connectors/${c.id}`}>
-                    Configurar <ChevronRight className="h-3.5 w-3.5 ml-0.5" />
-                  </Link>
-                </Button>
-              </div>
+      {/* Contenido scrolleable */}
+      <div className="min-h-0 flex-1 overflow-y-auto scrollbar-slim p-4 sm:p-6">
+        {isLoading ? (
+          <Skeleton className="h-72 rounded-2xl" />
+        ) : isEmpty ? (
+          /* Estado inicial: hero centrado con el CTA, como Documentos */
+          <div className="mx-auto w-full max-w-md text-center">
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-muted">
+              <Database className="h-6 w-6 text-muted-foreground" />
             </div>
-          ))}
+            <h2 className="mt-4 text-lg font-semibold tracking-tight">Conectá una fuente de datos</h2>
+            <p className="mx-auto mt-1.5 max-w-md text-sm leading-relaxed text-muted-foreground">
+              Enlazá un sistema externo —turnos, cuentas, órdenes— para que el asistente responda con
+              datos en vivo. Primero lo probás; recién después se activa.
+            </p>
+            <Button className="mt-6" onClick={() => setShowCreate(true)}>
+              <Plus className="mr-1.5 h-[18px] w-[18px]" /> Conectar una fuente
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <ListToolbar search={search} onSearch={setSearch} placeholder="Buscar fuente…" />
 
-          {/* Agregar otra fuente — reemplaza el botón de arriba */}
-          <button
-            onClick={() => setShowCreate(true)}
-            className="group flex min-h-[172px] flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-border p-5 text-muted-foreground transition-colors hover:border-action/40 hover:bg-muted/30 hover:text-foreground"
-          >
-            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-muted text-muted-foreground transition-colors group-hover:bg-action/10 group-hover:text-action">
-              <Plus className="h-5 w-5" />
-            </span>
-            <span className="text-sm font-medium">Conectar otra fuente</span>
-          </button>
-        </div>
-      )}
+            {sorted.length === 0 ? (
+              <EmptyState icon={SearchX} title="Sin resultados" description={`Ninguna fuente coincide con "${search}".`} />
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow className="hover:bg-transparent">
+                    <TableHead><SortHeader label="Fuente" sortKey="nombre" sort={sort} onToggle={toggle} /></TableHead>
+                    <TableHead className="hidden md:table-cell">Autenticación</TableHead>
+                    <TableHead className="hidden w-[120px] text-right sm:table-cell">
+                      <SortHeader label="Operaciones" sortKey="operaciones" sort={sort} onToggle={toggle} />
+                    </TableHead>
+                    <TableHead className="w-[130px]">Estado</TableHead>
+                    <TableHead className="w-[40px]" />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {sorted.map(c => (
+                    <TableRow
+                      key={c.id}
+                      className="cursor-pointer group"
+                      onClick={() => router.push(`/admin/connectors/${c.id}`)}
+                      onMouseEnter={() => router.prefetch(`/admin/connectors/${c.id}`)}
+                    >
+                      <TableCell className="w-full max-w-0 py-2.5">
+                        <div className="flex min-w-0 items-center gap-3">
+                          <div className={cn("grid h-9 w-9 shrink-0 place-items-center rounded-lg",
+                            c.is_active ? "bg-success/10 text-success" : "bg-muted text-muted-foreground")}>
+                            <Plug className="h-[18px] w-[18px]" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-medium text-foreground transition-colors group-hover:text-action">{c.display_name}</p>
+                            <p className="truncate font-mono text-xs text-muted-foreground">{c.base_url}</p>
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell className="hidden whitespace-nowrap text-sm text-muted-foreground md:table-cell">
+                        <span className="inline-flex items-center gap-1">
+                          <KeyRound className="h-3.5 w-3.5" />
+                          {c.auth_type === "none" ? "Sin auth" : c.auth_type}
+                        </span>
+                        {c.has_secret && <span className="text-muted-foreground/60"> · credencial</span>}
+                      </TableCell>
+                      <TableCell className="hidden text-right text-sm tabular-nums text-muted-foreground sm:table-cell">{c.tool_count}</TableCell>
+                      <TableCell><StatePill active={c.is_active} /></TableCell>
+                      <TableCell className="text-right">
+                        <ArrowRight className="inline-block h-4 w-4 text-muted-foreground/40 transition-all group-hover:translate-x-0.5 group-hover:text-action" />
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Crear conector — modal centrado */}
@@ -220,7 +218,7 @@ export default function ConnectorsPage() {
           <div className="-mx-1.5 -my-1.5 max-h-[min(60vh,32rem)] space-y-4 overflow-y-auto px-1.5 py-1.5">
             <div className="space-y-2">
               <Label>Nombre</Label>
-              <Input placeholder="Ej. Proveedor de datos" value={name} onChange={e => onNameChange(e.target.value)} />
+              <Input placeholder="Ej. Proveedor de datos" value={name} onChange={e => setName(e.target.value)} />
             </div>
             <div className="space-y-2">
               <Label>URL base del API</Label>
@@ -240,46 +238,13 @@ export default function ConnectorsPage() {
                 La credencial ({authType === "basic" ? "usuario + contraseña" : authType === "bearer" ? "token" : "API key"}) se carga en el paso siguiente, al Configurar el conector.
               </p>
             )}
-
-            {/* Opciones avanzadas — el identificador se autogenera del nombre y el
-                egress se infiere de la URL; sólo se tocan si hace falta. */}
-            <div className="border-t pt-3">
-              <button
-                type="button"
-                onClick={() => setShowAdvanced(v => !v)}
-                className="flex w-full items-center gap-1.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
-                aria-expanded={showAdvanced}
-              >
-                <ChevronDown className={cn("h-4 w-4 transition-transform", showAdvanced && "rotate-180")} />
-                Opciones avanzadas
-              </button>
-
-              {showAdvanced && (
-                <div className="mt-3 space-y-4 animate-fade-in">
-                  <div className="space-y-2">
-                    <Label>Identificador (slug)</Label>
-                    <Input
-                      placeholder="proveedor"
-                      value={slug}
-                      onChange={e => { setSlug(toSlug(e.target.value)); setSlugEdited(true); }}
-                    />
-                    <p className="text-xs leading-relaxed text-muted-foreground">Se genera del nombre. Minúsculas, números y guiones. No se puede cambiar después de crear.</p>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Hosts permitidos (egress)</Label>
-                    <Input placeholder="api.proveedor.com.ar (separados por coma)" value={hosts} onChange={e => setHosts(e.target.value)} />
-                    <p className="text-xs leading-relaxed text-muted-foreground">Si lo dejás vacío, se usa el host de la URL base. Activar hacia un host nuevo requiere aprobación del super-admin.</p>
-                  </div>
-                </div>
-              )}
-            </div>
           </div>
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowCreate(false)}>Cancelar</Button>
             <Button
               onClick={() => createM.mutate()}
-              disabled={!slug.trim() || !name.trim() || !baseUrl.trim() || createM.isPending}
+              disabled={!slug || !baseUrl.trim() || createM.isPending}
             >
               {createM.isPending && <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />}
               Crear conector
@@ -287,25 +252,6 @@ export default function ConnectorsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      {/* Confirmar borrado */}
-      <Dialog open={!!deleting} onOpenChange={o => !o && setDeleting(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>¿Eliminar “{deleting?.display_name}”?</DialogTitle>
-            <DialogDescription>
-              Se borran sus {deleting?.tool_count} operación(es). Esta acción no se puede deshacer.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleting(null)}>Cancelar</Button>
-            <Button variant="destructive" disabled={deleteM.isPending} onClick={() => deleting && deleteM.mutate(deleting.id)}>
-              {deleteM.isPending && <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />}
-              Eliminar
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </PageShell>
+    </div>
   );
 }
