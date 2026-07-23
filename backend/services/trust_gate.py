@@ -50,6 +50,18 @@ _STOPWORDS = {
     "saco", "realizar", "realizo", "obtener", "conseguir", "solicitar",
     "solicito", "pedir", "pido", "gestionar", "tramitar", "dan", "cubren",
     "prestan", "atienden", "atiende",
+    # Verbos/sustantivos transaccionales de precio: "¿cuánto sale X?" pregunta
+    # por X, no por "sale" — sin esto, la cobertura parcial dispara en falso
+    # y el bot antepone "no tengo información" a respuestas completas.
+    "sale", "salen", "cuesta", "cuestan", "vale", "valen", "cobra", "cobran",
+    "precio", "costo", "costos", "pago", "pagan", "pagar", "abona", "abonan",
+    "monto", "valor",
+    # Meta-preguntas sobre el propio asistente ("¿con quién estoy hablando?",
+    # "¿qué temas conocés?"): las responde la personalidad/bot_description,
+    # no los documentos — el gate no debe rechazarlas por falta de chunks.
+    "hablando", "hablas", "hablás", "conoces", "conocés", "temas", "sos",
+    "soy", "eres", "haces", "hacés", "responder", "respondes", "respondés",
+    "estoy", "estas", "estás", "duda", "dudas", "agarra", "pasa", "quede",
 }
 
 
@@ -73,13 +85,19 @@ def _distinctive_terms(question: str) -> set[str]:
 
 
 def lexical_coverage(question: str, chunk_texts: list[str]) -> tuple[float, list[str]]:
-    """Fracción de términos distintivos presentes en el contexto (substring:
-    'hora' matchea 'horario'). Sin términos distintivos → 1.0 (no opina)."""
+    """Fracción de términos distintivos presentes en el contexto. Términos de
+    4+ chars matchean por substring ('hora'→'horario'); los de 3 exigen palabra
+    completa — sin esto 'mar' (de Mar del Plata) matcheaba 'informar' y la
+    cobertura daba un falso positivo. Sin términos distintivos → 1.0."""
     terms = _distinctive_terms(question)
     if not terms:
         return 1.0, []
     blob = _norm(" ".join(chunk_texts))
-    missing = [t for t in terms if t not in blob]
+    words = set(re.findall(r"[a-z0-9]+", blob))
+    missing = [
+        t for t in terms
+        if (t not in blob if len(t) >= 4 else t not in words)
+    ]
     return 1.0 - (len(missing) / len(terms)), missing
 
 
@@ -94,8 +112,17 @@ _JUDGE_SYSTEM = (
     "objeto. Un fragmento sobre el trámite genérico o sobre otro objeto "
     "parecido NO responde (ej: si preguntan por resonancia, un fragmento sobre "
     "ecografías o sobre turnos en general NO responde).\n"
-    "3. Ante la duda, el fragmento NO responde. Si ninguno responde, la lista "
-    "va vacía — esa es una respuesta correcta y frecuente.\n"
+    "3. Si la pregunta COMBINA varios temas o condiciones, un fragmento que "
+    "responde PARTE de la pregunta SÍ cuenta como que responde (la respuesta "
+    "final puede armarse juntando fragmentos).\n"
+    "3b. Si la pregunta menciona un caso PARTICULAR (un lugar, una fecha, una "
+    "situación concreta) y un fragmento da la REGLA GENERAL que claramente lo "
+    "cubre (ej: preguntan por una emergencia en Bariloche y el fragmento "
+    "explica la cobertura de emergencias fuera de la red), ese fragmento SÍ "
+    "responde.\n"
+    "4. Ante la duda sobre un fragmento puntual, NO responde. Si ninguno "
+    "responde ni en parte, la lista va vacía — esa es una respuesta correcta "
+    "y frecuente.\n"
     "Respondé ÚNICAMENTE un JSON con este formato exacto: "
     '{"responden": [números de fragmento], "motivo": "breve"}'
 )
@@ -103,15 +130,20 @@ _JUDGE_SYSTEM = (
 
 def coverage_note(missing: list[str]) -> str:
     """Instrucción para la generación cuando la cobertura es parcial: admitir el
-    límite sin afirmar negativos ("no tengo información" ≠ "no se realiza")."""
+    límite sin afirmar negativos ("no tengo información" ≠ "no se realiza").
+
+    CONDICIONAL, no un opener forzado: si los fragmentos responden la pregunta
+    completa, el asistente responde normal — sin esto, "¿cuánto sale el plan?"
+    salía como "No tengo información sobre eso. Sin embargo, cuesta $28.500"."""
     return (
-        "NOTA OBLIGATORIA PARA EL ASISTENTE: los documentos NO contienen "
-        "información específica sobre: " + ", ".join(missing[:4]) + ". "
-        "Empezá la respuesta aclarando que NO TENÉS INFORMACIÓN sobre eso "
-        "(nunca afirmes que el servicio no existe o no se realiza — solo que "
-        "no tenés la información), y después ofrecé únicamente lo relacionado "
-        "que SÍ está en los documentos. No des a entender que ese servicio o "
-        "tema está cubierto."
+        "NOTA PARA EL ASISTENTE: los documentos no mencionan: "
+        + ", ".join(missing[:4]) + ". "
+        "Si la pregunta se responde completa con los fragmentos, respondé "
+        "normalmente e ignorá esta nota. Solo si la pregunta pide "
+        "específicamente algo de esa lista y no está en los fragmentos, "
+        "aclaralo diciendo que NO TENÉS INFORMACIÓN sobre eso (nunca afirmes "
+        "que el servicio no existe o no se realiza) y ofrecé lo relacionado "
+        "que SÍ está. No des a entender que lo faltante está cubierto."
     )
 
 
@@ -160,6 +192,15 @@ async def _judge(question: str, chunk_texts: list[str], tenant_id: str) -> dict 
 async def evaluate_coverage(question: str, chunk_texts: list[str], tenant_id: str) -> dict:
     """Devuelve {"action": "answer"|"refuse", "kept": list[int]|None,
     "missing": list[str], "reason": str, "judge_used": bool, "lex_coverage": float}."""
+    # Smalltalk / entradas mínimas ("chau", "ok perfecto", "gracias", "?"):
+    # no hay consulta informacional que evaluar — el gate no opina y deja que
+    # la personalidad conteste. Sin este guard, "chau" terminaba en "no encontré".
+    if len(question.split()) < 3:
+        return {
+            "action": "answer", "kept": None, "judge_used": False, "missing": [],
+            "lex_coverage": 1.0, "reason": "smalltalk_skip",
+        }
+
     coverage, missing = lexical_coverage(question, chunk_texts)
     if coverage >= settings.trust_gate_lex_strong:
         return {

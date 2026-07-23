@@ -78,6 +78,10 @@ CLARIFY_PATTERNS = [
     r"pod[ée]s aclarar",
     r"specific(ar|á)",
     r"qu[ée] (tema|consulta|información)",
+    # Preguntar en qué puede ayudar ES pedir aclaración (UX válida ante input vago)
+    r"en qu[ée] (te )?puedo ayudar",
+    r"necesito m[áa]s detalles",
+    r"te refier[ei]s",
     r"sobre qu[ée]",
     r"un poco m[aá]s",
     r"contexto",
@@ -223,9 +227,16 @@ def score_case(case: dict, response: dict) -> CaseResult:
     result.scores["scope"] = 1 if scope_ok else 0
 
     # ── final pass ──
-    # Hallucination (grounding=0) is always a fail. Otherwise need >=3/4.
+    # RÚBRICA ESTRICTA (endurecida 2026-07-23): antes correctness NO era
+    # eliminatorio y una corrida entera rota (todas las respuestas eran el
+    # mensaje de "sin personalidad") pasó con 90% — exactamente el "da bien
+    # y después nos chocamos". Ahora:
+    #   - grounding=0 (alucinación) → FAIL siempre
+    #   - correctness=0 con must_contain definido → FAIL siempre
+    #   - resto: >=3/4
     total = sum(result.scores.values())
-    result.pass_ = result.scores["grounding"] == 1 and total >= 3
+    correctness_ok = result.scores["correctness"] == 1 or not must_contain
+    result.pass_ = result.scores["grounding"] == 1 and correctness_ok and total >= 3
     return result
 
 
@@ -254,6 +265,7 @@ def ask(base_url: str, token: str, tenant: str, question: str) -> dict:
     last_err = None
     for attempt in range(4):
         try:
+            t0 = time.monotonic()
             with requests.Session() as s:
                 r = s.post(
                     f"{base_url}/api/v1/query",
@@ -261,9 +273,22 @@ def ask(base_url: str, token: str, tenant: str, question: str) -> dict:
                     headers={"Authorization": f"Bearer {token}", "X-Tenant-ID": tenant},
                     timeout=120,
                 )
+            wall_ms = int((time.monotonic() - t0) * 1000)
             if not r.ok:
                 return {"answer": "", "sources": [], "_http_error": f"HTTP {r.status_code}: {r.text[:300]}"}
-            return r.json()
+            payload = r.json()
+            # El backend devuelve 200 con un sentinel cuando el LLM upstream
+            # falla (rate limit bajo la ráfaga de la suite). Eso es ruido de
+            # medición, no calidad del motor → reintentar con backoff.
+            if "servicio de IA no está disponible" in (payload.get("answer") or "") and attempt < 3:
+                last_err = "llm_unavailable_sentinel"
+                time.sleep(8 * (attempt + 1))
+                continue
+            # Latencia medida por el CLIENTE (wall clock): el campo latency_ms
+            # del backend puede venir en 0 según la rama — el instrumento no
+            # depende del instrumentado.
+            payload["latency_ms"] = wall_ms
+            return payload
         except (requests.exceptions.ConnectionError, requests.exceptions.ChunkedEncodingError) as e:
             last_err = e
             # Backoff: 5s, 10s, 15s. Backend may be restarting (~30s).
@@ -391,6 +416,19 @@ def main() -> int:
         results.append(cr)
         time.sleep(args.sleep)
 
+    # ── Métricas guardián (docs/PLAN_CALIDAD_MOTOR.md) ────────────────────────
+    # alucinadas: apareció contenido prohibido (grounding=0) — solo puede bajar.
+    # evasivas: "no encontré" sobre un caso factual respondible — solo puede bajar.
+    # latencia: p50 no sube >10% vs baseline; p95 dentro del SLA.
+    alucinadas = [r for r in results if r.scores.get("grounding") == 0]
+    evasivas = [
+        r for r in results
+        if any("factual esperado pero el bot respondió" in x for x in r.reasons)
+    ]
+    lats = sorted(r.latency_ms for r in results if r.latency_ms > 0)
+    lat_p50 = lats[len(lats) // 2] if lats else 0
+    lat_p95 = lats[int(len(lats) * 0.95)] if lats else 0
+
     # Persist
     timestamp = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
     reports = Path(args.reports_dir)
@@ -402,6 +440,14 @@ def main() -> int:
         "total": len(results),
         "pass": sum(1 for r in results if r.pass_),
         "fail": sum(1 for r in results if not r.pass_),
+        "guardian": {
+            "alucinadas": len(alucinadas),
+            "alucinadas_ids": [r.id for r in alucinadas],
+            "evasivas": len(evasivas),
+            "evasivas_ids": [r.id for r in evasivas],
+            "latency_p50_ms": lat_p50,
+            "latency_p95_ms": lat_p95,
+        },
     }
     out_json = reports / f"quality_run_{timestamp}.json"
     out_html = reports / f"quality_run_{timestamp}.html"
@@ -428,6 +474,10 @@ def main() -> int:
         if verdict == "FAIL":
             all_pass = False
         print(f"{cid:>3}  {cname:<35} {passed:>5} {total:>6} {rate:>6.1%} {threshold:>6.0%} {verdict:>10}")
+    print("\n───── Métricas guardián ─────")
+    print(f"Alucinadas: {len(alucinadas)}" + (f"  ← {[r.id for r in alucinadas]}" if alucinadas else "  ✔"))
+    print(f"Evasivas:   {len(evasivas)}" + (f"  ← {[r.id for r in evasivas]}" if evasivas else "  ✔"))
+    print(f"Latencia:   p50={lat_p50}ms  p95={lat_p95}ms")
     print(f"\nReportes: {out_json}  |  {out_html}")
     return 0 if all_pass else 2
 

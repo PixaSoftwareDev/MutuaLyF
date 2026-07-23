@@ -450,11 +450,10 @@ async def handle_query(
                 hard_fallback = True
                 context_parts, sources = [], []
             elif _tg.get("kept"):
-                keep = set(_tg["kept"])
-                kept_parts = [c for i, c in enumerate(context_parts) if i in keep]
-                kept_sources = [s for i, s in enumerate(sources) if i in keep]
-                if kept_parts:
-                    context_parts, sources = kept_parts, kept_sources
+                # NO filtrar el contexto a los chunks aprobados: las preguntas
+                # de síntesis necesitan combinar varios y el filtro las rompía
+                # (medido: síntesis 92%→58% con filtro). El veredicto decide
+                # responder/rechazar; la nota maneja la cobertura parcial.
                 if _tg.get("missing"):
                     context_parts.append(coverage_note(_tg["missing"]))
         except Exception as exc:  # noqa: BLE001 — el gate nunca tira la consulta

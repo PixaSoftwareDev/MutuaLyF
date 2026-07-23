@@ -299,6 +299,11 @@ class Settings(BaseSettings):
     # gris paga un juez LLM (~400ms, gpt-4o-mini). Fail-open ante cualquier error.
     trust_gate_enabled: bool = True
     trust_gate_judge: bool = True        # juez LLM en zona gris (si off: solo corta cobertura léxica 0)
+    # CALIBRADO POR LA SUITE (2026-07-23): 0.5. Se probó 0.7 (iter 4) para
+    # cazar inventos dentro de temas cubiertos y EMPEORÓ la guardián: factual
+    # 96%→64%, evasivas 6→14 (el juez rechaza de más en la banda media).
+    # Revertido por protocolo. Los inventos intra-tema (h_08/tg_06) quedan
+    # para la verificación de grounding post-generación (F2 del plan).
     trust_gate_lex_strong: float = 0.5   # cobertura léxica para pasar directo sin juez
     trust_gate_judge_max_chunks: int = 10  # fragmentos que ve el juez
     trust_gate_judge_chunk_chars: int = 600  # chars por fragmento para el juez
