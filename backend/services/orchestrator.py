@@ -430,6 +430,36 @@ async def handle_query(
             min_score,
         )
 
+    # ── Step 5b: Trust gate — ¿el contexto RESPONDE o solo se parece? ─────────
+    # Si nada responde, activa la rama determinística de no-info (hard_fallback)
+    # en vez de dejar que el LLM invente. Si responde a medias, filtra el
+    # contexto y fuerza la respuesta parcial honesta. Fail-open ante errores.
+    # Ver services/trust_gate.py (validado en staging 2026-07-23, 33/33).
+    if (
+        settings.trust_gate_enabled
+        and context_parts and not hard_fallback and not low_confidence_fallback
+    ):
+        try:
+            from services.trust_gate import coverage_note, evaluate_coverage
+            _tg = await evaluate_coverage(normalized_question, context_parts, tenant_id)
+            logger.info(
+                "trust_gate tenant_id=%s action=%s judge=%s lex=%.2f reason=%s",
+                tenant_id, _tg["action"], _tg["judge_used"], _tg["lex_coverage"], _tg["reason"],
+            )
+            if _tg["action"] == "refuse":
+                hard_fallback = True
+                context_parts, sources = [], []
+            elif _tg.get("kept"):
+                keep = set(_tg["kept"])
+                kept_parts = [c for i, c in enumerate(context_parts) if i in keep]
+                kept_sources = [s for i, s in enumerate(sources) if i in keep]
+                if kept_parts:
+                    context_parts, sources = kept_parts, kept_sources
+                if _tg.get("missing"):
+                    context_parts.append(coverage_note(_tg["missing"]))
+        except Exception as exc:  # noqa: BLE001 — el gate nunca tira la consulta
+            logger.warning("trust_gate_error tenant_id=%s error=%s", tenant_id, exc)
+
     # ── Step 6: Choose model based on complexity ───────────────────────────────
     from services.groq_client import classify_complexity, complete
 

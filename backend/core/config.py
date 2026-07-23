@@ -291,6 +291,18 @@ class Settings(BaseSettings):
     hard_fallback_min_score: float = 0.0
     max_context_chunks: int = 15        # max chunks sent to LLM in a single query
 
+    # ── Trust gate (anti-alucinación por cobertura) ───────────────────────────
+    # ¿El contexto recuperado RESPONDE la pregunta o solo se parece al tema?
+    # Validado en staging 2026-07-23: 33/33 en batería dura (16 trampas de temas
+    # ausentes rechazadas, 15 controles intactos) sobre el corpus real de mutual.
+    # Capa 1 (léxica, gratis) resuelve ~75% de consultas sin latencia; la zona
+    # gris paga un juez LLM (~400ms, gpt-4o-mini). Fail-open ante cualquier error.
+    trust_gate_enabled: bool = True
+    trust_gate_judge: bool = True        # juez LLM en zona gris (si off: solo corta cobertura léxica 0)
+    trust_gate_lex_strong: float = 0.5   # cobertura léxica para pasar directo sin juez
+    trust_gate_judge_max_chunks: int = 10  # fragmentos que ve el juez
+    trust_gate_judge_chunk_chars: int = 600  # chars por fragmento para el juez
+
     # ── Conversation history ───────────────────────────────────────────────────
     history_recent_turns: int = 6       # last N turns sent as full messages
     history_summary_chars: int = 120    # chars per turn in the compressed summary block
