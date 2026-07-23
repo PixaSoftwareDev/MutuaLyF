@@ -721,8 +721,17 @@ export const api = {
       const { data } = await apiClient.get<PendingChunkResponse[]>("/chunks/pending");
       return data;
     },
-    download: async (documentId: string): Promise<void> => {
-      const response = await apiClient.get(`/documents/${documentId}/download`, { responseType: "blob" });
+    /** Busca dentro del contenido de los documentos. Devuelve doc ids con nº de coincidencias. */
+    searchContent: async (q: string): Promise<Array<{ document_id: string; matches: number }>> => {
+      const { data } = await apiClient.get("/documents/search", { params: { q } });
+      return data;
+    },
+    /** variant "original" = archivo tal como se subió; "edited" = partes vigentes (.txt). */
+    download: async (documentId: string, variant: "original" | "edited" = "original"): Promise<void> => {
+      const path = variant === "edited"
+        ? `/documents/${documentId}/download/edited`
+        : `/documents/${documentId}/download`;
+      const response = await apiClient.get(path, { responseType: "blob" });
       const blob = new Blob([response.data], { type: response.headers["content-type"] || "application/octet-stream" });
       const cd = response.headers["content-disposition"] || "";
       const match = cd.match(/filename="?([^"]+)"?/);

@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  FileText, Trash2, Loader2, ChevronLeft, Download, XCircle, AlertTriangle, Search, Layers,
+  FileText, Trash2, Loader2, ChevronLeft, ChevronDown, Download, XCircle, Search, Layers,
 } from "lucide-react";
 import { api, type DocumentResponse, type ChunkResponse } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
@@ -13,15 +13,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
-import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
-} from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import { ListDetailShell } from "@/components/admin/list-detail-shell";
 import { DetailShell as Shell } from "@/components/admin/detail-shell";
 import {
-  DOC_STATUS_CONFIG, QG_DOC_CONFIG, fileExt, partStatus, PartDetailPanel,
+  DOC_STATUS_CONFIG, QG_DOC_CONFIG, fileExt, partStatus, PartDetailPanel, DocumentDeleteDialog,
 } from "@/components/documents/document-shared";
 
 type StatusKey = "all" | ChunkResponse["quality_gate_status"];
@@ -72,8 +70,14 @@ export default function DocumentDetailPage() {
   });
 
   const { mutate: downloadDoc, isPending: downloading } = useMutation({
-    mutationFn: () => api.documents.download(id),
-    onError: () => toast({ title: "No se pudo descargar", description: "El archivo original no está disponible.", variant: "destructive" }),
+    mutationFn: (variant: "original" | "edited") => api.documents.download(id, variant),
+    onError: (_err, variant) => toast({
+      title: "No se pudo descargar",
+      description: variant === "edited"
+        ? "El documento no tiene partes en uso para exportar."
+        : "El archivo original no está disponible.",
+      variant: "destructive",
+    }),
   });
 
   const counts = useMemo(() => {
@@ -136,11 +140,30 @@ export default function DocumentDetailPage() {
 
   const docActions = (
     <div className="flex shrink-0 items-center gap-2">
-      {doc.storage_key && (
-        <Button variant="outline" size="sm" className="gap-1.5" onClick={() => downloadDoc()} disabled={downloading}>
-          {downloading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
-          <span className="hidden sm:inline">Descargar</span>
-        </Button>
+      {(doc.storage_key || doc.chunk_count > 0) && (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="sm" className="gap-1.5" disabled={downloading}>
+              {downloading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+              <span className="hidden sm:inline">Descargar</span>
+              <ChevronDown className="h-3.5 w-3.5 opacity-60" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-64">
+            <DropdownMenuItem disabled={!doc.storage_key} onClick={() => downloadDoc("original")}>
+              <div className="flex flex-col gap-0.5">
+                <span>Archivo original</span>
+                <span className="text-xs text-muted-foreground">Tal como se subió, sin cambios.</span>
+              </div>
+            </DropdownMenuItem>
+            <DropdownMenuItem disabled={doc.status !== "ready" || doc.chunk_count === 0} onClick={() => downloadDoc("edited")}>
+              <div className="flex flex-col gap-0.5">
+                <span>Versión actual (.txt)</span>
+                <span className="text-xs text-muted-foreground">Las partes en uso, con tus ediciones.</span>
+              </div>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       )}
       <Button
         variant="outline" size="sm"
@@ -187,7 +210,7 @@ export default function DocumentDetailPage() {
             )}
           </div>
         </Shell>
-        <DeleteDialog open={showDelete} onOpenChange={setShowDelete} title={doc.title} onConfirm={() => deleteDoc()} deleting={deleting} />
+        <DocumentDeleteDialog open={showDelete} onOpenChange={setShowDelete} title={doc.title} onConfirm={() => deleteDoc()} deleting={deleting} />
       </>
     );
   }
@@ -291,7 +314,7 @@ export default function DocumentDetailPage() {
         </div>
       </ListDetailShell>
 
-      <DeleteDialog open={showDelete} onOpenChange={setShowDelete} title={doc.title} onConfirm={() => deleteDoc()} deleting={deleting} />
+      <DocumentDeleteDialog open={showDelete} onOpenChange={setShowDelete} title={doc.title} onConfirm={() => deleteDoc()} deleting={deleting} />
     </>
   );
 }
@@ -320,41 +343,3 @@ function PartRow({ chunk, selected, onSelect }: { chunk: ChunkResponse; selected
   );
 }
 
-// ── Shell simple (loading / no procesado / no encontrado) ─────────────────────
-
-// ── Confirmación de eliminación ───────────────────────────────────────────────
-
-function DeleteDialog({ open, onOpenChange, title, onConfirm, deleting }: {
-  open: boolean;
-  onOpenChange: (v: boolean) => void;
-  title: string;
-  onConfirm: () => void;
-  deleting: boolean;
-}) {
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <div className="flex items-start gap-3 text-left">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-destructive/10">
-              <AlertTriangle className="h-5 w-5 text-destructive" />
-            </div>
-            <div className="min-w-0 space-y-1.5 pt-0.5">
-              <DialogTitle>Eliminar documento</DialogTitle>
-              <DialogDescription>
-                Vas a eliminar <span className="font-medium text-foreground">{title}</span> y todas sus partes. Esta acción no se puede deshacer.
-              </DialogDescription>
-            </div>
-          </div>
-        </DialogHeader>
-        <DialogFooter className="mt-2">
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={deleting}>Cancelar</Button>
-          <Button variant="destructive" onClick={onConfirm} disabled={deleting}>
-            {deleting && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
-            Eliminar
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}

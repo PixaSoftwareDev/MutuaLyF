@@ -1,11 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   FileText, Loader2, Search,
-  AlertTriangle, ArrowRight, Copy, Plus, Upload,
+  AlertTriangle, Copy, Plus, Trash2, Upload,
 } from "lucide-react";
 import { api, type DocumentResponse, type PendingChunkResponse } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
@@ -22,7 +22,7 @@ import { ListToolbar } from "@/components/admin/list-toolbar";
 import { useTableSort, applySort, SortHeader } from "@/components/admin/sortable";
 import { cn } from "@/lib/utils";
 import {
-  DOC_STATUS_CONFIG, fileExt, fmtDate,
+  DOC_STATUS_CONFIG, fileExt, fmtDate, DocumentDeleteDialog,
 } from "@/components/documents/document-shared";
 
 type SortKey = "nombre" | "fragmentos" | "fecha";
@@ -32,6 +32,15 @@ type SortKey = "nombre" | "fragmentos" | "fecha";
 export default function DocumentsPage() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
+  // Debounce para la búsqueda en contenido (pega al backend); el filtro por
+  // título sigue siendo instantáneo sobre la lista ya cargada.
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleSearch = (v: string) => {
+    setSearch(v);
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    searchTimer.current = setTimeout(() => setDebouncedSearch(v), 350);
+  };
   const [uploadOpen, setUploadOpen] = useState(false);
   const { sort, toggle } = useTableSort<SortKey>({ fragmentos: "desc", fecha: "desc" });
 
@@ -53,6 +62,20 @@ export default function DocumentsPage() {
     staleTime: 15_000,
     refetchInterval: documents.some(d => d.status === "pending" || d.status === "processing") ? 5_000 : 30_000,
   });
+
+  // Coincidencias en el CONTENIDO (partes) de los documentos, no solo el título.
+  const contentQ = debouncedSearch.trim();
+  const { data: contentHits = [] } = useQuery({
+    queryKey: ["documents-content-search", contentQ],
+    queryFn: () => api.documents.searchContent(contentQ),
+    enabled: contentQ.length >= 2,
+    staleTime: 30_000,
+  });
+  const contentMatches = useMemo(() => {
+    const map = new Map<string, number>();
+    if (contentQ.length >= 2) for (const h of contentHits) map.set(h.document_id, h.matches);
+    return map;
+  }, [contentHits, contentQ]);
 
   const { data: duplicatesData } = useQuery({
     queryKey: ["duplicates"],
@@ -88,7 +111,7 @@ export default function DocumentsPage() {
   }, [duplicatesData]);
 
   const filtered = documents.filter(
-    (d) => !search || d.title.toLowerCase().includes(search.toLowerCase()),
+    (d) => !search || d.title.toLowerCase().includes(search.toLowerCase()) || contentMatches.has(d.id),
   );
   const sorted = useMemo(() => applySort(filtered, sort, (a, b, key) =>
     key === "nombre"     ? a.title.localeCompare(b.title, "es") :
@@ -148,23 +171,23 @@ export default function DocumentsPage() {
           </div>
         ) : (
           <div className="space-y-4">
-            <ListToolbar search={search} onSearch={setSearch} placeholder="Buscar documento…" />
+            <ListToolbar search={search} onSearch={handleSearch} placeholder="Buscar por nombre o contenido…" />
 
             {sorted.length === 0 ? (
-              <EmptyState icon={Search} title="Sin resultados" description="No se encontraron documentos con ese nombre." />
+              <EmptyState icon={Search} title="Sin resultados" description="Ningún documento coincide por nombre ni por contenido." />
             ) : (
               <Table>
                 <TableHeader>
                   <TableRow className="hover:bg-transparent">
                     <TableHead><SortHeader label="Documento" sortKey="nombre" sort={sort} onToggle={toggle} /></TableHead>
-                    <TableHead className="hidden w-[140px] sm:table-cell">Estado</TableHead>
+                    <TableHead className="hidden w-[150px] sm:table-cell">Estado</TableHead>
                     <TableHead className="hidden w-[120px] text-right lg:table-cell">
                       <SortHeader label="Fragmentos" sortKey="fragmentos" sort={sort} onToggle={toggle} />
                     </TableHead>
-                    <TableHead className="hidden w-[140px] md:table-cell">
+                    <TableHead className="hidden w-[150px] md:table-cell">
                       <SortHeader label="Subido" sortKey="fecha" sort={sort} onToggle={toggle} />
                     </TableHead>
-                    <TableHead className="w-[40px]" />
+                    <TableHead className="w-[48px]" />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -174,6 +197,7 @@ export default function DocumentsPage() {
                       doc={doc}
                       pendingChunkCount={pendingByDocId[doc.id]?.chunks.length ?? 0}
                       pendingDuplicateCount={duplicateCountByDocId[doc.id] ?? 0}
+                      contentMatchCount={contentMatches.get(doc.id) ?? 0}
                     />
                   ))}
                 </TableBody>
@@ -206,13 +230,29 @@ export default function DocumentsPage() {
 // ── DocumentTableRow ──────────────────────────────────────────────────────────
 
 function DocumentTableRow({
-  doc, pendingChunkCount, pendingDuplicateCount,
+  doc, pendingChunkCount, pendingDuplicateCount, contentMatchCount = 0,
 }: {
   doc: DocumentResponse;
   pendingChunkCount: number;
   pendingDuplicateCount: number;
+  contentMatchCount?: number;
 }) {
   const router = useRouter();
+  const queryClient = useQueryClient();
+  const [showDelete, setShowDelete] = useState(false);
+
+  const { mutate: deleteDoc, isPending: deleting } = useMutation({
+    mutationFn: () => api.documents.delete(doc.id),
+    onSuccess: () => {
+      toast({ title: "Documento eliminado", variant: "success" });
+      setShowDelete(false);
+      queryClient.invalidateQueries({ queryKey: ["documents"] });
+      queryClient.invalidateQueries({ queryKey: ["chunks", "pending"] });
+      queryClient.invalidateQueries({ queryKey: ["duplicates"] });
+    },
+    onError: () => toast({ title: "Error al eliminar", description: "Intentá de nuevo.", variant: "destructive" }),
+  });
+
   const st = DOC_STATUS_CONFIG[doc.status];
   const ext = fileExt(doc.title);
   const processing = doc.status === "processing" || doc.status === "pending";
@@ -247,6 +287,12 @@ function DocumentTableRow({
               </span>
               {doc.chunk_count > 0 && <span className="text-[11px] text-muted-foreground">· {doc.chunk_count} frag.</span>}
             </div>
+            {contentMatchCount > 0 && (
+              <span className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground">
+                <Search className="h-3 w-3" />
+                {contentMatchCount} {contentMatchCount === 1 ? "coincidencia" : "coincidencias"} en el contenido
+              </span>
+            )}
             {hasPendingWork && (
               <div className="hidden sm:flex items-center gap-1.5 mt-1">
                 {pendingChunkCount > 0 && (
@@ -265,8 +311,8 @@ function DocumentTableRow({
         </div>
       </TableCell>
 
-      <TableCell className="hidden sm:table-cell">
-        <Badge variant={st.variant} className="gap-1.5">
+      <TableCell className="hidden whitespace-nowrap sm:table-cell">
+        <Badge variant={st.variant} className="gap-1.5 whitespace-nowrap">
           <span className={cn("h-1.5 w-1.5 rounded-full", doc.status === "processing" && "animate-pulse", st.dot)} />
           {st.label}
         </Badge>
@@ -280,8 +326,28 @@ function DocumentTableRow({
         {fmtDate(doc.created_at)}
       </TableCell>
 
-      <TableCell className="text-right">
-        <ArrowRight className="h-4 w-4 text-muted-foreground/40 group-hover:text-action group-hover:translate-x-0.5 transition-all inline-block" />
+      <TableCell className="text-right whitespace-nowrap">
+        {/* stopPropagation: el click en el tachito no debe navegar al detalle */}
+        <button
+          type="button"
+          aria-label={`Eliminar ${doc.title}`}
+          title="Eliminar documento"
+          onClick={(e) => { e.stopPropagation(); setShowDelete(true); }}
+          className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground/40 transition-colors hover:bg-destructive/10 hover:text-destructive"
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
+        {/* El diálogo vive fuera del flujo de click de la fila (portal), pero
+            frenamos la propagación por si el overlay re-dispara sobre la fila */}
+        <span onClick={(e) => e.stopPropagation()}>
+          <DocumentDeleteDialog
+            open={showDelete}
+            onOpenChange={setShowDelete}
+            title={doc.title}
+            onConfirm={() => deleteDoc()}
+            deleting={deleting}
+          />
+        </span>
       </TableCell>
     </TableRow>
   );

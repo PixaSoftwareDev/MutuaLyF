@@ -146,6 +146,9 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # Sin esto el JS no puede leer el nombre del archivo en las descargas
+    # cuando front y back corren en orígenes distintos (dev local).
+    expose_headers=["Content-Disposition"],
 )
 app.add_middleware(TenantMiddleware)
 # Widget CORS: se agrega ÚLTIMO → queda como el middleware más externo, así

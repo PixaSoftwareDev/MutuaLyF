@@ -2,9 +2,12 @@
 
 import { useState, useRef, useEffect } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Check, X, Pencil, PanelRight } from "lucide-react";
+import { Loader2, Check, X, Pencil, PanelRight, AlertTriangle } from "lucide-react";
 import { api, type DocumentResponse, type ChunkResponse } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+} from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/toast";
 import { extractErrorMessage } from "@/lib/errors";
@@ -60,6 +63,45 @@ export function partStatus(s: ChunkResponse["quality_gate_status"]) {
     label: "En uso",      dot: "bg-success", text: "text-success",
     pill: "border-success/30 bg-success/[0.08] text-success",
   };
+}
+
+// ── DocumentDeleteDialog ──────────────────────────────────────────────────────
+// Confirmación de eliminación de un documento. Se usa desde el detalle y desde
+// el tachito de la tabla de documentos.
+
+export function DocumentDeleteDialog({ open, onOpenChange, title, onConfirm, deleting }: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  title: string;
+  onConfirm: () => void;
+  deleting: boolean;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <div className="flex items-start gap-3 text-left">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-destructive/10">
+              <AlertTriangle className="h-5 w-5 text-destructive" />
+            </div>
+            <div className="min-w-0 space-y-1.5 pt-0.5">
+              <DialogTitle>Eliminar documento</DialogTitle>
+              <DialogDescription>
+                Vas a eliminar <span className="font-medium text-foreground">{title}</span> y todas sus partes. Esta acción no se puede deshacer.
+              </DialogDescription>
+            </div>
+          </div>
+        </DialogHeader>
+        <DialogFooter className="mt-2">
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={deleting}>Cancelar</Button>
+          <Button variant="destructive" onClick={onConfirm} disabled={deleting}>
+            {deleting && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+            Eliminar
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 // ── PartDetailPanel ───────────────────────────────────────────────────────────
