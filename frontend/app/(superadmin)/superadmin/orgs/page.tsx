@@ -1,11 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import {
-  Plus, Loader2, Building2, AlertTriangle,
-  ChevronRight, Search, Bot, TrendingUp, Ban,
+  Plus, Loader2, Building2, AlertTriangle, ArrowRight, Bot,
 } from "lucide-react";
 import { api, apiClient } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -15,9 +14,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { FormSheet } from "@/components/layout/form-sheet";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { EmptyState } from "@/components/ui/empty-state";
-import { PageShell } from "@/components/layout/page-shell";
-import { PageHeader, CountChip } from "@/components/layout/page-header";
-import { fmtNum, Kpi } from "@/components/superadmin/shared";
+import { StatePill, type StatePillTone } from "@/components/ui/state-pill";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { ListToolbar } from "@/components/admin/list-toolbar";
+import { useTableSort, applySort, SortHeader } from "@/components/admin/sortable";
+import { fmtNum } from "@/components/superadmin/shared";
 import { toast } from "@/components/ui/toast";
 import { cn, toSlug } from "@/lib/utils";
 
@@ -30,6 +31,8 @@ interface TenantRow {
   queries_this_month: number;
   last_activity_at: string | null;
 }
+
+type SortKey = "nombre" | "plan" | "estado" | "consultas" | "actividad";
 
 // Última actividad relativa. >14 días sin uso = tenant "dormido" (riesgo de baja).
 function relActivity(iso: string | null): string {
@@ -45,17 +48,20 @@ function relActivity(iso: string | null): string {
   return `activo hace ${d} d`;
 }
 
-const PLAN_COLORS: Record<string, string> = {
-  starter:      "bg-muted text-muted-foreground",
-  professional: "bg-info/10 text-info",
-  enterprise:   "bg-muted text-muted-foreground",
+// Plan → tono de pastilla (reservamos color para estados; el plan queda sobrio).
+const PLAN_TONE: Record<string, StatePillTone> = {
+  starter:      "muted",
+  professional: "info",
+  enterprise:   "muted",
 };
-// Estado en español, pill suave — el color queda reservado para estados.
-const STATUS_PILL: Record<string, { label: string; cls: string }> = {
-  active:     { label: "Activa",     cls: "bg-success/10 text-success" },
-  onboarding: { label: "Onboarding", cls: "bg-info/10 text-info" },
-  suspended:  { label: "Suspendida", cls: "bg-destructive/10 text-destructive" },
+// Estado → etiqueta ES + tono. Cualquier estado desconocido cae en "muted".
+const STATUS_META: Record<string, { label: string; tone: StatePillTone }> = {
+  active:     { label: "Activa",     tone: "success" },
+  onboarding: { label: "Onboarding", tone: "info" },
+  suspended:  { label: "Suspendida", tone: "destructive" },
 };
+
+const PLAN_ORDER: Record<string, number> = { starter: 0, professional: 1, enterprise: 2 };
 
 const tenantsApi = {
   list:   () => apiClient.get("/tenants").then(r => r.data as TenantRow[]),
@@ -68,6 +74,7 @@ export default function OrganizationsPage() {
   const qc          = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
   const [search, setSearch]         = useState("");
+  const { sort, toggle } = useTableSort<SortKey>({ consultas: "desc", actividad: "desc" });
 
   const inv = () => {
     qc.invalidateQueries({ queryKey: ["tenants"] });
@@ -82,6 +89,12 @@ export default function OrganizationsPage() {
     refetchInterval: 60_000, staleTime: 30_000,
   });
 
+  const anomalyByTenant = useMemo(() => {
+    const map: Record<string, { pct: number; detail: string }> = {};
+    for (const a of health?.anomalies ?? []) map[a.tenant_id] = { pct: a.pct, detail: a.detail };
+    return map;
+  }, [health]);
+
   const filtered = tenants.filter(t =>
     !search ||
     t.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -89,137 +102,124 @@ export default function OrganizationsPage() {
     t.admin_email.toLowerCase().includes(search.toLowerCase())
   );
 
-  const hasAnomalies = (health?.anomalies?.length ?? 0) > 0;
+  const sorted = useMemo(() => applySort(filtered, sort, (a, b, key) =>
+    key === "nombre"    ? a.name.localeCompare(b.name, "es") :
+    key === "plan"      ? (PLAN_ORDER[a.plan] ?? -1) - (PLAN_ORDER[b.plan] ?? -1) :
+    key === "estado"    ? a.status.localeCompare(b.status, "es") :
+    key === "consultas" ? (a.queries_this_month ?? 0) - (b.queries_this_month ?? 0) :
+                          new Date(a.last_activity_at ?? 0).getTime() - new Date(b.last_activity_at ?? 0).getTime(),
+  ), [filtered, sort]);
 
-  // Métricas de gestión derivadas de la lista (sin endpoint extra).
-  const totalTenants  = health ? health.total_tenants : tenants.length;
-  const activeTenants = health?.active_tenants ?? tenants.filter(t => t.status === "active").length;
-  const suspended     = tenants.filter(t => t.status === "suspended").length;
-  const monthStart    = new Date(new Date().getFullYear(), new Date().getMonth(), 1).getTime();
-  const newThisMonth  = tenants.filter(t => t.created_at && new Date(t.created_at).getTime() >= monthStart).length;
+  const hasAnomalies = (health?.anomalies?.length ?? 0) > 0;
 
   return (
     <>
-      <PageShell>
-        <PageHeader
-          eyebrow="Plataforma"
-          title="Organizaciones"
-          badge={health
-            ? <CountChip>{health.active_tenants} {health.active_tenants === 1 ? "activa" : "activas"}</CountChip>
-            : undefined}
-          description="Los clientes de la plataforma: planes, cuotas y acceso al detalle de cada uno."
-          actions={
-            <Button size="sm" onClick={() => setShowCreate(true)} className="h-9 gap-1.5 group">
-              <Plus className="h-3.5 w-3.5 transition-transform group-hover:rotate-90" />
-              <span className="hidden sm:inline">Nueva organización</span>
-            </Button>
-          }
-        />
-
-        {/* KPIs */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
-          <Kpi
-            icon={Building2}
-            label="Organizaciones"
-            value={totalTenants}
-            sublabel={`${activeTenants} ${activeTenants === 1 ? "activa" : "activas"}`}
-            loading={!health && isLoading}
-          />
-          <Kpi icon={TrendingUp} label="Nuevas este mes" value={newThisMonth} loading={isLoading} />
-          <Kpi
-            icon={AlertTriangle}
-            label="Cerca de cuota"
-            value={health?.anomalies?.length ?? 0}
-            tone={(health?.anomalies?.length ?? 0) > 0 ? "warn" : "neutral"}
-            loading={!health}
-          />
-          <Kpi
-            icon={Ban}
-            label="Suspendidas"
-            value={suspended}
-            tone={suspended > 0 ? "danger" : "neutral"}
-            loading={isLoading}
-          />
+      <div className="flex h-full min-h-0 flex-col">
+        {/* Header bar */}
+        <div className="flex h-12 shrink-0 items-center justify-between gap-2 border-b px-4 sm:px-6">
+          <h1 className="min-w-0 truncate text-[15px] font-semibold tracking-tight text-foreground">Organizaciones</h1>
+          <Button size="sm" className="shrink-0 group" onClick={() => setShowCreate(true)}>
+            <Plus className="h-4 w-4 transition-transform group-hover:rotate-90 sm:mr-1.5" />
+            <span className="hidden sm:inline">Nueva organización</span>
+          </Button>
         </div>
 
-        {/* Anomalías de cuota — clickeables al detalle */}
-        {hasAnomalies && (
-          <div className="rounded-xl border px-4 py-2.5 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-sm bg-warning/10 border-warning/20">
-            <span className="flex items-center gap-1.5 font-medium">
-              <AlertTriangle className="h-4 w-4 text-warning" /> Cerca del límite del plan:
-            </span>
-            {health!.anomalies.map(a => (
-              <span
-                key={a.tenant_id}
-                role="button"
-                tabIndex={0}
-                className="inline-flex items-center gap-1 text-xs text-warning bg-warning/10 px-2 py-0.5 rounded-full cursor-pointer hover:bg-warning/20 transition-colors"
-                onClick={() => router.push(`/superadmin/tenants/${a.tenant_id}`)}
-                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); router.push(`/superadmin/tenants/${a.tenant_id}`); } }}
-              >
-                {a.tenant_name} {a.pct}% cuota
-              </span>
-            ))}
-          </div>
-        )}
-
-        {/* Búsqueda + lista */}
-        <div className="space-y-4 animate-fade-in">
-          <div className="flex items-center gap-3">
-            <div className="relative max-w-sm flex-1">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-              <Input
-                placeholder="Buscar por nombre, ID o email…"
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                className="h-9 text-sm pl-8"
-              />
-            </div>
-            <span className="text-xs text-muted-foreground shrink-0 tabular-nums">
-              {filtered.length}{search ? ` de ${tenants.length}` : " organizaciones"}
-            </span>
-          </div>
-
+        {/* Contenido scrolleable */}
+        <div className="min-h-0 flex-1 overflow-y-auto scrollbar-slim p-4 sm:p-6">
           {isLoading ? (
-            <div className="space-y-2">
-              {[1,2,3].map(i => <Skeleton key={i} className="h-[72px] w-full rounded-2xl" />)}
-            </div>
-          ) : filtered.length === 0 ? (
-            <EmptyState
-              icon={Building2}
-              title={search ? "Sin resultados" : "No hay organizaciones"}
-              description={search ? undefined : "Creá la primera organización para empezar."}
-            />
+            <Skeleton className="h-72 rounded-2xl" />
           ) : (
-            <div className="space-y-2 pb-6 stagger-children">
-              {filtered.map(t => (
-                <TenantRowCard
-                  key={t.id}
-                  tenant={t}
-                  anomaly={health?.anomalies.find(a => a.tenant_id === t.id)}
-                  onClick={() => router.push(`/superadmin/tenants/${t.id}`)}
+            <div className="space-y-4">
+              {/* Anomalías de cuota — atajos clickeables al detalle */}
+              {hasAnomalies && (
+                <div className="rounded-xl border border-warning/20 bg-warning/10 px-4 py-2.5 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-sm">
+                  <span className="flex items-center gap-1.5 font-medium">
+                    <AlertTriangle className="h-4 w-4 text-warning" /> Cerca del límite del plan:
+                  </span>
+                  {health!.anomalies.map(a => (
+                    <span
+                      key={a.tenant_id}
+                      role="button"
+                      tabIndex={0}
+                      className="inline-flex items-center gap-1 text-xs text-warning bg-warning/10 px-2 py-0.5 rounded-full cursor-pointer hover:bg-warning/20 transition-colors"
+                      onClick={() => router.push(`/superadmin/tenants/${a.tenant_id}`)}
+                      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); router.push(`/superadmin/tenants/${a.tenant_id}`); } }}
+                    >
+                      {a.tenant_name} {a.pct}% cuota
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {tenants.length > 0 && (
+                <ListToolbar search={search} onSearch={setSearch} placeholder="Buscar por nombre, ID o email…" />
+              )}
+
+              {tenants.length === 0 ? (
+                <EmptyState
+                  icon={Building2}
+                  title="No hay organizaciones"
+                  description="Creá la primera organización para empezar."
                 />
-              ))}
+              ) : sorted.length === 0 ? (
+                <EmptyState
+                  icon={Building2}
+                  title="Sin resultados"
+                  description={`Ninguna organización coincide con "${search}".`}
+                />
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow className="hover:bg-transparent">
+                      <TableHead><SortHeader label="Organización" sortKey="nombre" sort={sort} onToggle={toggle} /></TableHead>
+                      <TableHead className="hidden md:table-cell w-[140px]">
+                        <SortHeader label="Plan" sortKey="plan" sort={sort} onToggle={toggle} />
+                      </TableHead>
+                      <TableHead className="hidden sm:table-cell w-[140px]">
+                        <SortHeader label="Estado" sortKey="estado" sort={sort} onToggle={toggle} />
+                      </TableHead>
+                      <TableHead className="hidden lg:table-cell w-[200px]">
+                        <SortHeader label="Consultas 30d" sortKey="consultas" sort={sort} onToggle={toggle} />
+                      </TableHead>
+                      <TableHead className="hidden xl:table-cell w-[150px] whitespace-nowrap">
+                        <SortHeader label="Actividad" sortKey="actividad" sort={sort} onToggle={toggle} />
+                      </TableHead>
+                      <TableHead className="w-[40px]" />
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {sorted.map(t => (
+                      <TenantTableRow
+                        key={t.id}
+                        tenant={t}
+                        anomaly={anomalyByTenant[t.id]}
+                        onSelect={() => router.push(`/superadmin/tenants/${t.id}`)}
+                        onPrefetch={() => router.prefetch(`/superadmin/tenants/${t.id}`)}
+                      />
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
             </div>
           )}
         </div>
-      </PageShell>
+      </div>
 
       <CreateTenantModal open={showCreate} onClose={() => setShowCreate(false)} onCreated={inv} />
     </>
   );
 }
 
-// ── Tenant row card ───────────────────────────────────────────────────────────
-function TenantRowCard({ tenant: t, anomaly, onClick }: {
+// ── Fila de la tabla ──────────────────────────────────────────────────────────
+function TenantTableRow({ tenant: t, anomaly, onSelect, onPrefetch }: {
   tenant: TenantRow;
   anomaly?: { pct: number; detail: string };
-  onClick: () => void;
+  onSelect: () => void;
+  onPrefetch: () => void;
 }) {
   const dormant = !t.last_activity_at || (Date.now() - new Date(t.last_activity_at).getTime()) > 14 * 86_400_000;
 
-  // Consumo del mes vs cuota del plan — lo que el operador necesita de un
-  // vistazo para detectar tenants cerca del límite sin entrar al detalle.
+  // Consumo del mes vs cuota del plan — de un vistazo, quién está cerca del límite.
   const used  = t.queries_this_month ?? 0;
   const limit = t.limits?.queries_month ?? 0;
   const pct   = limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : null;
@@ -229,51 +229,74 @@ function TenantRowCard({ tenant: t, anomaly, onClick }: {
     pct >= 70    ? "bg-warning" :
                    "bg-success";
 
-  return (
-    <button
-      onClick={onClick}
-      className="w-full rounded-2xl border bg-card text-left group card-interactive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-    >
-      <div className="flex items-center gap-3 px-4 py-3.5">
-        <div className="shrink-0 w-10 h-10 rounded-xl bg-action-gradient-soft flex items-center justify-center">
-          <span className="text-sm font-bold text-action uppercase">{t.name[0]}</span>
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-medium text-sm">{t.name}</span>
-            <code className="text-[10px] text-muted-foreground/50 font-mono hidden sm:inline">{t.id}</code>
-            {anomaly && <span className="inline-flex items-center gap-1 text-xs text-warning font-medium"><AlertTriangle className="h-3 w-3" /> {anomaly.pct}% cuota</span>}
-          </div>
-          <p className="text-xs text-muted-foreground truncate mt-0.5">
-            {t.admin_email} · <span className={cn(dormant && "text-warning font-medium")}>{relActivity(t.last_activity_at)}</span>
-          </p>
-        </div>
-        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-          <span className={cn("text-xs font-medium px-2 py-0.5 rounded-full hidden md:inline capitalize", PLAN_COLORS[t.plan] || "bg-muted")}>{t.plan}</span>
-          <span className={cn(
-            "text-xs font-medium px-2 py-0.5 rounded-full hidden sm:inline",
-            (STATUS_PILL[t.status] ?? { cls: "bg-muted text-muted-foreground" }).cls
-          )}>
-            {(STATUS_PILL[t.status] ?? { label: t.status }).label}
-          </span>
+  const statusMeta = STATUS_META[t.status] ?? { label: t.status, tone: "muted" as StatePillTone };
 
-          {/* Cuota mensual de consultas — barra con umbral de color */}
-          <div className="hidden lg:flex flex-col items-end gap-1 w-40">
-            <span className="text-[11px] text-muted-foreground tabular-nums leading-none">
-              {fmtNum(used)}{limit > 0 ? ` / ${fmtNum(limit)}` : ""} consultas 30d
-            </span>
-            <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
-              <div
-                className={cn("h-full rounded-full transition-all", quotaTone)}
-                style={{ width: `${pct ?? (used > 0 ? 100 : 0)}%` }}
-              />
+  return (
+    <TableRow
+      className="cursor-pointer group"
+      onClick={onSelect}
+      onMouseEnter={onPrefetch}
+    >
+      {/* w-full + max-w-0: la columna toma el espacio restante y el nombre trunca. */}
+      <TableCell className="w-full max-w-0 py-2.5">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="shrink-0 w-9 h-9 rounded-lg bg-action-gradient-soft flex items-center justify-center">
+            <span className="text-sm font-bold text-action uppercase">{t.name[0]}</span>
+          </div>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <p className="text-sm font-medium text-foreground truncate group-hover:text-action transition-colors">{t.name}</p>
+              {anomaly && (
+                <span className="inline-flex shrink-0 items-center gap-1 text-[11px] text-warning font-medium">
+                  <AlertTriangle className="h-3 w-3" /> {anomaly.pct}% cuota
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground truncate mt-0.5">
+              {t.admin_email}
+              <code className="ml-1.5 text-[10px] text-muted-foreground/50 font-mono hidden sm:inline">{t.id}</code>
+            </p>
+            {/* Estado/plan en mobile, donde las columnas se ocultan. */}
+            <div className="flex items-center gap-2 mt-1 sm:hidden">
+              <StatePill tone={statusMeta.tone}>{statusMeta.label}</StatePill>
+              <span className="text-[11px] text-muted-foreground capitalize">{t.plan}</span>
             </div>
           </div>
-
-          <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-action transition-colors" />
         </div>
-      </div>
-    </button>
+      </TableCell>
+
+      <TableCell className="hidden md:table-cell">
+        <StatePill tone={PLAN_TONE[t.plan] ?? "muted"} className="capitalize">{t.plan}</StatePill>
+      </TableCell>
+
+      <TableCell className="hidden sm:table-cell">
+        <StatePill tone={statusMeta.tone}>{statusMeta.label}</StatePill>
+      </TableCell>
+
+      <TableCell className="hidden lg:table-cell">
+        <div className="flex flex-col gap-1">
+          <span className="text-[11px] text-muted-foreground tabular-nums leading-none">
+            {fmtNum(used)}{limit > 0 ? ` / ${fmtNum(limit)}` : ""} consultas
+          </span>
+          <div className="h-1.5 w-full max-w-[160px] rounded-full bg-muted overflow-hidden">
+            <div
+              className={cn("h-full rounded-full transition-all", quotaTone)}
+              style={{ width: `${pct ?? (used > 0 ? 100 : 0)}%` }}
+            />
+          </div>
+        </div>
+      </TableCell>
+
+      <TableCell className="hidden xl:table-cell text-sm whitespace-nowrap">
+        <span className={cn("text-muted-foreground", dormant && "text-warning font-medium")}>
+          {relActivity(t.last_activity_at)}
+        </span>
+      </TableCell>
+
+      <TableCell className="text-right">
+        <ArrowRight className="h-4 w-4 text-muted-foreground/40 group-hover:text-action group-hover:translate-x-0.5 transition-all inline-block" />
+      </TableCell>
+    </TableRow>
   );
 }
 
@@ -320,7 +343,6 @@ function CreateTenantModal({ open, onClose, onCreated }: { open: boolean; onClos
     },
   });
 
-  const PLAN_ORDER: Record<string, number> = { starter: 0, professional: 1, enterprise: 2 };
   const availablePersonalities = personalities.filter(
     (p: any) => PLAN_ORDER[p.plan_minimo] <= PLAN_ORDER[form.plan]
   );

@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ShieldCheck, Plus, Loader2, Trash2, Globe } from "lucide-react";
+import { ShieldCheck, Plus, Loader2, Trash2, SearchX } from "lucide-react";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,6 +11,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageShell } from "@/components/layout/page-shell";
 import { PageHeader, CountChip } from "@/components/layout/page-header";
+import { ListToolbar } from "@/components/admin/list-toolbar";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
@@ -26,6 +28,7 @@ export default function ConnectorHostsPage() {
   const [host, setHost] = useState("");
   const [note, setNote] = useState("");
   const [confirmDel, setConfirmDel] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
 
   const { data, isLoading } = useQuery({
     queryKey: ["approved-hosts"],
@@ -34,6 +37,14 @@ export default function ConnectorHostsPage() {
   });
   const hosts = data?.hosts ?? [];
   const inv = () => qc.invalidateQueries({ queryKey: ["approved-hosts"] });
+
+  const visible = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return hosts;
+    return hosts.filter(h =>
+      h.host.toLowerCase().includes(q) || (h.note ?? "").toLowerCase().includes(q),
+    );
+  }, [hosts, search]);
 
   const addM = useMutation({
     mutationFn: () => api.connectors.addApprovedHost(host.trim().toLowerCase(), note.trim() || undefined),
@@ -89,26 +100,55 @@ export default function ConnectorHostsPage() {
           className="rounded-2xl border bg-card"
         />
       ) : (
-        <div className="overflow-hidden rounded-2xl border bg-card">
-          <div className="divide-y">
-            {hosts.map(h => (
-              <div key={h.host} className="flex items-center gap-3 px-4 py-3">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-success/10 text-success">
-                  <Globe className="h-4 w-4" />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate font-mono text-sm text-foreground">{h.host}</p>
-                  <p className="truncate text-xs text-muted-foreground">
-                    {h.note ? `${h.note} · ` : ""}aprobado por {h.approved_by || "—"}
-                    {h.created_at ? ` · ${new Date(h.created_at).toLocaleDateString("es-AR", { day: "numeric", month: "short", year: "numeric" })}` : ""}
-                  </p>
-                </div>
-                <Button variant="ghost" size="sm" className="text-destructive" onClick={() => setConfirmDel(h.host)}>
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
-              </div>
-            ))}
-          </div>
+        <div className="space-y-4">
+          <ListToolbar search={search} onSearch={setSearch} placeholder="Buscar host o nota…" />
+
+          {visible.length === 0 ? (
+            <EmptyState
+              icon={SearchX}
+              title="Sin resultados"
+              description={`Ningún host coincide con "${search}".`}
+            />
+          ) : (
+            <div className="overflow-hidden rounded-2xl border bg-card">
+              <Table>
+                <TableHeader>
+                  <TableRow className="hover:bg-transparent">
+                    <TableHead>Host</TableHead>
+                    <TableHead>Nota</TableHead>
+                    <TableHead className="hidden md:table-cell">Aprobado por</TableHead>
+                    <TableHead className="hidden whitespace-nowrap sm:table-cell">Fecha</TableHead>
+                    <TableHead className="w-px" />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {visible.map(h => (
+                    <TableRow key={h.host}>
+                      <TableCell className="font-mono text-sm text-foreground">{h.host}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{h.note || "—"}</TableCell>
+                      <TableCell className="hidden text-sm text-muted-foreground md:table-cell">{h.approved_by || "—"}</TableCell>
+                      <TableCell className="hidden whitespace-nowrap text-sm text-muted-foreground sm:table-cell">
+                        {h.created_at
+                          ? new Date(h.created_at).toLocaleDateString("es-AR", { day: "numeric", month: "short", year: "numeric" })
+                          : "—"}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                          onClick={() => setConfirmDel(h.host)}
+                          aria-label={`Quitar ${h.host}`}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
         </div>
       )}
 

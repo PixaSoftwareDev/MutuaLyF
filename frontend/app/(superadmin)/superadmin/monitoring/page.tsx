@@ -4,21 +4,37 @@ import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   RefreshCw, Database, Server, Zap, Bot, BarChart3, HardDrive,
-  AlertTriangle, BellRing, Bug, CheckCircle2, ChevronDown,
+  AlertTriangle, BellRing, Bug, CheckCircle2,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { StatePill, type StatePillTone } from "@/components/ui/state-pill";
 import { PageShell } from "@/components/layout/page-shell";
 import { PageHeader, CountChip } from "@/components/layout/page-header";
 import {
-  fmtNum, fmtBytes, Section, StatTile, BackupStat, DiskStat, ErrorRow, ErrorSummary,
+  fmtNum, fmtBytes, StatTile, BackupStat, DiskStat, ErrorRow, ErrorSummary,
 } from "@/components/superadmin/shared";
 import { cn } from "@/lib/utils";
 
+/** Cabecera de sección: ícono + título + aclaración, sin caja. La jerarquía se
+ *  logra con espacio + tipografía — el contenido va directo debajo, no dentro
+ *  de otra card (evitamos card-dentro-de-card). */
+function SectionHead({ icon: Icon, label, sublabel }: {
+  icon: any; label: string; sublabel?: string;
+}) {
+  return (
+    <div className="flex items-center gap-2 px-1">
+      <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+      <h2 className="text-sm font-semibold">{label}</h2>
+      {sublabel && <span className="text-xs text-muted-foreground truncate hidden sm:inline">{sublabel}</span>}
+    </div>
+  );
+}
+
 /** Historial de backups diarios: la semana entera de un vistazo. Un dump
- *  notablemente más chico que la mediana se marca en ámbar (sospechoso). */
+ *  notablemente más chico que la mediana se marca como sospechoso. */
 function BackupHistory({ history }: {
   history?: Array<{ filename: string; completed_at: number; size_bytes: number }>;
 }) {
@@ -26,22 +42,20 @@ function BackupHistory({ history }: {
   const sizes = [...history.map(h => h.size_bytes)].sort((a, b) => a - b);
   const median = sizes[Math.floor(sizes.length / 2)] || 0;
   return (
-    <div className="mt-2.5">
-      <p className="text-[11px] font-semibold text-muted-foreground mb-1.5">
-        Últimos diarios
-      </p>
-      <div className="rounded-lg border divide-y">
+    <div className="space-y-1.5">
+      <p className="px-1 text-[11px] font-semibold text-muted-foreground">Últimos diarios</p>
+      <div className="rounded-xl border divide-y">
         {history.map(h => {
           const suspicious = median > 0 && h.size_bytes < median * 0.5;
           return (
-            <div key={h.filename} className="flex items-center gap-2.5 px-3.5 py-2 text-xs">
-              <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", suspicious ? "bg-warning" : "bg-success")} />
+            <div key={h.filename} className="flex items-center gap-2.5 px-4 py-2 text-xs">
               <span className="tabular-nums text-foreground">
                 {new Date(h.completed_at * 1000).toLocaleString("es-AR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
               </span>
               <span className={cn("tabular-nums", suspicious ? "text-warning font-medium" : "text-muted-foreground")}>
-                {fmtBytes(h.size_bytes)}{suspicious ? " — más chico de lo normal" : ""}
+                {fmtBytes(h.size_bytes)}
               </span>
+              {suspicious && <StatePill tone="warning">más chico de lo normal</StatePill>}
               <span className="text-muted-foreground/60 font-mono truncate ml-auto hidden sm:inline">{h.filename}</span>
             </div>
           );
@@ -51,29 +65,12 @@ function BackupHistory({ history }: {
   );
 }
 
-/** Panel desplegable para un grupo de "Métricas detalladas". Cerrado por
- *  defecto: la salud crítica está arriba, el detalle técnico se expande. */
-function CollapsibleMetric({ icon: Icon, label, sublabel, defaultOpen = false, children }: {
-  icon: any; label: string; sublabel?: string; defaultOpen?: boolean; children: React.ReactNode;
-}) {
-  const [open, setOpen] = useState(defaultOpen);
-  return (
-    <div className="rounded-2xl border bg-card overflow-hidden">
-      <button
-        type="button"
-        onClick={() => setOpen(o => !o)}
-        className="flex w-full items-center gap-2.5 px-4 py-3 text-left transition-colors hover:bg-muted/30"
-      >
-        <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-muted shrink-0">
-          <Icon className="h-3.5 w-3.5 text-muted-foreground" />
-        </span>
-        <span className="text-sm font-semibold">{label}</span>
-        {sublabel && <span className="text-xs text-muted-foreground truncate hidden sm:inline">{sublabel}</span>}
-        <ChevronDown className={cn("ml-auto h-4 w-4 shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
-      </button>
-      {open && <div className="border-t p-4 animate-fade-in">{children}</div>}
-    </div>
-  );
+/** Tono de StatePill para cada estado de llamada a Groq. */
+function groqStatusTone(status: string): StatePillTone {
+  if (status === "success") return "success";
+  if (status === "error") return "destructive";
+  if (status === "timeout" || status === "rate_limit") return "warning";
+  return "muted";
 }
 
 export default function MonitoringPage() {
@@ -119,9 +116,9 @@ export default function MonitoringPage() {
         eyebrow="Plataforma"
         title="Monitoreo"
         badge={alerts.length > 0
-          ? <span className="inline-flex items-center gap-1.5 rounded-full border border-destructive/30 bg-destructive/10 px-2.5 py-1 text-[12px] font-semibold text-destructive">
+          ? <StatePill tone="destructive">
               {alerts.length} {alerts.length === 1 ? "alerta activa" : "alertas activas"}
-            </span>
+            </StatePill>
           : <CountChip>Sin alertas activas</CountChip>}
         description="Salud de la infraestructura, alertas, errores recientes y backups — todo en un solo lugar."
         actions={
@@ -136,7 +133,7 @@ export default function MonitoringPage() {
           {[1,2,3].map(i => <Skeleton key={i} className="h-32 rounded-2xl" />)}
         </div>
       ) : !system ? null : (
-      <div className="space-y-5 pb-6 animate-fade-in">
+      <div className="space-y-6 pb-6 animate-fade-in">
 
         {/* ── Veredicto de salud del sistema ── */}
         {(() => {
@@ -176,61 +173,47 @@ export default function MonitoringPage() {
           );
         })()}
 
-        {/* ── Servicios — tres estados: operativo (neutro), caído (rojo), sin
-             datos (gris, cuando no hay monitoreo y up=null) ── */}
+        {/* ── Servicios — grilla de tiles; el estado lo carga el StatePill
+             (operativo / caído / sin datos cuando up=null) ── */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
           {services.map(s => {
             const isDown = s.up === false;
             const isUnknown = s.up == null;   // sin monitoreo
+            const tone: StatePillTone = isDown ? "destructive" : isUnknown ? "muted" : "success";
+            const label = isDown ? "Caído" : isUnknown ? "Sin datos" : "Operativo";
             return (
-            <div
-              key={s.label}
-              className={cn(
-                "flex items-center gap-3 rounded-xl border px-4 py-3.5",
-                isDown ? "bg-destructive/10 border-destructive/20" : "bg-card"
-              )}
-            >
-              <span className={cn(
-                "flex items-center justify-center h-9 w-9 rounded-lg shrink-0",
-                isDown ? "bg-destructive/15 text-destructive" : "bg-muted text-muted-foreground"
-              )}>
-                <s.icon className="h-4 w-4" />
-              </span>
-              <div className="min-w-0">
-                <p className="text-sm font-semibold truncate">{s.label}</p>
-                <p className={cn("text-xs font-medium flex items-center gap-1.5",
-                  isDown ? "text-destructive" : isUnknown ? "text-muted-foreground" : "text-success")}>
-                  <span className={cn("h-1.5 w-1.5 rounded-full",
-                    isDown ? "bg-destructive" : isUnknown ? "bg-muted-foreground/40" : "bg-success")} />
-                  {isDown ? "Caído" : isUnknown ? "Sin datos" : "Operativo"}
-                </p>
+              <div key={s.label} className="flex items-center gap-3 rounded-xl border bg-card px-4 py-3.5">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+                  <s.icon className="h-4 w-4" />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold truncate">{s.label}</p>
+                  <div className="mt-1"><StatePill tone={tone}>{label}</StatePill></div>
+                </div>
               </div>
-            </div>
             );
           })}
         </div>
 
         {/* ── Alertas activas (Alertmanager) ── */}
-        <Section icon={BellRing} label="Alertas activas" sublabel="las mismas que llegan por email, en vivo">
+        <section className="space-y-3">
+          <SectionHead icon={BellRing} label="Alertas activas" sublabel="las mismas que llegan por email, en vivo" />
           {!alertsData?.available ? (
-            <p className="text-sm text-muted-foreground flex items-center gap-2">
+            <p className="px-1 text-sm text-muted-foreground flex items-center gap-2">
               <AlertTriangle className="h-4 w-4 text-warning shrink-0" />
               No se pudo consultar Alertmanager.
             </p>
           ) : alerts.length === 0 ? (
-            <p className="text-sm text-success flex items-center gap-2 font-medium">
+            <p className="px-1 text-sm text-success flex items-center gap-2 font-medium">
               <CheckCircle2 className="h-4 w-4 shrink-0" /> Sin alertas activas — todo en orden.
             </p>
           ) : (
-            <div className="space-y-2">
+            <div className="rounded-xl border divide-y">
               {alerts.map((a, i) => (
-                <div key={i} className={cn(
-                  "rounded-lg border px-3.5 py-2.5 flex items-start gap-2.5",
-                  a.severity === "critical"
-                    ? "bg-destructive/10 border-destructive/20"
-                    : "bg-warning/10 border-warning/20"
-                )}>
-                  <AlertTriangle className={cn("h-4 w-4 mt-0.5 shrink-0", a.severity === "critical" ? "text-destructive" : "text-warning")} />
+                <div key={i} className="flex items-start gap-3 px-4 py-3">
+                  <StatePill tone={a.severity === "critical" ? "destructive" : "warning"} className="mt-0.5 shrink-0">
+                    {a.severity === "critical" ? "Crítica" : "Aviso"}
+                  </StatePill>
                   <div className="min-w-0">
                     <p className="text-sm font-semibold">{a.name}</p>
                     {a.summary && <p className="text-xs text-muted-foreground mt-0.5">{a.summary}</p>}
@@ -244,11 +227,12 @@ export default function MonitoringPage() {
               ))}
             </div>
           )}
-        </Section>
+        </section>
 
         {/* ── Errores recientes del backend ── */}
-        <Section icon={Bug} label="Errores recientes" sublabel="warnings y errores del backend — sin salir del panel">
-          <div className="flex items-center justify-between gap-3 mb-3">
+        <section className="space-y-3">
+          <SectionHead icon={Bug} label="Errores recientes" sublabel="warnings y errores del backend — sin salir del panel" />
+          <div className="flex items-center justify-between gap-3 px-1">
             <p className="text-xs text-muted-foreground">
               Repeticiones agrupadas — ×N indica cuántas veces ocurrió.
             </p>
@@ -264,21 +248,22 @@ export default function MonitoringPage() {
             </Select>
           </div>
           {errors.length === 0 ? (
-            <p className="text-sm text-success flex items-center gap-2 font-medium">
+            <p className="px-1 text-sm text-success flex items-center gap-2 font-medium">
               <CheckCircle2 className="h-4 w-4 shrink-0" /> Sin registros recientes.
             </p>
           ) : (
-            <>
+            <div className="space-y-3">
               <ErrorSummary errors={errors} />
-              <div className="rounded-lg border divide-y max-h-[420px] overflow-y-auto scrollbar-slim">
+              <div className="rounded-xl border divide-y max-h-[420px] overflow-y-auto scrollbar-slim">
                 {errors.map((e, i) => <ErrorRow key={i} e={e} />)}
               </div>
-            </>
+            </div>
           )}
-        </Section>
+        </section>
 
         {/* ── Backups y disco ── */}
-        <Section icon={HardDrive} label="Backups y disco" sublabel="pg_dump diario 03:00 UTC · semanal los domingos · retención 7d/4sem">
+        <section className="space-y-3">
+          <SectionHead icon={HardDrive} label="Backups y disco" sublabel="pg_dump diario 03:00 UTC · semanal los domingos · retención 7d/4sem" />
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
             <BackupStat label="Backup diario"  b={system.backups?.daily} />
             <BackupStat label="Backup semanal" b={system.backups?.weekly} />
@@ -286,22 +271,24 @@ export default function MonitoringPage() {
           </div>
           <BackupHistory history={system.backups?.daily_history} />
           {system.backups == null && (
-            <p className="mt-2.5 text-xs text-warning flex items-center gap-1.5">
+            <p className="px-1 text-xs text-warning flex items-center gap-1.5">
               <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
               Sin acceso al repositorio de backups — verificá que el volumen esté montado en el backend.
             </p>
           )}
-        </Section>
+        </section>
 
-        {/* ── Métricas detalladas — paneles desplegables ── */}
-        <div className="space-y-3">
-          <div className="flex items-center gap-2 px-1 pt-1">
+        {/* ── Métricas detalladas — secciones aplanadas: cabecera + grilla de
+             tiles directa, sin card-dentro-de-card ── */}
+        <div className="space-y-6">
+          <div className="flex items-center gap-2 px-1">
             <BarChart3 className="h-4 w-4 text-muted-foreground shrink-0" />
             <h2 className="text-sm font-semibold">Métricas detalladas</h2>
-            <span className="text-xs text-muted-foreground">aplicación, API, bases y LLM · tocá para expandir</span>
+            <span className="text-xs text-muted-foreground truncate hidden sm:inline">aplicación, API, bases y LLM</span>
           </div>
 
-          <CollapsibleMetric icon={BarChart3} label="Aplicación" sublabel="acumulado desde inicio" defaultOpen>
+          <section className="space-y-3">
+            <SectionHead icon={BarChart3} label="Aplicación" sublabel="acumulado desde inicio" />
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
               <StatTile label="Tenants activos"   value={String(system.app.active_tenants)} />
               <StatTile label="Consultas totales" value={fmtNum(system.app.total_queries)} />
@@ -309,9 +296,10 @@ export default function MonitoringPage() {
               <StatTile label="Ingestas totales"  value={fmtNum(system.app.total_ingests)} />
               <StatTile label="HTTP requests"     value={fmtNum(system.backend.total_requests)} />
             </div>
-          </CollapsibleMetric>
+          </section>
 
-          <CollapsibleMetric icon={Server} label="Backend API" sublabel="últimos 10 min">
+          <section className="space-y-3">
+            <SectionHead icon={Server} label="Backend API" sublabel="últimos 10 min" />
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
               <StatTile
                 label="Latencia p95"
@@ -329,9 +317,10 @@ export default function MonitoringPage() {
               />
               <StatTile label="HTTP requests" value={fmtNum(system.backend.total_requests)} sublabel="acumulado" />
             </div>
-          </CollapsibleMetric>
+          </section>
 
-          <CollapsibleMetric icon={Database} label="PostgreSQL" sublabel={`${fmtBytes(system.postgres.db_size_bytes)} · plataforma`}>
+          <section className="space-y-3">
+            <SectionHead icon={Database} label="PostgreSQL" sublabel={`${fmtBytes(system.postgres.db_size_bytes)} · plataforma`} />
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
               <StatTile label="Conexiones activas" value={String(system.postgres.connections)} />
               <StatTile
@@ -350,9 +339,10 @@ export default function MonitoringPage() {
                 sublabel="acumulados"
               />
             </div>
-          </CollapsibleMetric>
+          </section>
 
-          <CollapsibleMetric icon={Zap} label="Redis" sublabel="broker DB0 · cache DB1 · rate-limit DB2">
+          <section className="space-y-3">
+            <SectionHead icon={Zap} label="Redis" sublabel="broker DB0 · cache DB1 · rate-limit DB2" />
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
               <StatTile
                 label="Memoria usada"
@@ -386,15 +376,16 @@ export default function MonitoringPage() {
                 sublabel={system.redis.slowlog_length > 0 ? `slowlog: ${system.redis.slowlog_length}` : undefined}
               />
             </div>
-          </CollapsibleMetric>
+          </section>
 
-          <CollapsibleMetric icon={Bot} label="Groq API" sublabel="llamadas acumuladas desde inicio del proceso">
+          <section className="space-y-3">
+            <SectionHead icon={Bot} label="Groq API" sublabel="llamadas acumuladas desde inicio del proceso" />
             {system.groq.total_calls === 0 ? (
-              <p className="text-sm text-muted-foreground">Sin llamadas registradas aún. Los contadores se resetean al reiniciar el backend.</p>
+              <p className="px-1 text-sm text-muted-foreground">Sin llamadas registradas aún. Los contadores se resetean al reiniciar el backend.</p>
             ) : (
-              <div className="space-y-2">
+              <div className="rounded-xl border divide-y">
                 {system.groq.by_model.map((m: any) => (
-                  <div key={m.model} className="rounded-lg bg-muted/50 px-4 py-3">
+                  <div key={m.model} className="px-4 py-3">
                     <div className="flex items-center justify-between flex-wrap gap-2">
                       <code className="text-xs font-mono text-foreground">{m.model}</code>
                       <div className="flex items-center gap-3 text-xs text-muted-foreground">
@@ -406,22 +397,16 @@ export default function MonitoringPage() {
                     </div>
                     <div className="mt-2 flex flex-wrap gap-1.5">
                       {Object.entries(m.calls as Record<string, number>).map(([status, count]) => (
-                        <span key={status} className={cn("text-xs px-2 py-0.5 rounded-full",
-                          status === "success"    ? "bg-success/10 text-success" :
-                          status === "error"      ? "bg-destructive/10 text-destructive" :
-                          status === "timeout"    ? "bg-warning/10 text-warning" :
-                          status === "rate_limit" ? "bg-warning/10 text-warning" :
-                          "bg-muted text-muted-foreground"
-                        )}>
+                        <StatePill key={status} tone={groqStatusTone(status)}>
                           {status}: {count}
-                        </span>
+                        </StatePill>
                       ))}
                     </div>
                   </div>
                 ))}
               </div>
             )}
-          </CollapsibleMetric>
+          </section>
 
         </div>
 

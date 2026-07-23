@@ -14,6 +14,8 @@ import { FormSheet } from "@/components/layout/form-sheet";
 import { PageShell } from "@/components/layout/page-shell";
 import { PageHeader, CountChip } from "@/components/layout/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
+import { StatePill } from "@/components/ui/state-pill";
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { toast } from "@/components/ui/toast";
 import { cn, toSlug } from "@/lib/utils";
 
@@ -88,56 +90,54 @@ function PlansComparison({ plans, onEdit }: { plans: PlanRow[]; onEdit: (p: Plan
   ];
   return (
     <div className="overflow-x-auto rounded-2xl border bg-card scrollbar-slim">
-      <table className="w-full min-w-[520px] border-collapse text-sm">
-        <thead>
-          <tr className="border-b bg-muted/30">
-            <th className="w-44 px-4 py-3 text-left text-xs font-medium text-muted-foreground">Plan</th>
+      <Table className="min-w-[520px]">
+        <TableHeader>
+          <TableRow className="bg-muted/30 hover:bg-muted/30">
+            <TableHead className="w-44 px-4">Plan</TableHead>
             {plans.map(p => (
-              <th key={p.id} className={cn("min-w-[150px] px-4 py-3 text-left align-top", !p.is_active && "opacity-55")}>
+              <TableHead key={p.id} className={cn("min-w-[150px] px-4 py-3 align-top normal-case tracking-normal", !p.is_active && "opacity-55")}>
                 <div className="flex items-center gap-2">
-                  <span className="font-semibold text-foreground">{p.name}</span>
-                  {p.is_active
-                    ? <span className="rounded-full bg-success/10 px-1.5 py-0.5 text-[10px] font-semibold text-success">Activo</span>
-                    : <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">Inactivo</span>}
+                  <span className="text-sm font-semibold text-foreground">{p.name}</span>
+                  <StatePill tone={p.is_active ? "success" : "muted"}>{p.is_active ? "Activo" : "Inactivo"}</StatePill>
                 </div>
-                <div className="mt-0.5 font-mono text-[10px] text-muted-foreground/60">{p.id}</div>
+                <div className="mt-0.5 font-mono text-[10px] font-normal text-muted-foreground/60">{p.id}</div>
                 <button
                   onClick={() => onEdit(p)}
                   className="mt-2 inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs font-medium text-action transition-colors hover:bg-action/10"
                 >
                   <Pencil className="h-3.5 w-3.5" /> Editar
                 </button>
-              </th>
+              </TableHead>
             ))}
-          </tr>
-        </thead>
-        <tbody>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
           {features.map(f => {
             const Icon = f.icon;
             return (
-              <tr key={f.label} className="border-b last:border-0">
-                <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
+              <TableRow key={f.label}>
+                <TableCell className="whitespace-nowrap px-4 py-3 text-muted-foreground">
                   <span className="inline-flex items-center gap-2">
                     <Icon className="h-4 w-4 shrink-0 text-muted-foreground/60" /> {f.label}
                   </span>
-                </td>
+                </TableCell>
                 {plans.map(p => {
                   const v = f.get(p);
                   const unlimited = v === "Ilimitado";
                   return (
-                    <td key={p.id} className={cn("px-4 py-3 tabular-nums", !p.is_active && "opacity-55")}>
+                    <TableCell key={p.id} className={cn("px-4 py-3 tabular-nums", !p.is_active && "opacity-55")}>
                       <span className={cn(
                         f.strong ? "text-base font-bold text-foreground" : "font-semibold text-foreground",
                         unlimited && "text-action",
                       )}>{v}</span>
-                    </td>
+                    </TableCell>
                   );
                 })}
-              </tr>
+              </TableRow>
             );
           })}
-        </tbody>
-      </table>
+        </TableBody>
+      </Table>
     </div>
   );
 }

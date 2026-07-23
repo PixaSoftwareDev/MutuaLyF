@@ -8,11 +8,12 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { EmptyState } from "@/components/ui/empty-state";
-import { ChevronLeft, ChevronRight, Loader2, AlertTriangle, FileSearch, Search, ShieldCheck, Building2, Users, FileText, Settings2, Headphones, Activity, LogIn, ShieldAlert, ShieldX } from "lucide-react";
+import { StatePill, type StatePillTone } from "@/components/ui/state-pill";
+import { ListToolbar } from "@/components/admin/list-toolbar";
+import { ChevronLeft, ChevronRight, Loader2, AlertTriangle, FileSearch, ShieldCheck, Building2, Users, FileText, Settings2, Headphones, Activity } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageShell } from "@/components/layout/page-shell";
 import { PageHeader, CountChip } from "@/components/layout/page-header";
-import { Kpi } from "@/components/superadmin/shared";
 
 // Categorías para escanear la actividad por tipo, cada una con ícono y color.
 type Cat = "seguridad" | "empresa" | "usuario" | "contenido" | "config" | "operacion" | "otro";
@@ -118,33 +119,6 @@ export default function GlobalAuditPage() {
     }),
   });
 
-  // Stats query — separate, larger window, sin filtros
-  const { data: statsData } = useQuery({
-    queryKey: ["global-audit-stats"],
-    queryFn: () => api.audit.globalList({ limit: 500, offset: 0 }),
-    staleTime: 60_000,
-  });
-
-  const kpis = useMemo(() => {
-    const events = statsData?.events ?? [];
-    const now = Date.now();
-    const dayMs = 24 * 60 * 60 * 1000;
-
-    // Todas las señales acotadas a 24h — un número sin ventana temporal no
-    // dice nada ("Logins 160" ¿de cuándo?).
-    let events24 = 0, logins24 = 0, failed24 = 0, alerts24 = 0;
-    for (const e of events) {
-      const t = new Date(e.created_at).getTime();
-      if (now - t <= dayMs) {
-        events24++;
-        if (e.action === "auth.login") logins24++;
-        if (e.action === "auth.login_failed") failed24++;
-        if (e.action === "auth.brute_force_alert") alerts24++;
-      }
-    }
-    return { events24, logins24, failed24, alerts24, total: statsData?.total ?? 0 };
-  }, [statsData]);
-
   const filteredEvents = useMemo(() => {
     if (!data) return [];
     if (!search.trim()) return data.events;
@@ -161,24 +135,72 @@ export default function GlobalAuditPage() {
   const totalPages = data ? Math.max(1, Math.ceil(data.total / PAGE_SIZE)) : 1;
   const hasAlertsOnPage = data?.events.some(e => e.action === "auth.brute_force_alert");
 
+  // Filtros de acción / organización / fechas — viven a la derecha del toolbar.
+  const filters = (
+    <div className="flex flex-wrap items-center gap-2">
+      <Select
+        value={action || "__all__"}
+        onValueChange={v => { setAction(v === "__all__" ? "" : v); setPage(0); }}
+      >
+        <SelectTrigger className="h-10 w-auto min-w-[160px] text-sm">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="__all__">Todas las acciones</SelectItem>
+          {Object.entries(ACTION_META).map(([val, m]) => (
+            <SelectItem key={val} value={val}>{m.label}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {data?.tenants && data.tenants.length > 1 && (
+        <Select
+          value={tenantFilter || "__all__"}
+          onValueChange={v => { setTenantFilter(v === "__all__" ? "" : v); setPage(0); }}
+        >
+          <SelectTrigger className="h-10 w-auto min-w-[140px] text-sm">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all__">Todas las orgs</SelectItem>
+            {data.tenants.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      )}
+      {/* Rango de fechas — filtra en el servidor (no solo la página actual) */}
+      <div className="flex items-center gap-1.5">
+        <Input
+          type="date" aria-label="Desde" value={dateFrom} max={dateTo || undefined}
+          onChange={e => { setDateFrom(e.target.value); setPage(0); }}
+          className="h-10 w-[8.5rem] px-2 text-sm"
+        />
+        <span className="text-xs text-muted-foreground" aria-hidden>→</span>
+        <Input
+          type="date" aria-label="Hasta" value={dateTo} min={dateFrom || undefined}
+          onChange={e => { setDateTo(e.target.value); setPage(0); }}
+          className="h-10 w-[8.5rem] px-2 text-sm"
+        />
+        {(dateFrom || dateTo) && (
+          <Button
+            variant="ghost" size="sm" className="h-10 px-2 text-muted-foreground"
+            onClick={() => { setDateFrom(""); setDateTo(""); setPage(0); }}
+          >
+            Limpiar
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+
   return (
     <PageShell>
       <PageHeader
         eyebrow="Plataforma"
         title="Auditoría global"
-        badge={kpis.total > 0
-          ? <CountChip>{kpis.total.toLocaleString("es-AR")} eventos</CountChip>
+        badge={data && data.total > 0
+          ? <CountChip>{data.total.toLocaleString("es-AR")} eventos</CountChip>
           : undefined}
         description="Actividad de todas las organizaciones de la plataforma."
       />
-
-      {/* KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
-        <Kpi icon={Activity}    label="Eventos · 24h"        value={kpis.events24} loading={!statsData} />
-        <Kpi icon={LogIn}       label="Logins · 24h"         value={kpis.logins24} loading={!statsData} />
-        <Kpi icon={ShieldAlert} label="Logins fallidos · 24h" value={kpis.failed24} tone={kpis.failed24 > 0 ? "warn" : "neutral"} loading={!statsData} />
-        <Kpi icon={ShieldX}     label="Fuerza bruta · 24h"   value={kpis.alerts24} tone={kpis.alerts24 > 0 ? "danger" : "neutral"} loading={!statsData} />
-      </div>
 
       {/* Brute force banner */}
       {hasAlertsOnPage && (
@@ -188,72 +210,18 @@ export default function GlobalAuditPage() {
         </div>
       )}
 
-      {/* Filters — barra agrupada; flex-wrap baja grupos enteros en anchos chicos */}
-      <div className="flex flex-wrap items-center gap-2 rounded-2xl border bg-card p-2.5 shadow-xs">
-        <div className="relative w-full sm:w-72">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-          <Input
-            placeholder="Buscar por usuario, recurso, org o IP…"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            className="h-9 pl-8"
-          />
-        </div>
-        <Select
-          value={action || "__all__"}
-          onValueChange={v => { setAction(v === "__all__" ? "" : v); setPage(0); }}
-        >
-          <SelectTrigger className="h-9 w-auto min-w-[180px] text-sm">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="__all__">Todas las acciones</SelectItem>
-            {Object.entries(ACTION_META).map(([val, m]) => (
-              <SelectItem key={val} value={val}>{m.label}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        {data?.tenants && data.tenants.length > 1 && (
-          <Select
-            value={tenantFilter || "__all__"}
-            onValueChange={v => { setTenantFilter(v === "__all__" ? "" : v); setPage(0); }}
-          >
-            <SelectTrigger className="h-9 w-auto min-w-[140px] text-sm">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__all__">Todas las orgs</SelectItem>
-              {data.tenants.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        )}
-
-        {/* Rango de fechas — filtra en el servidor (no solo la página actual) */}
-        <div className="flex items-center gap-1.5">
-          <Input
-            type="date" aria-label="Desde" value={dateFrom} max={dateTo || undefined}
-            onChange={e => { setDateFrom(e.target.value); setPage(0); }}
-            className="h-9 w-[8.5rem] px-2 text-sm"
-          />
-          <span className="text-xs text-muted-foreground" aria-hidden>→</span>
-          <Input
-            type="date" aria-label="Hasta" value={dateTo} min={dateFrom || undefined}
-            onChange={e => { setDateTo(e.target.value); setPage(0); }}
-            className="h-9 w-[8.5rem] px-2 text-sm"
-          />
-          {(dateFrom || dateTo) && (
-            <Button
-              variant="ghost" size="sm" className="h-9 px-2 text-muted-foreground"
-              onClick={() => { setDateFrom(""); setDateTo(""); setPage(0); }}
-            >
-              Limpiar
-            </Button>
-          )}
-        </div>
+      {/* Filtros — buscador en el toolbar compartido + resto de filtros a la derecha */}
+      <div className="space-y-1.5">
+        <ListToolbar
+          search={search}
+          onSearch={setSearch}
+          placeholder="Buscar por usuario, recurso, org o IP…"
+          action={filters}
+        />
+        <p className="text-[11px] text-muted-foreground">
+          La búsqueda de texto mira solo la página actual; acción, organización y fechas filtran el conjunto completo.
+        </p>
       </div>
-      <p className="text-[11px] text-muted-foreground -mt-2">
-        La búsqueda de texto mira solo la página actual; acción, organización y fechas filtran el conjunto completo.
-      </p>
 
       {/* Table */}
       <div className="rounded-2xl border bg-card overflow-hidden">
@@ -276,56 +244,18 @@ export default function GlobalAuditPage() {
           />
         )}
 
-        {/* Mobile cards */}
         {filteredEvents.length > 0 && (
-          <div className="sm:hidden divide-y">
-            {filteredEvents.map(ev => {
-              const isCritical = metaFor(ev.action).danger === true;
-              return (
-                <div key={ev.id} className={`px-4 py-3 space-y-1.5 ${isCritical ? "bg-destructive/5" : ""}`}>
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-mono text-xs text-muted-foreground">{fmtDate(ev.created_at)}</span>
-                    <div className="flex items-center gap-1.5">
-                      <span className="inline-block rounded-sm border border-border bg-muted/60 px-1.5 py-0.5 text-[11px] font-mono text-foreground">
-                        {ev.tenant_id}
-                      </span>
-                      <RoleBadge role={ev.actor_role} />
-                    </div>
-                  </div>
-                  <div className="flex items-start justify-between gap-2">
-                    <span className="text-sm font-medium truncate">{ev.actor_email ?? "—"}</span>
-                    <ActionTag action={ev.action} />
-                  </div>
-                  {(ev.resource || ev.detail) && (
-                    <div className="text-xs text-muted-foreground font-mono truncate">
-                      {ev.resource ?? ""}
-                      {ev.detail && <span className="ml-1 not-italic">
-                        {Object.entries(ev.detail).map(([k, v]) => `${k}: ${v}`).join(" · ")}
-                      </span>}
-                    </div>
-                  )}
-                  {ev.ip_address && (
-                    <div className="text-xs text-muted-foreground font-mono">{ev.ip_address}</div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Desktop table */}
-        {filteredEvents.length > 0 && (
-          <div className="hidden sm:block overflow-x-auto">
-            <Table className="min-w-[800px]">
+          <div className="overflow-x-auto">
+            <Table>
               <TableHeader className="bg-muted/40">
                 <TableRow className="hover:bg-muted/40">
-                  <TableHead className="w-[145px]">Fecha</TableHead>
-                  <TableHead className="w-[110px]">Org</TableHead>
+                  <TableHead className="hidden w-[145px] md:table-cell">Fecha</TableHead>
+                  <TableHead className="hidden w-[110px] lg:table-cell">Org</TableHead>
                   <TableHead>Usuario</TableHead>
-                  <TableHead className="w-[100px]">Perfil</TableHead>
+                  <TableHead className="hidden w-[110px] sm:table-cell">Perfil</TableHead>
                   <TableHead className="w-[190px]">Acción</TableHead>
-                  <TableHead>Recurso</TableHead>
-                  <TableHead className="w-[110px]">IP</TableHead>
+                  <TableHead className="hidden lg:table-cell">Recurso</TableHead>
+                  <TableHead className="hidden w-[110px] xl:table-cell">IP</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody className="divide-y">
@@ -333,10 +263,10 @@ export default function GlobalAuditPage() {
                   const isCritical = metaFor(ev.action).danger === true;
                   return (
                     <TableRow key={ev.id} className={isCritical ? "bg-destructive/5 hover:bg-destructive/10" : ""}>
-                      <TableCell className="align-top whitespace-nowrap font-mono text-xs text-muted-foreground">
+                      <TableCell className="hidden md:table-cell align-top whitespace-nowrap font-mono text-xs text-muted-foreground">
                         {fmtDate(ev.created_at)}
                       </TableCell>
-                      <TableCell className="align-top">
+                      <TableCell className="hidden lg:table-cell align-top">
                         <span className="inline-block rounded-sm border border-border bg-muted/60 px-1.5 py-0.5 text-[11px] font-mono text-foreground">
                           {ev.tenant_id}
                         </span>
@@ -345,14 +275,18 @@ export default function GlobalAuditPage() {
                         <div className="font-medium truncate max-w-[260px]">
                           {ev.actor_email ?? <span className="text-muted-foreground">—</span>}
                         </div>
+                        {/* En mobile, la fecha viaja bajo el usuario (la columna Fecha está oculta). */}
+                        <div className="mt-0.5 font-mono text-[11px] text-muted-foreground md:hidden">
+                          {fmtDate(ev.created_at)}
+                        </div>
                       </TableCell>
-                      <TableCell className="align-top">
-                        <RoleBadge role={ev.actor_role} />
+                      <TableCell className="hidden sm:table-cell align-top">
+                        <RolePill role={ev.actor_role} />
                       </TableCell>
                       <TableCell className="align-top">
                         <ActionTag action={ev.action} />
                       </TableCell>
-                      <TableCell className="align-top">
+                      <TableCell className="hidden lg:table-cell align-top">
                         <div className="font-mono text-xs truncate max-w-[280px]">
                           {ev.resource ?? <span className="text-muted-foreground">—</span>}
                         </div>
@@ -362,7 +296,7 @@ export default function GlobalAuditPage() {
                           </div>
                         )}
                       </TableCell>
-                      <TableCell className="align-top font-mono text-xs text-muted-foreground whitespace-nowrap">
+                      <TableCell className="hidden xl:table-cell align-top font-mono text-xs text-muted-foreground whitespace-nowrap">
                         {ev.ip_address ?? "—"}
                       </TableCell>
                     </TableRow>
@@ -392,21 +326,16 @@ export default function GlobalAuditPage() {
   );
 }
 
-function RoleBadge({ role }: { role: string }) {
+// Perfil del actor con la pastilla de estado unificada (tone-based), mismo
+// lenguaje visual que sectores/operadores/canales.
+const ROLE_META: Record<string, { label: string; tone: StatePillTone }> = {
+  super_admin: { label: "Super admin", tone: "info" },
+  admin:       { label: "Admin",       tone: "muted" },
+  operator:    { label: "Operador",    tone: "success" },
+};
+
+function RolePill({ role }: { role: string }) {
   if (!role) return <span className="text-xs text-muted-foreground">—</span>;
-  const styles: Record<string, string> = {
-    super_admin: "border-primary/30 bg-primary/5 text-primary",
-    admin:       "border-border bg-muted text-muted-foreground",
-    operator:    "border-info/20 bg-info/10 text-info",
-  };
-  const label: Record<string, string> = {
-    super_admin: "Super admin",
-    admin:       "Admin",
-    operator:    "Operador",
-  };
-  return (
-    <span className={`inline-flex items-center rounded-sm border px-1.5 py-0.5 text-[11px] font-medium ${styles[role] ?? "border-border bg-muted text-muted-foreground"}`}>
-      {label[role] ?? role}
-    </span>
-  );
+  const m = ROLE_META[role] ?? { label: role, tone: "muted" as StatePillTone };
+  return <StatePill tone={m.tone}>{m.label}</StatePill>;
 }

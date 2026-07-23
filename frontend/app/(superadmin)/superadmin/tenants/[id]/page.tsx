@@ -2,12 +2,12 @@
 
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useRouter, useParams } from "next/navigation";
+import { useParams } from "next/navigation";
 import {
-  ArrowLeft, RefreshCw, Loader2, AlertTriangle, CheckCircle2, XCircle,
+  RefreshCw, Loader2, AlertTriangle, CheckCircle2, XCircle,
   PauseCircle, PlayCircle, Settings2, UserPlus, Building2,
   TrendingUp, FileText, Zap, Clock, Database, Shield,
-  MessageSquare, Target, Activity, ChevronRight, ChevronDown, Bot, X, Users, Eye, EyeOff,
+  MessageSquare, Target, Activity, ChevronRight, ChevronDown, Bot, Users, Eye, EyeOff,
   AtSign, Star, Plus, Trash2, HeartPulse, Bug, HardDrive, MoreVertical,
 } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -25,6 +25,8 @@ import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@
 import { EmptyState } from "@/components/ui/empty-state";
 import { Kpi, ErrorRow } from "@/components/superadmin/shared";
 import { toast } from "@/components/ui/toast";
+import { DetailShell, BackLink } from "@/components/admin/detail-shell";
+import { StatePill, type StatePillTone } from "@/components/ui/state-pill";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 
@@ -58,17 +60,16 @@ function relTime(iso: string): string {
   return `hace ${Math.floor(h / 24)}d`;
 }
 
-const PLAN_COLORS: Record<string, string> = {
-  starter:      "bg-muted text-muted-foreground",
-  professional: "bg-info/10 text-info",
-  enterprise:   "bg-muted text-muted-foreground",
-};
+// Tono del plan para el StatePill compartido (mismo lenguaje que el resto del panel).
+function planTone(plan: string): StatePillTone {
+  return plan === "professional" ? "info" : "muted";
+}
 
-// Mismo lenguaje que la lista de Organizaciones: estado en español, pill suave.
-const STATUS_PILL: Record<string, { label: string; cls: string }> = {
-  active:     { label: "Activa",     cls: "bg-success/10 text-success" },
-  onboarding: { label: "Onboarding", cls: "bg-info/10 text-info" },
-  suspended:  { label: "Suspendida", cls: "bg-destructive/10 text-destructive" },
+// Mismo lenguaje que la lista de Organizaciones: estado en español, tono del StatePill.
+const STATUS_META: Record<string, { label: string; tone: StatePillTone }> = {
+  active:     { label: "Activa",     tone: "success" },
+  onboarding: { label: "Onboarding", tone: "info" },
+  suspended:  { label: "Suspendida", tone: "destructive" },
 };
 
 // Sección "Dominios de email" oculta por ahora: el login funciona sin dominios
@@ -80,7 +81,6 @@ const SHOW_EMAIL_DOMAINS = false;
 // ── Page ──────────────────────────────────────────────────────────────────────
 export default function TenantDetailPage() {
   const { id: tenantId } = useParams() as { id: string };
-  const router   = useRouter();
   const qc       = useQueryClient();
 
   const [showCreateAdmin, setShowCreateAdmin]   = useState(false);
@@ -166,12 +166,11 @@ export default function TenantDetailPage() {
 
   if (isLoading) return <LoadingState />;
   if (error || !m) return (
-    <div className="h-full flex flex-col overflow-hidden">
-      <TopBar onBack={() => router.push("/superadmin/orgs")} />
-      <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
+    <DetailShell leading={<BackLink href="/superadmin/orgs" label="Volver a Organizaciones" />} title="Organización">
+      <div className="flex items-center justify-center py-20 text-muted-foreground text-sm">
         No se pudo cargar la información del tenant.
       </div>
-    </div>
+    </DetailShell>
   );
 
   const t   = m.tenant;
@@ -179,14 +178,22 @@ export default function TenantDetailPage() {
   const quotaQ = m.quota.queries_month;
   const quotaD = m.quota.documents;
 
+  const statusMeta = STATUS_META[t.status] ?? { label: t.status, tone: "muted" as StatePillTone };
+
   return (
-    <div className="h-full flex flex-col overflow-hidden bg-muted/20">
-      <TopBar onBack={() => router.push("/superadmin/orgs")} />
+    <DetailShell
+      leading={<BackLink href="/superadmin/orgs" label="Volver a Organizaciones" />}
+      title={t.name}
+      actions={
+        <div className="flex shrink-0 items-center gap-2">
+          <StatePill tone={planTone(t.plan)} className="capitalize">{t.plan}</StatePill>
+          <StatePill tone={statusMeta.tone}>{statusMeta.label}</StatePill>
+        </div>
+      }
+    >
+      <div className="mx-auto max-w-[1400px] space-y-4 pb-6">
 
-      <div className="flex-1 overflow-y-auto">
-        <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-4 space-y-4 pb-10">
-
-          {/* ── Identity — siempre visible, arriba de las tabs ─────────── */}
+          {/* ── Identidad + acciones — siempre visible, arriba de las tabs ── */}
           <div className="rounded-2xl border bg-card px-5 py-4">
             <div className="flex items-start gap-4 flex-wrap">
               <div className="w-12 h-12 rounded-xl bg-muted flex items-center justify-center shrink-0">
@@ -194,24 +201,13 @@ export default function TenantDetailPage() {
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <h2 className="text-xl font-semibold tracking-tight">{t.name}</h2>
+                  <h2 className="text-base font-semibold tracking-tight">{t.name}</h2>
                   <code className="text-xs font-mono bg-muted px-1.5 py-0.5 rounded text-muted-foreground">{t.id}</code>
                 </div>
                 <p className="text-sm text-muted-foreground mt-0.5">{t.admin_email}</p>
                 <p className="text-xs text-muted-foreground mt-0.5">
                   Creado {t.created_at ? new Date(t.created_at).toLocaleDateString("es-AR", { day: "2-digit", month: "long", year: "numeric" }) : "—"}
                 </p>
-              </div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className={cn("text-xs font-medium px-2.5 py-1 rounded-full capitalize", PLAN_COLORS[t.plan] || "bg-muted")}>
-                  {t.plan}
-                </span>
-                <span className={cn(
-                  "text-xs font-medium px-2.5 py-1 rounded-full",
-                  (STATUS_PILL[t.status] ?? { cls: "bg-muted text-muted-foreground" }).cls
-                )}>
-                  {(STATUS_PILL[t.status] ?? { label: t.status }).label}
-                </span>
               </div>
             </div>
 
@@ -345,22 +341,14 @@ export default function TenantDetailPage() {
                       </TableCell>
                       <TableCell className="text-muted-foreground text-xs hidden sm:table-cell">{u.email}</TableCell>
                       <TableCell>
-                        <span className={cn(
-                          "text-xs px-2 py-1 rounded-full font-medium",
-                          u.role === "admin"    ? "bg-muted text-muted-foreground" :
-                          u.role === "operator" ? "bg-info/10 text-info" :
-                          "bg-muted text-muted-foreground"
-                        )}>
+                        <StatePill tone={u.role === "operator" ? "info" : "muted"}>
                           {u.role === "admin" ? "Admin" : u.role === "operator" ? "Operador" : u.role}
-                        </span>
+                        </StatePill>
                       </TableCell>
                       <TableCell>
-                        <span className={cn(
-                          "text-xs px-2 py-1 rounded-full font-medium",
-                          u.is_active ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"
-                        )}>
+                        <StatePill tone={u.is_active ? "success" : "destructive"}>
                           {u.is_active ? "Activo" : "Inactivo"}
-                        </span>
+                        </StatePill>
                       </TableCell>
                       <TableCell className="text-right">
                         <Button size="sm" variant="ghost" className="h-7 text-xs gap-1" onClick={() => setEditingUser(u)}>
@@ -686,7 +674,6 @@ export default function TenantDetailPage() {
           </section>
           )}
 
-        </div>
       </div>
 
       {showCreateAdmin && (
@@ -802,27 +789,11 @@ export default function TenantDetailPage() {
           </DialogContent>
         </Dialog>
       )}
-    </div>
+    </DetailShell>
   );
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
-
-function TopBar({ onBack }: { onBack: () => void }) {
-  return (
-    <div className="shrink-0 bg-background border-b px-4 sm:px-6 py-3">
-      <div className="max-w-[1400px] mx-auto">
-        <button
-          onClick={onBack}
-          className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Organizaciones
-        </button>
-      </div>
-    </div>
-  );
-}
 
 // Panel desplegable: header clickeable con contador; cerrado por defecto.
 function CollapsiblePanel({ icon: Icon, label, sublabel, count, defaultOpen = false, children }: {
@@ -1028,21 +999,18 @@ function latencyTone(ms: number | null | undefined): "neutral" | "success" | "wa
 
 function LoadingState() {
   return (
-    <div className="h-full flex flex-col overflow-hidden bg-muted/20">
-      <div className="shrink-0 bg-background border-b px-4 sm:px-6 py-3 h-14" />
-      <div className="flex-1 overflow-y-auto">
-        <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-4 space-y-4">
-          <Skeleton className="h-32 w-full rounded-xl" />
-          <div className="grid grid-cols-3 gap-2.5">
-            {[1,2,3,4,5,6].map(i => <Skeleton key={i} className="h-16 rounded-lg" />)}
-          </div>
-          <div className="grid grid-cols-4 gap-2.5">
-            {[1,2,3,4].map(i => <Skeleton key={i} className="h-16 rounded-lg" />)}
-          </div>
-          <Skeleton className="h-24 w-full rounded-xl" />
+    <DetailShell leading={<BackLink href="/superadmin/orgs" label="Volver a Organizaciones" />} title="Organización">
+      <div className="mx-auto max-w-[1400px] space-y-4">
+        <Skeleton className="h-32 w-full rounded-2xl" />
+        <div className="grid grid-cols-3 gap-2.5">
+          {[1,2,3,4,5,6].map(i => <Skeleton key={i} className="h-16 rounded-lg" />)}
         </div>
+        <div className="grid grid-cols-4 gap-2.5">
+          {[1,2,3,4].map(i => <Skeleton key={i} className="h-16 rounded-lg" />)}
+        </div>
+        <Skeleton className="h-24 w-full rounded-2xl" />
       </div>
-    </div>
+    </DetailShell>
   );
 }
 
@@ -1082,92 +1050,51 @@ function BotSelector({ allTemplates, bots, activeBot, activateBotM, deactivateBo
     ...activeTemplates.filter((t: any) => !assignedIds.has(t.id)),
   ];
 
+  const currentValue = activeBot ? String(activeBot.id) : "__estandar__";
+  const activeDesc = activeBot ? (allTemplates.find((t: any) => t.id === activeBot.id)?.descripcion ?? null) : null;
+  const busy = activateBotM.isPending || assignAndActivateM.isPending || deactivateBotM.isPending;
+
+  // Elegir en el Select dispara la acción: estándar → confirmación de apagado;
+  // bot asignado → activar; bot sin asignar → asignar + activar.
+  const onSelect = (val: string) => {
+    if (val === currentValue) return;
+    if (val === "__estandar__") { setConfirmOff(true); return; }
+    if (assignedIds.has(val)) activateBotM.mutate(val);
+    else assignAndActivateM.mutate(val);
+  };
+
   return (
     <>
-    <div className="rounded-xl border bg-card px-5 py-4 space-y-3">
-      {/* Status strip */}
-      <div className={cn(
-        "flex items-center justify-between gap-3 rounded-lg border px-4 py-3 text-sm",
-        activeBot ? "bg-success/10 border-success/20" : "bg-muted border-border"
-      )}>
-        <div className="flex items-center gap-2">
-          {activeBot ? (
-            <>
-              <CheckCircle2 className="h-4 w-4 text-success shrink-0" />
-              <span className="font-medium text-success">
-                {activeBot.nombre} activo
-              </span>
-            </>
-          ) : (
-            <span className="text-muted-foreground">Modo estándar — hacé clic en un bot para activarlo</span>
-          )}
-        </div>
-        {activeBot && (
-          <button
-            onClick={() => setConfirmOff(true)}
-            className="text-xs text-muted-foreground hover:text-destructive transition-colors shrink-0 flex items-center gap-1"
-          >
-            <X className="h-3 w-3" />
-            Volver a estándar
-          </button>
-        )}
+    <div className="rounded-xl border bg-card p-4 space-y-3">
+      {/* Selector del bot activo — liviano, sin grilla de cards */}
+      <div className="flex items-center gap-2">
+        <Select value={currentValue} onValueChange={onSelect} disabled={busy}>
+          <SelectTrigger className="w-full sm:max-w-sm">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__estandar__">Modo estándar (sin personalidad)</SelectItem>
+            {sorted.map((t: any) => (
+              <SelectItem key={t.id} value={String(t.id)}>
+                {t.nombre}{!assignedIds.has(t.id) ? " · sin asignar" : ""}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {busy && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground shrink-0" />}
       </div>
 
-      {/* Bot grid */}
-      <div className="grid gap-2 sm:grid-cols-2">
-        {sorted.map((t: any) => {
-          const assigned = bots.find((b: any) => b.id === t.id);
-          const isActive = assigned?.is_active ?? false;
-          const isAssigned = !!assigned;
-          const isBusy = (activateBotM.isPending && activateBotM.variables === t.id)
-            || (assignAndActivateM.isPending && assignAndActivateM.variables === t.id);
-
-          return (
-            <div
-              key={t.id}
-              className={cn(
-                "flex items-center gap-3 rounded-lg border px-3 py-3 transition-all",
-                isActive
-                  ? "border-primary bg-primary/5 ring-1 ring-primary/20"
-                  : "border-border"
-              )}
-            >
-              <Bot className={cn("h-5 w-5 shrink-0", isActive ? "text-primary" : "text-muted-foreground")} />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium truncate">{t.nombre}</p>
-                {t.descripcion && (
-                  <p className="text-xs text-muted-foreground truncate">{t.descripcion}</p>
-                )}
-                {!isAssigned && (
-                  <p className="text-[11px] text-muted-foreground/60 mt-0.5">No asignado</p>
-                )}
-              </div>
-              <div className="shrink-0">
-                {isActive ? (
-                  <span className="text-xs font-semibold text-primary">Activo</span>
-                ) : isBusy ? (
-                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                ) : isAssigned ? (
-                  <Button
-                    size="sm" variant="outline" className="h-7 text-xs"
-                    onClick={() => activateBotM.mutate(t.id)}
-                    disabled={activateBotM.isPending || assignAndActivateM.isPending}
-                  >
-                    Activar
-                  </Button>
-                ) : (
-                  <Button
-                    size="sm" className="h-7 text-xs"
-                    onClick={() => assignAndActivateM.mutate(t.id)}
-                    disabled={activateBotM.isPending || assignAndActivateM.isPending}
-                  >
-                    Asignar
-                  </Button>
-                )}
-              </div>
-            </div>
-          );
-        })}
+      {/* Estado actual */}
+      <div className="flex items-center gap-2 text-sm min-w-0">
+        {activeBot ? (
+          <>
+            <CheckCircle2 className="h-4 w-4 text-success shrink-0" />
+            <span className="font-medium text-success shrink-0">{activeBot.nombre} activo</span>
+            {activeDesc && <span className="text-muted-foreground truncate">· {activeDesc}</span>}
+          </>
+        ) : (
+          <span className="text-muted-foreground">Modo estándar — elegí un bot en la lista para activarlo.</span>
+        )}
       </div>
     </div>
 

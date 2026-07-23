@@ -13,6 +13,7 @@ import { useAuthStore } from "@/lib/store";
 import { PageShell } from "@/components/layout/page-shell";
 import { PageHeader } from "@/components/layout/page-header";
 import { Skeleton } from "@/components/ui/skeleton";
+import { StatePill } from "@/components/ui/state-pill";
 import { fmtNum, Kpi, ErrorSummary } from "@/components/superadmin/shared";
 import { cn } from "@/lib/utils";
 
@@ -273,52 +274,55 @@ export default function PlatformHomePage() {
           </Link>
         </div>
 
-        <div className="p-2">
-          {!traffic ? (
-            <div className="space-y-1 p-2">{[1, 2, 3].map(i => <Skeleton key={i} className="h-14 rounded-xl" />)}</div>
-          ) : orgs.length === 0 ? (
-            <p className="px-3 py-8 text-center text-sm text-muted-foreground">Todavía no hay organizaciones con actividad registrada.</p>
-          ) : (
-            <div className="divide-y divide-border/50">
-              {orgs.map(o => {
-                const idle = o.tokens_30d === 0 && o.queries_30d === 0;
-                const pct = Math.round((o.tokens_30d / maxTokens) * 100);
-                return (
-                  <button
-                    key={o.id}
-                    onClick={() => router.push(`/superadmin/tenants/${o.id}`)}
-                    className="group flex w-full items-center gap-3.5 rounded-lg px-3 py-3 text-left transition-colors hover:bg-muted/50"
-                  >
-                    <span className={cn(
-                      "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-sm font-semibold",
-                      idle ? "bg-muted text-muted-foreground" : "bg-action-gradient-soft text-action",
-                    )}>
-                      {o.name.charAt(0).toUpperCase()}
-                    </span>
+        {!traffic ? (
+          <div className="divide-y divide-border/50">
+            {[1, 2, 3].map(i => (
+              <div key={i} className="px-4 py-3.5"><Skeleton className="h-10 rounded-lg" /></div>
+            ))}
+          </div>
+        ) : orgs.length === 0 ? (
+          <p className="px-4 py-8 text-center text-sm text-muted-foreground">Todavía no hay organizaciones con actividad registrada.</p>
+        ) : (
+          <div className="divide-y divide-border/50">
+            {orgs.map(o => {
+              const idle = o.tokens_30d === 0 && o.queries_30d === 0;
+              const pct = Math.round((o.tokens_30d / maxTokens) * 100);
+              return (
+                <button
+                  key={o.id}
+                  onClick={() => router.push(`/superadmin/tenants/${o.id}`)}
+                  onMouseEnter={() => router.prefetch(`/superadmin/tenants/${o.id}`)}
+                  className="group flex w-full cursor-pointer items-center gap-3.5 px-4 py-3.5 text-left transition-colors hover:bg-muted/50"
+                >
+                  <span className={cn(
+                    "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-sm font-semibold",
+                    idle ? "bg-muted text-muted-foreground" : "bg-action-gradient-soft text-action",
+                  )}>
+                    {o.name.charAt(0).toUpperCase()}
+                  </span>
 
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-baseline justify-between gap-3">
-                        <p className="truncate text-sm font-semibold">{o.name}</p>
-                        <p className="shrink-0 text-sm font-semibold tabular-nums">
-                          {idle ? <span className="text-muted-foreground/70 font-normal">sin uso</span> : <>{fmtNum(o.tokens_30d)} <span className="text-xs font-normal text-muted-foreground">tokens</span></>}
-                        </p>
-                      </div>
-                      {/* barra de consumo relativa al máximo */}
-                      <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                        <div className={cn("h-full rounded-full", idle ? "bg-transparent" : "bg-action-gradient")} style={{ width: `${pct}%` }} />
-                      </div>
-                      <p className="mt-1 text-[11px] text-muted-foreground tabular-nums">
-                        {fmtNum(o.queries_30d)} consultas · {fmtNum(o.ingests_30d)} ingestas
-                      </p>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="truncate text-sm font-semibold">{o.name}</p>
+                      {idle
+                        ? <StatePill tone="muted">sin uso</StatePill>
+                        : <p className="shrink-0 text-sm font-semibold tabular-nums">{fmtNum(o.tokens_30d)} <span className="text-xs font-normal text-muted-foreground">tokens</span></p>}
                     </div>
+                    {/* barra de consumo relativa al máximo */}
+                    <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                      <div className={cn("h-full rounded-full", idle ? "bg-transparent" : "bg-action-gradient")} style={{ width: `${pct}%` }} />
+                    </div>
+                    <p className="mt-1 text-[11px] text-muted-foreground tabular-nums">
+                      {fmtNum(o.queries_30d)} consultas · {fmtNum(o.ingests_30d)} ingestas
+                    </p>
+                  </div>
 
-                    <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/50 transition-transform group-hover:translate-x-0.5" />
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
+                  <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/50 transition-transform group-hover:translate-x-0.5" />
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
     </PageShell>
   );
