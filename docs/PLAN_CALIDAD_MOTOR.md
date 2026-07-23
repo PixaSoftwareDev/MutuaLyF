@@ -46,11 +46,20 @@ incorrecta / alucinada / evasiva), con prompt DISTINTO al juez del trust gate
 | Fase | Contenido | Criterio de salida (checkpoint) | Estado |
 |---|---|---|---|
 | **F0** | Trust gate (hecho) | 33/33 batería dura en staging; 0 alucinaciones, 0 regresiones en controles | ✅ 2026-07-23 |
-| **F1** | Dataset completo + runner con rúbrica y latencias | dataset ≥150 casos estratificados; corrida baseline versionada y revisada a mano (muestra) | pendiente |
-| **F2a** | Instrumentar señal de confianza (log de scores crudos + veredicto del gate por consulta) | datos de ≥500 consultas reales acumulados | pendiente |
-| **F2b** | Calibrar umbral único + reactivar corte duro + achicar zona gris del juez | evasivas ↓ y p95 ↓ vs baseline; correctas sin bajar | pendiente |
-| **F3** | Poda: reranker muerto fuera, parches compensatorios redundantes, invalidación de caches centralizada | cada poda = 1 commit + corrida verde; los parches que el dataset defienda se QUEDAN | pendiente |
-| **F4** | Pasaje: converger las 3 ramas, revertir parche staging, migración 033 a git, TEI fuera del compose, CLAUDE.md al stack real | dataset verde en staging + smoke prod + drift VPS rescatado | pendiente |
+| **F1** | Dataset completo + runner con rúbrica y latencias | dataset ≥150 casos estratificados; corrida baseline versionada y revisada a mano (muestra) | ✅ 2026-07-23 (149 casos, 6 iteraciones medidas; commit 210cdcf) — pendiente menor: sumar muestreo de consultas_log de prod |
+| **F2a** | Instrumentar señal de confianza (log de scores crudos + veredicto del gate por consulta) | datos de ≥500 consultas reales acumulados | ✅ instrumentado (best_rrf/best_cos en log trust_gate, commit 48fea1f); acumulación de datos reales en curso |
+| **F2b** | Calibrar umbral único + reactivar corte duro + achicar zona gris del juez | evasivas ↓ y p95 ↓ vs baseline; correctas sin bajar | ◐ lex_strong calibrado empíricamente (0.5; 0.7 probado y revertido — evasivas x2). Corte duro espera datos de F2a. Casos abiertos: s_10/s_12 (multi-hop), f_19 (retrieval numérico), tp_04 (typo doble) |
+| **F3** | Poda: reranker muerto fuera, parches compensatorios redundantes, invalidación de caches centralizada | cada poda = 1 commit + corrida verde; los parches que el dataset defienda se QUEDAN | ✅ reranker eliminado (-320 líneas, gate verde idéntico pre/post; commit 48fea1f). Parche max(score,cosine) DEFENDIDO por la suite, se queda. Pendiente: helper de invalidación de caches |
+| **F4** | Pasaje: converger las 3 ramas, revertir parche staging, TEI fuera del compose, CLAUDE.md al stack real | dataset verde en staging + smoke prod + drift VPS rescatado | ◐ preparado: drift de staging rescatado a git (commit eb2a014 en rama dev del VPS, push pendiente de credenciales). El pasaje a prod es un evento aparte con OK explícito |
+
+### Lecciones incorporadas al método (2026-07-23)
+- Verificar presencia en corpus SIEMPRE con raíz sin tildes (3 etiquetas mal
+  puestas por "óptica"≠"optica"). El corpus decide, no la intuición.
+- Una corrida con todas las respuestas rotas pasó la rúbrica vieja con 90% —
+  correctness debe ser eliminatorio y el instrumento debe medir su propia
+  validez (latencia del lado cliente, retry de sentinels de rate-limit).
+- El costo de calibrar sin datos: lex_strong 0.7 parecía razonable y duplicó
+  las evasivas. Toda perilla nueva se mueve con la suite mirando.
 
 ## Riesgos aceptados y su control
 
