@@ -46,6 +46,9 @@ import yaml
 
 
 # Category metadata: id → (name, pass threshold). Mirrors CLAUDE.md plan.
+# 10 (multi-turno) y 12 (derivación) se ejecutan con flujos propios:
+#   10 → /query con conversation_history acumulada turno a turno
+#   12 → flujo REAL del widget (start + message + poll) con widget token
 CATEGORIES: dict[int, tuple[str, float]] = {
     1:  ("Saludos / cortesías",                0.90),
     2:  ("Identidad / capacidades",            0.90),
@@ -58,6 +61,7 @@ CATEGORIES: dict[int, tuple[str, float]] = {
     9:  ("Edge textual",                       0.85),
     10: ("Multi-turno",                        0.90),
     11: ("Intent classifier sanity",           0.85),
+    12: ("Derivación a operador (handoff)",    1.00),
 }
 
 # Common "no info" patterns the bot uses to refuse — used by refusal/clarify scoring.
@@ -259,7 +263,7 @@ def login(base_url: str, tenant: str, email: str, password: str) -> str:
     raise RuntimeError(f"login failed after 5 attempts: {last_err}")
 
 
-def ask(base_url: str, token: str, tenant: str, question: str) -> dict:
+def ask(base_url: str, token: str, tenant: str, question: str, history: list | None = None) -> dict:
     """Retry on intermittent backend resets: each retry uses a fresh requests Session
     so any half-closed pooled connection is dropped. Backoff between attempts."""
     last_err = None
@@ -267,9 +271,14 @@ def ask(base_url: str, token: str, tenant: str, question: str) -> dict:
         try:
             t0 = time.monotonic()
             with requests.Session() as s:
+                payload: dict = {"question": question, "language": "es"}
+                if history:
+                    payload["conversation_history"] = [
+                        {"role": role, "content": content} for role, content in history
+                    ]
                 r = s.post(
                     f"{base_url}/api/v1/query",
-                    json={"question": question, "language": "es"},
+                    json=payload,
                     headers={"Authorization": f"Bearer {token}", "X-Tenant-ID": tenant},
                     timeout=120,
                 )
@@ -297,6 +306,122 @@ def ask(base_url: str, token: str, tenant: str, question: str) -> dict:
             last_err = e
             time.sleep(3)
     return {"answer": "", "sources": [], "_http_error": f"network: {last_err}"}
+
+
+def run_conversations(base_url: str, token: str, tenant: str, conversations: list[dict],
+                      sleep_s: float) -> list[CaseResult]:
+    """Cat 10: cada conversación se ejecuta turno a turno via /query con la
+    historia acumulada — prueba seguimiento de contexto y repreguntas."""
+    results: list[CaseResult] = []
+    for conv in conversations:
+        history: list[tuple[str, str]] = []
+        for t_idx, turn in enumerate(conv.get("turns") or [], 1):
+            case = dict(turn)
+            case.setdefault("id", f"{conv['id']}_t{t_idx}")
+            case["id"] = f"{conv['id']}_t{t_idx}"
+            case["category"] = 10
+            print(f"[runner] conv {conv['id']} turno {t_idx}: {turn['question'][:70]}")
+            resp = ask(base_url, token, tenant, turn["question"], history=history)
+            cr = score_case(case, resp)
+            if resp.get("_http_error"):
+                cr.http_error = resp["_http_error"]
+                cr.pass_ = False
+                cr.reasons.append(f"http: {cr.http_error}")
+            results.append(cr)
+            history.append(("user", turn["question"]))
+            history.append(("bot", (resp.get("answer") or "")[:2000]))
+            time.sleep(sleep_s)
+    return results
+
+
+def run_handoff_scenarios(base_url: str, tenant: str, scenarios: list[dict],
+                          sleep_s: float, admin_token: str) -> list[CaseResult]:
+    """Cat 12: flujo REAL del widget (start → message → poll). La señal de
+    derivación cuenta como disparada si aparece el cartel (is_handoff_offer)
+    O el aviso de sistema sin operadores (mensaje 'system' que menciona
+    operador/horario) — ambas son la misma decisión del motor."""
+    import uuid as _uuid
+    # El widget token se valida contra el token ALMACENADO del tenant (no solo
+    # la firma) → hay que generarlo por la API admin, como hace el panel real.
+    tr = requests.post(
+        f"{base_url}/api/v1/tenants/{tenant}/widget-token",
+        headers={"Authorization": f"Bearer {admin_token}", "X-Tenant-ID": tenant},
+        timeout=60,
+    )
+    tr.raise_for_status()
+    token = tr.json()["widget_token"]
+    headers = {"Authorization": f"Bearer {token}", "X-Tenant-ID": tenant}
+    results: list[CaseResult] = []
+
+    def _offer_in(msgs: list[dict]) -> bool:
+        for m in msgs:
+            if m.get("is_handoff_offer"):
+                return True
+            if m.get("sender_type") == "system" and "operador" in (m.get("content") or "").lower():
+                return True
+        return False
+
+    for sc in scenarios:
+        sid = f"suite_{_uuid.uuid4().hex[:12]}"
+        reasons: list[str] = []
+        latencies: list[int] = []
+        offer_turn: int | None = None
+        last_answer = ""
+        try:
+            r = requests.post(f"{base_url}/api/v1/widget/conversation/start",
+                              json={"widget_session_id": sid, "is_test": True},
+                              headers=headers, timeout=60)
+            r.raise_for_status()
+            conv_id = r.json()["conversation_id"]
+            for i, msg in enumerate(sc["messages"], 1):
+                print(f"[runner] handoff {sc['id']} msg {i}: {msg[:60]}")
+                t0 = time.monotonic()
+                mr = requests.post(
+                    f"{base_url}/api/v1/widget/conversation/{conv_id}/message",
+                    json={"content": msg, "widget_session_id": sid},
+                    headers=headers, timeout=120,
+                )
+                latencies.append(int((time.monotonic() - t0) * 1000))
+                mr.raise_for_status()
+                data = mr.json()
+                last_answer = data.get("bot_response") or data.get("handoff_message") or last_answer
+                pr = requests.get(
+                    f"{base_url}/api/v1/widget/conversation/{conv_id}/poll",
+                    params={"widget_session_id": sid},
+                    headers=headers, timeout=60,
+                )
+                msgs = (pr.json() or {}).get("messages", []) if pr.ok else []
+                if offer_turn is None and (data.get("handoff_offered") or _offer_in(msgs)):
+                    offer_turn = i
+                time.sleep(sleep_s)
+        except Exception as exc:
+            reasons.append(f"http: {exc}")
+
+        offered = offer_turn is not None
+        ok = not reasons and offered == bool(sc.get("expect_offer"))
+        if ok and offered and sc.get("offer_not_before"):
+            if offer_turn < int(sc["offer_not_before"]):
+                ok = False
+                reasons.append(f"derivación PREMATURA: disparó en el mensaje {offer_turn}, esperado ≥{sc['offer_not_before']}")
+        if not ok and not reasons:
+            reasons.append(
+                f"esperado offer={bool(sc.get('expect_offer'))}, observado offer={offered}"
+                + (f" (turno {offer_turn})" if offer_turn else "")
+            )
+        cr = CaseResult(
+            id=sc["id"], category=12, question=sc.get("description", sc["id"]),
+            answer=last_answer[:400], sources_count=0, intent_label=None,
+            intent_confidence=None, from_cache=False,
+            latency_ms=max(latencies) if latencies else 0,
+            expect="handoff" if sc.get("expect_offer") else "no_handoff",
+        )
+        cr.scores = {"correctness": 1 if ok else 0, "grounding": 1, "tone": 1, "scope": 1 if ok else 0}
+        cr.pass_ = ok
+        cr.reasons = reasons
+        results.append(cr)
+        status = "PASS" if ok else "FAIL"
+        print(f"[runner] handoff {sc['id']}: {status}" + (f" — {reasons[0]}" if reasons else ""))
+    return results
 
 
 def render_html(run_meta: dict, results: list[CaseResult], out_path: Path) -> None:
@@ -388,7 +513,9 @@ def main() -> int:
         queries = [q for q in queries if q["category"] in wanted]
     if args.limit:
         queries = queries[: args.limit]
-    if not queries:
+    wanted_cats = {int(c.strip()) for c in args.only_category.split(",") if c.strip()} if args.only_category else None
+    will_run_extras = (not wanted_cats) or bool(wanted_cats & {10, 12})
+    if not queries and not will_run_extras:
         print("FATAL: empty query set after filters", file=sys.stderr)
         return 3
 
@@ -415,6 +542,16 @@ def main() -> int:
             cr.reasons.append(f"http: {cr.http_error}")
         results.append(cr)
         time.sleep(args.sleep)
+
+    # ── Cat 10: conversaciones multi-turno ────────────────────────────────────
+    conversations = data.get("conversations") or []
+    if conversations and (not args.only_category or 10 in {int(c) for c in args.only_category.split(",") if c.strip()}):
+        results.extend(run_conversations(args.base_url, token, args.tenant, conversations, args.sleep))
+
+    # ── Cat 12: escenarios de derivación (flujo widget real) ──────────────────
+    handoffs = data.get("handoff_scenarios") or []
+    if handoffs and (not args.only_category or 12 in {int(c) for c in args.only_category.split(",") if c.strip()}):
+        results.extend(run_handoff_scenarios(args.base_url, args.tenant, handoffs, args.sleep, token))
 
     # ── Métricas guardián (docs/PLAN_CALIDAD_MOTOR.md) ────────────────────────
     # alucinadas: apareció contenido prohibido (grounding=0) — solo puede bajar.
