@@ -130,9 +130,9 @@ services:
     container_name: local_minio
     restart: unless-stopped
     command: server /data --console-address ":9001"
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    # Mismas credenciales que usa el backend: ambos leen .env.local.
+    # (${VAR} interpolaría desde .env y quedaban contraseñas distintas)
+    env_file: .env.local
     volumes:
       - local_minio_data:/data
     ports:
@@ -190,7 +190,10 @@ services:
     # retraining nocturnos) dentro del mismo contenedor. En prod, beat va en su
     # propio proceso; acá lo embebemos para simplicidad y para poder probar el
     # loop de aprendizaje completo.
-    command: celery -A workers.celery_app worker --beat --loglevel=info --pool=solo -Q ingest,clustering,training,default
+    # entrypoint inline (igual que backend): el bind-mount de ./backend pisa el
+    # entrypoint.sh de la imagen con la copia CRLF de Windows y no ejecuta.
+    entrypoint: ["sh", "-c", "exec celery -A workers.celery_app worker --beat --loglevel=info --pool=solo -Q ingest,clustering,training,default"]
+    command: []
     env_file: .env.local
     environment:
       PYTHONPATH: /app
