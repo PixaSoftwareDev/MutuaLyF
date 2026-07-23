@@ -306,8 +306,10 @@ export default function ConnectorDetailPage() {
   // admin puede corregirlo antes de crear (clave = path).
   const [routeKind, setRouteKind]     = useState<Record<string, string>>({});
   const [showDiscarded, setShowDiscarded] = useState(false);
+  // Por defecto TODO nace personal (privado): más seguro. El admin marca públicas
+  // solo las que decida exponer sin identificación.
   const accessOf = (r: { path: string; identity_kind?: string }) =>
-    routeKind[r.path] ?? (r.identity_kind && r.identity_kind !== "publico" ? "personal" : "publico");
+    routeKind[r.path] ?? "personal";
   // Cuenta lo tildado (las descartadas por la IA también se pueden re-incluir).
   // El perfil (is_lookup) se cuenta aparte: no se crea como operación de chat,
   // se convierte en la config del OTP — el botón lo dice para que el número cierre.
@@ -361,12 +363,13 @@ export default function ConnectorDetailPage() {
     onError: (e) => toast({ title: "No se pudo eliminar", description: humanizeConnectorError(errDetail(e)), variant: "destructive" }),
   });
 
+
   // Alta manual de una operación (además de la detección automática).
   const [showManual, setShowManual] = useState(false);
   const [mName, setMName]     = useState("");
   const [mMethod, setMMethod] = useState("GET");
   const [mPath, setMPath]     = useState("");
-  const [mAccess, setMAccess] = useState("publico");
+  const [mAccess, setMAccess] = useState("personal");
   const mSlug = toSlug(mName.trim());
   const mNeedsIdentity = mAccess === "personal" && !mPath.includes("{identity}");
   const createToolM = useMutation({
@@ -377,7 +380,7 @@ export default function ConnectorDetailPage() {
     }),
     onSuccess: () => {
       inv(); setShowManual(false);
-      setMName(""); setMMethod("GET"); setMPath(""); setMAccess("publico");
+      setMName(""); setMMethod("GET"); setMPath(""); setMAccess("personal");
       toast({ title: "Operación creada", description: "Probala y activala cuando esté lista.", variant: "success" });
     },
     onError: (e) => toast({ title: "No se pudo crear", description: humanizeConnectorError(errDetail(e)), variant: "destructive" }),
@@ -900,11 +903,15 @@ export default function ConnectorDetailPage() {
                   <SelectItem value="personal">Personal — pide identificarse</SelectItem>
                 </SelectContent>
               </Select>
-              <p className="text-[11px] leading-snug text-muted-foreground">
-                {mAccess === "personal"
-                  ? <>Usá <code className="font-mono">{"{identity}"}</code> en la ruta donde va el dato de la persona (se reemplaza solo, del lado seguro).</>
-                  : "Sin datos personales — el bot la consulta directo."}
-              </p>
+              {mAccess === "personal" ? (
+                <p className="text-[11px] leading-snug text-muted-foreground">
+                  Usá <code className="font-mono">{"{identity}"}</code> en la ruta donde va el dato de la persona (se reemplaza solo, del lado seguro).
+                </p>
+              ) : (
+                <p className="rounded-lg border border-warning/30 bg-warning/[0.06] px-3 py-2 text-[11px] leading-snug text-warning">
+                  Pública: <strong>cualquiera podrá consultarla sin identificarse</strong>. Asegurate de que no exponga datos privados.
+                </p>
+              )}
               {mNeedsIdentity && (
                 <p className="text-[11px] leading-snug text-warning">Una operación personal necesita <code className="font-mono">{"{identity}"}</code> en la ruta.</p>
               )}
@@ -923,6 +930,7 @@ export default function ConnectorDetailPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
     </DetailShell>
   );
 }
@@ -963,6 +971,27 @@ function ToolCard({ connectorId, tool, onDelete, onChanged }: {
     mutationFn: (active: boolean) => api.connectors.updateTool(tool.id, { is_active: active }),
     onSuccess: () => onChanged(),
     onError: (e) => toast({ title: "No se pudo cambiar el estado", description: humanizeConnectorError(errDetail(e)), variant: "destructive" }),
+  });
+
+  // Editar la operación (nombre / método / ruta / acceso).
+  const [showEditOp, setShowEditOp] = useState(false);
+  const [eName, setEName]     = useState(tool.display_name);
+  const [eMethod, setEMethod] = useState(tool.http_method);
+  const [ePath, setEPath]     = useState(tool.path_template);
+  const [eAccess, setEAccess] = useState(tool.identity_kind === "publico" ? "publico" : "personal");
+  const openEditOp = () => {
+    setEName(tool.display_name); setEMethod(tool.http_method); setEPath(tool.path_template);
+    setEAccess(tool.identity_kind === "publico" ? "publico" : "personal");
+    setShowEditOp(true);
+  };
+  const eNeedsIdentity = eAccess === "personal" && !ePath.includes("{identity}");
+  const editOpM = useMutation({
+    mutationFn: () => api.connectors.updateTool(tool.id, {
+      display_name: eName.trim(), http_method: eMethod, path_template: ePath.trim(),
+      identity_kind: eAccess, roles: eAccess === "publico" ? ["publico"] : [eAccess],
+    }),
+    onSuccess: () => { onChanged(); setShowEditOp(false); toast({ title: "Operación actualizada", variant: "success" }); },
+    onError: (e) => toast({ title: "No se pudo guardar", description: humanizeConnectorError(errDetail(e)), variant: "destructive" }),
   });
 
   const isPublic = tool.identity_kind === "publico";
@@ -1015,6 +1044,9 @@ function ToolCard({ connectorId, tool, onDelete, onChanged }: {
             <DropdownMenuContent align="end">
               <DropdownMenuItem className="gap-2" onSelect={() => { setResult(null); setShowTest(true); }}>
                 <FlaskConical className="h-3.5 w-3.5" /> Probar
+              </DropdownMenuItem>
+              <DropdownMenuItem className="gap-2" onSelect={openEditOp}>
+                <Pencil className="h-3.5 w-3.5" /> Editar
               </DropdownMenuItem>
               <DropdownMenuItem className="gap-2 text-destructive focus:text-destructive" onSelect={onDelete}>
                 <Trash2 className="h-3.5 w-3.5" /> Eliminar
@@ -1080,6 +1112,62 @@ function ToolCard({ connectorId, tool, onDelete, onChanged }: {
             </div>
           )}
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Editar operación */}
+      <Dialog open={showEditOp} onOpenChange={setShowEditOp}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="break-words">Editar operación</DialogTitle>
+            <DialogDescription>Ajustá el nombre, la ruta o el acceso de esta operación.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Nombre</Label>
+              <Input value={eName} onChange={e => setEName(e.target.value)} />
+            </div>
+            <div className="grid grid-cols-[110px_1fr] gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Método</Label>
+                <Select value={eMethod} onValueChange={setEMethod}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {["GET", "POST", "PUT", "PATCH", "DELETE"].map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Ruta</Label>
+                <Input className="font-mono" value={ePath} onChange={e => setEPath(e.target.value)} />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Acceso</Label>
+              <Select value={eAccess} onValueChange={setEAccess}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="personal">Personal — pide identificarse</SelectItem>
+                  <SelectItem value="publico">Público — cualquiera puede consultarla</SelectItem>
+                </SelectContent>
+              </Select>
+              {eAccess === "publico" && (
+                <p className="rounded-lg border border-warning/30 bg-warning/[0.06] px-3 py-2 text-[11px] leading-snug text-warning">
+                  Al hacerla pública, <strong>cualquiera podrá consultarla sin identificarse</strong>. Asegurate de que no exponga datos privados.
+                </p>
+              )}
+              {eNeedsIdentity && (
+                <p className="text-[11px] leading-snug text-warning">Una operación personal necesita <code className="font-mono">{"{identity}"}</code> en la ruta.</p>
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowEditOp(false)}>Cancelar</Button>
+            <Button disabled={!eName.trim() || !ePath.trim().startsWith("/") || eNeedsIdentity || editOpM.isPending} onClick={() => editOpM.mutate()}>
+              {editOpM.isPending && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+              Guardar
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

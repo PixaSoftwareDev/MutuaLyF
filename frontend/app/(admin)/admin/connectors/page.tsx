@@ -3,8 +3,8 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Plug, Loader2, KeyRound, Database, ArrowRight, SearchX } from "lucide-react";
-import { api } from "@/lib/api";
+import { Plus, Plug, Loader2, KeyRound, Database, ArrowRight, SearchX, Trash2 } from "lucide-react";
+import { api, type ConnectorRow } from "@/lib/api";
 import { cn, toSlug } from "@/lib/utils";
 import { humanizeConnectorError } from "@/lib/connector-errors";
 import { Button } from "@/components/ui/button";
@@ -56,6 +56,7 @@ export default function ConnectorsPage() {
   const [baseUrl, setBaseUrl]       = useState("");
   const [authType, setAuthType]     = useState("none");
   const [search, setSearch]         = useState("");
+  const [deleting, setDeleting]     = useState<ConnectorRow | null>(null);
   const { sort, toggle } = useTableSort<SortKey>({ nombre: "asc" });
 
   // El identificador (slug) se deriva del nombre automáticamente y no se edita a
@@ -99,6 +100,12 @@ export default function ConnectorsPage() {
       toast({ title: "Conector creado", description: "Configurá sus operaciones y probalo antes de activar.", variant: "success" });
     },
     onError: (e) => toast({ title: "No se pudo crear", description: humanizeConnectorError(errDetail(e)), variant: "destructive" }),
+  });
+
+  const deleteM = useMutation({
+    mutationFn: (id: string) => api.connectors.delete(id),
+    onSuccess: () => { inv(); setDeleting(null); toast({ title: "Fuente eliminada", variant: "success" }); },
+    onError: (e) => toast({ title: "No se pudo eliminar", description: humanizeConnectorError(errDetail(e)), variant: "destructive" }),
   });
 
   const isEmpty = !isLoading && connectors.length === 0;
@@ -185,7 +192,17 @@ export default function ConnectorsPage() {
                       <TableCell className="hidden text-right text-sm tabular-nums text-muted-foreground sm:table-cell">{c.tool_count}</TableCell>
                       <TableCell><StatePill active={c.is_active} /></TableCell>
                       <TableCell className="text-right">
-                        <ArrowRight className="inline-block h-4 w-4 text-muted-foreground/40 transition-all group-hover:translate-x-0.5 group-hover:text-action" />
+                        <div className="flex items-center justify-end gap-0.5">
+                          <Button
+                            size="sm" variant="ghost"
+                            className="h-8 w-8 p-0 text-muted-foreground opacity-0 transition-opacity hover:text-destructive focus:opacity-100 group-hover:opacity-100"
+                            aria-label={`Eliminar ${c.display_name}`}
+                            onClick={e => { e.stopPropagation(); setDeleting(c); }}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                          <ArrowRight className="inline-block h-4 w-4 text-muted-foreground/40 transition-all group-hover:translate-x-0.5 group-hover:text-action" />
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -248,6 +265,25 @@ export default function ConnectorsPage() {
             >
               {createM.isPending && <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />}
               Crear conector
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Confirmar borrado */}
+      <Dialog open={!!deleting} onOpenChange={o => !o && setDeleting(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>¿Eliminar “{deleting?.display_name}”?</DialogTitle>
+            <DialogDescription>
+              Se borran sus {deleting?.tool_count} operación(es) y su configuración. Esta acción no se puede deshacer.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleting(null)}>Cancelar</Button>
+            <Button variant="destructive" disabled={deleteM.isPending} onClick={() => deleting && deleteM.mutate(deleting.id)}>
+              {deleteM.isPending && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+              Eliminar fuente
             </Button>
           </DialogFooter>
         </DialogContent>
