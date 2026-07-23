@@ -39,9 +39,10 @@ export function FormDialog({
           </div>
         </DialogHeader>
 
-        {/* px simétrico: el overflow no recorta el focus-ring de los inputs de
-            los bordes; scrollbar-slim = scroll moderno como el resto de la app. */}
-        <div className="-mx-1 max-h-[min(60vh,32rem)] space-y-4 overflow-y-auto scrollbar-slim px-1">
+        {/* padding simétrico (x e y): el overflow no recorta el focus-ring de
+            los inputs de los bordes ni del primero/último elemento;
+            scrollbar-slim = scroll moderno como el resto de la app. */}
+        <div className="-m-1 max-h-[min(60vh,32rem)] space-y-4 overflow-y-auto scrollbar-slim p-1">
           {children}
         </div>
 

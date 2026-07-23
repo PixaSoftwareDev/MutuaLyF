@@ -129,7 +129,9 @@ export default function SectorsPage() {
               <Table>
                 <TableHeader>
                   <TableRow className="hover:bg-transparent">
-                    <TableHead><SortHeader label="Sector" sortKey="nombre" sort={sort} onToggle={toggle} /></TableHead>
+                    {/* Reparto proporcional: ni el nombre acapara todo el ancho
+                        ni queda ahogado — la descripción recibe el resto. */}
+                    <TableHead className="md:w-[45%]"><SortHeader label="Sector" sortKey="nombre" sort={sort} onToggle={toggle} /></TableHead>
                     <TableHead className="hidden md:table-cell">Descripción</TableHead>
                     <TableHead className="whitespace-nowrap text-right">
                       <SortHeader label="Operadores" sortKey="operadores" sort={sort} onToggle={toggle} />
@@ -263,13 +265,13 @@ function SectorRowItem({ sector, selected, onSelect }: {
     >
       {/* w-full + max-w-0: la columna toma el espacio restante y el nombre trunca
           (sin esto, en mobile los nombres largos ensanchaban la tabla). */}
-      <TableCell className="w-full max-w-0">
+      <TableCell className="max-w-0 w-full md:w-[45%]">
         <div className="flex min-w-0 items-center gap-2">
           <span className="truncate font-medium text-foreground">{sector.nombre}</span>
           {sector.is_default && <DefaultBadge />}
         </div>
       </TableCell>
-      <TableCell className="hidden max-w-md md:table-cell">
+      <TableCell className="hidden w-full max-w-0 md:table-cell">
         {sector.descripcion
           ? <span className="text-muted-foreground line-clamp-1">{sector.descripcion}</span>
           : <span className="italic text-muted-foreground/50">Sin descripción</span>}

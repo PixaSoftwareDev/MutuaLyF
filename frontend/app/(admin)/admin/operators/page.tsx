@@ -15,6 +15,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { toast } from "@/components/ui/toast";
 import { EmptyState } from "@/components/ui/empty-state";
 import { cn, initials } from "@/lib/utils";
+import { extractErrorMessage } from "@/lib/errors";
 import { ListToolbar } from "@/components/admin/list-toolbar";
 import { ListDetailShell, DetailPanelHeader, PanelIconButton } from "@/components/admin/list-detail-shell";
 import { useTableSort, applySort, SortHeader } from "@/components/admin/sortable";
@@ -29,6 +30,10 @@ interface OperatorUser {
 type AssignedSector = { id: string; nombre: string };
 type SortKey = "nombre" | "estado";
 
+// Validación mínima de email en el cliente: algo@dominio.tld. El backend valida
+// en serio (Pydantic); esto solo evita mandar un email sin @ y recibir un 422.
+const EMAIL_RE = /^\S+@\S+\.\S+$/;
+
 async function listOperators(): Promise<OperatorUser[]> {
   const { data } = await apiClient.get("/admin/operators");
   return data;
@@ -40,6 +45,8 @@ export default function OperatorsPage() {
   const [showCreate, setShowCreate]       = useState(false);
   const [name, setName]                   = useState("");
   const [email, setEmail]                 = useState("");
+  // Se valida al apretar "Crear", no mientras se escribe (el aviso en vivo molesta).
+  const [emailError, setEmailError]       = useState(false);
   const [password, setPassword]           = useState("");
   const [inviteMode, setInviteMode]       = useState(true);
   const [createSectors, setCreateSectors] = useState<Set<string>>(new Set());
@@ -62,7 +69,10 @@ export default function OperatorsPage() {
   const defaultSectorId = useMemo(() => activeSectors.find(s => s.is_default)?.id ?? null, [activeSectors]);
 
   useEffect(() => {
-    if (showCreate) setCreateSectors(defaultSectorId ? new Set([defaultSectorId]) : new Set());
+    if (showCreate) {
+      setCreateSectors(defaultSectorId ? new Set([defaultSectorId]) : new Set());
+      setEmailError(false);
+    }
   }, [showCreate, defaultSectorId]);
 
   const createM = useMutation({
@@ -89,10 +99,11 @@ export default function OperatorsPage() {
       setShowCreate(false); setName(""); setEmail(""); setPassword(""); setInviteMode(true);
     },
     onError: (err: any) => {
-      const detail = err?.response?.data?.detail;
-      toast({ title: typeof detail === "string" ? detail : "Error al crear operador", variant: "destructive" });
+      toast({ title: "Error al crear operador", description: extractErrorMessage(err, "Revisá los datos e intentá de nuevo."), variant: "destructive" });
     },
   });
+
+  const emailValid = EMAIL_RE.test(email.trim());
 
   const toggleCreateSector = (id: string) => setCreateSectors(prev => {
     const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next;
@@ -160,11 +171,14 @@ export default function OperatorsPage() {
               <Table>
                 <TableHeader>
                   <TableRow className="hover:bg-transparent">
-                    <TableHead><SortHeader label="Operador" sortKey="nombre" sort={sort} onToggle={toggle} /></TableHead>
-                    <TableHead className="hidden whitespace-nowrap md:table-cell">
+                    {/* Reparto proporcional: el nombre no acapara todo el ancho,
+                        los sectores reciben el resto sin amontonarse. */}
+                    <TableHead className="md:w-[45%]"><SortHeader label="Operador" sortKey="nombre" sort={sort} onToggle={toggle} /></TableHead>
+                    <TableHead>Sectores que atiende</TableHead>
+                    {/* Estado al final, pegado al borde derecho — patrón de la app */}
+                    <TableHead className="hidden w-[110px] whitespace-nowrap text-right md:table-cell">
                       <SortHeader label="Estado" sortKey="estado" sort={sort} onToggle={toggle} />
                     </TableHead>
-                    <TableHead>Sectores que atiende</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -197,7 +211,11 @@ export default function OperatorsPage() {
           <>
             <Button variant="outline" onClick={() => setShowCreate(false)}>Cancelar</Button>
             <Button
-              onClick={() => createM.mutate()}
+              onClick={() => {
+                if (!emailValid) { setEmailError(true); return; }
+                setEmailError(false);
+                createM.mutate();
+              }}
               disabled={!name.trim() || !email.trim() || (!inviteMode && password.length < 8) || createSectors.size === 0 || createM.isPending}
             >
               {createM.isPending && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
@@ -214,6 +232,9 @@ export default function OperatorsPage() {
           <div className="space-y-2">
             <Label htmlFor="op-email">Email</Label>
             <Input id="op-email" type="email" placeholder="maria@empresa.com" value={email} onChange={e => setEmail(e.target.value)} />
+            {emailError && !emailValid && (
+              <p className="text-xs text-warning">Ese email no es válido — revisá que tenga «@» y dominio (ej: maria@empresa.com).</p>
+            )}
           </div>
         </div>
 
@@ -281,7 +302,7 @@ function OperatorRowItem({ operator, isOnline, assignedSectors, assignedLoading,
 }) {
   return (
     <TableRow onClick={onSelect} aria-selected={selected} className={cn("cursor-pointer", selected && "bg-muted/60")}>
-      <TableCell>
+      <TableCell className="w-full max-w-0 md:w-[45%]">
         <div className="flex min-w-0 items-center gap-3">
           <OperatorAvatar name={operator.name} isOnline={isOnline} size="sm" showPresence />
           <div className="min-w-0">
@@ -290,10 +311,10 @@ function OperatorRowItem({ operator, isOnline, assignedSectors, assignedLoading,
           </div>
         </div>
       </TableCell>
-      <TableCell className="hidden whitespace-nowrap md:table-cell"><StatusPill isOnline={isOnline} /></TableCell>
       <TableCell>
         {assignedLoading ? <Skeleton className="h-5 w-36 rounded-full" /> : <SectorTags assignedSectors={assignedSectors} compact />}
       </TableCell>
+      <TableCell className="hidden whitespace-nowrap text-right md:table-cell"><StatusPill isOnline={isOnline} /></TableCell>
     </TableRow>
   );
 }
@@ -466,8 +487,10 @@ function EditOperatorDialog({ open, onOpenChange, operator, activeSectors, initi
   const [name, setName]         = useState(operator.name);
   const [email, setEmail]       = useState(operator.email);
   const [selected, setSelected] = useState<Set<string>>(new Set(initialAssigned));
+  // Se valida al apretar "Guardar", no mientras se escribe.
+  const [emailError, setEmailError] = useState(false);
   useEffect(() => {
-    if (open) { setName(operator.name); setEmail(operator.email); setSelected(new Set(initialAssigned)); }
+    if (open) { setName(operator.name); setEmail(operator.email); setSelected(new Set(initialAssigned)); setEmailError(false); }
   }, [open, operator.name, operator.email, initialAssigned]);
 
   const initialSet = useMemo(() => new Set(initialAssigned), [initialAssigned]);
@@ -496,11 +519,11 @@ function EditOperatorDialog({ open, onOpenChange, operator, activeSectors, initi
       onOpenChange(false);
     },
     onError: (err: any) => {
-      const detail = err?.response?.data?.detail;
-      toast({ title: typeof detail === "string" ? detail : "No se pudo guardar", variant: "destructive" });
+      toast({ title: "No se pudo guardar", description: extractErrorMessage(err, "Revisá los datos e intentá de nuevo."), variant: "destructive" });
     },
   });
 
+  const emailValid = EMAIL_RE.test(email.trim());
   const toggle = (id: string) => setSelected(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; });
 
   return (
@@ -511,7 +534,14 @@ function EditOperatorDialog({ open, onOpenChange, operator, activeSectors, initi
       footer={
         <>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
-          <Button onClick={() => saveM.mutate()} disabled={!dirty || !name.trim() || !email.trim() || selected.size === 0 || saveM.isPending}>
+          <Button
+            onClick={() => {
+              if (!emailValid) { setEmailError(true); return; }
+              setEmailError(false);
+              saveM.mutate();
+            }}
+            disabled={!dirty || !name.trim() || !email.trim() || selected.size === 0 || saveM.isPending}
+          >
             {saveM.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Check className="mr-1.5 h-4 w-4" />}
             Guardar cambios
           </Button>
@@ -526,6 +556,9 @@ function EditOperatorDialog({ open, onOpenChange, operator, activeSectors, initi
         <div className="space-y-2">
           <Label htmlFor="edit-email">Email</Label>
           <Input id="edit-email" type="email" value={email} onChange={e => setEmail(e.target.value)} />
+          {emailError && !emailValid && (
+            <p className="text-xs text-warning">Ese email no es válido — revisá que tenga «@» y dominio (ej: maria@empresa.com).</p>
+          )}
         </div>
       </div>
       <div className="space-y-2">
