@@ -211,6 +211,15 @@ function ChannelsOverview({ channels }: { channels: ChannelsState }) {
     : wa.enabled ? { tone: "success" as const, label: "Activo" }
     : { tone: "warning" as const, label: "Pendiente" };
 
+  // Estado de Fuentes de datos: activo si al menos un conector está activo.
+  const { data: connData } = useQuery({ queryKey: ["connectors"], queryFn: api.connectors.list, staleTime: 30_000 });
+  const connectors = connData?.connectors ?? [];
+  const connState = connectors.length === 0
+    ? { tone: "muted" as const, label: "Sin configurar" }
+    : connectors.some(c => c.is_active)
+      ? { tone: "success" as const, label: "Activo" }
+      : { tone: "warning" as const, label: "Pendiente" };
+
   return (
     <div className="mx-auto w-full max-w-5xl space-y-4">
       {/* ── Hero: Widget web ── */}
@@ -265,7 +274,7 @@ function ChannelsOverview({ channels }: { channels: ChannelsState }) {
           icon={<span className="flex h-10 w-10 items-center justify-center rounded-xl bg-muted text-muted-foreground"><Database className="h-5 w-5" /></span>}
           title="Fuentes de datos"
           desc="APIs y bases externas que el asistente puede consultar."
-          state={null}
+          state={connState}
           href="/admin/connectors"
         />
       </div>
