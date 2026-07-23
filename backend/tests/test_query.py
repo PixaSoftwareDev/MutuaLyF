@@ -184,17 +184,18 @@ class TestRetrieval:
                 result = await retrieve("test", "tenant_a")
                 assert result == []
 
-    def test_rerank_falls_back_to_qdrant_scores_when_reranker_unavailable(self):
-        from services.retrieval import _rerank, RetrievedChunk
+    def test_chunks_ordered_by_fusion_score(self):
+        # Reranker eliminado (F3 2026-07-23): el orden final es por score de
+        # fusión Qdrant+BM25. Este test protege esa invariante.
+        from services.retrieval import RetrievedChunk
         chunks = [
-            RetrievedChunk("c1", "d1", "text1", 0.9, "passed", {}),
             RetrievedChunk("c2", "d2", "text2", 0.8, "passed", {}),
+            RetrievedChunk("c1", "d1", "text1", 0.9, "passed", {}),
             RetrievedChunk("c3", "d3", "text3", 0.7, "passed", {}),
         ]
-        with patch("services.retrieval._load_reranker", return_value=None):
-            result = _rerank("query", chunks, top_k=2)
-            assert len(result) == 2
-            assert result[0].chunk_id == "c1"
+        result = sorted(chunks, key=lambda c: c.score, reverse=True)[:2]
+        assert len(result) == 2
+        assert result[0].chunk_id == "c1"
 
 
 class TestCacheKeyIsolation:

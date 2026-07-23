@@ -442,9 +442,17 @@ async def handle_query(
         try:
             from services.trust_gate import coverage_note, evaluate_coverage
             _tg = await evaluate_coverage(normalized_question, context_parts, tenant_id)
+            # F2a (plan de calidad): scores crudos junto al veredicto — cada
+            # consulta real acumula datos para calibrar la señal de confianza
+            # única (best_rrf vs best_cosine vs lex vs veredicto del juez).
+            _best_rrf = max((c.score for c in all_chunks), default=0.0)
+            _best_cos = max(
+                (c.metadata.get("_cosine_score", 0.0) for c in all_chunks), default=0.0
+            )
             logger.info(
-                "trust_gate tenant_id=%s action=%s judge=%s lex=%.2f reason=%s",
-                tenant_id, _tg["action"], _tg["judge_used"], _tg["lex_coverage"], _tg["reason"],
+                "trust_gate tenant_id=%s action=%s judge=%s lex=%.2f best_rrf=%.3f best_cos=%.3f reason=%s",
+                tenant_id, _tg["action"], _tg["judge_used"], _tg["lex_coverage"],
+                _best_rrf, _best_cos, _tg["reason"],
             )
             if _tg["action"] == "refuse":
                 hard_fallback = True
