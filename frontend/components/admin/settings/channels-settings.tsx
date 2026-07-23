@@ -28,7 +28,8 @@ import {
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import { extractErrorMessage } from "@/lib/errors";
-import { DEFAULT_BOT_NAME } from "@/components/admin/settings/chat-preview";
+import { DEFAULT_BOT_NAME } from "@/components/admin/settings/defaults";
+import { parseCanal, parseWidgetSub, canalHref } from "@/components/admin/settings/nav";
 
 // ── Helpers de UI ─────────────────────────────────────────────────────────────
 
@@ -152,7 +153,7 @@ export function ChannelsSettings() {
   if (isError || !channels) {
     return (
       <Card className="rounded-2xl p-8 text-center text-sm text-muted-foreground">
-        No se pudo cargar el estado de los canales. Puede que el backend todavía no tenga esta versión desplegada.
+        No pudimos cargar el estado de los canales. Recargá la página y probá de nuevo.
       </Card>
     );
   }
@@ -160,42 +161,33 @@ export function ChannelsSettings() {
   return <ChannelsSplit channels={channels} refresh={refresh} />;
 }
 
-/** Cada canal es su propia página: ?canal= la elige (la escribe el panel
- *  Sistema en desktop); en mobile un segmented local hace de selector. */
+/** Cada canal es su propia página. La URL (?canal= / ?sub=) es la ÚNICA fuente
+ *  de verdad: el panel Sistema (desktop) y los segmented de mobile son links a
+ *  la misma URL — nunca estado local, así compartir el link muestra lo mismo. */
 function ChannelsSplit({ channels, refresh }: { channels: ChannelsState; refresh: () => void }) {
   const params = useSearchParams();
-  const raw = params.get("canal");
-  const canal: "all" | "widget" | "whatsapp" = raw === "whatsapp" ? "whatsapp" : raw === "all" ? "all" : "widget";
+  const canal = parseCanal(params);
 
   if (canal === "all") return <ChannelsOverview channels={channels} />;
 
-  // Mobile: selector local Widget/WhatsApp (desktop usa el panel del Sistema).
-  return <ChannelsWidgetOrWhatsApp channels={channels} refresh={refresh} initial={canal} />;
-}
-
-function ChannelsWidgetOrWhatsApp({ channels, refresh, initial }: {
-  channels: ChannelsState; refresh: () => void; initial: "widget" | "whatsapp";
-}) {
-  const [localCanal, setLocalCanal] = useState<"widget" | "whatsapp">(initial);
-  useEffect(() => { setLocalCanal(initial); }, [initial]);
-
   return (
     <div className="space-y-4">
+      {/* Mobile: selector Widget/WhatsApp (desktop usa el panel del Sistema). */}
       <div className="flex rounded-lg bg-muted/60 p-0.5 lg:hidden">
         {([["widget", "Widget web"], ["whatsapp", "WhatsApp"]] as const).map(([key, label]) => (
-          <button
+          <Link
             key={key}
-            onClick={() => setLocalCanal(key)}
+            href={canalHref(key)}
             className={cn(
-              "flex-1 rounded-md px-3 py-1.5 text-[13px] font-medium transition-colors",
-              localCanal === key ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+              "flex-1 rounded-md px-3 py-1.5 text-center text-[13px] font-medium transition-colors",
+              canal === key ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
             )}
           >
             {label}
-          </button>
+          </Link>
         ))}
       </div>
-      {localCanal === "widget"
+      {canal === "widget"
         ? <WidgetSection channels={channels} refresh={refresh} />
         : <WhatsAppCard channels={channels} onChanged={refresh} />}
     </div>
@@ -221,9 +213,10 @@ function ChannelsOverview({ channels }: { channels: ChannelsState }) {
       : { tone: "warning" as const, label: "Pendiente" };
 
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-4">
+    <div className="mx-auto w-full max-w-6xl space-y-4">
       {/* ── Hero: Widget web ── */}
-      <Card className="group overflow-hidden rounded-2xl transition-[border-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:border-foreground/15 hover:shadow-lg hover:shadow-black/[0.05]">
+      {/* Hover sobrio (solo borde) — los efectos de "levantar" son de landing, no del panel */}
+      <Card className="group overflow-hidden rounded-2xl transition-colors duration-200 hover:border-foreground/15">
         <div className="grid items-stretch sm:grid-cols-[1fr_minmax(0,320px)]">
           <div className="p-6">
             <div className="flex flex-wrap items-center gap-2">
@@ -290,7 +283,7 @@ function ChannelMiniCard({ icon, title, desc, state, href }: {
   href: string;
 }) {
   return (
-    <div className="group flex flex-col rounded-2xl border bg-card p-5 transition-[border-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:border-foreground/15 hover:shadow-lg hover:shadow-black/[0.05]">
+    <div className="group flex flex-col rounded-2xl border bg-card p-5 transition-colors duration-200 hover:border-foreground/15">
       <div className="flex items-start justify-between gap-3">
         {icon}
         {state && <StatePill tone={state.tone}>{state.label}</StatePill>}
@@ -308,13 +301,7 @@ function ChannelMiniCard({ icon, title, desc, state, href }: {
  *  y Personalizar (colores, tema, identidad — lo que era la pestaña Apariencia). */
 function WidgetSection({ channels, refresh }: { channels: ChannelsState; refresh: () => void }) {
   const params = useSearchParams();
-  const [sub, setSub] = useState<"instalar" | "personalizar">(
-    params.get("sub") === "personalizar" ? "personalizar" : "instalar",
-  );
-  useEffect(() => {
-    const s = params.get("sub");
-    if (s === "personalizar" || s === "instalar") setSub(s);
-  }, [params]);
+  const sub = parseWidgetSub(params);
 
   return (
     <div className="space-y-4">
@@ -322,16 +309,16 @@ function WidgetSection({ channels, refresh }: { channels: ChannelsState; refresh
           acá queda solo para mobile (que no tiene esa barra de acciones). */}
       <div className="flex w-fit rounded-lg bg-muted/60 p-0.5 lg:hidden">
         {([["instalar", "Instalar"], ["personalizar", "Personalizar"]] as const).map(([key, label]) => (
-          <button
+          <Link
             key={key}
-            onClick={() => setSub(key)}
+            href={canalHref("widget", key)}
             className={cn(
               "rounded-md px-4 py-1.5 text-[13px] font-medium transition-colors",
               sub === key ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
             )}
           >
             {label}
-          </button>
+          </Link>
         ))}
       </div>
       {sub === "instalar"
@@ -362,7 +349,7 @@ function WidgetCard({ channels, onChanged }: { channels: ChannelsState; onChange
       onChanged();
       toast({ title: !enabled ? "Chat web activado" : "Chat web desactivado", variant: "success" });
     },
-    onError: () => toast({ title: "Error al cambiar el estado", variant: "destructive" }),
+    onError: (err: any) => toast({ title: "Error al cambiar el estado", description: extractErrorMessage(err, "Intentá de nuevo."), variant: "destructive" }),
   });
 
   const tokenM = useMutation({
@@ -371,7 +358,7 @@ function WidgetCard({ channels, onChanged }: { channels: ChannelsState; onChange
       setWidgetToken(data.widget_token);
       toast({ title: "Token generado", variant: "success" });
     },
-    onError: () => toast({ title: "No se pudo generar el token", variant: "destructive" }),
+    onError: (err: any) => toast({ title: "No se pudo generar el token", description: extractErrorMessage(err, "Intentá de nuevo."), variant: "destructive" }),
   });
 
   // Mostrar el token ACTUAL (descifrado) sin regenerar — no invalida el instalado.
@@ -381,9 +368,10 @@ function WidgetCard({ channels, onChanged }: { channels: ChannelsState; onChange
     onError: (err: unknown) => {
       const status = (err as { response?: { status?: number } })?.response?.status;
       toast({
-        title: status === 404
-          ? "Regenerá el token una vez para poder copiarlo sin regenerar"
-          : "No se pudo obtener el token",
+        title: status === 404 ? "Hace falta regenerar el código" : "No se pudo obtener el token",
+        description: status === 404
+          ? "Tu token es de una versión anterior y no puede mostrarse. Tocá «Regenerar» — ojo: el código instalado en tu sitio deja de funcionar y hay que reemplazarlo."
+          : "Intentá de nuevo en unos segundos.",
         variant: status === 404 ? "default" : "destructive",
       });
     },
@@ -396,9 +384,9 @@ function WidgetCard({ channels, onChanged }: { channels: ChannelsState; onChange
   const hasToken = channels.widget.has_token || !!widgetToken;
 
   return (
-    // Centrado (patrón install de la referencia): un componente en el medio,
-    // no una card estirada de lado a lado.
-    <div className="mx-auto w-full max-w-3xl space-y-5 py-6 sm:py-8 xl:max-w-4xl xl:py-14">
+    // Riel único de Configuración (max-w-6xl): mismo ancho que Asistente,
+    // Derivación, Canales→Todos y Personalizar — nada de anchos por vista.
+    <div className="mx-auto w-full max-w-6xl space-y-5">
       {/* ── Hero: conectar el asistente (patrón install de la referencia) ── */}
       <Card className="overflow-hidden rounded-2xl">
         <div className="grid items-center gap-6 p-6 sm:grid-cols-[1fr_auto] xl:gap-10 xl:p-9">
@@ -639,7 +627,7 @@ function WhatsAppCard({ channels, onChanged }: { channels: ChannelsState; onChan
   const deleteM = useMutation({
     mutationFn: api.channels.deleteWhatsApp,
     onSuccess: () => { onChanged(); setConfirmDelete(false); toast({ title: "Configuración eliminada", variant: "success" }); },
-    onError: () => toast({ title: "Error al eliminar", variant: "destructive" }),
+    onError: (err: any) => toast({ title: "Error al eliminar", description: extractErrorMessage(err, "Intentá de nuevo."), variant: "destructive" }),
   });
 
   const pill = !wa
@@ -670,7 +658,7 @@ function WhatsAppCard({ channels, onChanged }: { channels: ChannelsState; onChan
   // Signup ("Continuar con Facebook") y este formulario queda como vía manual.
   if (!wa && !startedSetup) {
     return (
-      <div className="mx-auto w-full max-w-5xl">
+      <div className="mx-auto w-full max-w-6xl">
         <Card className="rounded-2xl">
           <CardContent className="flex flex-col items-center px-6 py-14 text-center">
             <span className="flex h-16 w-16 items-center justify-center rounded-full bg-[#25D366] shadow-sm">
@@ -706,7 +694,7 @@ function WhatsAppCard({ channels, onChanged }: { channels: ChannelsState; onChan
     :                    { tone: "muted"   as const, text: "Pausado — el canal no está recibiendo mensajes." };
 
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-4">
+    <div className="mx-auto w-full max-w-6xl space-y-4">
 
       {/* ── Encabezado + estado del canal ── */}
       <Card className="rounded-2xl">
@@ -743,7 +731,7 @@ function WhatsAppCard({ channels, onChanged }: { channels: ChannelsState; onChan
                   disabled={toggleM.isPending || (!wa.enabled && (wa.status !== "active" || !wa.has_app_secret))}
                   title={
                     !wa.enabled && wa.status !== "active" ? "Probá la conexión antes de activar"
-                    : !wa.enabled && !wa.has_app_secret ? "Configurá el App Secret antes de activar (es obligatorio)"
+                    : !wa.enabled && !wa.has_app_secret ? "Configurá el App secret antes de activar (es obligatorio)"
                     : undefined
                   }
                 >
@@ -820,7 +808,8 @@ function WhatsAppCard({ channels, onChanged }: { channels: ChannelsState; onChan
 
             {/* Guía breve — sólo mobile (en desktop lo cubre el stepper visual del costado) */}
             {!editing && (
-              <div className="rounded-xl border bg-muted/30 p-4 lg:hidden">
+              // Fondo suave sin borde: la card exterior ya delimita.
+              <div className="rounded-xl bg-muted/40 p-4 lg:hidden">
                 <p className="text-xs font-semibold text-foreground">Cómo obtener estos datos</p>
                 <ol className="mt-2 list-decimal space-y-1 pl-4 text-xs leading-relaxed text-muted-foreground marker:text-muted-foreground/60">
                   <li>Creá una app en <span className="font-medium text-foreground/70">developers.facebook.com</span> con el producto WhatsApp y dá de alta tu número.</li>
@@ -922,7 +911,7 @@ function WhatsAppCard({ channels, onChanged }: { channels: ChannelsState; onChan
               )}
               {!wa.has_app_secret && (
                 <span className="inline-flex items-center gap-1 text-warning">
-                  <AlertTriangle className="h-3.5 w-3.5" /> Sin app secret: los webhooks no se validan por firma.
+                  <AlertTriangle className="h-3.5 w-3.5" /> Sin App secret: los webhooks no se validan por firma.
                 </span>
               )}
             </div>

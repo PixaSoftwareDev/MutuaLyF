@@ -12,7 +12,9 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { toast } from "@/components/ui/toast";
+import { extractErrorMessage } from "@/lib/errors";
 import { SectionCard } from "@/components/admin/settings/section-card";
+import { MockBubble } from "@/components/admin/settings/chat-mock";
 
 export function GeneralSettings() {
   const qc = useQueryClient();
@@ -33,7 +35,10 @@ export function GeneralSettings() {
     queryKey: ["admin-branding"],
     queryFn: () => api.branding.getAdmin(),
   });
-  useEffect(() => { if (branding) setOrgName(branding.display_name ?? ""); }, [branding]);
+  // Dep primitiva (no el objeto): un refetch con el mismo valor no pisa lo
+  // que el admin está tipeando; solo re-sincroniza si el server CAMBIÓ.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (branding) setOrgName(branding.display_name ?? ""); }, [branding?.display_name]);
   const orgDirty = branding != null && orgName.trim().length > 0 && orgName.trim() !== branding.display_name;
   const saveOrgM = useMutation({
     mutationFn: () => api.branding.update({ display_name: orgName.trim() }),
@@ -42,7 +47,7 @@ export function GeneralSettings() {
       qc.invalidateQueries({ queryKey: ["tenant-branding"] });
       toast({ title: "Nombre actualizado", variant: "success" });
     },
-    onError: () => toast({ title: "Error al guardar", variant: "destructive" }),
+    onError: (err: any) => toast({ title: "Error al guardar", description: extractErrorMessage(err, "Intentá de nuevo."), variant: "destructive" }),
   });
 
   const { data: botsData, isLoading: botsLoading } = useQuery({
@@ -50,9 +55,11 @@ export function GeneralSettings() {
     queryFn: api.promptTemplates.listAssigned,
   });
 
+  // Dep primitiva + guard de edición: el refetch nunca pisa el textarea abierto.
   useEffect(() => {
-    if (botConfig) setBotDescription(botConfig.bot_description ?? "");
-  }, [botConfig]);
+    if (botConfig && !editingDescription) setBotDescription(botConfig.bot_description ?? "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [botConfig?.bot_description]);
 
   // Lectura por defecto, edición explícita (patrón del resto del sistema):
   // evita cambios accidentales en un texto que gobierna al bot en producción.
@@ -68,7 +75,7 @@ export function GeneralSettings() {
       setEditingDescription(false);
       toast({ title: "Instrucciones actualizadas", variant: "success" });
     },
-    onError: () => toast({ title: "Error al guardar", variant: "destructive" }),
+    onError: (err: any) => toast({ title: "Error al guardar", description: extractErrorMessage(err, "Intentá de nuevo."), variant: "destructive" }),
   });
 
   const activateM = useMutation({
@@ -77,16 +84,16 @@ export function GeneralSettings() {
       qc.invalidateQueries({ queryKey: ["assigned-templates"] });
       toast({ title: "Personalidad activada", variant: "success" });
     },
-    onError: (e: any) => toast({ title: e?.response?.data?.detail ?? "Error al activar", variant: "destructive" }),
+    onError: (e: any) => toast({ title: "Error al activar", description: extractErrorMessage(e, "Intentá de nuevo."), variant: "destructive" }),
   });
 
   const templates = botsData?.templates ?? [];
   const activePersonality = templates.find(t => t.is_active) ?? null;
 
   return (
-    // Estilo nuevo (referencia Text) al ancho de Canales → Todos (max-w-5xl):
+    // Estilo nuevo (referencia Text) al ancho de Canales → Todos (max-w-6xl):
     // hero de identidad + secciones que aprovechan el ancho, sin quedar básicas.
-    <div className="mx-auto w-full max-w-5xl space-y-4">
+    <div className="mx-auto w-full max-w-6xl space-y-4">
 
       {/* ── Hero: identidad del asistente ── */}
       <Card className="overflow-hidden rounded-2xl">
@@ -115,15 +122,9 @@ export function GeneralSettings() {
           {/* Preview de conversación (decorativo, theme-aware) */}
           <div className="relative hidden overflow-hidden bg-gradient-to-br from-violet-100 via-indigo-50 to-transparent p-5 sm:flex sm:flex-col sm:justify-center dark:from-violet-500/15 dark:via-indigo-500/10 dark:to-transparent">
             <div className="space-y-2" aria-hidden>
-              <div className="max-w-[80%] rounded-2xl rounded-bl-sm bg-white px-3 py-2 text-xs leading-relaxed text-slate-600 shadow-sm dark:bg-white/10 dark:text-slate-200">
-                ¡Hola! ¿En qué puedo ayudarte hoy?
-              </div>
-              <div className="ml-auto max-w-[80%] rounded-2xl rounded-br-sm bg-gradient-to-br from-brand to-brand-dark px-3 py-2 text-xs leading-relaxed text-brand-foreground shadow-sm">
-                Quiero hacer una consulta
-              </div>
-              <div className="max-w-[80%] rounded-2xl rounded-bl-sm bg-white px-3 py-2 text-xs leading-relaxed text-slate-600 shadow-sm dark:bg-white/10 dark:text-slate-200">
-                ¡Con gusto! Contame de qué se trata.
-              </div>
+              <MockBubble from="bot">¡Hola! ¿En qué puedo ayudarte hoy?</MockBubble>
+              <MockBubble from="user">Quiero hacer una consulta</MockBubble>
+              <MockBubble from="bot">¡Con gusto! Contame de qué se trata.</MockBubble>
             </div>
           </div>
         </div>
@@ -146,7 +147,7 @@ export function GeneralSettings() {
               value={orgName}
               onChange={e => setOrgName(e.target.value)}
               maxLength={200}
-              placeholder="Ej. Mutualyf S.A."
+              placeholder="Ej. Mi Empresa S.A."
               disabled={branding == null}
             />
             <Button size="sm" className="shrink-0" disabled={!orgDirty || saveOrgM.isPending} onClick={() => saveOrgM.mutate()}>
@@ -184,8 +185,9 @@ export function GeneralSettings() {
             </div>
           </div>
         ) : (
-          /* Lápiz discreto en la esquina — no roba altura ni compite con el texto */
-          <div className="group relative rounded-xl border bg-muted/30">
+          /* Lápiz discreto en la esquina — no roba altura ni compite con el
+             texto. Fondo suave sin borde: la card exterior ya delimita. */
+          <div className="group relative rounded-xl bg-muted/40">
             <div className={cn(
               "px-4 py-3.5 pr-12 text-sm leading-relaxed whitespace-pre-wrap",
               !savedDescription && "italic text-muted-foreground",

@@ -1,9 +1,9 @@
 import { Card, CardContent } from "@/components/ui/card";
 
 /**
- * Sección de configuración en el estilo nuevo (referencia Text): card blanca
- * redondeada con cabecera de tile neutro + título + descripción, y el control
- * debajo a una columna. Reemplaza el patrón viejo de dos columnas (SettingsSection).
+ * Sección de configuración — ÚNICO primitivo de sección para las pestañas de
+ * Configuración: card blanca redondeada con cabecera de tile neutro + título +
+ * descripción, y el control debajo a una columna. No inventar variantes.
  */
 export function SectionCard({
   icon: Icon, title, description, children,

@@ -5,10 +5,16 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 /**
- * Barra de guardado unificada de Configuración. Una sola pieza para las tres
- * pestañas (Asistente / Apariencia / Derivación) — antes cada una resolvía el
- * "guardar" distinto (botón pegado al textarea, footer en card, botón suelto al
- * final del scroll).
+ * Barra de guardado de Configuración — para pestañas-FORMULARIO largas donde
+ * todos los cambios se guardan juntos (hoy: Derivación).
+ *
+ * Los otros dos modelos de guardado de Configuración son deliberados, no deuda:
+ *  - Asistente: edición explícita por sección (lápiz → Guardar/Cancelar) porque
+ *    son textos críticos que gobiernan al bot en producción.
+ *  - Apariencia: footer propio dentro del panel del configurador (el guardar
+ *    vive al lado de lo que se edita). Usa el MISMO copy que esta barra
+ *    ("Tenés cambios sin guardar." / "Todo guardado.") — si cambiás uno,
+ *    cambiá el otro.
  *
  * Sticky al fondo del área de scroll: en formularios largos el botón queda
  * siempre a mano sin volver a scrollear, y nunca se encima al contenido. El

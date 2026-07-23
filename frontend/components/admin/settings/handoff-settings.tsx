@@ -1,16 +1,18 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
-import { Workflow, Repeat, Timer, MessagesSquare, CalendarClock, Bot, Headphones } from "lucide-react";
+import { useState, useEffect, useMemo } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Workflow, Repeat, Timer, MessagesSquare, CalendarClock, Headphones } from "lucide-react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { extractErrorMessage } from "@/lib/errors";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/toast";
 import { SectionCard } from "@/components/admin/settings/section-card";
 import { SettingsSaveBar } from "@/components/admin/settings/settings-save-bar";
+import { BotAvatar } from "@/components/admin/settings/chat-mock";
 
 // Tres mensajes que cubren los tres momentos del flujo:
 //   1. Bot detecta que conviene derivar (insuficiente N veces) -> handoff_offer
@@ -37,50 +39,82 @@ const MESSAGE_KEYS: Array<{ key: string; label: string; hint: string; sample: st
   },
 ];
 
+// Serialización estable (claves ordenadas) para comparar estado vs. server.
+function stable(v: unknown): string {
+  return JSON.stringify(v, (_k, val) =>
+    val && typeof val === "object" && !Array.isArray(val)
+      ? Object.fromEntries(Object.entries(val).sort(([a], [b]) => a.localeCompare(b)))
+      : val,
+  );
+}
+
+const clamp = (v: number, min: number, max: number) =>
+  Math.min(max, Math.max(min, Number.isFinite(v) && v > 0 ? v : min));
+
 export function HandoffSettings() {
+  const qc = useQueryClient();
   const { data: config, isLoading } = useQuery({
     queryKey: ["handoff-config"],
     queryFn: api.handoffConfig.get,
   });
 
-  const [timeout, setTimeout_]   = useState(15);
+  const [inactivityMinutes, setInactivityMinutes] = useState(15);
   const [threshold, setThreshold] = useState(3);
   const [attentionHours, setAttentionHours] = useState("");
   const [contactInfo, setContactInfo] = useState("");
   const [messages, setMessages]   = useState<Record<string, string>>({});
-  const [dirty, setDirty]         = useState(false);
   // Mensaje que el admin está editando → se resalta en el preview del costado.
   const [focusedKey, setFocusedKey] = useState<string | null>(null);
 
+  // Snapshot del server con la MISMA forma que el estado local → dirty se
+  // computa por comparación (deshacer a mano vuelve a "Todo guardado") y el
+  // formulario solo se re-sincroniza cuando el VALOR del server cambia — un
+  // refetch de window-focus con los mismos datos no pisa lo que se edita.
+  const snapshot = useMemo(() => config ? stable({
+    t: config.inactivity_timeout_minutes,
+    th: config.consecutive_insufficient_count,
+    ah: config.attention_hours || "",
+    ci: config.contact_info || "",
+    m: config.transition_messages || {},
+  }) : null, [config]);
+
   useEffect(() => {
     if (!config) return;
-    setTimeout_(config.inactivity_timeout_minutes);
+    setInactivityMinutes(config.inactivity_timeout_minutes);
     setThreshold(config.consecutive_insufficient_count);
     setAttentionHours(config.attention_hours || "");
     setContactInfo(config.contact_info || "");
     setMessages(config.transition_messages || {});
-  }, [config]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [snapshot]);
+
+  const dirty = snapshot != null && stable({
+    t: inactivityMinutes, th: threshold, ah: attentionHours, ci: contactInfo, m: messages,
+  }) !== snapshot;
 
   const updateM = useMutation({
+    // Clamp al guardar: borrar el campo numérico deja 0 en pantalla, pero jamás
+    // se persiste fuera de rango (el min/max del input HTML es solo decorativo).
     mutationFn: () => api.handoffConfig.update({
-      inactivity_timeout_minutes:     timeout,
-      consecutive_insufficient_count: threshold,
+      inactivity_timeout_minutes:     clamp(inactivityMinutes, 1, 120),
+      consecutive_insufficient_count: clamp(threshold, 2, 10),
       attention_hours:                attentionHours,
       contact_info:                   contactInfo,
       transition_messages:            messages,
     }),
-    onSuccess: () => { setDirty(false); toast({ title: "Configuración guardada", variant: "success" }); },
-    onError:   (err: any) => {
-      const detail = err?.response?.data?.detail || err?.message || "No se pudo guardar la configuración.";
-      toast({
-        title: "Error al guardar",
-        description: typeof detail === "string" ? detail : "Intentá de nuevo.",
-        variant: "destructive",
-      });
+    onSuccess: () => {
+      // El refetch trae el snapshot guardado → dirty vuelve a false solo.
+      qc.invalidateQueries({ queryKey: ["handoff-config"] });
+      toast({ title: "Configuración guardada", variant: "success" });
     },
+    onError: (err: any) => toast({
+      title: "Error al guardar",
+      description: extractErrorMessage(err, "No se pudo guardar la configuración. Intentá de nuevo."),
+      variant: "destructive",
+    }),
   });
 
-  const setMessage = (key: string, value: string) => { setMessages({ ...messages, [key]: value }); setDirty(true); };
+  const setMessage = (key: string, value: string) => setMessages({ ...messages, [key]: value });
 
   if (isLoading) return (
     <div className="space-y-6">
@@ -89,18 +123,19 @@ export function HandoffSettings() {
   );
 
   return (
-    // Estilo nuevo al ancho de Canales → Todos (max-w-5xl): una card limpia por
+    // Estilo nuevo al ancho de Canales → Todos (max-w-6xl): una card limpia por
     // sección, tiles neutros, acento de marca solo en los realces (nodos/timeline).
-    <div className="mx-auto w-full max-w-5xl space-y-4">
+    <div className="mx-auto w-full max-w-6xl space-y-4">
 
       <SectionCard
         icon={Workflow}
         title="Cuándo derivar"
         description="Los dos casos en que el bot ofrece pasar a un operador."
       >
-        {/* Reglas escritas como frases: el número se lee en contexto, sin ayudas aparte */}
-        <div className="space-y-2.5">
-          <div className="flex items-center gap-3 rounded-xl border bg-muted/30 p-3.5">
+        {/* Reglas escritas como frases: el número se lee en contexto, sin ayudas
+            aparte. Filas simples — la card exterior ya delimita; sin cajas anidadas. */}
+        <div className="space-y-4">
+          <div className="flex items-center gap-3">
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
               <Repeat className="h-[18px] w-[18px]" />
             </div>
@@ -109,7 +144,7 @@ export function HandoffSettings() {
               <Input
                 type="number" min={2} max={10}
                 value={threshold}
-                onChange={e => { setThreshold(Number(e.target.value)); setDirty(true); }}
+                onChange={e => setThreshold(Number(e.target.value))}
                 className="h-8 w-14 px-1 text-center text-sm font-semibold tabular-nums"
                 aria-label="Respuestas sin resolver antes de ofrecer un operador"
               />
@@ -117,7 +152,7 @@ export function HandoffSettings() {
             </p>
           </div>
 
-          <div className="flex items-center gap-3 rounded-xl border bg-muted/30 p-3.5">
+          <div className="flex items-center gap-3">
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
               <Timer className="h-[18px] w-[18px]" />
             </div>
@@ -125,8 +160,8 @@ export function HandoffSettings() {
               <span>Avisar al usuario si nadie lo atiende en</span>
               <Input
                 type="number" min={1} max={120}
-                value={timeout}
-                onChange={e => { setTimeout_(Number(e.target.value)); setDirty(true); }}
+                value={inactivityMinutes}
+                onChange={e => setInactivityMinutes(Number(e.target.value))}
                 className="h-8 w-14 px-1 text-center text-sm font-semibold tabular-nums"
                 aria-label="Minutos en cola antes de avisar al usuario"
               />
@@ -146,7 +181,7 @@ export function HandoffSettings() {
             <Label className="text-sm">Horario de atención</Label>
             <Input
               value={attentionHours}
-              onChange={e => { setAttentionHours(e.target.value); setDirty(true); }}
+              onChange={e => setAttentionHours(e.target.value)}
               placeholder="Lunes a viernes de 7:30 a 18 hs"
             />
           </div>
@@ -154,8 +189,8 @@ export function HandoffSettings() {
             <Label className="text-sm">Contacto alternativo</Label>
             <Input
               value={contactInfo}
-              onChange={e => { setContactInfo(e.target.value); setDirty(true); }}
-              placeholder="Tel. 0342 452 0074 · recepcion@…"
+              onChange={e => setContactInfo(e.target.value)}
+              placeholder="Tel. 0000 000 0000 · contacto@tuempresa.com"
             />
           </div>
         </div>
@@ -237,18 +272,12 @@ function HandoffPreview({ messages, focusedKey }: {
     </div>
   );
 
-  // Avatar del bot (redondo, con punto "en línea") — igual que el chat real.
-  const avatar = (
-    <span className="relative h-6 w-6 shrink-0">
-      <span className="flex h-full w-full items-center justify-center rounded-full bg-gradient-to-br from-brand-light to-brand-dark">
-        <Bot className="h-3 w-3 text-brand-foreground" />
-      </span>
-      <span className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full border-2 border-white bg-emerald-500 dark:border-[#15181b]" />
-    </span>
-  );
+  // Avatar del bot — el compartido de Configuración (un solo dibujo del bot).
+  const avatar = <BotAvatar size={24} online />;
 
   return (
-    <div className="rounded-2xl border bg-muted/30 p-3.5 lg:sticky lg:top-4 lg:self-start">
+    // Fondo suave sin borde: la tarjeta blanca del chat ya se recorta sola.
+    <div className="rounded-2xl bg-muted/40 p-3.5 lg:sticky lg:top-4 lg:self-start">
       <p className="mb-2.5 px-1 text-[11px] font-medium text-muted-foreground">Vista previa</p>
       <div className="space-y-2.5 rounded-xl bg-white p-3 shadow-sm dark:bg-[#15181b]">
         {/* Contexto: mensaje del bot que dispara la oferta */}

@@ -12,9 +12,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/toast";
+import { extractErrorMessage } from "@/lib/errors";
 import { cn } from "@/lib/utils";
 import { contrastRatio, pickReadableTextColor, shade } from "@/lib/use-tenant-branding";
-import { DEFAULT_BOT_NAME, DEFAULT_GREETING } from "@/components/admin/settings/chat-preview";
+import { DEFAULT_BOT_NAME, DEFAULT_GREETING } from "@/components/admin/settings/defaults";
+import { BotAvatar } from "@/components/admin/settings/chat-mock";
 
 const DEFAULT_COLOR = "#99323D";
 const PALETTE_PRESETS = [
@@ -85,11 +87,14 @@ function Customizer({
     setPosition(branding.widget_position === "left" ? "left" : "right");
   }, [branding.primary_color, branding.secondary_color, branding.widget_theme, branding.widget_position]);
 
+  // Deps primitivas (no el objeto): un refetch con los mismos valores no pisa
+  // lo que el admin está tipeando; solo re-sincroniza si el server CAMBIÓ.
   useEffect(() => {
     if (!botConfig) return;
     setBotName(botConfig.bot_name ?? "");
     setGreeting(botConfig.greeting_message ?? "");
-  }, [botConfig]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [botConfig?.bot_name, botConfig?.greeting_message]);
 
   const previewColor = cssColorToHex(primary) || branding.primary_color || DEFAULT_COLOR;
   const effectiveText = textMode === "custom"
@@ -125,16 +130,22 @@ function Customizer({
       if (positionDirty) patch.widget_position = position;
       if (Object.keys(patch).length) await api.branding.update(patch);
     },
-    onSuccess: () => { onSaved(); toast({ title: "Cambios guardados", variant: "success" }); },
-    onError: (err: any) => {
-      const detail = err?.response?.data?.detail ?? "Error al guardar";
-      toast({ title: typeof detail === "string" ? detail : "Error al guardar", variant: "destructive" });
-    },
+    onSuccess: () => toast({ title: "Cambios guardados", variant: "success" }),
+    onError: (err: any) => toast({
+      title: "Error al guardar",
+      description: extractErrorMessage(err, "Algunos cambios pueden no haberse aplicado. Revisá y reintentá."),
+      variant: "destructive",
+    }),
+    // onSettled (no onSuccess): el guardado son DOS requests (identidad +
+    // branding). Si el segundo falla, el primero YA se aplicó — invalidar
+    // siempre para que lo guardado se refleje y lo fallido quede editable.
+    onSettled: onSaved,
   });
 
   return (
+    // Riel único de Configuración (max-w-6xl), como el resto de las pestañas.
     // Altura de la ventana: ambos contenedores llegan hasta abajo (desktop).
-    <div className="grid gap-6 lg:h-[calc(100dvh-11rem)] lg:grid-cols-[340px_1fr]">
+    <div className="mx-auto grid w-full max-w-6xl gap-6 lg:h-[calc(100dvh-11rem)] lg:grid-cols-[340px_1fr]">
       {/* ── Panel de configuración (chico, izquierda) — drill-in sin scroll ── */}
       <Card className="flex flex-col overflow-hidden rounded-2xl lg:min-h-0">
         <CardContent className="flex min-h-0 flex-1 flex-col p-0">
@@ -237,7 +248,8 @@ function Customizer({
 
           {/* Guardar — SIEMPRE visible al pie del panel */}
           <div className="flex items-center justify-between gap-3 border-t px-5 py-3">
-            <span className="text-xs text-muted-foreground">{anyDirty ? "Cambios sin guardar" : "Todo guardado"}</span>
+            {/* Mismo copy que SettingsSaveBar — un solo lenguaje de guardado */}
+            <span className="text-xs text-muted-foreground">{anyDirty ? "Tenés cambios sin guardar." : "Todo guardado."}</span>
             <Button size="sm" disabled={!anyDirty || saveM.isPending} onClick={() => saveM.mutate()}>
               {saveM.isPending && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
               Guardar
@@ -404,14 +416,10 @@ function PreviewWidget({ primaryColor, textColor, dark, botName, greeting, posit
     }, 900);
   }
 
-  // Avatar del bot (círculo con gradient de marca + punto "en línea").
+  // Avatar del bot — el compartido de Configuración, pintado con el color del
+  // tenant (este preview muestra SU identidad, no la de la plataforma).
   const avatar = (size: number) => (
-    <span className="relative shrink-0" style={{ width: size, height: size }}>
-      <span className="flex h-full w-full items-center justify-center rounded-full text-white" style={{ background: avatarGrad }}>
-        <Bot style={{ width: size * 0.55, height: size * 0.55 }} />
-      </span>
-      <span className="absolute bottom-0 right-0 rounded-full border-2" style={{ width: size * 0.3, height: size * 0.3, background: "#22c55e", borderColor: T.panel }} />
-    </span>
+    <BotAvatar size={size} background={avatarGrad} dotBorderColor={T.panel} />
   );
 
   // ── FAB (cerrado) ── al pasar el cursor, la cara cambia por los 3 puntitos.
@@ -447,10 +455,11 @@ function PreviewWidget({ primaryColor, textColor, dark, botName, greeting, posit
     >
       {/* Acciones sueltas — agrandar a la izquierda, cerrar a la derecha */}
       <div className="flex shrink-0 items-center justify-between px-2.5 pt-2.5">
-        <button onClick={() => setExpanded(e => !e)} aria-label={expanded ? "Reducir" : "Agrandar"} className="flex h-7 w-7 items-center justify-center rounded-lg transition-colors hover:bg-black/5" style={{ color: T.icon }}>
+        {/* hover según el tema DEL WIDGET (no del panel): black/5 era invisible en oscuro */}
+        <button onClick={() => setExpanded(e => !e)} aria-label={expanded ? "Reducir" : "Agrandar"} className={cn("flex h-7 w-7 items-center justify-center rounded-lg transition-colors", dark ? "hover:bg-white/10" : "hover:bg-black/5")} style={{ color: T.icon }}>
           {expanded ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
         </button>
-        <button onClick={close} aria-label="Cerrar" className="flex h-7 w-7 items-center justify-center rounded-lg transition-colors hover:bg-black/5" style={{ color: T.icon }}>
+        <button onClick={close} aria-label="Cerrar" className={cn("flex h-7 w-7 items-center justify-center rounded-lg transition-colors", dark ? "hover:bg-white/10" : "hover:bg-black/5")} style={{ color: T.icon }}>
           <X className="h-4 w-4" />
         </button>
       </div>
@@ -492,9 +501,10 @@ function PreviewWidget({ primaryColor, textColor, dark, botName, greeting, posit
       {/* Input pill */}
       <div className="shrink-0 px-3 py-2.5" style={{ background: T.panel }}>
         <div className="flex items-center gap-1 rounded-full py-1 pl-1.5 pr-1" style={{ background: T.inputBg }}>
-          <button type="button" aria-label="Adjuntar archivo" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full transition-colors" style={{ color: T.icon }}>
+          {/* Decorativo (el preview no adjunta): fuera del tab-order y de los lectores */}
+          <span aria-hidden className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full" style={{ color: T.icon }}>
             <Paperclip className="h-[18px] w-[18px]" />
-          </button>
+          </span>
           <input
             value={input}
             onChange={e => setInput(e.target.value)}

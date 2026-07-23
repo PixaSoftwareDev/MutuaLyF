@@ -9,6 +9,7 @@ import { ChannelsSettings } from "@/components/admin/settings/channels-settings"
 import { HandoffSettings } from "@/components/admin/settings/handoff-settings";
 import { PageShell } from "@/components/layout/page-shell";
 import { PageHeader } from "@/components/layout/page-header";
+import { parseCanal, parseWidgetSub, canalHref } from "@/components/admin/settings/nav";
 
 // Cada sección de Configuración es su propia ruta anidada:
 //   /admin/settings           → Asistente (base)
@@ -35,15 +36,14 @@ function SettingsContent({ tab }: { tab: SettingsTab }) {
 
   // Sub-pestañas del canal Widget (Instalar/Personalizar) — a la derecha del
   // título en desktop. Siguen por query porque son sub-estado de Canales/Widget.
-  const canalParam = params.get("canal");
-  const onWidget = tab === "canales" && canalParam !== "whatsapp" && canalParam !== "all";
-  const sub = params.get("sub") === "personalizar" ? "personalizar" : "instalar";
+  const onWidget = tab === "canales" && parseCanal(params) === "widget";
+  const sub = parseWidgetSub(params);
   const widgetSubTabs = onWidget ? (
     <div className="hidden rounded-lg bg-muted/60 p-0.5 lg:flex">
       {([["instalar", "Instalar"], ["personalizar", "Personalizar"]] as const).map(([key, label]) => (
         <Link
           key={key}
-          href={`/admin/settings/canales?canal=widget&sub=${key}`}
+          href={canalHref("widget", key)}
           className={cn(
             "rounded-md px-3 py-1 text-[13px] font-medium transition-colors",
             sub === key ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
@@ -61,7 +61,9 @@ function SettingsContent({ tab }: { tab: SettingsTab }) {
   const title = current?.labelLg ?? current?.label ?? "Configuración";
 
   return (
-    <PageShell width="wide">
+    // "default" (no "wide"): Configuración es formulario, no tabla — con
+    // "wide" el header se estiraba a 1600px y el contenido quedaba flotando.
+    <PageShell>
       <PageHeader title={title} actions={widgetSubTabs} />
 
       {/* Tabs SOLO en mobile (links de ruta); en desktop las reemplaza el submenú. */}
@@ -88,7 +90,8 @@ function SettingsContent({ tab }: { tab: SettingsTab }) {
         </div>
       </div>
 
-      <div className="mt-6 animate-fade-in lg:mt-0">
+      {/* Sin mt/fade propios: el espaciado y la animación los da PageShell. */}
+      <div>
         {tab === "asistente"  && <GeneralSettings />}
         {tab === "canales"    && <ChannelsSettings />}
         {tab === "derivacion" && <HandoffSettings />}
