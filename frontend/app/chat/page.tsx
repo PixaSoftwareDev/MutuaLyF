@@ -119,6 +119,17 @@ function AttachmentMessage({ msg, url, headers, operatorName }: {
       tabIndex={0}
       className="max-w-[220px] max-h-[220px] rounded-xl cursor-pointer"
     />
+  ) : msg.attachment?.mime === "application/pdf" ? (
+    // Vista previa: el blob URL abre en el visor de PDF del navegador (en móvil,
+    // el visor nativo). La descarga queda disponible desde ese mismo visor.
+    <button
+      type="button"
+      onClick={() => window.open(src, "_blank")}
+      className="inline-flex items-center gap-1.5 text-sm underline underline-offset-2 break-all text-left"
+      title="Ver documento"
+    >
+      <Paperclip className="h-4 w-4 shrink-0" />{msg.attachment?.name}
+    </button>
   ) : (
     <a href={src} download={msg.attachment?.name} className="inline-flex items-center gap-1.5 text-sm underline underline-offset-2 break-all">
       <Paperclip className="h-4 w-4 shrink-0" />{msg.attachment?.name}

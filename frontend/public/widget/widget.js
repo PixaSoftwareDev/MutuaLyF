@@ -820,6 +820,10 @@
         if (isImg) {
           el.src = burl;
           el.addEventListener("click", function () { window.open(burl, "_blank"); });
+        } else if (attach.mime === "application/pdf") {
+          // Vista previa en el visor de PDF del navegador (pestaña nueva);
+          // descargar queda disponible desde ese visor.
+          el.href = burl; el.setAttribute("target", "_blank"); el.setAttribute("rel", "noopener");
         } else {
           el.href = burl; el.setAttribute("download", attach.name);
         }
