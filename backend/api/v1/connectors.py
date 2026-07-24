@@ -827,7 +827,15 @@ async def apply_proposal(
     if conn is None:
         raise HTTPException(status_code=404, detail="Conector no encontrado")
 
-    created, lookup_path, lookup_param = [], None, None
+    # Re-detección segura: una operación con la MISMA RUTA que una ya cargada se
+    # CONSERVA intacta (no se recrea) — así el admin puede re-detectar para sumar
+    # rutas nuevas sin perder los ejemplos, descripciones y params que curó a mano.
+    # Se compara por (método, ruta), no por slug: la IA cambia el slug entre
+    # corridas (español↔inglés) pero la ruta es estable.
+    existing = await dao.list_tools(tenant_id, connector_id)
+    existing_paths = {(e["http_method"].upper(), e["path_template"]) for e in existing}
+
+    created, kept, lookup_path, lookup_param = [], [], None, None
     id_params: list[str] = []   # identity_param de las operaciones personales
     for t in body.tools:
         _validate_tool_payload(t.http_method, t.identity_kind, t.path_template)
@@ -835,6 +843,9 @@ async def apply_proposal(
             lookup_path = t.path_template
             lookup_param = t.identity_param
             continue  # el perfil no es una tool de chat: solo config del OTP
+        if (t.http_method.upper(), t.path_template) in existing_paths:
+            kept.append(t.slug)   # ya existe esa ruta → intacta, no la tocamos
+            continue
         data = t.model_dump(exclude={"is_lookup", "identity_param"})
         data["http_method"] = data["http_method"].upper()
         data["is_read_only"] = True
@@ -876,8 +887,8 @@ async def apply_proposal(
         await dao.update_connector(tenant_id, connector_id, {"auth_config": new_cfg})
 
     _audit(request, current_user, "connector_proposal_applied", connector_id,
-           {"tools": created, "lookup": lookup_path})
-    return {"created": created, "identity_lookup_path": lookup_path}
+           {"tools": created, "kept": kept, "lookup": lookup_path})
+    return {"created": created, "kept": kept, "identity_lookup_path": lookup_path}
 
 
 # ── Dry-run (el corazón de la pantalla) ───────────────────────────────────────

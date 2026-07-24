@@ -951,7 +951,7 @@ export const api = {
           is_lookup: t.is_lookup, identity_param: t.identity_param,
         })),
       });
-      return data as { created: string[]; identity_lookup_path: string | null };
+      return data as { created: string[]; kept: string[]; identity_lookup_path: string | null };
     },
     // Usuarios autorizados por conector (registro de identidad, modo platform_registry).
     listUsers: async (connectorId: string): Promise<{ users: ConnectorUserRow[] }> => {

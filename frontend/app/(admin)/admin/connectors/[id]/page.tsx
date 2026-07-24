@@ -406,9 +406,17 @@ export default function ConnectorDetailPage() {
     }))),
     onSuccess: (d) => {
       invAll(); setShowWizard(false); setProposal(null);
+      // Conservadas = rutas que ya existían: se preservan intactas (ejemplos,
+      // descripciones y params curados sobreviven al re-detectar).
+      const kept = d.kept?.length
+        ? ` · ${d.kept.length} ya existían y se conservaron sin cambios`
+        : "";
+      const otp = d.identity_lookup_path ? " Validación por código (OTP propio) configurada." : "";
       toast({
-        title: `${d.created.length} ${d.created.length === 1 ? "operación creada" : "operaciones creadas"}`,
-        description: d.identity_lookup_path ? "Validación por código (OTP propio) configurada automáticamente." : undefined,
+        title: d.created.length
+          ? `${d.created.length} ${d.created.length === 1 ? "operación creada" : "operaciones creadas"}`
+          : "Sin operaciones nuevas",
+        description: (kept + otp).trim() || undefined,
         variant: "success",
       });
     },
