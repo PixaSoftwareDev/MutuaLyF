@@ -12,6 +12,12 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ARG NEXT_PUBLIC_API_URL=
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+# Acceso rápido de login en builds locales (ver login/page.tsx). El default
+# "false" inlinea la condición en build y stripea los emails del bundle del VPS.
+ARG NEXT_PUBLIC_ENABLE_DEV_LOGIN=false
+ENV NEXT_PUBLIC_ENABLE_DEV_LOGIN=$NEXT_PUBLIC_ENABLE_DEV_LOGIN
+ARG NEXT_PUBLIC_DEV_QUICK_PASSWORD=
+ENV NEXT_PUBLIC_DEV_QUICK_PASSWORD=$NEXT_PUBLIC_DEV_QUICK_PASSWORD
 RUN pnpm build
 
 FROM node:20-alpine AS runner
