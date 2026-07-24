@@ -68,33 +68,41 @@ class ConnectorCircuitOpen(Exception):
     """El circuit breaker del executor está abierto (fallos recientes)."""
 
 
-_circuit_failure_count = 0
+# Breaker POR CONECTOR (clave tenant:connector_id). Antes era estado global del
+# módulo: un solo conector con el upstream roto (visto 2026-07-22: cert SSL
+# inválido) abría el circuito para TODAS las tools de TODOS los tenants del
+# worker. El estado sigue siendo per-proceso (cada worker uvicorn aprende solo),
+# aceptable: el costo de un probe extra por worker es una llamada con timeout.
 _CIRCUIT_THRESHOLD = 3
-_CIRCUIT_OPEN_AT: float | None = None
 _CIRCUIT_HALF_OPEN_TTL = 30.0
 
-
-def _record_failure() -> None:
-    global _circuit_failure_count, _CIRCUIT_OPEN_AT
-    _circuit_failure_count += 1
-    if _circuit_failure_count >= _CIRCUIT_THRESHOLD and _CIRCUIT_OPEN_AT is None:
-        _CIRCUIT_OPEN_AT = time.monotonic()
-        logger.error("connector_circuit_opened retry_after=%.0fs", _CIRCUIT_HALF_OPEN_TTL)
+_circuits: dict[str, dict] = {}
 
 
-def _reset_circuit() -> None:
-    global _circuit_failure_count, _CIRCUIT_OPEN_AT
-    _circuit_failure_count = 0
-    _CIRCUIT_OPEN_AT = None
+def _circuit_key(binding) -> str:
+    return f"{getattr(binding, 'tenant_id', '')}:{getattr(binding, 'connector_id', '') or binding.connector_slug}"
 
 
-def _circuit_is_open() -> bool:
-    global _circuit_failure_count, _CIRCUIT_OPEN_AT
-    if _circuit_failure_count < _CIRCUIT_THRESHOLD:
+def _record_failure(key: str) -> None:
+    st = _circuits.setdefault(key, {"failures": 0, "opened_at": None})
+    st["failures"] += 1
+    if st["failures"] >= _CIRCUIT_THRESHOLD and st["opened_at"] is None:
+        st["opened_at"] = time.monotonic()
+        logger.error("connector_circuit_opened connector=%s retry_after=%.0fs",
+                     key, _CIRCUIT_HALF_OPEN_TTL)
+
+
+def _reset_circuit(key: str) -> None:
+    _circuits.pop(key, None)
+
+
+def _circuit_is_open(key: str) -> bool:
+    st = _circuits.get(key)
+    if st is None or st["failures"] < _CIRCUIT_THRESHOLD:
         return False
-    if _CIRCUIT_OPEN_AT is not None and (time.monotonic() - _CIRCUIT_OPEN_AT) >= _CIRCUIT_HALF_OPEN_TTL:
-        _circuit_failure_count = _CIRCUIT_THRESHOLD - 1  # deja pasar una prueba (half-open)
-        _CIRCUIT_OPEN_AT = None
+    if st["opened_at"] is not None and (time.monotonic() - st["opened_at"]) >= _CIRCUIT_HALF_OPEN_TTL:
+        st["failures"] = _CIRCUIT_THRESHOLD - 1  # deja pasar una prueba (half-open)
+        st["opened_at"] = None
         return False
     return True
 
@@ -256,10 +264,17 @@ async def validate_second_factor(binding, identity: str, code: str) -> dict:
         return {"ok": False, "reason": "upstream"}
 
 
-async def lookup_identity(binding, identity: str, cfg: dict | None = None) -> dict | None:
+async def lookup_identity(binding, identity: str, cfg: dict | None = None) -> tuple[dict | None, str]:
     """Busca el perfil de la persona en el proveedor (datos de contacto para el
-    OTP propio). GET {base_url}{identity_lookup_path}. None si no existe o falla
-    (fail-closed: sin perfil no se envía código).
+    OTP propio). GET {base_url}{identity_lookup_path}.
+
+    Devuelve (perfil, motivo):
+      - (dict, 'ok')         → encontrado.
+      - (None, 'not_found')  → el proveedor respondió y la persona NO existe
+                               (404, o found_field en falso). Se le puede decir
+                               al usuario que ese identificador no figura.
+      - (None, 'upstream')   → no pudimos preguntar (caído/timeout/config). NO
+                               afirmar que no existe: fail-closed sin código.
 
     cfg (de connector.auth_config): identity_lookup_path (config-driven; default
     de compat '/afiliados/{identity}'), found_field (default 'encontrado').
@@ -280,15 +295,19 @@ async def lookup_identity(binding, identity: str, cfg: dict | None = None) -> di
         )
         async with httpx.AsyncClient(timeout=binding.timeout_ms / 1000) as client:
             resp = await client.get(url, headers=auth_kwargs["headers"] or None, auth=auth_kwargs["auth"])
+            if resp.status_code == 404:
+                return None, "not_found"
             resp.raise_for_status()
             data = resp.json()
     except Exception as exc:
         logger.warning("identity_lookup_failed connector=%s error=%s", binding.connector_slug, exc)
-        return None
+        return None, "upstream"
     found_field = cfg.get("found_field", "encontrado")
     if isinstance(data, dict) and found_field in data and not data.get(found_field):
-        return None
-    return data if isinstance(data, dict) else None
+        return None, "not_found"
+    if not isinstance(data, dict):
+        return None, "not_found"
+    return data, "ok"
 
 
 async def execute_tool(binding, identity: str, params: dict | None = None) -> ExecResult:
@@ -311,9 +330,10 @@ async def execute_tool(binding, identity: str, params: dict | None = None) -> Ex
     # 2) Armar path + query.
     path, query = _build_path(binding.path_template, identity, clean_params)
 
-    # 3) Circuit breaker.
-    if _circuit_is_open():
-        logger.warning("tool_circuit_open tool=%s", tool_slug)
+    # 3) Circuit breaker (por conector).
+    ckey = _circuit_key(binding)
+    if _circuit_is_open(ckey):
+        logger.warning("tool_circuit_open tool=%s connector=%s", tool_slug, binding.connector_slug)
         return ExecResult(outcome=UPSTREAM_ERROR, tool_slug=tool_slug,
                           detail={"error": "circuit_open"},
                           latency_ms=int((time.monotonic() - start) * 1000))
@@ -326,7 +346,7 @@ async def execute_tool(binding, identity: str, params: dict | None = None) -> Ex
                 raw = await _invoke_stub(binding, identity, query)
             else:
                 raw = await _invoke_http(binding, path, query)
-        _reset_circuit()
+        _reset_circuit(ckey)
     except EgressBlocked as exc:
         # No cuenta para el breaker: es un rechazo de política, no un fallo upstream.
         logger.warning("tool_egress_blocked tool=%s error=%s", tool_slug, exc)
@@ -335,14 +355,14 @@ async def execute_tool(binding, identity: str, params: dict | None = None) -> Ex
                           latency_ms=int((time.monotonic() - start) * 1000))
     except httpx.HTTPStatusError as exc:
         code = exc.response.status_code
-        _record_failure() if code >= 500 else None
+        _record_failure(ckey) if code >= 500 else None
         # 401/403 del upstream → el usuario necesita (re)autenticar o no tiene permiso.
         outcome = AUTH_REQUIRED if code == 401 else FORBIDDEN if code == 403 else UPSTREAM_ERROR
         return ExecResult(outcome=outcome, tool_slug=tool_slug,
                           detail={"error": f"http_{code}"},
                           latency_ms=int((time.monotonic() - start) * 1000))
     except (asyncio.TimeoutError, httpx.HTTPError, ConnectorCircuitOpen, Exception) as exc:
-        _record_failure()
+        _record_failure(ckey)
         logger.warning("tool_upstream_error tool=%s error=%s", tool_slug, exc)
         return ExecResult(outcome=UPSTREAM_ERROR, tool_slug=tool_slug,
                           detail={"error": "upstream"},

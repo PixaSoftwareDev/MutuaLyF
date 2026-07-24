@@ -131,3 +131,7 @@ frontend/public/widget/test.html
 
 # Demo local del widget embebido (contiene widget_token — no commitear)
 frontend/public/demo-embed.html
+
+# Artefactos de pruebas locales (contienen datos reales del CRM — NO commitear)
+backend/*_results.json
+backend/ground_truth.json

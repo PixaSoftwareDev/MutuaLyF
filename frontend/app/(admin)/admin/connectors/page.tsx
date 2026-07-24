@@ -5,6 +5,43 @@ import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus, Plug, Loader2, KeyRound, Database, ArrowRight, SearchX, Trash2 } from "lucide-react";
 import { api, type ConnectorRow } from "@/lib/api";
+
+// "hace 5 min" / "hace 2 h" / "hace 3 d" — para la línea de salud del conector.
+function timeAgo(iso: string): string {
+  const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
+  if (s < 60) return "hace segundos";
+  if (s < 3600) return `hace ${Math.round(s / 60)} min`;
+  if (s < 86400) return `hace ${Math.round(s / 3600)} h`;
+  return `hace ${Math.round(s / 86400)} d`;
+}
+
+// Salud del conector (derivada de tool_call_audit en el backend). Muestra de un
+// vistazo lo que antes solo aparecía grepeando logs: upstream roto = "Fallando desde…".
+function HealthLine({ health }: { health: ConnectorRow["health"] }) {
+  if (!health) {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+        <span className="h-2 w-2 rounded-full bg-muted-foreground/40" /> Sin llamadas registradas
+      </span>
+    );
+  }
+  if (health.status === "failing") {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-xs font-medium text-destructive">
+        <span className="h-2 w-2 rounded-full bg-destructive animate-pulse" />
+        Fallando desde {timeAgo(health.failing_since ?? health.last_call_at)}
+        <span className="font-normal text-muted-foreground">· {health.errors_24h} error{health.errors_24h === 1 ? "" : "es"} en 24 h</span>
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+      <span className="h-2 w-2 rounded-full bg-emerald-500" />
+      <span className="font-medium text-emerald-600">OK</span> · última llamada {timeAgo(health.last_call_at)}
+      {health.errors_24h > 0 && <span>· {health.errors_24h} error{health.errors_24h === 1 ? "" : "es"} en 24 h</span>}
+    </span>
+  );
+}
 import { cn, toSlug } from "@/lib/utils";
 import { humanizeConnectorError } from "@/lib/connector-errors";
 import { Button } from "@/components/ui/button";
@@ -31,13 +68,20 @@ function errDetail(e: unknown): string {
   return anyE?.response?.data?.detail || "Ocurrió un error";
 }
 
-// Pastilla de estado con punto — verde al estar activo (mismo lenguaje que sectores/canales).
-function StatePill({ active }: { active: boolean }) {
-  return active ? (
+// Pastilla de estado con punto — verde al estar activo (mismo lenguaje que
+// sectores/canales). Ámbar cuando la activación espera al super-admin.
+function StatePill({ active, pending }: { active: boolean; pending?: boolean }) {
+  if (active) return (
     <span className="inline-flex items-center gap-1.5 rounded-full border border-success/30 bg-success/[0.08] px-2 py-0.5 text-[11px] font-semibold text-success">
       <span className="h-1.5 w-1.5 rounded-full bg-success" /> Activo
     </span>
-  ) : (
+  );
+  if (pending) return (
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-warning/30 bg-warning/[0.08] px-2 py-0.5 text-[11px] font-semibold text-warning">
+      <span className="h-1.5 w-1.5 rounded-full bg-warning" /> Esperando aprobación
+    </span>
+  );
+  return (
     <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/50 px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">
       <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/40" /> Inactivo
     </span>
@@ -179,6 +223,7 @@ export default function ConnectorsPage() {
                           <div className="min-w-0">
                             <p className="truncate text-sm font-medium text-foreground transition-colors group-hover:text-action">{c.display_name}</p>
                             <p className="truncate font-mono text-xs text-muted-foreground">{c.base_url}</p>
+                            <HealthLine health={c.health} />
                           </div>
                         </div>
                       </TableCell>
@@ -190,7 +235,7 @@ export default function ConnectorsPage() {
                         {c.has_secret && <span className="text-muted-foreground/60"> · credencial</span>}
                       </TableCell>
                       <TableCell className="hidden text-right text-sm tabular-nums text-muted-foreground sm:table-cell">{c.tool_count}</TableCell>
-                      <TableCell><StatePill active={c.is_active} /></TableCell>
+                      <TableCell><StatePill active={c.is_active} pending={c.pending_approval} /></TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-0.5">
                           <Button
@@ -240,6 +285,9 @@ export default function ConnectorsPage() {
             <div className="space-y-2">
               <Label>URL base del API</Label>
               <Input placeholder="https://api.proveedor.com.ar" value={baseUrl} onChange={e => setBaseUrl(e.target.value)} />
+              {baseUrl.trim().length > 0 && !/^https?:\/\//i.test(baseUrl.trim()) && (
+                <p className="text-[11px] leading-snug text-warning">Tiene que empezar con http:// o https:// — sin eso las llamadas al proveedor fallan.</p>
+              )}
             </div>
             <div className="space-y-2">
               <Label>Autenticación</Label>
@@ -261,7 +309,7 @@ export default function ConnectorsPage() {
             <Button variant="outline" onClick={() => setShowCreate(false)}>Cancelar</Button>
             <Button
               onClick={() => createM.mutate()}
-              disabled={!slug || !baseUrl.trim() || createM.isPending}
+              disabled={!slug || !/^https?:\/\//i.test(baseUrl.trim()) || createM.isPending}
             >
               {createM.isPending && <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />}
               Crear conector

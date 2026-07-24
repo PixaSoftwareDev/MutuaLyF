@@ -25,7 +25,7 @@ import time
 
 import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from core.audit import record as audit, fire_and_log
 from core.config import settings
@@ -67,10 +67,20 @@ def _audit(request: Request, user: CurrentUser, action: str, resource: str, deta
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
 
+def _require_scheme(v: str | None) -> str | None:
+    """Una base sin http(s):// produce URLs sin esquema que fallan silenciosamente
+    en el executor ("no respondió", sin status) — rechazarla acá con mensaje claro."""
+    if v is not None and not re.match(r"^https?://", v.strip(), re.IGNORECASE):
+        raise ValueError("La URL base debe empezar con http:// o https:// (ej. https://api.proveedor.com)")
+    return v.strip() if v else v
+
+
 class ConnectorIn(BaseModel):
     slug: str = Field(min_length=2, max_length=60, pattern=r"^[a-z0-9_\-]+$")
     display_name: str = Field(min_length=2, max_length=120)
     base_url: str = Field(min_length=8, max_length=300)
+
+    _v_base = field_validator("base_url")(_require_scheme)
     egress_allow: list[str] = Field(default_factory=list)
     auth_type: str = "none"
     auth_config: dict = Field(default_factory=dict)
@@ -81,6 +91,8 @@ class ConnectorIn(BaseModel):
 class ConnectorUpdate(BaseModel):
     display_name: str | None = Field(default=None, min_length=2, max_length=120)
     base_url: str | None = Field(default=None, min_length=8, max_length=300)
+
+    _v_base = field_validator("base_url")(_require_scheme)
     egress_allow: list[str] | None = None
     auth_type: str | None = None
     auth_config: dict | None = None
@@ -99,6 +111,8 @@ class ActiveIn(BaseModel):
 class ToolIn(BaseModel):
     slug: str = Field(min_length=2, max_length=60, pattern=r"^[a-z0-9_\-]+$")
     display_name: str = Field(min_length=2, max_length=120)
+    description: str | None = Field(default=None, max_length=600)
+    examples: list[str] = Field(default_factory=list, max_length=20)
     http_method: str = "GET"
     path_template: str = Field(min_length=1, max_length=300)
     params_schema: dict = Field(default_factory=dict)
@@ -110,6 +124,8 @@ class ToolIn(BaseModel):
 
 class ToolUpdate(BaseModel):
     display_name: str | None = None
+    description: str | None = None
+    examples: list[str] | None = Field(default=None, max_length=20)
     http_method: str | None = None
     path_template: str | None = None
     params_schema: dict | None = None
@@ -236,6 +252,112 @@ async def add_approved_host(
     return {"host": host, "approved": True}
 
 
+@router.get("/admin/connectors/overview")
+async def connectors_overview(current_user: CurrentUser = Depends(require_super_admin)):
+    """Oversight de plataforma: TODOS los conectores de TODOS los tenants con sus
+    rutas a la vista, más el feed de cambios recientes (30 días). La aprobación
+    sigue siendo por host; esto es visibilidad continua — el super-admin ve la
+    película (qué está habilitado hoy y qué cambió), no solo la foto del pedido."""
+    connectors: list[dict] = []
+    changes: list[dict] = []
+    for t in await dao.list_tenant_ids():
+        tenant_id, tenant_name = t["id"], t.get("name") or t["id"]
+        try:
+            conns = await dao.list_connectors(tenant_id)
+        except Exception:  # noqa: BLE001 — tenant sin schema de conectores
+            continue
+        # id/slug → nombre humano, para que el feed no muestre UUIDs crudos.
+        names: dict[str, str] = {}
+        for c in conns:
+            names[c["id"]] = c["display_name"]
+            names[c.get("slug") or ""] = c["display_name"]
+            try:
+                tools = await dao.list_tools(tenant_id, c["id"])
+            except Exception:  # noqa: BLE001
+                tools = []
+            for x in tools:
+                names[x["id"]] = f"{x['display_name']} ({c['display_name']})"
+            connectors.append({
+                "tenant_id": tenant_id, "tenant_name": tenant_name,
+                "id": c["id"], "display_name": c["display_name"],
+                "base_url": c["base_url"], "is_active": c["is_active"],
+                "auth_type": c["auth_type"], "egress_allow": c["egress_allow"],
+                "tools": [{"display_name": x["display_name"], "http_method": x["http_method"],
+                           "path_template": x["path_template"], "is_active": x["is_active"]}
+                          for x in tools],
+            })
+        if conns:
+            try:
+                for ch in await dao.recent_connector_changes(tenant_id):
+                    # resource puede ser: connector_id, tool_id, slug, o "uuid/slug".
+                    res = ch.get("resource") or ""
+                    if "/" in res:
+                        cid, _, slug = res.partition("/")
+                        label = f"{slug} ({names.get(cid, 'conector eliminado')})"
+                    else:
+                        label = names.get(res)
+                        if label is None:
+                            # UUID de algo que ya no existe → decirlo; texto plano → tal cual.
+                            label = "(ya eliminado)" if re.match(r"^[0-9a-f-]{36}$", res) else (res or None)
+                    changes.append({"tenant_id": tenant_id, "tenant_name": tenant_name,
+                                    "resource_label": label, **ch})
+            except Exception as exc:  # noqa: BLE001 — el feed es best-effort
+                logger.warning("connector_changes_failed tenant=%s error=%s", tenant_id, exc)
+    changes.sort(key=lambda x: x.get("created_at") or 0, reverse=True)
+    return {"connectors": connectors, "changes": changes[:50]}
+
+
+@router.get("/admin/connectors/activation-requests")
+async def list_activation_requests(current_user: CurrentUser = Depends(require_super_admin)):
+    """Panel super-admin: qué tenants están pidiendo activar conectores. Cada
+    solicitud trae el conector con sus rutas a la vista para decidir con
+    fundamento. Auto-limpieza: solicitudes de conectores borrados o ya activos
+    se eliminan al listarlas."""
+    out = []
+    for req in await dao.list_activation_requests():
+        tenant_id, connector_id = req["tenant_id"], req["connector_id"]
+        try:
+            conn = await dao.get_connector(tenant_id, connector_id)
+        except Exception:  # noqa: BLE001 — schema del tenant inaccesible
+            conn = None
+        if conn is None or conn.get("is_active"):
+            try:
+                await dao.delete_activation_request(tenant_id, connector_id)
+            except Exception:  # noqa: BLE001
+                pass
+            continue
+        hosts = []
+        for h in req["hosts"] or []:
+            hosts.append({"host": h, "approved": await dao.is_host_approved(h)})
+        # Todos los hosts aprobados → el trabajo del super-admin terminó: la
+        # solicitud sale de la lista (el admin del tenant solo tiene que
+        # reactivar; si no lo hace, no es un pendiente NUESTRO).
+        if all(h["approved"] for h in hosts):
+            try:
+                await dao.delete_activation_request(tenant_id, connector_id)
+            except Exception:  # noqa: BLE001
+                pass
+            continue
+        try:
+            tools = await dao.list_tools(tenant_id, connector_id)
+        except Exception:  # noqa: BLE001
+            tools = []
+        out.append({
+            "tenant_id": tenant_id,
+            "tenant_name": req.get("tenant_name") or tenant_id,
+            "connector_id": connector_id,
+            "connector_name": conn["display_name"],
+            "base_url": conn["base_url"],
+            "hosts": hosts,
+            "requested_by": req.get("requested_by"),
+            "requested_at": req.get("created_at"),
+            "tools": [{"display_name": t["display_name"], "http_method": t["http_method"],
+                       "path_template": t["path_template"], "is_active": t["is_active"]}
+                      for t in tools],
+        })
+    return {"requests": out}
+
+
 @router.delete("/admin/connectors/approved-hosts/{host}")
 async def delete_approved_host(
     host: str, request: Request,
@@ -250,10 +372,49 @@ async def delete_approved_host(
 
 # ── Conectores ────────────────────────────────────────────────────────────────
 
+async def _unapproved_hosts(egress_allow: list[str]) -> list[str]:
+    """Hosts del conector que todavía necesitan aprobación del super-admin
+    (excluye los internos de confianza). Compartido por activar y por el flag
+    pending_approval de los GET."""
+    trusted = settings.trusted_internal_hosts_set
+    out = []
+    for host in egress_allow:
+        if host in trusted:
+            continue
+        if not await dao.is_host_approved(host):
+            out.append(host)
+    return out
+
+
+async def _pending_approval(tenant_id: str, conn: dict, requested_ids: set[str]) -> bool:
+    """True si el conector está esperando al super-admin: hay solicitud viva Y
+    sigue habiendo hosts sin aprobar. Se recalcula contra los hosts actuales
+    para que el estado caiga solo apenas el super-admin aprueba."""
+    if conn["is_active"] or conn["id"] not in requested_ids:
+        return False
+    return bool(await _unapproved_hosts(conn["egress_allow"]))
+
+
 @router.get("/admin/connectors")
 async def list_connectors(current_user: CurrentUser = Depends(require_admin_or_super)):
     tenant_id = _own_tenant(current_user)
-    return {"connectors": await dao.list_connectors(tenant_id)}
+    conns = await dao.list_connectors(tenant_id)
+    # Salud desde tool_call_audit — best-effort: si la consulta falla, el listado
+    # sale igual (health=None → la UI muestra "sin datos").
+    try:
+        health = await dao.connectors_health(tenant_id)
+    except Exception as exc:
+        logger.warning("connectors_health_failed tenant=%s error=%s", tenant_id, exc)
+        health = {}
+    try:
+        requested = await dao.list_activation_request_ids(tenant_id)
+    except Exception as exc:  # noqa: BLE001 — el flag es informativo
+        logger.warning("activation_request_ids_failed tenant=%s error=%s", tenant_id, exc)
+        requested = set()
+    for c in conns:
+        c["health"] = health.get(c["id"])
+        c["pending_approval"] = await _pending_approval(tenant_id, c, requested)
+    return {"connectors": conns}
 
 
 @router.post("/admin/connectors", status_code=201)
@@ -284,6 +445,11 @@ async def get_connector(connector_id: str, current_user: CurrentUser = Depends(r
     if conn is None:
         raise HTTPException(status_code=404, detail="Conector no encontrado")
     conn["tools"] = await dao.list_tools(tenant_id, connector_id)
+    try:
+        requested = await dao.list_activation_request_ids(tenant_id)
+    except Exception:  # noqa: BLE001 — el flag es informativo
+        requested = set()
+    conn["pending_approval"] = await _pending_approval(tenant_id, conn, requested)
     return conn
 
 
@@ -355,23 +521,32 @@ async def set_active(
         raise HTTPException(status_code=404, detail="Conector no encontrado")
 
     if body.is_active:
-        trusted = settings.trusted_internal_hosts_set
-        pending = []
-        for host in conn["egress_allow"]:
-            if host in trusted:
-                continue
-            if not await dao.is_host_approved(host):
-                pending.append(host)
-        if pending:
-            raise HTTPException(
-                status_code=403,
-                detail=f"Hosts pendientes de aprobación por el super-admin: {', '.join(pending)}. "
-                       f"El conector queda configurado; podés probarlo, pero no activarlo aún.",
-            )
         if not conn["egress_allow"]:
             raise HTTPException(status_code=422, detail="El conector no tiene hosts en egress_allow")
+        pending = await _unapproved_hosts(conn["egress_allow"])
+        if pending:
+            # No es un error del admin: es un paso del circuito. Queda registrada
+            # la solicitud (el super-admin la ve en su panel con tenant + conector
+            # + hosts + rutas) y el conector queda "esperando aprobación" — la UI
+            # lo muestra como estado, no como rebote.
+            try:
+                await dao.upsert_activation_request(
+                    tenant_id, connector_id, pending,
+                    current_user.email or current_user.user_id)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("activation_request_failed tenant=%s error=%s", tenant_id, exc)
+            _audit(request, current_user, "connector_activation_requested", connector_id,
+                   {"hosts": pending})
+            return {"ok": True, "is_active": False,
+                    "pending_approval": True, "pending_hosts": pending}
 
     await dao.set_connector_active(tenant_id, connector_id, body.is_active)
+    if body.is_active:
+        # Activado con éxito → la solicitud pendiente (si había) ya no corre.
+        try:
+            await dao.delete_activation_request(tenant_id, connector_id)
+        except Exception:  # noqa: BLE001 — limpieza best-effort
+            pass
     _audit(request, current_user, "connector_active_changed", connector_id, {"is_active": body.is_active})
     return {"ok": True, "is_active": body.is_active}
 
@@ -509,6 +684,7 @@ class DiscoverIn(BaseModel):
 class ApplyToolIn(BaseModel):
     slug: str
     display_name: str
+    description: str | None = None
     http_method: str = "GET"
     path_template: str
     params_schema: dict = Field(default_factory=dict)
@@ -706,42 +882,14 @@ async def apply_proposal(
 
 # ── Dry-run (el corazón de la pantalla) ───────────────────────────────────────
 
-def _suggest_response_map(raw) -> dict:
-    """Heurística sobre la respuesta real: si hay UNA lista → items_path; si hay
-    un booleano tipo found/encontrado → not_found_field. La UI la ofrece con un clic."""
-    suggestion: dict = {}
-    if isinstance(raw, dict):
-        list_keys = [k for k, v in raw.items() if isinstance(v, list)]
-        if len(list_keys) == 1:
-            suggestion["items_path"] = list_keys[0]
-            suggestion["empty_when_empty"] = True
-        for k, v in raw.items():
-            if isinstance(v, bool) and k.lower() in ("encontrado", "found", "exists", "ok", "existe"):
-                suggestion["not_found_field"] = k
-                suggestion["not_found_value"] = False
-                break
-    return suggestion
-
-
-@router.post("/admin/connectors/{connector_id}/tools/{tool_id}/test")
-async def test_tool(
-    connector_id: str, tool_id: str, body: TestIn, request: Request,
-    current_user: CurrentUser = Depends(require_admin_or_super),
-):
-    """Dry-run real: arma la URL final, valida egress, llama al tercero y muestra
-    crudo + mapeado + sugerencia de response_map. Funciona con el conector
-    INACTIVO a propósito: probar es parte de configurar (D2/D3)."""
+async def _dry_run_tool(conn: dict, tool: dict, tenant_id: str, connector_id: str,
+                        identity: str, params: dict) -> dict:
+    """Núcleo del dry-run: arma la URL final, valida egress, llama al tercero y
+    devuelve crudo + mapeado + sugerencia de response_map. Compartido por la
+    prueba individual y la masiva."""
     from services.connector_executor import _apply_response_map, _build_path
 
-    tenant_id = _own_tenant(current_user)
-    conn = await dao.get_connector(tenant_id, connector_id)
-    if conn is None:
-        raise HTTPException(status_code=404, detail="Conector no encontrado")
-    tool = next((t for t in await dao.list_tools(tenant_id, connector_id) if t["id"] == tool_id), None)
-    if tool is None:
-        raise HTTPException(status_code=404, detail="Tool no encontrada")
-
-    path, query = _build_path(tool["path_template"], body.identity, dict(body.params))
+    path, query = _build_path(tool["path_template"], identity, dict(params))
     url = conn["base_url"].rstrip("/") + "/" + path.lstrip("/")
     result: dict = {"url": url, "method": tool["http_method"]}
 
@@ -775,11 +923,226 @@ async def test_tool(
         if resp.status_code < 400 and not isinstance(raw, str):
             mapped = _apply_response_map(raw, tool["response_map"])
             result["mapped"] = {"outcome": mapped.outcome, "data": mapped.data}
-            result["suggested_response_map"] = _suggest_response_map(raw)
+            from services.connector_discovery import suggest_response_map
+            result["suggested_response_map"] = suggest_response_map(raw)
     except httpx.HTTPError as exc:
         result.update(ok=False, error="upstream", detail=str(exc)[:300],
                       latency_ms=int((time.monotonic() - start) * 1000))
+    return result
 
+
+async def _autofill_resource_ids(conn: dict, tool: dict, tools: list[dict],
+                                 tenant_id: str, connector_id: str, identity: str,
+                                 params: dict, _depth: int = 0,
+                                 ) -> tuple[dict | None, list[dict], str | None]:
+    """Recorrido automático de prueba: completa los params que el admin no puso.
+
+    Reglas (config-driven, sin hardcodear ningún proveedor):
+      - requerido con enum y sin valor → primer valor del enum.
+      - x-resource-id sin valor → id REAL sacado de su operación de listado:
+          * `x-resource-source` en el schema: slug de la lista, o dict
+            {valor_de_enum: slug} cuando la fuente depende de otro param (ej.
+            entityType=project → lista_proyectos).
+          * sin fuente declarada: la hermana estructural (misma ruta sin el
+            último tramo `/{param}`).
+        La lista intermedia se autocompleta recursivamente (profundidad ≤ 2).
+    Devuelve (params, autos, error_descriptivo) — si un tramo no conecta, el
+    error dice exactamente cuál."""
+    from services.connector_memory import summarize_result
+    props = ((tool.get("params_schema") or {}).get("properties") or {})
+    required = (tool.get("params_schema") or {}).get("required", [])
+    autos: list[dict] = []
+    filled = dict(params)
+
+    # 1) Requeridos con enum → primer valor (los selectores no bloquean la prueba).
+    for name in required:
+        spec = props.get(name) or {}
+        if spec.get("enum") and not str(filled.get(name) or "").strip():
+            filled[name] = spec["enum"][0]
+
+    # 2) Ids de recurso → conseguir un id real desde su lista.
+    for name, spec in props.items():
+        if not (isinstance(spec, dict) and spec.get("x-resource-id")):
+            continue
+        if str(filled.get(name) or "").strip():
+            continue
+
+        src = spec.get("x-resource-source")
+        if isinstance(src, dict):
+            # La fuente depende del valor de otro param enum (ej. entityType).
+            selector = next((n for n, s in props.items()
+                             if isinstance(s, dict) and s.get("enum")
+                             and set(map(str, s["enum"])) & set(src.keys())), None)
+            sel_val = str(filled.get(selector) or "") if selector else ""
+            if sel_val not in src:
+                sel_val = next(iter(src))
+                if selector:
+                    filled[selector] = sel_val
+            list_tool = next((t for t in tools if t["slug"] == src[sel_val]), None)
+            faltante_hint = f"la operación «{src[sel_val]}»"
+        elif isinstance(src, str):
+            list_tool = next((t for t in tools if t["slug"] == src), None)
+            faltante_hint = f"la operación «{src}»"
+        else:
+            # La colección dueña del id es lo que está ANTES del parámetro:
+            # /projects/{id} → /projects, y también /contacts/{id}/opportunities
+            # → /contacts (anidada: el id es del contacto, no de "opportunities").
+            parent_path = tool["path_template"].split("/{" + name + "}")[0]
+            list_tool = next((t for t in tools
+                              if t["path_template"] == parent_path and t["id"] != tool["id"]), None)
+            faltante_hint = f"la operación de listado ({parent_path})"
+
+        if list_tool is None:
+            return None, [], (f"Esta operación necesita un «{name}» y no encontré "
+                              f"{faltante_hint} para conseguir un valor real. "
+                              f"Cargá esa operación, o probá poniendo un {name} a mano.")
+
+        # La lista intermedia puede necesitar sus propios params → recursión acotada.
+        list_params: dict = {}
+        if _depth < 2:
+            sub, _sub_autos, sub_err = await _autofill_resource_ids(
+                conn, list_tool, tools, tenant_id, connector_id, identity, {}, _depth + 1)
+            if sub_err is not None:
+                return None, [], (f"Para conseguir un «{name}» real necesitábamos "
+                                  f"“{list_tool['display_name']}”, pero: {sub_err}")
+            list_params = sub or {}
+
+        lr = await _dry_run_tool(conn, list_tool, tenant_id, connector_id, identity, list_params)
+        if not lr.get("ok"):
+            reason = lr.get("detail") or lr.get("error") or f"HTTP {lr.get('status')}"
+            return None, [], (f"Para conseguir un «{name}» real llamamos primero a "
+                              f"“{list_tool['display_name']}”, pero esa llamada falló: {reason}")
+        items = summarize_result(lr.get("raw"))
+        if not items:
+            return None, [], (f"“{list_tool['display_name']}” respondió pero sin elementos con id — "
+                              f"no hay un «{name}» real para probar. Cargá datos en el sistema "
+                              f"del proveedor o probá con un {name} a mano.")
+        filled[name] = items[0]["id"]
+        autos.append({"param": name, "value": items[0]["id"],
+                      "label": items[0].get("label"), "from": list_tool["display_name"]})
+    return filled, autos, None
+
+
+async def _maybe_apply_suggested_map(tenant_id: str, tool: dict, result: dict) -> None:
+    """Prueba OK + tool sin mapeo + heurística con sugerencia → se aplica sola
+    (es exactamente lo que el admin hacía con el botón). El preview `mapped` del
+    resultado se recalcula con el mapa recién aplicado para que lo que se muestra
+    sea lo que va a pasar en runtime."""
+    if not (result.get("ok") and not (tool.get("response_map") or {})
+            and result.get("suggested_response_map")):
+        return
+    suggestion = result["suggested_response_map"]
+    try:
+        if await dao.update_tool(tenant_id, tool["id"], {"response_map": suggestion}):
+            result["response_map_applied"] = True
+            raw = result.get("raw")
+            if raw is not None and not isinstance(raw, str):
+                from services.connector_executor import _apply_response_map
+                mapped = _apply_response_map(raw, suggestion)
+                result["mapped"] = {"outcome": mapped.outcome, "data": mapped.data}
+    except Exception as exc:  # noqa: BLE001 — la prueba vale aunque no se aplique
+        logger.warning("auto_response_map_failed tool=%s error=%s", tool["id"], exc)
+
+
+def _test_detail(result: dict) -> str | None:
+    """Resumen corto del fallo para persistir junto al estado (rojo en la UI)."""
+    if result.get("ok"):
+        return None
+    if result.get("error") == "resource_id_unavailable":
+        return (result.get("detail") or "")[:300]  # ya es descriptivo, sin código interno
+    if result.get("error"):
+        return f"{result['error']}: {result.get('detail', '')}"[:300]
+    return f"HTTP {result.get('status')}"
+
+
+async def _persist_test(tenant_id: str, tool_id: str, result: dict) -> None:
+    try:
+        await dao.record_tool_test(tenant_id, tool_id, bool(result.get("ok")), _test_detail(result))
+    except Exception as exc:  # noqa: BLE001 — el resultado de la prueba vale igual
+        logger.warning("record_tool_test_failed tool=%s error=%s", tool_id, exc)
+
+
+@router.post("/admin/connectors/{connector_id}/tools/{tool_id}/test")
+async def test_tool(
+    connector_id: str, tool_id: str, body: TestIn, request: Request,
+    current_user: CurrentUser = Depends(require_admin_or_super),
+):
+    """Dry-run real de UNA operación. Funciona con el conector INACTIVO a
+    propósito: probar es parte de configurar (D2/D3). Persiste el resultado
+    para que la lista muestre el estado (probada/falló/sin probar)."""
+    tenant_id = _own_tenant(current_user)
+    conn = await dao.get_connector(tenant_id, connector_id)
+    if conn is None:
+        raise HTTPException(status_code=404, detail="Conector no encontrado")
+    tools = await dao.list_tools(tenant_id, connector_id)
+    tool = next((t for t in tools if t["id"] == tool_id), None)
+    if tool is None:
+        raise HTTPException(status_code=404, detail="Tool no encontrada")
+
+    # Recorrido automático: si falta un id de recurso, lo conseguimos nosotros
+    # llamando a la lista hermana — el admin no tiene que saber ningún id.
+    filled, autos, err = await _autofill_resource_ids(
+        conn, tool, tools, tenant_id, connector_id, body.identity, body.params)
+    if err is not None:
+        result = {"url": None, "method": tool["http_method"], "ok": False,
+                  "error": "resource_id_unavailable", "detail": err}
+    else:
+        result = await _dry_run_tool(conn, tool, tenant_id, connector_id, body.identity, filled)
+        if autos:
+            result["auto_filled"] = autos
+        await _maybe_apply_suggested_map(tenant_id, tool, result)
+    await _persist_test(tenant_id, tool_id, result)
     _audit(request, current_user, "connector_tool_tested", f"{connector_id}/{tool['slug']}",
            {"ok": result.get("ok"), "status": result.get("status")})
     return result
+
+
+@router.post("/admin/connectors/{connector_id}/tools/test-all")
+async def test_all_tools(
+    connector_id: str, body: TestIn, request: Request,
+    current_user: CurrentUser = Depends(require_admin_or_super),
+):
+    """Prueba TODAS las operaciones del conector de una pasada y persiste el
+    estado de cada una. Las que necesitan {identity} usan body.identity; si no
+    vino, quedan como 'skipped' (sin tocar su último estado). Concurrencia
+    acotada para no clavar al proveedor."""
+    tenant_id = _own_tenant(current_user)
+    conn = await dao.get_connector(tenant_id, connector_id)
+    if conn is None:
+        raise HTTPException(status_code=404, detail="Conector no encontrado")
+    tools = await dao.list_tools(tenant_id, connector_id)
+
+    sem = asyncio.Semaphore(4)
+
+    async def run_one(tool: dict) -> dict:
+        base = {"tool_id": tool["id"], "slug": tool["slug"], "display_name": tool["display_name"]}
+        if "{identity}" in tool["path_template"] and not body.identity.strip():
+            return {**base, "skipped": True, "ok": None,
+                    "detail": "necesita un identificador de prueba"}
+        async with sem:
+            # Recorrido automático: los ids de recurso salen de la lista hermana.
+            filled, autos, err = await _autofill_resource_ids(
+                conn, tool, tools, tenant_id, connector_id, body.identity, body.params)
+            if err is not None:
+                result = {"ok": False, "error": "resource_id_unavailable", "detail": err}
+            else:
+                result = await _dry_run_tool(conn, tool, tenant_id, connector_id,
+                                             body.identity, filled)
+                await _maybe_apply_suggested_map(tenant_id, tool, result)
+        await _persist_test(tenant_id, tool["id"], result)
+        out = {**base, "skipped": False, "ok": bool(result.get("ok")),
+               "status": result.get("status"), "error": result.get("error"),
+               "detail": _test_detail(result), "latency_ms": result.get("latency_ms")}
+        if err is None and autos:
+            out["auto_filled"] = autos
+        return out
+
+    results = await asyncio.gather(*(run_one(t) for t in tools))
+    summary = {
+        "total": len(results),
+        "ok": sum(1 for r in results if r["ok"] is True),
+        "failed": sum(1 for r in results if r["ok"] is False),
+        "skipped": sum(1 for r in results if r["skipped"]),
+    }
+    _audit(request, current_user, "connector_tools_tested_all", connector_id, summary)
+    return {"results": list(results), **summary}

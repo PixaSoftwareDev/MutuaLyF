@@ -266,6 +266,13 @@ CREATE TABLE IF NOT EXISTS connector_tools (
     connector_id  UUID NOT NULL REFERENCES tenant_connectors(id) ON DELETE CASCADE,
     slug          TEXT NOT NULL,
     display_name  TEXT NOT NULL,
+    -- Descripción rica para el catálogo de function-calling (qué devuelve,
+    -- cuándo usarla). NULL → se usa display_name.
+    description   TEXT,
+    -- Consultas de ejemplo (capability profile): frases reales que disparan la
+    -- operación. Se inyectan al router LLM para cubrir sinónimos y marcar la
+    -- frontera con otras fuentes. Ver migración 042.
+    examples      TEXT[] NOT NULL DEFAULT '{}',
     http_method   TEXT NOT NULL DEFAULT 'GET',
     path_template TEXT NOT NULL,
     params_schema JSONB NOT NULL DEFAULT '{}',
@@ -273,6 +280,10 @@ CREATE TABLE IF NOT EXISTS connector_tools (
     identity_kind TEXT NOT NULL,
     is_read_only  BOOLEAN NOT NULL DEFAULT TRUE,
     is_active     BOOLEAN NOT NULL DEFAULT FALSE,
+    -- Última prueba (dry-run): NULL = nunca probada. Verde/rojo/gris en la UI.
+    last_test_ok     BOOLEAN,
+    last_test_at     TIMESTAMPTZ,
+    last_test_detail TEXT,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (connector_id, slug)
 );

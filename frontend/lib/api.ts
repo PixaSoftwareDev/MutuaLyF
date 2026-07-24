@@ -296,6 +296,15 @@ export interface SectorRow {
 }
 
 // ── Conectores de terceros (pantalla /admin/connectors) ───────────────────────
+export interface ConnectorHealth {
+  status: "ok" | "failing";
+  last_call_at: string;
+  last_ok_at: string | null;
+  failing_since: string | null;
+  calls_24h: number;
+  errors_24h: number;
+}
+
 export interface ConnectorRow {
   id: string;
   slug: string;
@@ -305,15 +314,21 @@ export interface ConnectorRow {
   auth_type: string;
   auth_validate_path: string | null;
   is_active: boolean;
+  // Inactivo con solicitud de activación esperando al super-admin (hosts sin aprobar).
+  pending_approval?: boolean;
   timeout_ms: number;
   has_secret: boolean;
   tool_count: number;
+  health: ConnectorHealth | null;
 }
 
 export interface ConnectorTool {
   id: string;
   slug: string;
   display_name: string;
+  description: string | null;
+  /** Consultas de ejemplo (capability profile) que ayudan al router a elegir esta operación. */
+  examples: string[];
   http_method: string;
   path_template: string;
   params_schema: Record<string, unknown>;
@@ -321,7 +336,56 @@ export interface ConnectorTool {
   identity_kind: string;
   is_read_only: boolean;
   is_active: boolean;
+  // Última prueba persistida: null = nunca probada (gris) · true = verde · false = rojo.
+  last_test_ok: boolean | null;
+  last_test_at: string | null;
+  last_test_detail: string | null;
   roles: string[];
+}
+
+export interface ActivationRequest {
+  tenant_id: string;
+  tenant_name: string;
+  connector_id: string;
+  connector_name: string;
+  base_url: string;
+  hosts: Array<{ host: string; approved: boolean }>;
+  requested_by: string | null;
+  requested_at: string | null;
+  tools: Array<{ display_name: string; http_method: string; path_template: string; is_active: boolean }>;
+}
+
+export interface PlatformConnector {
+  tenant_id: string;
+  tenant_name: string;
+  id: string;
+  display_name: string;
+  base_url: string;
+  is_active: boolean;
+  auth_type: string;
+  egress_allow: string[];
+  tools: Array<{ display_name: string; http_method: string; path_template: string; is_active: boolean }>;
+}
+
+export interface ConnectorChange {
+  tenant_id: string;
+  tenant_name: string;
+  action: string;
+  resource: string | null;
+  /** Nombre humano del recurso (conector u operación), resuelto por el backend. */
+  resource_label: string | null;
+  actor_email: string | null;
+  detail: Record<string, unknown>;
+  created_at: string | null;
+}
+
+export interface ToolTestAllResult {
+  results: Array<{
+    tool_id: string; slug: string; display_name: string;
+    skipped: boolean; ok: boolean | null;
+    status?: number | null; error?: string | null; detail?: string | null; latency_ms?: number;
+  }>;
+  total: number; ok: number; failed: number; skipped: number;
 }
 
 export interface ConnectorDetail extends Omit<ConnectorRow, "tool_count"> {
@@ -343,6 +407,8 @@ export interface ConnectorPayload {
 export interface ConnectorToolPayload {
   slug: string;
   display_name: string;
+  description?: string | null;
+  examples?: string[];
   http_method: string;
   path_template: string;
   params_schema?: Record<string, unknown>;
@@ -370,7 +436,7 @@ export interface ConnectorUserPayload {
 }
 
 export interface ConnectorTestResult {
-  url: string;
+  url: string | null;
   method: string;
   ok: boolean;
   status?: number;
@@ -380,6 +446,10 @@ export interface ConnectorTestResult {
   suggested_response_map?: Record<string, unknown>;
   error?: string;
   detail?: string;
+  /** Ids de recurso conseguidos automáticamente (recorrido lista→detalle del backend). */
+  auto_filled?: Array<{ param: string; value: string; label?: string | null; from: string }>;
+  /** El backend aplicó solo el response_map sugerido (prueba OK + tool sin mapeo). */
+  response_map_applied?: boolean;
 }
 
 export interface DiscoveryRoute {
@@ -388,6 +458,7 @@ export interface DiscoveryRoute {
   discard_reason?: string | null;
   slug?: string;
   display_name?: string;
+  description?: string | null;
   http_method?: string;
   path_template?: string;
   params_schema?: Record<string, unknown>;
@@ -792,7 +863,9 @@ export const api = {
     },
     setActive: async (id: string, isActive: boolean) => {
       const { data } = await apiClient.patch(`/admin/connectors/${id}/active`, { is_active: isActive });
-      return data as { ok: boolean; is_active: boolean };
+      // pending_approval: la activación no falló — quedó esperando que el
+      // super-admin apruebe los hosts (pending_hosts dice cuáles).
+      return data as { ok: boolean; is_active: boolean; pending_approval?: boolean; pending_hosts?: string[] };
     },
     approvedHosts: async (): Promise<{ hosts: Array<{ host: string; approved_by: string | null; note: string | null; created_at: string | null }> }> => {
       const { data } = await apiClient.get("/admin/connectors/approved-hosts");
@@ -804,6 +877,18 @@ export const api = {
     },
     removeApprovedHost: async (host: string) => {
       await apiClient.delete(`/admin/connectors/approved-hosts/${encodeURIComponent(host)}`);
+    },
+    // Solicitudes de activación pendientes (super-admin): qué tenant pide activar
+    // qué conector, con sus hosts y rutas a la vista para aprobar con fundamento.
+    activationRequests: async (): Promise<{ requests: ActivationRequest[] }> => {
+      const { data } = await apiClient.get("/admin/connectors/activation-requests");
+      return data;
+    },
+    // Oversight de plataforma: todos los conectores de todos los tenants con sus
+    // rutas, más el feed de cambios de configuración (30 días).
+    platformOverview: async (): Promise<{ connectors: PlatformConnector[]; changes: ConnectorChange[] }> => {
+      const { data } = await apiClient.get("/admin/connectors/overview");
+      return data;
     },
     // Usuarios autorizados por conector (modo platform_registry): lista blanca
     // documento + email + nombre. El login busca por documento y manda OTP al email.
@@ -835,6 +920,11 @@ export const api = {
       const { data } = await apiClient.post(`/admin/connectors/${connectorId}/tools/${toolId}/test`, body);
       return data as ConnectorTestResult;
     },
+    testAllTools: async (connectorId: string, identity: string) => {
+      const { data } = await apiClient.post(`/admin/connectors/${connectorId}/tools/test-all`,
+        { identity }, { timeout: 120_000 });
+      return data as ToolTestAllResult;
+    },
     discover: async (connectorId: string, testIdentity: string) => {
       const { data } = await apiClient.post(`/admin/connectors/${connectorId}/discover`,
         { test_identity: testIdentity }, { timeout: 90_000 });
@@ -854,7 +944,8 @@ export const api = {
     apply: async (connectorId: string, tools: DiscoveryRoute[]) => {
       const { data } = await apiClient.post(`/admin/connectors/${connectorId}/apply`, {
         tools: tools.map(t => ({
-          slug: t.slug, display_name: t.display_name, http_method: t.http_method ?? "GET",
+          slug: t.slug, display_name: t.display_name, description: t.description ?? null,
+          http_method: t.http_method ?? "GET",
           path_template: t.path_template, params_schema: t.params_schema ?? {},
           response_map: t.response_map ?? {}, identity_kind: t.identity_kind,
           is_lookup: t.is_lookup, identity_param: t.identity_param,

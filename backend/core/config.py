@@ -159,6 +159,13 @@ class Settings(BaseSettings):
             )
             return "unified"
         return v
+    # Loop agéntico de conectores: tras ejecutar una tool, el resultado vuelve al
+    # LLM (con el catálogo) para que encadene la siguiente o redacte la respuesta.
+    # Presupuesto DURO: llamadas a tools por turno y tiempo total del loop. Las
+    # listas se resuelven en 1 llamada como siempre; solo las consultas de detalle
+    # (x-resource-id) usan saltos extra.
+    connector_loop_max_calls: int = 3
+    connector_loop_budget_ms: int = 12000
     # Doble de pruebas in-process del framework de conectores (services/
     # connector_stub.py) — no llama a ningún sistema real. Solo dev/tests.
     connector_stub_enabled: bool = False

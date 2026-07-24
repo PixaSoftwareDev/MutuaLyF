@@ -108,12 +108,17 @@ y devolvés SOLO un JSON array (sin markdown, sin explicación) con un objeto po
  "discard_reason": "...",        // solo si include=false, en español, corto
  "slug": "snake_case_corto",
  "display_name": "Nombre humano en español",
- "identity_kind": "publico"|"personal",  // "personal" si la ruta expone datos de UNA persona
-                                 // identificada por un documento/identificador en el path
-                                 // (DNI, legajo, nº de cliente, nº de socio, etc.)
- "identity_param": "dni"|"id_cliente"|null,  // NOMBRE EXACTO del parámetro del path que identifica
-                                 // a la persona, tal cual figura en el API (se reemplaza por la
-                                 // identidad de la sesión, NUNCA la elige el bot)
+ "description": "1-2 oraciones en español: qué devuelve exactamente y cuándo conviene usarla",
+ "identity_kind": "publico"|"personal",  // "personal" si la ruta expone datos privados que
+                                 // requieren que la persona se identifique antes de consultar
+ "identity_param": "dni"|"legajo"|null,  // SOLO si un parámetro del path es el identificador de
+                                 // la PERSONA que consulta (DNI, legajo, nº de cliente/socio —
+                                 // algo que la persona tipea sobre sí misma). Se reemplaza por
+                                 // la identidad de la sesión, NUNCA la elige el bot.
+                                 // IMPORTANTE: un id genérico de RECURSO (el "id" de un
+                                 // proyecto, pedido, documento, etc., que sale de una ruta de
+                                 // listado) NO es identity_param — dejalo null; ese parámetro
+                                 // queda como parámetro normal de la operación.
  "is_lookup": true|false,        // true SOLO para la ruta que devuelve el perfil/datos de
                                  // contacto de la persona (sirve para enviar el código OTP)
  "sample_params": {"param": "valor"}  // valores de prueba realistas para probar la ruta
@@ -125,7 +130,15 @@ horarios) son "publico". Rutas con el documento/identificador de una persona en 
 IMPORTANTE: que una ruta devuelva información sensible o privada de la persona (facturación, cuenta,
 saldos, historial) NO es motivo de descarte — es el caso de uso central: incluila con
 identity_kind="personal" (la plataforma la protege con login + código de verificación).
-Descartá ÚNICAMENTE infraestructura (health/metrics/docs) y validación de códigos/OTP."""
+Descartá ÚNICAMENTE infraestructura (health/metrics/docs), validación de códigos/OTP y
+rutas que exponen SECRETOS del sistema (credenciales, tokens, claves de API, contraseñas,
+accesos — ej. /credentials, /secrets, /api-keys, /tokens). Estas últimas NUNCA deben ir a
+un chatbot: un secreto filtrado compromete el sistema entero. Marcalas include=false con
+discard_reason claro (ej. "expone credenciales — riesgo de seguridad").
+Si la documentación la subió el admin, asumí que TODAS las rutas de NEGOCIO que lista son
+usables: ante la MÍNIMA duda marcá include=true — el descarte es solo una sugerencia que el
+admin ve y puede revertir, nunca elimina la ruta. La EXCEPCIÓN son las rutas de secretos de
+arriba: esas van descartadas siempre, aunque el resto lo incluyas con criterio amplio."""
 
 
 def _parse_llm_json_array(raw: str) -> list[dict]:
@@ -234,7 +247,9 @@ async def routes_from_document(doc_text: str, tenant_id: str) -> list[dict]:
                 "type": p.get("type") or "string",
                 "enum": p.get("enum"),
             })
-        out.append({"path": path, "method": "GET", "params": params,
+        # Normalizar ':id' (Express) → '{id}' acá, en el borde: todo lo aguas
+        # abajo (clasificación, vínculo lista↔detalle, template) ve UNA forma.
+        out.append({"path": _normalize_path_params(path), "method": "GET", "params": params,
                     "summary": r.get("summary") or ""})
     return out
 
@@ -278,6 +293,9 @@ async def dry_run(connector: dict, secret_enc: str | None, path_template: str,
         out["ok"] = resp.status_code < 400
         if out["ok"] and "json" in (resp.headers.get("content-type") or ""):
             raw = resp.json()
+            # raw es interno (para encadenar ids reales lista→detalle); se quita
+            # antes de mandar la propuesta a la UI.
+            out["raw"] = raw
             out["suggested_response_map"] = suggest_response_map(raw)
     except (EgressBlocked, httpx.HTTPError, ValueError) as exc:
         out.update(ok=False, error=str(exc)[:200])
@@ -286,23 +304,69 @@ async def dry_run(connector: dict, secret_enc: str | None, path_template: str,
 
 # ── 5. Armar la propuesta completa ─────────────────────────────────────────────
 
-def _build_tool_fields(route: dict, cls: dict) -> tuple[str, dict]:
-    """(path_template, params_schema) — sustituye el param de identidad por {identity}
-    y arma el JSON Schema de los params restantes usando tipos/enums del spec."""
-    path_template = route["path"]
+_PATH_PARAM_RE = re.compile(r"\{(\w+)\}")
+_EXPRESS_PARAM_RE = re.compile(r":(\w+)")
+
+
+def _normalize_path_params(path: str) -> str:
+    """Unifica estilos de parámetro de path: ':id' (Express) → '{id}'. Sin esto,
+    una ruta documentada como /projects/:id quedaba con ':id' LITERAL en el
+    template — la URL salía tal cual y el proveedor respondía 404."""
+    return _EXPRESS_PARAM_RE.sub(r"{\1}", path)
+
+
+def _list_sibling(path: str, classified_by_path: dict[str, dict]) -> dict | None:
+    """La lista dueña del id es lo que está ANTES del primer parámetro:
+    /X/{id} → /X, y también /X/{id}/Y → /X (anidada: el id es de X, no de Y).
+    Es el vínculo que le dice al LLM de dónde salen los ids."""
+    m = re.match(r"^(.*?)/\{\w+\}", path)
+    if not m:
+        return None
+    sib = classified_by_path.get(m.group(1))
+    return sib if sib and sib.get("include") else None
+
+
+def _build_tool_fields(route: dict, cls: dict,
+                       classified_by_path: dict[str, dict] | None = None) -> tuple[str, dict]:
+    """(path_template, params_schema) — sustituye el param de IDENTIDAD DE PERSONA
+    por {identity}; los ids de RECURSO quedan como parámetros de path visibles al
+    LLM (marcados x-resource-id, con la lista hermana referenciada en la
+    descripción: de ahí salen los valores). El resto arma el JSON Schema con
+    tipos/enums del spec."""
+    path_template = _normalize_path_params(route["path"])
     identity_param = cls.get("identity_param")
+    declared = {p["name"] for p in route["params"]}
     props: dict = {}
     required: list[str] = []
-    for p in route["params"]:
-        if identity_param and p["name"] == identity_param:
-            path_template = path_template.replace("{" + p["name"] + "}", "{identity}")
+
+    # Params de path presentes en el template pero no declarados en el spec/doc
+    # (pasa con docs informales): tratarlos como declarados-requeridos.
+    params = list(route["params"])
+    for name in _PATH_PARAM_RE.findall(path_template):
+        if name not in declared:
+            params.append({"name": name, "in": "path", "required": True, "type": "string"})
+
+    for p in params:
+        name = p["name"]
+        if identity_param and name == identity_param:
+            path_template = path_template.replace("{" + name + "}", "{identity}")
             continue
         spec_prop: dict = {"type": p.get("type") or "string"}
         if p.get("enum"):
             spec_prop["enum"] = p["enum"]
-        props[p["name"]] = spec_prop
+        # Param de path que no es la identidad → id de recurso: el LLM lo completa
+        # con un valor que salió de un resultado previo (lista hermana).
+        if p.get("in") == "path" or ("{" + name + "}") in path_template:
+            spec_prop["x-resource-id"] = True
+            sib = _list_sibling(path_template, classified_by_path or {})
+            origen = f" Obtené el valor de la operación '{sib['slug']}'." if sib and sib.get("slug") else \
+                     " Obtené el valor de la operación de listado correspondiente."
+            spec_prop["description"] = f"Identificador del recurso.{origen} Nunca lo inventes."
+            if not p.get("required"):
+                p["required"] = True
+        props[name] = spec_prop
         if p.get("required"):
-            required.append(p["name"])
+            required.append(name)
     schema = {"type": "object", "properties": props}
     if required:
         schema["required"] = required
@@ -323,6 +387,31 @@ async def build_proposal(connector: dict, secret_enc: str | None, tenant_id: str
                                      parse_openapi(spec), spec_url)
 
 
+# Rutas que exponen secretos del sistema — NUNCA a un chatbot. Defensa en
+# profundidad: aunque la IA (o un admin distraído) las incluya, el discovery las
+# fuerza a descartadas. Un secreto filtrado compromete el sistema entero.
+_SECRET_PATH_RE = re.compile(
+    r"/(credentials?|secrets?|api[-_]?keys?|tokens?|passwords?|claves?|"
+    r"credenciales?|contrasen|accesos?)(/|$|\?)", re.IGNORECASE)
+
+
+def _is_secret_route(path: str) -> bool:
+    return bool(_SECRET_PATH_RE.search(path or ""))
+
+
+def _sample_query(cls: dict, params_schema: dict) -> dict:
+    """Query params de muestra para el dry-run: solo los declarados en el schema,
+    nunca el de identidad (ese lo maneja dry_run con test_identity)."""
+    sample = dict(cls.get("sample_params") or {})
+    sample.pop(cls.get("identity_param") or "", None)
+    return {k: v for k, v in sample.items() if k in (params_schema.get("properties") or {})}
+
+
+def _test_for_ui(test: dict) -> dict:
+    """El raw es interno (encadenado de ids): no viaja en la propuesta a la UI."""
+    return {k: v for k, v in test.items() if k != "raw"}
+
+
 async def propose_from_routes(connector: dict, secret_enc: str | None, tenant_id: str,
                               test_identity: str, routes: list[dict],
                               source: str | None) -> dict:
@@ -330,8 +419,16 @@ async def propose_from_routes(connector: dict, secret_enc: str | None, tenant_id
     `routes` puede venir del OpenAPI en vivo o de la documentación subida."""
     classified = await classify_routes(routes, tenant_id)
     by_path = {r["path"]: r for r in routes}
+    # Clasificadas indexadas por path NORMALIZADO (para el vínculo lista↔detalle).
+    classified_by_path = {
+        _normalize_path_params(c.get("path") or ""): c for c in classified
+    }
 
     proposal: list[dict] = []
+    # Detalles a probar en 2ª pasada (con id real de su lista) y listas ya
+    # probadas (path_template → test con raw) para sacarles ese id.
+    pending_detail: list[tuple[dict, dict, dict, list[str]]] = []
+    probed_by_path: dict[str, dict] = {}
     for cls in classified:
         route = by_path.get(cls.get("path"))
         if route is None:
@@ -339,12 +436,17 @@ async def propose_from_routes(connector: dict, secret_enc: str | None, tenant_id
         # Fallbacks para descartadas: el LLM puede omitir slug/nombre en ellas,
         # pero la UI permite re-incluirlas → siempre tienen que venir completas.
         fallback_slug = re.sub(r"[^a-z0-9]+", "_", cls["path"].lower()).strip("_")
+        # Salvaguarda dura: una ruta de secretos va descartada AUNQUE la IA la
+        # haya incluido (defensa en profundidad, no confiar solo en el prompt).
+        is_secret = _is_secret_route(cls["path"])
         item = {
             "path": cls["path"],
-            "include": bool(cls.get("include")),
-            "discard_reason": cls.get("discard_reason"),
+            "include": bool(cls.get("include")) and not is_secret,
+            "discard_reason": ("Expone credenciales/secretos — nunca debe ir a un chatbot."
+                               if is_secret else cls.get("discard_reason")),
             "slug": cls.get("slug") or fallback_slug,
             "display_name": cls.get("display_name") or cls["path"],
+            "description": (cls.get("description") or "").strip() or None,
             "http_method": "GET",
             "identity_kind": cls.get("identity_kind") or "publico",
             "identity_param": cls.get("identity_param"),
@@ -353,23 +455,47 @@ async def propose_from_routes(connector: dict, secret_enc: str | None, tenant_id
         # La config del tool se arma SIEMPRE (también en descartadas, para que el
         # admin pueda corregir a la IA y re-incluirlas). El dry-run solo corre en
         # las incluidas — no gastamos llamadas al proveedor en descartes.
-        path_template, params_schema = _build_tool_fields(route, cls)
+        path_template, params_schema = _build_tool_fields(route, cls, classified_by_path)
         item["path_template"] = path_template
         item["params_schema"] = params_schema
         item["response_map"] = {}
-        # Probar en vivo solo lo que se puede sin un dato de prueba: las rutas que
-        # necesitan identidad ({identity} en el path) sin test_identity quedan "sin
-        # probar" (item["test"]=None) — se prueban después por operación. Así no
-        # pedimos un dato antes de tiempo ni mostramos "Revisar" engañoso.
-        needs_identity = "{identity}" in path_template
-        if item["include"] and not (needs_identity and not test_identity):
-            sample = dict(cls.get("sample_params") or {})
-            sample.pop(cls.get("identity_param") or "", None)
-            query = {k: v for k, v in sample.items()
-                     if k in (params_schema.get("properties") or {})}
-            test = await dry_run(connector, secret_enc, path_template, query, test_identity)
-            item["test"] = test
-            item["response_map"] = test.get("suggested_response_map") or {}
         proposal.append(item)
+
+        needs_identity = "{identity}" in path_template
+        if not item["include"] or (needs_identity and not test_identity):
+            continue  # sin dato de identidad → "sin probar", se prueba después
+        resource_params = [n for n in _PATH_PARAM_RE.findall(path_template) if n != "identity"]
+        if resource_params:
+            # Detalle: se prueba en la 2ª pasada con un id REAL de su lista.
+            pending_detail.append((item, cls, params_schema, resource_params))
+            continue
+        query = _sample_query(cls, params_schema)
+        test = await dry_run(connector, secret_enc, path_template, query, test_identity)
+        probed_by_path[path_template] = test
+        item["test"] = _test_for_ui(test)
+        item["response_map"] = test.get("suggested_response_map") or {}
+
+    # ── 2ª pasada: detalles con id REAL sacado de la lista hermana ya probada —
+    # el MISMO recorrido que el botón Probar. Nunca ids de ejemplo inventados
+    # (probar /projects/1 con un id fake mostraba un "Revisar · no existe" falso).
+    # Sin lista hermana OK o sin elementos → queda "sin probar" (test=None), que
+    # es honesto: se prueba después desde la pantalla, encadenando en vivo.
+    from services.connector_memory import summarize_result
+    for item, cls, params_schema, resource_params in pending_detail:
+        probe_path = item["path_template"]
+        for name in resource_params:
+            parent = item["path_template"].split("/{" + name + "}")[0]
+            sib = probed_by_path.get(parent)
+            items = summarize_result(sib.get("raw")) if sib and sib.get("ok") else []
+            if not items:
+                probe_path = None
+                break
+            probe_path = probe_path.replace("{" + name + "}", str(items[0]["id"]))
+        if probe_path is None:
+            continue
+        test = await dry_run(connector, secret_enc, probe_path,
+                             _sample_query(cls, params_schema), test_identity)
+        item["test"] = _test_for_ui(test)
+        item["response_map"] = test.get("suggested_response_map") or {}
 
     return {"spec_found": True, "spec_url": source, "routes": proposal}

@@ -29,27 +29,50 @@ warnings.filterwarnings("ignore")
 # ── Catálogo tipo-prod (los 6 tools CRM de intellix en prod). Las descripciones
 # son la superficie de curación del ruteo: si el eval falla, se ajustan ACÁ y,
 # cuando estén validadas, se llevan al display_name/description de connector_tools.
+# display_name = descripción rica (dice qué ES y qué NO es, marca la frontera).
+# examples = frases reales que disparan la tool, incluidas coloquiales/sinónimos —
+# la palanca principal contra el ruteo por vocabulario (ver _tool_description).
 CATALOG = [
     {"slug": "clientes", "display_name":
         "Clientes y contactos EXTERNOS cargados en el CRM (empresas o personas a las "
-        "que les vendemos). Buscar/listar datos de contacto de un cliente.",
+        "que les vendemos). Buscar/listar datos de contacto de un cliente. NO son los "
+        "datos de contacto de NUESTRA propia empresa (eso está en los documentos).",
+     "examples": ["¿qué clientes tenemos cargados?", "¿quién es el contacto de tal empresa?",
+                  "pasame el teléfono del cliente", "datos de contacto de esa clínica",
+                  "¿quién es la persona de contacto de X?"],
      "params_schema": {}, "identity_kind": "afiliado", "is_read_only": True},
     {"slug": "cuentas_por_cobrar", "display_name":
-        "Cuentas por cobrar del CRM: facturas y cobros pendientes que los clientes "
-        "nos deben.",
+        "Cuentas por cobrar del CRM: montos que los clientes nos DEBEN y su vencimiento. "
+        "Cuánto nos debe alguien sale SIEMPRE de acá, aunque nombren su proyecto — NO del valor del proyecto.",
+     "examples": ["¿cuánto nos debe tal cliente?", "¿quién nos debe plata?",
+                  "cuentas por cobrar pendientes", "¿qué tenemos por cobrar?",
+                  "¿cuánto nos adeudan?"],
      "params_schema": {}, "identity_kind": "afiliado", "is_read_only": True},
     {"slug": "oportunidades", "display_name":
-        "Oportunidades comerciales abiertas en el CRM (pipeline de ventas en curso).",
+        "Oportunidades comerciales del CRM (pipeline de ventas: en proceso, ganadas o "
+        "perdidas), con su valor estimado. Es el estado de una VENTA, no un proyecto en curso.",
+     "examples": ["¿qué oportunidades tenemos?", "¿cómo viene la venta de X?",
+                  "¿perdimos alguna venta? ¿por qué?", "¿cuánto vale el negocio con tal cliente?",
+                  "pipeline de ventas", "¿le vendimos algo a esa empresa?"],
      "params_schema": {}, "identity_kind": "afiliado", "is_read_only": True},
     {"slug": "proyectos_crm", "display_name":
-        "Proyectos de la empresa registrados en el CRM, con su estado y avance.",
+        "Proyectos de la empresa registrados en el CRM, con su estado y avance. NO informa "
+        "deudas ni dinero que nos deben (eso es cuentas por cobrar), ni cómo trabajamos en general.",
+     "examples": ["¿qué proyectos tenemos?", "contame sobre nuestros proyectos",
+                  "¿cómo viene el proyecto tal?", "estado de los proyectos en curso",
+                  "dame el detalle del proyecto X"],
      "params_schema": {}, "identity_kind": "afiliado", "is_read_only": True},
     {"slug": "resumen_financiero", "display_name":
         "Resumen financiero interno de NUESTRA empresa en el CRM (ingresos, egresos, "
-        "saldos). NO es información económica general ni de terceros.",
+        "saldos, neto). NO es información económica general del país ni de terceros.",
+     "examples": ["¿cómo venimos de plata?", "dame el resumen financiero",
+                  "¿cuánto entró y cuánto salió?", "¿cuál es el neto?",
+                  "¿cómo están las finanzas de la empresa?"],
      "params_schema": {}, "identity_kind": "afiliado", "is_read_only": True},
     {"slug": "tareas_crm", "display_name":
         "Tareas pendientes del equipo registradas en el CRM.",
+     "examples": ["¿qué tareas pendientes hay?", "¿qué tenemos para hacer?",
+                  "mostrame las tareas", "pendientes del equipo"],
      "params_schema": {}, "identity_kind": "afiliado", "is_read_only": True},
 ]
 
@@ -105,11 +128,29 @@ CASES = [
     ("quien es Guillermo Fernandez y que experiencia tiene?", None, {"clientes"}, "★ perfil/equipo — lookup CRM defendible sin contexto docs"),
     ("guillermo conoce next",                         None, set(), "★"),
     ("quien sabe next",                               None, set(), "★"),
+    # ── Negativos: datos de CONTACTO del equipo/áreas propias (docs, no CRM).
+    #    Detectado en load test 2026-07-23: ruteaban a clientes → "no encontré". ──
+    ("cual es el email de enzo?",                     None, {"clientes"}, "contacto de un fundador — docs primero"),
+    ("pasame el mail del comercial",                  None, set(), "email del área comercial propia"),
+    ("a que correo escribo por ventas?",              None, set(), "correo de ventas de la empresa"),
+    ("email de contacto comercial",                   None, set(), "ídem, forma nominal"),
+    ("como contacto al area comercial?",              None, set(), "contacto de área propia"),
     # ── Negativos reales: fuera de dominio total ────────────────────────────────
     ("como salio argntina ayer?",                     None, set(), "★ FÚTBOL — coseno → crm_finanzas 0.349"),
     ("que opinas de la situacion economica de argentina?", None, set(), "★ trampa para resumen_financiero"),
     # ── Ambigüedad de proyecto (práctica vs listado CRM) ────────────────────────
     ("y cuanto tardan en entregar un proyecto?",      None, {"proyectos_crm"}, "★ pregunta de práctica, no de listado"),
+    # ── Casos del quality test 2026-07-24: sinónimos/coloquial que fallaban ──────
+    ("¿quién es la persona de contacto de la clínica esa de quemados?", "clientes", set(), "qtest u0.7: ruteaba a docs"),
+    ("¿cuánto nos debe Las Marías?",                  "cuentas_por_cobrar", {"oportunidades"}, "qtest u2.6: dio valor de proyecto"),
+    ("¿cuánto vale el laburo que hacemos para tal cliente?", "oportunidades", {"proyectos_crm"}, "qtest u0.9: 'laburo' coloquial"),
+    ("¿la mutual esa qué onda, le vendimos algo?",    "oportunidades", {"clientes"}, "qtest u3.8: jerga"),
+    ("¿cuánta plata entró y cuánta salió?",           "resumen_financiero", set(), "qtest u0.5: sinónimo de ingresos/egresos"),
+    ("dame un resumen de cómo está el negocio",       None, {"resumen_financiero"}, "qtest u3.5: pedido genérico, dashboard o RAG aceptable"),
+    ("¿alguna venta ya está ganada?",                 "oportunidades", set(), "qtest u0.6"),
+    # Frontera: contacto DE la empresa (docs) vs contactos DEL crm — no confundir.
+    ("¿me pasás el whatsapp de ventas?",              None, set(), "qtest u3.2: contacto propio → docs, NO clientes"),
+    ("¿cómo contacto a la empresa?",                  None, set(), "contacto propio → docs"),
 ]
 
 

@@ -7,7 +7,7 @@ import {
   Loader2, Trash2, FlaskConical, ChevronDown, CheckCircle2, XCircle,
   Globe, Lock, Link2, Wand2, FileUp, Database, Pencil, Plus, MoreVertical,
 } from "lucide-react";
-import { api, type ConnectorTool, type ConnectorTestResult, type DiscoveryProposal } from "@/lib/api";
+import { api, type ConnectorTool, type ConnectorTestResult, type DiscoveryProposal, type ToolTestAllResult } from "@/lib/api";
 import { cn, toSlug } from "@/lib/utils";
 import { humanizeConnectorError, explainHttpStatus } from "@/lib/connector-errors";
 import { Button } from "@/components/ui/button";
@@ -43,8 +43,18 @@ function parseJson(s: string): Record<string, unknown> | null {
   } catch { return null; }
 }
 
-// Pastilla de estado con punto (mismo lenguaje que los canales).
-function StatePill({ active }: { active: boolean }) {
+// Pastilla de estado con punto (mismo lenguaje que los canales). El tercer
+// estado ("esperando aprobación") es un inactivo con solicitud enviada al
+// super-admin — ámbar para que se lea como "en trámite", no como falla.
+function StatePill({ active, pending }: { active: boolean; pending?: boolean }) {
+  if (!active && pending) {
+    return (
+      <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-warning/30 bg-warning/[0.08] px-2 py-0.5 text-[11px] font-semibold text-warning">
+        <span className="h-1.5 w-1.5 rounded-full bg-warning" />
+        Esperando aprobación
+      </span>
+    );
+  }
   return (
     <span className={cn(
       "inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-semibold",
@@ -85,7 +95,7 @@ function RouteStatus({ test }: { test?: PropRoute["test"] }) {
   // Razón en criollo ("no existe", "credencial") en vez del código pelado; el
   // status/error crudo queda en el tooltip para el que quiera el detalle.
   const ex = explainHttpStatus(test.status);
-  const label = ex?.label ?? (test.error ? "revisar" : "revisar");
+  const label = ex?.label ?? (test.error ? "no respondió" : "sin respuesta");
   return (
     <span
       title={ex?.hint ?? ([test.status, test.error].filter(Boolean).join(" ") || undefined)}
@@ -94,6 +104,25 @@ function RouteStatus({ test }: { test?: PropRoute["test"] }) {
       <XCircle className="h-3 w-3" /> Revisar · {label}
     </span>
   );
+}
+
+// Estado persistido de la última prueba de una operación: verde (probada),
+// rojo (falló, detalle en tooltip), gris (nunca probada).
+function TestStatePill({ tool }: { tool: ConnectorTool }) {
+  if (tool.last_test_ok === true) return (
+    <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-success/10 px-2 py-0.5 text-[10px] font-semibold text-success">
+      <CheckCircle2 className="h-3 w-3" /> Probada
+    </span>
+  );
+  if (tool.last_test_ok === false) return (
+    <span
+      title={tool.last_test_detail ?? undefined}
+      className="inline-flex shrink-0 items-center gap-1 rounded-full bg-destructive/10 px-2 py-0.5 text-[10px] font-semibold text-destructive"
+    >
+      <XCircle className="h-3 w-3" /> Falló
+    </span>
+  );
+  return <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">Sin probar</span>;
 }
 
 function RouteRow({ r, checked, onCheck, access, onToggleAccess, discarded }: {
@@ -293,8 +322,32 @@ export default function ConnectorDetailPage() {
 
   const toggleM = useMutation({
     mutationFn: (active: boolean) => api.connectors.setActive(id, active),
-    onSuccess: (_d, active) => { invAll(); toast({ title: active ? "Conector activado" : "Conector desactivado", variant: "success" }); },
+    onSuccess: (d, active) => {
+      invAll();
+      // Hosts sin aprobar: no es una falla — la solicitud quedó registrada y el
+      // conector pasa a "esperando aprobación" hasta que el super-admin apruebe.
+      if (d.pending_approval) {
+        toast({
+          title: "Esperando aprobación del super-admin",
+          description: "Le enviamos la solicitud. Cuando apruebe, tocá Activar de nuevo — mientras tanto podés seguir probando las operaciones.",
+        });
+        return;
+      }
+      toast({ title: active ? "Conector activado" : "Conector desactivado", variant: "success" });
+    },
     onError: (e) => toast({ title: "No se pudo activar", description: humanizeConnectorError(errDetail(e)), variant: "destructive" }),
+  });
+
+  // ── probar todas: dry-run masivo con estado persistido por operación ───────
+  const [showTestAll, setShowTestAll] = useState(false);
+  const [taIdentity, setTaIdentity]   = useState("");
+  const [taResult, setTaResult]       = useState<ToolTestAllResult | null>(null);
+  // Errores desplegables: el detalle completo no entra en una línea truncada.
+  const [taOpen, setTaOpen]           = useState<Record<string, boolean>>({});
+  const testAllM = useMutation({
+    mutationFn: () => api.connectors.testAllTools(id, taIdentity.trim()),
+    onSuccess: (r) => { setTaResult(r); invAll(); },
+    onError: (e) => toast({ title: "No se pudieron probar", description: humanizeConnectorError(errDetail(e)), variant: "destructive" }),
   });
 
   // ── wizard: detección automática de operaciones ────────────────────────────
@@ -305,7 +358,6 @@ export default function ConnectorDetailPage() {
   // Override del acceso (público/personal) por ruta: la IA lo propone pero el
   // admin puede corregirlo antes de crear (clave = path).
   const [routeKind, setRouteKind]     = useState<Record<string, string>>({});
-  const [showDiscarded, setShowDiscarded] = useState(false);
   // Por defecto TODO nace personal (privado): más seguro. El admin marca públicas
   // solo las que decida exponer sin identificación.
   const accessOf = (r: { path: string; identity_kind?: string }) =>
@@ -324,8 +376,15 @@ export default function ConnectorDetailPage() {
     setSelected(sel);
   };
 
+  // Al arrancar una detección nueva ("Subir otra documentación" incluido) se
+  // limpia la propuesta anterior entera — rutas, tildes y accesos corregidos.
+  // Sin esto, la lista vieja quedaba en pantalla mientras se leía el archivo
+  // nuevo, y los overrides por path podían contaminar la propuesta siguiente.
+  const resetProposal = () => { setProposal(null); setSelected({}); setRouteKind({}); };
+
   const discoverM = useMutation({
     mutationFn: () => api.connectors.discover(id, ""),
+    onMutate: resetProposal,
     onSuccess: acceptProposal,
     onError: (e) => toast({ title: "No pude analizar el API", description: humanizeConnectorError(errDetail(e)), variant: "destructive" }),
   });
@@ -335,6 +394,7 @@ export default function ConnectorDetailPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const discoverFileM = useMutation({
     mutationFn: (file: File) => api.connectors.discoverFromFile(id, file, ""),
+    onMutate: resetProposal,
     onSuccess: acceptProposal,
     onError: (e) => toast({ title: "No pude interpretar el archivo", description: humanizeConnectorError(errDetail(e)), variant: "destructive" }),
   });
@@ -417,16 +477,22 @@ export default function ConnectorDetailPage() {
       title={conn.display_name}
       actions={
         <div className="flex shrink-0 items-center gap-2">
-          <StatePill active={conn.is_active} />
+          <StatePill active={conn.is_active} pending={conn.pending_approval} />
           <Button size="sm" variant="ghost" onClick={openEdit} className="gap-1.5">
             <Pencil className="h-3.5 w-3.5" /> Editar
           </Button>
           <Button
             size="sm"
             variant={conn.is_active ? "outline" : "default"}
-            disabled={toggleM.isPending || (!conn.is_active && conn.tools.length === 0)}
+            disabled={toggleM.isPending || (!conn.is_active && (conn.tools.length === 0 || conn.pending_approval))}
             onClick={() => toggleM.mutate(!conn.is_active)}
-            title={!conn.is_active && conn.tools.length === 0 ? "Necesitás al menos una operación para activar" : undefined}
+            title={
+              !conn.is_active && conn.pending_approval
+                ? "La solicitud ya está enviada — cuando el super-admin apruebe, el botón se habilita solo"
+                : !conn.is_active && conn.tools.length === 0
+                  ? "Necesitás al menos una operación para activar"
+                  : undefined
+            }
           >
             {toggleM.isPending && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
             {conn.is_active ? "Desactivar" : "Activar"}
@@ -517,13 +583,17 @@ export default function ConnectorDetailPage() {
                 <div className="flex shrink-0 items-center gap-2">
                   <Button size="sm" variant="ghost" onClick={() => setShowManual(true)}>Carga manual</Button>
                   <Button size="sm" variant="outline" onClick={() => setShowWizard(true)}>Detectar</Button>
+                  <Button size="sm" variant="outline" onClick={() => setShowTestAll(true)}>
+                    <FlaskConical className="h-3.5 w-3.5 sm:mr-1" />
+                    <span className="hidden sm:inline">Probar todas</span>
+                  </Button>
                 </div>
               )}
             </div>
 
             {/* Wizard de detección — en modal centrado */}
             <Dialog open={showWizard} onOpenChange={setShowWizard}>
-              <DialogContent className="max-w-2xl">
+              <DialogContent className="max-w-3xl">
                 <DialogHeader>
                   <div className="flex items-start gap-3 text-left">
                     <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-muted text-muted-foreground">
@@ -536,56 +606,85 @@ export default function ConnectorDetailPage() {
                   </div>
                 </DialogHeader>
 
-                <div className="-mx-1.5 max-h-[min(70vh,42rem)] space-y-4 overflow-y-auto px-1.5 py-1">
-                  {/* Dropzone: subir o arrastrar la documentación */}
+                <div className="-mx-1.5 max-h-[min(78vh,52rem)] space-y-4 overflow-y-auto px-1.5 py-1">
+                  {/* El input vive fuera del dropzone: sigue montado cuando el
+                      dropzone se esconde (con resultados, "Subir otra" lo reusa). */}
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".pdf,.docx,.txt,.md,.json,.html"
+                    className="hidden"
+                    onChange={e => {
+                      const f = e.target.files?.[0];
+                      if (f) discoverFileM.mutate(f);
+                      e.target.value = "";
+                    }}
+                  />
+                  {/* Analizando: skeleton con la forma de los resultados. La propuesta
+                      anterior ya se limpió en onMutate — acá no queda lista vieja. */}
+                  {wizBusy && (
+                    <div className="space-y-4" aria-busy="true">
+                      <div className="flex items-center justify-center gap-2 py-1">
+                        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                        <p className="text-sm text-muted-foreground">
+                          {discoverFileM.isPending ? "Leyendo la documentación…" : "Analizando el catálogo…"}
+                        </p>
+                      </div>
+                      <div className="rounded-xl border bg-card p-3.5">
+                        <Skeleton className="h-4 w-3/4" />
+                        <div className="mt-3 flex gap-2">
+                          <Skeleton className="h-8 w-40" />
+                          <Skeleton className="h-8 w-32" />
+                        </div>
+                      </div>
+                      <div className="divide-y rounded-lg border">
+                        {Array.from({ length: 5 }).map((_, i) => (
+                          <div key={i} className="flex items-center gap-3 px-3 py-3.5">
+                            <Skeleton className="h-4 w-4 rounded" />
+                            <div className="min-w-0 flex-1 space-y-1.5">
+                              <Skeleton className="h-3.5 w-1/3" />
+                              <Skeleton className="h-3 w-2/3" />
+                            </div>
+                            <Skeleton className="h-6 w-20 rounded-full" />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Dropzone: subir o arrastrar la documentación. Con resultados
+                      abajo se esconde — ocupaba media pantalla y empujaba la lista. */}
+                  {!wizBusy && !proposal?.spec_found && (
                   <div
-                    onClick={() => !wizBusy && fileInputRef.current?.click()}
+                    onClick={() => fileInputRef.current?.click()}
                     onDragOver={e => { e.preventDefault(); setDragOver(true); }}
                     onDragLeave={() => setDragOver(false)}
-                    onDrop={e => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files?.[0]; if (f && !wizBusy) discoverFileM.mutate(f); }}
+                    onDrop={e => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files?.[0]; if (f) discoverFileM.mutate(f); }}
                     className={cn(
                       "flex cursor-pointer flex-col items-center gap-2 rounded-xl border-2 border-dashed px-6 py-10 text-center transition-colors",
-                      wizBusy ? "cursor-default opacity-70" : dragOver ? "border-action bg-action/5" : "border-border hover:border-action/40 hover:bg-muted/30",
+                      dragOver ? "border-action bg-action/5" : "border-border hover:border-action/40 hover:bg-muted/30",
                     )}
                   >
-                    {discoverFileM.isPending ? (
-                      <>
-                        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                        <p className="text-sm text-muted-foreground">Leyendo la documentación…</p>
-                      </>
-                    ) : (
-                      <>
-                        <span className="flex h-11 w-11 items-center justify-center rounded-full bg-muted">
-                          <FileUp className="h-5 w-5 text-muted-foreground" />
-                        </span>
-                        <p className="text-sm font-medium text-foreground">Arrastrá o subí la documentación</p>
-                        <p className="text-xs text-muted-foreground">PDF, Word, TXT, MD o JSON</p>
-                      </>
-                    )}
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept=".pdf,.docx,.txt,.md,.json,.html"
-                      className="hidden"
-                      onChange={e => {
-                        const f = e.target.files?.[0];
-                        if (f) discoverFileM.mutate(f);
-                        e.target.value = "";
-                      }}
-                    />
+                    <span className="flex h-11 w-11 items-center justify-center rounded-full bg-muted">
+                      <FileUp className="h-5 w-5 text-muted-foreground" />
+                    </span>
+                    <p className="text-sm font-medium text-foreground">Arrastrá o subí la documentación</p>
+                    <p className="text-xs text-muted-foreground">PDF, Word, TXT, MD o JSON</p>
                   </div>
+                  )}
 
                   {/* Alternativa discreta: catálogo OpenAPI en vivo */}
+                  {!wizBusy && !proposal?.spec_found && (
                   <div className="text-center">
                     <button
                       type="button"
-                      disabled={wizBusy}
                       onClick={() => discoverM.mutate()}
-                      className="text-xs text-muted-foreground transition-colors hover:text-foreground hover:underline disabled:opacity-50"
+                      className="text-xs text-muted-foreground transition-colors hover:text-foreground hover:underline"
                     >
-                      {discoverM.isPending ? "Analizando el catálogo…" : "¿El proveedor publica su catálogo (OpenAPI)? Detectar del servidor"}
+                      ¿El proveedor publica su catálogo (OpenAPI)? Detectar del servidor
                     </button>
                   </div>
+                  )}
 
                 {proposal && !proposal.spec_found && (
                   <p className="text-sm text-destructive">{proposal.hint}</p>
@@ -616,15 +715,32 @@ export default function ConnectorDetailPage() {
                           Detectamos <strong>{routes.length}</strong> operaciones:{" "}
                           <span className="font-medium text-success">{gReady.length} listas</span> ·{" "}
                           <span className="font-medium text-warning">{gWarn.length} con avisos</span> ·{" "}
-                          <span className="text-muted-foreground">{gDisc.length} descartadas</span>. Tildá las que quieras usar y confirmá.
+                          <span className="text-muted-foreground">{gDisc.length} sugeridas afuera</span>. Tildá las que quieras usar y confirmá — ninguna se descarta sola.
                         </p>
                         <div className="mt-2.5 flex flex-wrap gap-2">
+                          {/* "Las que andan" solo si alguna anduvo — con 0 listas era un botón que no hacía nada. */}
+                          {gReady.length > 0 && (
+                            <Button size="sm" variant="outline" onClick={() => setSelected(s => {
+                              const n = { ...s }; gReady.forEach(r => { if (r.path_template) n[r.path] = true; }); return n;
+                            })}>Seleccionar las que andan</Button>
+                          )}
                           <Button size="sm" variant="outline" onClick={() => setSelected(s => {
-                            const n = { ...s }; gReady.forEach(r => { if (r.path_template) n[r.path] = true; }); return n;
-                          })}>Seleccionar las que andan</Button>
+                            const n = { ...s };
+                            [...gReady, ...gWarn].forEach(r => { if (r.path_template) n[r.path] = true; });
+                            return n;
+                          })}>Seleccionar todas</Button>
                           <Button size="sm" variant="ghost" onClick={() => setSelected({})}>Ninguna</Button>
                         </div>
-                        <p className="mt-2 truncate font-mono text-[11px] text-muted-foreground/50">fuente: {proposal.spec_url}</p>
+                        <div className="mt-2 flex items-center justify-between gap-2">
+                          <p className="min-w-0 truncate font-mono text-[11px] text-muted-foreground/50">fuente: {proposal.spec_url}</p>
+                          <button
+                            type="button"
+                            onClick={() => fileInputRef.current?.click()}
+                            className="shrink-0 text-[11px] text-muted-foreground transition-colors hover:text-foreground hover:underline"
+                          >
+                            Subir otra documentación
+                          </button>
+                        </div>
                       </div>
 
                       {gReady.length > 0 && (
@@ -651,21 +767,23 @@ export default function ConnectorDetailPage() {
 
                       {gDisc.length > 0 && (
                         <div>
-                          <button
-                            type="button"
-                            onClick={() => setShowDiscarded(v => !v)}
-                            className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
-                          >
-                            <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", showDiscarded && "rotate-180")} />
-                            Descartadas por la IA ({gDisc.length})
-                          </button>
-                          {showDiscarded && <div className="mt-1.5"><Group list={gDisc} discarded /></div>}
+                          <p className="mb-1 text-xs font-semibold text-muted-foreground">
+                            La IA las dejaría afuera ({gDisc.length})
+                          </p>
+                          <p className="mb-1.5 text-[11px] leading-snug text-muted-foreground">
+                            Parecen rutas técnicas o de autenticación, no consultas para el bot. Es solo una
+                            sugerencia: al lado de cada una está el motivo, y podés tildarlas para incluirlas igual.
+                          </p>
+                          <Group list={gDisc} discarded />
                         </div>
                       )}
 
                       <div className="flex items-center justify-end gap-3 border-t pt-3">
                         {lookupSelected && (
-                          <span className="text-xs text-muted-foreground">el perfil no cuenta como operación: configura la verificación por código (OTP)</span>
+                          <span className="max-w-[28rem] text-right text-xs leading-snug text-muted-foreground">
+                            La operación de perfil no se suma a la lista: se usa para verificar la identidad
+                            de la persona y mandarle el código por email (OTP).
+                          </span>
                         )}
                         <Button disabled={applyM.isPending || selectedRoutes.length === 0} onClick={() => applyM.mutate()}>
                           {applyM.isPending && <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />}
@@ -676,6 +794,90 @@ export default function ConnectorDetailPage() {
                   );
                 })()}
                 </div>
+              </DialogContent>
+            </Dialog>
+
+            {/* Probar todas — dry-run masivo, deja cada operación marcada verde/rojo */}
+            <Dialog open={showTestAll} onOpenChange={(v) => { setShowTestAll(v); if (!v) setTaResult(null); }}>
+              <DialogContent className="max-w-xl">
+                <DialogHeader>
+                  <DialogTitle>Probar todas las operaciones</DialogTitle>
+                  <DialogDescription>
+                    Ejecuta cada operación contra el proveedor y guarda el resultado: la lista
+                    queda marcada con Probada (verde) o Falló (rojo).
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-3">
+                  {conn.tools.some(t => t.path_template.includes("{identity}")) && (
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Identificador de prueba (para las operaciones personales)</Label>
+                      <Input
+                        className="h-8 font-mono text-sm" placeholder="30111222"
+                        value={taIdentity} onChange={e => setTaIdentity(e.target.value)}
+                      />
+                      <p className="text-[11px] leading-snug text-muted-foreground">
+                        Un identificador real que exista en el proveedor. Si lo dejás vacío,
+                        las operaciones personales se saltean (no cambian de estado).
+                      </p>
+                    </div>
+                  )}
+                  {taResult && (
+                    <div className="space-y-2">
+                      <p className="text-sm">
+                        <span className="font-medium text-success">{taResult.ok} OK</span>
+                        {" · "}
+                        <span className={cn("font-medium", taResult.failed > 0 ? "text-destructive" : "text-muted-foreground")}>
+                          {taResult.failed} {taResult.failed === 1 ? "falló" : "fallaron"}
+                        </span>
+                        {taResult.skipped > 0 && (
+                          <span className="text-muted-foreground"> · {taResult.skipped} salteadas</span>
+                        )}
+                      </p>
+                      <div className="max-h-64 divide-y overflow-y-auto rounded-lg border">
+                        {taResult.results.map(r => {
+                          const fail = r.ok === false;
+                          const open = !!taOpen[r.tool_id];
+                          return (
+                            <div key={r.tool_id}>
+                              {/* Las filas con error se despliegan: el detalle completo
+                                  no entra truncado en una línea. */}
+                              <button
+                                type="button"
+                                disabled={!fail}
+                                onClick={() => setTaOpen(s => ({ ...s, [r.tool_id]: !s[r.tool_id] }))}
+                                className={cn("flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs",
+                                  fail && "cursor-pointer transition-colors hover:bg-muted/40")}
+                              >
+                                {r.ok === true
+                                  ? <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-success" />
+                                  : fail
+                                    ? <XCircle className="h-3.5 w-3.5 shrink-0 text-destructive" />
+                                    : <span className="h-2 w-2 shrink-0 rounded-full bg-muted-foreground/40" />}
+                                <span className="min-w-0 flex-1 truncate font-medium">{r.display_name}</span>
+                                <span className="max-w-[220px] shrink-0 truncate text-muted-foreground">
+                                  {r.ok === true ? `${r.status} · ${r.latency_ms}ms` : r.detail}
+                                </span>
+                                {fail && <ChevronDown className={cn("h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />}
+                              </button>
+                              {fail && open && (
+                                <p className="whitespace-pre-wrap break-words border-t bg-muted/30 px-3 py-2 pl-8 text-xs leading-relaxed text-muted-foreground">
+                                  {r.detail}
+                                </p>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setShowTestAll(false)}>Cerrar</Button>
+                  <Button disabled={testAllM.isPending} onClick={() => testAllM.mutate()}>
+                    {testAllM.isPending && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+                    {testAllM.isPending ? "Probando…" : taResult ? "Probar de nuevo" : `Probar ${conn.tools.length} operaciones`}
+                  </Button>
+                </DialogFooter>
               </DialogContent>
             </Dialog>
 
@@ -940,19 +1142,51 @@ export default function ConnectorDetailPage() {
 function ToolCard({ connectorId, tool, onDelete, onChanged }: {
   connectorId: string; tool: ConnectorTool; onDelete: () => void; onChanged: () => void;
 }) {
+  const [open, setOpen]           = useState(false);
   const [showTest, setShowTest]   = useState(false);
   const [identity, setIdentity]   = useState("");
   const [paramsStr, setParamsStr] = useState("");
+  // Un campo por parámetro declarado en el schema — el admin escribe el valor
+  // pelado y el objeto JSON lo armamos nosotros. El JSON crudo queda solo como
+  // fallback para operaciones sin parámetros declarados.
+  const [paramVals, setParamVals] = useState<Record<string, string>>({});
   const [result, setResult]       = useState<ConnectorTestResult | null>(null);
 
+  const schemaProps = (tool.params_schema?.properties ?? {}) as Record<
+    string, { type?: string; enum?: unknown[]; description?: string; "x-resource-id"?: boolean }
+  >;
+  const schemaRequired = (tool.params_schema?.required ?? []) as string[];
+  const hasDeclaredParams = Object.keys(schemaProps).length > 0;
+
+  // Valores tipados según el schema: "3" en un param integer viaja como 3.
+  const buildParams = (): Record<string, unknown> | null => {
+    if (!hasDeclaredParams) return parseJson(paramsStr);
+    const out: Record<string, unknown> = {};
+    for (const [name, spec] of Object.entries(schemaProps)) {
+      const raw = (paramVals[name] ?? "").trim();
+      if (!raw) continue;
+      if (spec.type === "integer") { const n = parseInt(raw, 10); if (!Number.isNaN(n)) out[name] = n; }
+      else if (spec.type === "number") { const n = parseFloat(raw); if (!Number.isNaN(n)) out[name] = n; }
+      else if (spec.type === "boolean") out[name] = ["true", "sí", "si", "1"].includes(raw.toLowerCase());
+      else out[name] = raw;
+    }
+    return out;
+  };
+  // Los x-resource-id no bloquean: si quedan vacíos, el backend hace el recorrido
+  // (llama a la lista hermana y usa un id real) — por eso no cuentan como faltantes.
+  const missingRequired = hasDeclaredParams
+    ? schemaRequired.filter(r => !(paramVals[r] ?? "").trim() && !schemaProps[r]?.["x-resource-id"])
+    : [];
 
   const testM = useMutation({
     mutationFn: () => {
-      const params = parseJson(paramsStr);
+      const params = buildParams();
       if (params === null) throw new Error("json");
       return api.connectors.testTool(connectorId, tool.id, { identity: identity.trim(), params });
     },
-    onSuccess: setResult,
+    // onChanged: el backend persistió el resultado → refrescar para que el
+    // pill del acordeón (Probada/Falló) cambie sin recargar.
+    onSuccess: (r) => { setResult(r); onChanged(); },
     onError: (e) => toast({
       title: "No se pudo probar",
       description: (e as Error).message === "json" ? "Los params no son JSON válido" : errDetail(e),
@@ -976,19 +1210,26 @@ function ToolCard({ connectorId, tool, onDelete, onChanged }: {
   // Editar la operación (nombre / método / ruta / acceso).
   const [showEditOp, setShowEditOp] = useState(false);
   const [eName, setEName]     = useState(tool.display_name);
+  const [eDesc, setEDesc]     = useState(tool.description ?? "");
   const [eMethod, setEMethod] = useState(tool.http_method);
   const [ePath, setEPath]     = useState(tool.path_template);
   const [eAccess, setEAccess] = useState(tool.identity_kind === "publico" ? "publico" : "personal");
+  // Ejemplos: una frase por línea en el textarea; se guardan como lista.
+  const [eExamples, setEExamples] = useState((tool.examples ?? []).join("\n"));
   const openEditOp = () => {
-    setEName(tool.display_name); setEMethod(tool.http_method); setEPath(tool.path_template);
+    setEName(tool.display_name); setEDesc(tool.description ?? "");
+    setEMethod(tool.http_method); setEPath(tool.path_template);
     setEAccess(tool.identity_kind === "publico" ? "publico" : "personal");
+    setEExamples((tool.examples ?? []).join("\n"));
     setShowEditOp(true);
   };
   const eNeedsIdentity = eAccess === "personal" && !ePath.includes("{identity}");
   const editOpM = useMutation({
     mutationFn: () => api.connectors.updateTool(tool.id, {
-      display_name: eName.trim(), http_method: eMethod, path_template: ePath.trim(),
+      display_name: eName.trim(), description: eDesc.trim() || null,
+      http_method: eMethod, path_template: ePath.trim(),
       identity_kind: eAccess, roles: eAccess === "publico" ? ["publico"] : [eAccess],
+      examples: eExamples.split("\n").map(s => s.trim()).filter(Boolean).slice(0, 20),
     }),
     onSuccess: () => { onChanged(); setShowEditOp(false); toast({ title: "Operación actualizada", variant: "success" }); },
     onError: (e) => toast({ title: "No se pudo guardar", description: humanizeConnectorError(errDetail(e)), variant: "destructive" }),
@@ -997,12 +1238,40 @@ function ToolCard({ connectorId, tool, onDelete, onChanged }: {
   const isPublic = tool.identity_kind === "publico";
   const needsIdentity = tool.path_template.includes("{identity}");
 
+  const mapped = Object.keys(tool.response_map).length > 0;
+
   return (
-    <div className="py-4 last:pb-0">
+    <div className="first:pt-0 last:pb-0">
+      {/* Cabecera desplegable: con decenas de operaciones la lista expandida era
+          inmanejable — colapsadas por default, el detalle se abre por operación. */}
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-2 py-2.5 text-left transition-colors hover:bg-muted/40 rounded-lg px-1.5 -mx-1.5"
+      >
+        <ChevronDown className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
+        {isPublic ? <Globe className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> : <Lock className="h-3.5 w-3.5 shrink-0 text-warning" />}
+        <span className="text-sm font-semibold truncate">{tool.display_name}</span>
+        <code className="hidden min-w-0 truncate text-[11px] text-muted-foreground sm:inline">{tool.http_method} {tool.path_template}</code>
+        <span className="ml-auto flex shrink-0 items-center gap-1.5">
+          {/* Sin mapeo + nunca probada OK → aviso. Si ya probó OK sin mapeo, la
+              respuesta directa es un estado válido (el mapeo se auto-aplica al
+              probar cuando la heurística encuentra qué mapear). */}
+          {!mapped && tool.last_test_ok !== true && (
+            <span className="inline-flex items-center gap-1 text-[11px] text-warning">
+              <span className="h-1.5 w-1.5 rounded-full bg-warning" /> sin mapear
+            </span>
+          )}
+          <TestStatePill tool={tool} />
+        </span>
+      </button>
+
+      {open && (
+      <div className="animate-fade-in pb-4 pl-6">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <p className="text-sm font-semibold">{tool.display_name}</p>
             <Badge variant="secondary" className="max-w-full whitespace-normal break-all font-mono text-[11px]">{tool.http_method} {tool.path_template}</Badge>
             <Badge variant="outline" className="inline-flex items-center gap-1">
               {isPublic ? <Globe className="h-3 w-3" /> : <Lock className="h-3 w-3" />}
@@ -1012,8 +1281,10 @@ function ToolCard({ connectorId, tool, onDelete, onChanged }: {
           <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
             <span>Acceso: {tool.roles.join(", ") || "—"}</span>
             <span aria-hidden>·</span>
-            <span className={Object.keys(tool.response_map).length ? "" : "text-warning"}>
-              Respuesta: {Object.keys(tool.response_map).length ? "mapeada" : "sin mapear — probala"}
+            <span className={mapped || tool.last_test_ok === true ? "" : "text-warning"}>
+              Respuesta: {mapped ? "mapeada"
+                : tool.last_test_ok === true ? "directa (no necesita mapeo)"
+                : "sin mapear — probala"}
             </span>
           </div>
         </div>
@@ -1073,11 +1344,46 @@ function ToolCard({ connectorId, tool, onDelete, onChanged }: {
                 <Input className="h-8 font-mono text-sm" placeholder="30111222" value={identity} onChange={e => setIdentity(e.target.value)} />
               </div>
             )}
-            <div className="min-w-[200px] flex-1 space-y-1.5">
-              <Label className="text-xs">Parámetros (JSON, opcional)</Label>
-              <Input className="h-8 font-mono text-sm" placeholder='{"campo": "valor"}' value={paramsStr} onChange={e => setParamsStr(e.target.value)} />
-            </div>
-            <Button size="sm" disabled={testM.isPending || (needsIdentity && !identity.trim())} onClick={() => testM.mutate()}>
+            {hasDeclaredParams ? (
+              /* Un campo por parámetro del schema — sin JSON a mano. */
+              Object.entries(schemaProps).map(([name, spec]) => (
+                <div key={name} className="w-44 space-y-1.5">
+                  <Label className="text-xs">
+                    {name}
+                    {schemaRequired.includes(name)
+                      ? <span className="text-destructive"> *</span>
+                      : <span className="text-muted-foreground/60"> (opcional)</span>}
+                  </Label>
+                  {spec.enum?.length ? (
+                    <Select value={paramVals[name] ?? ""} onValueChange={v => setParamVals(s => ({ ...s, [name]: v }))}>
+                      <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Elegí…" /></SelectTrigger>
+                      <SelectContent>
+                        {spec.enum.map(v => <SelectItem key={String(v)} value={String(v)}>{String(v)}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Input
+                      className="h-8 font-mono text-sm"
+                      placeholder={spec["x-resource-id"] ? "vacío → lo buscamos solos" : (spec.type === "integer" || spec.type === "number") ? "123" : "valor"}
+                      title={spec.description}
+                      value={paramVals[name] ?? ""}
+                      onChange={e => setParamVals(s => ({ ...s, [name]: e.target.value }))}
+                    />
+                  )}
+                </div>
+              ))
+            ) : (
+              <div className="min-w-[200px] flex-1 space-y-1.5">
+                <Label className="text-xs">Parámetros (JSON, opcional)</Label>
+                <Input className="h-8 font-mono text-sm" placeholder='{"campo": "valor"}' value={paramsStr} onChange={e => setParamsStr(e.target.value)} />
+              </div>
+            )}
+            <Button
+              size="sm"
+              disabled={testM.isPending || (needsIdentity && !identity.trim()) || missingRequired.length > 0}
+              title={missingRequired.length > 0 ? `Falta completar: ${missingRequired.join(", ")}` : undefined}
+              onClick={() => testM.mutate()}
+            >
               {testM.isPending && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
               Ejecutar
             </Button>
@@ -1088,9 +1394,17 @@ function ToolCard({ connectorId, tool, onDelete, onChanged }: {
               <div className="flex flex-wrap items-center gap-2">
                 {result.ok
                   ? <span className="inline-flex items-center gap-1 font-medium text-success"><CheckCircle2 className="h-4 w-4" /> {result.status} OK · {result.latency_ms}ms</span>
-                  : <span className="inline-flex items-center gap-1 font-medium text-destructive"><XCircle className="h-4 w-4" /> {result.error || result.status}{result.detail ? ` — ${result.detail}` : ""}</span>}
-                <code className="text-xs text-muted-foreground">{result.method} {result.url}</code>
+                  : result.error === "resource_id_unavailable"
+                    ? <span className="inline-flex items-center gap-1 font-medium text-destructive"><XCircle className="h-4 w-4" /> {result.detail}</span>
+                    : <span className="inline-flex items-center gap-1 font-medium text-destructive"><XCircle className="h-4 w-4" /> {result.error || result.status}{result.detail ? ` — ${result.detail}` : ""}</span>}
+                {result.url && <code className="text-xs text-muted-foreground">{result.method} {result.url}</code>}
               </div>
+              {result.auto_filled?.map(a => (
+                <p key={a.param} className="text-xs text-muted-foreground">
+                  Probada con <code>{a.param}={a.value}</code>{a.label ? ` («${a.label}»)` : ""} — lo
+                  conseguimos automáticamente de “{a.from}”.
+                </p>
+              ))}
               {!result.ok && (() => {
                 const ex = explainHttpStatus(result.status);
                 return ex ? <p className="text-xs leading-snug text-muted-foreground">{ex.hint}</p> : null;
@@ -1101,7 +1415,12 @@ function ToolCard({ connectorId, tool, onDelete, onChanged }: {
               {result.raw !== undefined && (
                 <pre className="max-h-56 overflow-x-auto rounded-lg border bg-background p-3 text-xs">{JSON.stringify(result.raw, null, 2)}</pre>
               )}
-              {result.suggested_response_map && Object.keys(result.suggested_response_map).length > 0 && (
+              {result.response_map_applied ? (
+                <p className="inline-flex items-center gap-1.5 text-xs text-success">
+                  <Wand2 className="h-3.5 w-3.5" /> Mapeo de respuesta configurado automáticamente con esta prueba.
+                </p>
+              ) : result.suggested_response_map && Object.keys(result.suggested_response_map).length > 0 && (
+                /* La tool ya tenía un mapeo distinto: la sugerencia queda como override manual. */
                 <div className="flex flex-wrap items-center gap-2">
                   <code className="rounded border bg-background px-2 py-1 text-xs">{JSON.stringify(result.suggested_response_map)}</code>
                   <Button size="sm" variant="outline" disabled={applySuggestionM.isPending} onClick={() => applySuggestionM.mutate()}>
@@ -1120,12 +1439,32 @@ function ToolCard({ connectorId, tool, onDelete, onChanged }: {
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle className="break-words">Editar operación</DialogTitle>
-            <DialogDescription>Ajustá el nombre, la ruta o el acceso de esta operación.</DialogDescription>
+            <DialogDescription>Ajustá el nombre, la descripción, los ejemplos, la ruta o el acceso.</DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
+          <div className="-mx-1.5 max-h-[min(70vh,44rem)] space-y-4 overflow-y-auto px-1.5 py-1">
             <div className="space-y-1.5">
               <Label className="text-xs">Nombre</Label>
               <Input value={eName} onChange={e => setEName(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Descripción <span className="font-normal text-muted-foreground">· qué devuelve y cuándo usarla</span></Label>
+              <Textarea rows={2} value={eDesc} onChange={e => setEDesc(e.target.value)}
+                        placeholder="Ej. Cuentas por cobrar: cuánto nos deben los clientes. No es el valor del proyecto." />
+              <p className="text-[11px] leading-snug text-muted-foreground">
+                El asistente lee esto para decidir cuándo consultar esta operación. Cuanto más clara —y
+                más aclare qué NO es—, mejor elige.
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Ejemplos de consultas <span className="font-normal text-muted-foreground">· una por línea</span></Label>
+              <Textarea rows={5} className="font-mono text-[13px]" value={eExamples}
+                        onChange={e => setEExamples(e.target.value)}
+                        placeholder={"¿cuánto nos debe tal cliente?\n¿quién nos debe plata?\n¿qué tenemos por cobrar?"} />
+              <p className="text-[11px] leading-snug text-muted-foreground">
+                Frases reales, como las diría la gente (con sinónimos y jerga). Ayudan al asistente a
+                reconocer preguntas que suenan distinto pero van a esta operación. Ideal: 4-6.
+                {" "}{eExamples.split("\n").map(s => s.trim()).filter(Boolean).length}/20
+              </p>
             </div>
             <div className="grid grid-cols-[110px_1fr] gap-3">
               <div className="space-y-1.5">
@@ -1170,6 +1509,8 @@ function ToolCard({ connectorId, tool, onDelete, onChanged }: {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      </div>
+      )}
 
     </div>
   );
