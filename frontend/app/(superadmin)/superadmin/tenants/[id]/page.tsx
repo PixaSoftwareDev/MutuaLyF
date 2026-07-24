@@ -117,6 +117,7 @@ export default function TenantDetailPage() {
   });
   const bots = botsData?.bots ?? [];
   const activeBot = bots.find(b => b.is_active) ?? null;
+  const maxTemplates = botsData?.max_prompt_templates ?? 1;
 
   const { data: allTemplates = [] } = useQuery({
     queryKey: ["prompt-templates"],
@@ -144,11 +145,30 @@ export default function TenantDetailPage() {
   });
   const assignAndActivateM = useMutation({
     mutationFn: async (templateId: string) => {
-      await api.promptTemplates.assignToTenants(templateId, [tenantId]);
+      const res = await api.promptTemplates.assignToTenants(templateId, [tenantId]);
+      if (res.errors?.length) throw new Error(res.errors[0].error);
       await api.tenantBots.activate(tenantId, templateId);
     },
     onSuccess: () => { invBots(); toast({ title: "Bot asignado y activado", variant: "success" }); },
-    onError: (e: any) => toast({ title: e?.response?.data?.detail ?? "Error al asignar", variant: "destructive" }),
+    onError: (e: any) => toast({ title: e?.response?.data?.detail ?? e?.message ?? "Error al asignar", variant: "destructive" }),
+  });
+  const assignOnlyM = useMutation({
+    mutationFn: async (templateId: string) => {
+      const res = await api.promptTemplates.assignToTenants(templateId, [tenantId]);
+      if (res.errors?.length) throw new Error(res.errors[0].error);
+    },
+    onSuccess: () => { invBots(); toast({ title: "Personalidad habilitada para el tenant", variant: "success" }); },
+    onError: (e: any) => toast({ title: e?.response?.data?.detail ?? e?.message ?? "Error al habilitar", variant: "destructive" }),
+  });
+  const unassignM = useMutation({
+    mutationFn: (templateId: string) => api.promptTemplates.unassign(tenantId, templateId),
+    onSuccess: () => { invBots(); toast({ title: "Personalidad quitada del tenant" }); },
+    onError: (e: any) => toast({ title: e?.response?.data?.detail ?? "Error al quitar", variant: "destructive" }),
+  });
+  const setMaxM = useMutation({
+    mutationFn: (max: number) => api.promptTemplates.setMaxTemplates(tenantId, max),
+    onSuccess: () => { invBots(); toast({ title: "Límite de personalidades actualizado", variant: "success" }); },
+    onError: (e: any) => toast({ title: e?.response?.data?.detail ?? "Error al actualizar el límite", variant: "destructive" }),
   });
 
   const suspendM  = useMutation({ mutationFn: () => apiClient.post(`/tenants/${tenantId}/suspend`),  onSuccess: () => { inv(); qc.invalidateQueries({ queryKey: ["tenants"] }); setShowSuspendConfirm(false); toast({ title: "Organización suspendida" }); }, onError: () => toast({ title: "Error", variant: "destructive" }) });
@@ -369,9 +389,13 @@ export default function TenantDetailPage() {
               allTemplates={allTemplates}
               bots={bots}
               activeBot={activeBot}
+              maxTemplates={maxTemplates}
               activateBotM={activateBotM}
               deactivateBotM={deactivateBotM}
               assignAndActivateM={assignAndActivateM}
+              assignOnlyM={assignOnlyM}
+              unassignM={unassignM}
+              setMaxM={setMaxM}
             />
           </div>
 
@@ -1015,17 +1039,23 @@ function LoadingState() {
 }
 
 // ── BotSelector ───────────────────────────────────────────────────────────────
-function BotSelector({ allTemplates, bots, activeBot, activateBotM, deactivateBotM, assignAndActivateM }: {
+function BotSelector({ allTemplates, bots, activeBot, maxTemplates, activateBotM, deactivateBotM, assignAndActivateM, assignOnlyM, unassignM, setMaxM }: {
   allTemplates: any[];
   bots: any[];
   activeBot: any | null;
+  maxTemplates: number;
   activateBotM: any;
   deactivateBotM: any;
   assignAndActivateM: any;
+  assignOnlyM: any;
+  unassignM: any;
+  setMaxM: any;
 }) {
   const assignedIds = new Set(bots.map((b: any) => b.id));
   const activeTemplates = allTemplates.filter((t: any) => t.is_active);
   const [confirmOff, setConfirmOff] = useState(false);
+  const [editingMax, setEditingMax] = useState(false);
+  const [maxDraft, setMaxDraft] = useState("");
 
   if (activeTemplates.length === 0) {
     return (
@@ -1095,6 +1125,91 @@ function BotSelector({ allTemplates, bots, activeBot, activateBotM, deactivateBo
         ) : (
           <span className="text-muted-foreground">Modo estándar — elegí un bot en la lista para activarlo.</span>
         )}
+      </div>
+
+      <Separator />
+
+      {/* Personalidades visibles para el admin del tenant — él elige cuál usar */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-sm font-medium">
+            Visibles para el tenant
+            <span className="ml-1.5 text-muted-foreground font-normal">{bots.length} de {maxTemplates} permitidas</span>
+          </p>
+          {editingMax ? (
+            <div className="flex items-center gap-1.5">
+              <Input
+                type="number" min={0} max={99} value={maxDraft}
+                onChange={e => setMaxDraft(e.target.value)}
+                className="h-7 w-16 text-sm"
+                autoFocus
+              />
+              <Button
+                size="sm" variant="outline" className="h-7 px-2 text-xs"
+                disabled={setMaxM.isPending || maxDraft === "" || Number(maxDraft) < 0}
+                onClick={() => setMaxM.mutate(Number(maxDraft), { onSuccess: () => setEditingMax(false) })}
+              >
+                {setMaxM.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Guardar"}
+              </Button>
+              <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => setEditingMax(false)}>Cancelar</Button>
+            </div>
+          ) : (
+            <Button
+              size="sm" variant="ghost" className="h-7 px-2 text-xs text-muted-foreground"
+              onClick={() => { setMaxDraft(String(maxTemplates)); setEditingMax(true); }}
+            >
+              <Settings2 className="h-3.5 w-3.5 mr-1" /> Cambiar límite
+            </Button>
+          )}
+        </div>
+
+        {bots.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Ninguna todavía — el admin del tenant no ve personalidades para elegir.</p>
+        ) : (
+          <ul className="divide-y">
+            {/* Orden estable (alfabético): reordenar al activar mueve las filas bajo el cursor */}
+            {[...bots].sort((a: any, b: any) => a.nombre.localeCompare(b.nombre)).map((b: any) => (
+              <li key={b.id} className="flex items-center gap-2 py-1.5 text-sm min-w-0">
+                <span className="font-medium shrink-0">{b.nombre}</span>
+                {b.is_active && <StatePill tone="success">en uso</StatePill>}
+                {b.descripcion && <span className="text-muted-foreground truncate">· {b.descripcion}</span>}
+                <Button
+                  size="sm" variant="ghost"
+                  className="h-7 w-7 p-0 ml-auto shrink-0 text-muted-foreground hover:text-destructive"
+                  title={b.is_active ? "Está en uso — activá otra antes de quitarla" : "Quitar del tenant"}
+                  disabled={b.is_active || unassignM.isPending}
+                  onClick={() => unassignM.mutate(b.id)}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {(() => {
+          const unassigned = activeTemplates.filter((t: any) => !assignedIds.has(t.id));
+          const atCap = bots.length >= maxTemplates;
+          if (unassigned.length === 0) return null;
+          return (
+            <div className="flex items-center gap-2">
+              <Select value="" onValueChange={(val: string) => val && assignOnlyM.mutate(val)} disabled={atCap || assignOnlyM.isPending}>
+                <SelectTrigger className="h-8 w-full sm:max-w-xs text-sm">
+                  <span className="flex items-center gap-1.5 text-muted-foreground">
+                    <Plus className="h-3.5 w-3.5" /> Hacer visible otra personalidad…
+                  </span>
+                </SelectTrigger>
+                <SelectContent>
+                  {unassigned.map((t: any) => (
+                    <SelectItem key={t.id} value={String(t.id)}>{t.nombre}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {assignOnlyM.isPending && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground shrink-0" />}
+              {atCap && <span className="text-xs text-muted-foreground shrink-0">Límite alcanzado — subilo para agregar más.</span>}
+            </div>
+          );
+        })()}
       </div>
     </div>
 

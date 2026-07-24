@@ -498,7 +498,14 @@ async def list_tenant_bots(
         """), {"tid": tenant_id})
         rows = result.mappings().all()
 
+        limits = await session.execute(
+            text("SELECT max_prompt_templates FROM tenants WHERE id = :tid"),
+            {"tid": tenant_id},
+        )
+        limit_row = limits.mappings().fetchone()
+
     return {
+        "max_prompt_templates": limit_row["max_prompt_templates"] if limit_row else 1,
         "bots": [
             {
                 "id": str(r["id"]),

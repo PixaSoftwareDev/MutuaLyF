@@ -1330,7 +1330,7 @@ export const api = {
   tenantBots: {
     list: async (tenantId: string) => {
       const { data } = await apiClient.get(`/superadmin/tenants/${tenantId}/bots`);
-      return data as { bots: TenantBot[] };
+      return data as { max_prompt_templates: number; bots: TenantBot[] };
     },
     activate: async (tenantId: string, templateId: string) => {
       const { data } = await apiClient.post(`/superadmin/tenants/${tenantId}/bots/${templateId}/activate`);
