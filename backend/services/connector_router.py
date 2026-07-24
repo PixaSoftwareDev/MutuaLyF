@@ -502,6 +502,7 @@ async def _run_tool_and_format(binding, *, tenant_id: str, conv_id: str, questio
     steps: list = []          # (slug, params, ExecResult) ejecutados
     seen_calls: set = set()
     llm_rounds = 0
+    _flywheel_done = False     # captura del candidato una sola vez por turno
     pending = (binding, dict(params or {}))
 
     while pending is not None and len(steps) < max_calls:
@@ -550,6 +551,19 @@ async def _run_tool_and_format(binding, *, tenant_id: str, conv_id: str, questio
         if result.outcome == OK:
             await connmem.remember(tenant_id, conv_id, b.tool_slug, result.data)
             known_ids |= {str(i["id"]) for i in connmem.summarize_result(result.data)}
+            # Data flywheel: la pregunta del usuario es candidato a ejemplo de la
+            # tool que el ROUTER eligió (binding inicial), en su primer OK — se
+            # captura acá, no al final, porque el loop puede retornar antes. PII
+            # enmascarada; aprobación manual. Best-effort.
+            if b.tool_id == binding.tool_id and not _flywheel_done and question:
+                _flywheel_done = True
+                try:
+                    from services.connector_audit import mask_pii
+                    from services import connectors_dao
+                    await connectors_dao.record_example_candidate(
+                        tenant_id, binding.tool_id, mask_pii(question.strip()))
+                except Exception as exc:  # noqa: BLE001 — nunca rompe el turno
+                    logger.debug("flywheel_capture_skipped tool=%s error=%s", binding.tool_slug, exc)
 
         # ¿Alcanza para responder, o hace falta encadenar otra llamada?
         if len(steps) >= max_calls or (time.monotonic() - t0) > budget_s \

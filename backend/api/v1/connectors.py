@@ -608,6 +608,42 @@ async def delete_tool(
     return {"ok": True}
 
 
+# ── Data flywheel: candidatos a ejemplo (consultas reales que rutearon OK) ───────
+@router.get("/admin/connectors/tools/{tool_id}/example-candidates")
+async def list_example_candidates(
+    tool_id: str, current_user: CurrentUser = Depends(require_admin_or_super),
+):
+    """Consultas reales que rutearon OK a esta operación y todavía no son ejemplos.
+    El admin las revisa y aprueba las buenas → mejoran el ruteo."""
+    tenant_id = _own_tenant(current_user)
+    return {"candidates": await dao.list_example_candidates(tenant_id, tool_id)}
+
+
+@router.post("/admin/connectors/example-candidates/{candidate_id}/approve")
+async def approve_example_candidate(
+    candidate_id: str, request: Request,
+    current_user: CurrentUser = Depends(require_admin_or_super),
+):
+    """Aprueba un candidato → pasa a los ejemplos de la operación."""
+    tenant_id = _own_tenant(current_user)
+    query = await dao.approve_example_candidate(tenant_id, candidate_id)
+    if query is None:
+        raise HTTPException(status_code=404, detail="Candidato no encontrado")
+    _audit(request, current_user, "connector_example_approved", candidate_id, {"query": query})
+    return {"ok": True, "query": query}
+
+
+@router.post("/admin/connectors/example-candidates/{candidate_id}/dismiss")
+async def dismiss_example_candidate(
+    candidate_id: str, current_user: CurrentUser = Depends(require_admin_or_super),
+):
+    """Descarta un candidato: no se vuelve a sugerir."""
+    tenant_id = _own_tenant(current_user)
+    if not await dao.dismiss_example_candidate(tenant_id, candidate_id):
+        raise HTTPException(status_code=404, detail="Candidato no encontrado")
+    return {"ok": True}
+
+
 # ── Usuarios autorizados por conector (registro de identidad, platform_registry) ──
 # La identidad de quién puede consultar la validamos nosotros: lista blanca con
 # documento + email + nombre. El login busca por documento y manda OTP al email.

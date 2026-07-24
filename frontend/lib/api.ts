@@ -404,6 +404,13 @@ export interface ConnectorPayload {
   timeout_ms?: number;
 }
 
+export interface ExampleCandidate {
+  id: string;
+  query: string;
+  hits: number;
+  last_seen_at: string | null;
+}
+
 export interface ConnectorToolPayload {
   slug: string;
   display_name: string;
@@ -912,6 +919,18 @@ export const api = {
     },
     updateTool: async (toolId: string, body: Partial<ConnectorToolPayload> & { is_active?: boolean }) => {
       await apiClient.put(`/admin/connectors/tools/${toolId}`, body);
+    },
+    // Data flywheel: candidatos a ejemplo (consultas reales que rutearon OK).
+    exampleCandidates: async (toolId: string): Promise<{ candidates: ExampleCandidate[] }> => {
+      const { data } = await apiClient.get(`/admin/connectors/tools/${toolId}/example-candidates`);
+      return data;
+    },
+    approveExampleCandidate: async (candidateId: string) => {
+      const { data } = await apiClient.post(`/admin/connectors/example-candidates/${candidateId}/approve`);
+      return data as { ok: boolean; query: string };
+    },
+    dismissExampleCandidate: async (candidateId: string) => {
+      await apiClient.post(`/admin/connectors/example-candidates/${candidateId}/dismiss`);
     },
     deleteTool: async (toolId: string) => {
       await apiClient.delete(`/admin/connectors/tools/${toolId}`);

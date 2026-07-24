@@ -104,12 +104,21 @@ def loop_wired(monkeypatch):
     monkeypatch.setattr("services.connector_router._phrase_with_llm", _noop)
     monkeypatch.setattr("services.connector_audit.record_tool_call", _noop)
 
+    # Espía del flywheel: qué (tool_id, query) se capturó como candidato.
+    flywheel: list = []
+
+    async def _capture(tid, tool_id, query):
+        flywheel.append((tool_id, query))
+    import services.connectors_dao as _dao
+    monkeypatch.setattr(_dao, "record_example_candidate", _capture)
+    monkeypatch.setattr("services.connector_audit.mask_pii", lambda s: s)
+
     fake = FakeRedis()
     monkeypatch.setattr("services.connector_memory.get_redis_session", lambda: fake)
     monkeypatch.setattr("services.connector_memory.encrypt_secret", lambda s: s)
     monkeypatch.setattr("services.connector_memory.decrypt_secret", lambda s: s)
 
-    return {"calls": calls, "llm": llm_script, "redis": fake}
+    return {"calls": calls, "llm": llm_script, "redis": fake, "flywheel": flywheel}
 
 
 async def _run(binding, params, question="dame el detalle del proyecto Alfa", conv="conv1"):
@@ -210,6 +219,37 @@ async def test_vacio_sin_alternativa_responde_honesto(loop_wired):
     r = await _run(CONTACTOS, {"search": "zzz"}, question="buscá el contacto zzz")
     assert loop_wired["calls"] == [("lista_contactos", {"search": "zzz"})]
     assert "no encontré" in r["answer"].lower()
+
+
+@pytest.mark.asyncio
+async def test_flywheel_captura_binding_inicial_en_caso_comun(loop_wired):
+    """Regresión del bug del return temprano: en el caso común (1 llamada, el LLM
+    redacta en el loop) la captura del candidato IGUAL ocurre, y con el binding
+    que el router eligió (no las encadenadas)."""
+    loop_wired["llm"].extend([("Tenés 2 proyectos.", None)])  # redacta y retorna temprano
+    await _run(LISTA, {}, question="mostrame los proyectos")
+    assert loop_wired["flywheel"] == [(LISTA.tool_id, "mostrame los proyectos")]
+
+
+@pytest.mark.asyncio
+async def test_flywheel_captura_solo_el_binding_del_router(loop_wired):
+    """Encadenado lista→detalle: se captura para la tool que el router eligió
+    (DETALLE), una sola vez — no para lista_proyectos (encadenada)."""
+    loop_wired["llm"].extend([
+        (None, {"name": "lista_proyectos", "arguments": {}}),
+        (None, {"name": "detalle_proyecto", "arguments": {"id": "7"}}),
+        ("El proyecto Alfa está activo.", None),
+    ])
+    await _run(DETALLE, {}, question="detalle del proyecto Alfa")
+    assert loop_wired["flywheel"] == [(DETALLE.tool_id, "detalle del proyecto Alfa")]
+
+
+@pytest.mark.asyncio
+async def test_flywheel_no_captura_si_vacio(loop_wired):
+    """Un resultado EMPTY no genera candidato (no fue una consulta 'resuelta')."""
+    loop_wired["llm"].extend([("No encontré contactos.", None)])
+    await _run(CONTACTOS, {"search": "zzz"}, question="buscá el contacto zzz")
+    assert loop_wired["flywheel"] == []
 
 
 @pytest.mark.asyncio

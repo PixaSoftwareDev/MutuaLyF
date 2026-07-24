@@ -1232,6 +1232,30 @@ function ToolCard({ connectorId, tool, onDelete, onChanged }: {
     setShowEditOp(true);
   };
   const eNeedsIdentity = eAccess === "personal" && !ePath.includes("{identity}");
+
+  // Data flywheel: consultas reales que rutearon a esta operación y aún no son
+  // ejemplos. El admin las suma con un clic (aprender del uso) o las descarta.
+  const candQ = useQuery({
+    queryKey: ["example-candidates", tool.id],
+    queryFn: () => api.connectors.exampleCandidates(tool.id),
+    enabled: showEditOp,
+    staleTime: 10_000,
+  });
+  const candidates = candQ.data?.candidates ?? [];
+  const approveCandM = useMutation({
+    mutationFn: (id: string) => api.connectors.approveExampleCandidate(id),
+    onSuccess: (d) => {
+      // Reflejar de una en el textarea (aún sin guardar) + refrescar la lista.
+      setEExamples(prev => (prev.trim() ? prev.trimEnd() + "\n" : "") + d.query);
+      candQ.refetch(); onChanged();
+    },
+    onError: (e) => toast({ title: "No se pudo agregar", description: errDetail(e), variant: "destructive" }),
+  });
+  const dismissCandM = useMutation({
+    mutationFn: (id: string) => api.connectors.dismissExampleCandidate(id),
+    onSuccess: () => candQ.refetch(),
+  });
+
   const editOpM = useMutation({
     mutationFn: () => api.connectors.updateTool(tool.id, {
       display_name: eName.trim(), description: eDesc.trim() || null,
@@ -1474,6 +1498,32 @@ function ToolCard({ connectorId, tool, onDelete, onChanged }: {
                 {" "}{eExamples.split("\n").map(s => s.trim()).filter(Boolean).length}/20
               </p>
             </div>
+            {/* Sugerencias del uso real (data flywheel) */}
+            {candidates.length > 0 && (
+              <div className="space-y-1.5 rounded-lg border border-action/30 bg-action/[0.04] p-3">
+                <p className="text-xs font-medium text-foreground">
+                  Sugerencias del uso real <span className="font-normal text-muted-foreground">· preguntas que la gente hizo y rutearon acá</span>
+                </p>
+                <div className="space-y-1">
+                  {candidates.map(c => (
+                    <div key={c.id} className="flex items-center gap-2 text-xs">
+                      <span className="min-w-0 flex-1 truncate">{c.query}</span>
+                      {c.hits > 1 && <span className="shrink-0 text-[10px] text-muted-foreground">×{c.hits}</span>}
+                      <button type="button" disabled={approveCandM.isPending}
+                              onClick={() => approveCandM.mutate(c.id)}
+                              className="shrink-0 rounded border border-success/40 px-1.5 py-0.5 text-[11px] font-medium text-success transition-colors hover:bg-success/10">
+                        + Agregar
+                      </button>
+                      <button type="button" disabled={dismissCandM.isPending}
+                              onClick={() => dismissCandM.mutate(c.id)}
+                              className="shrink-0 rounded px-1.5 py-0.5 text-[11px] text-muted-foreground transition-colors hover:text-destructive">
+                        Descartar
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className="grid grid-cols-[110px_1fr] gap-3">
               <div className="space-y-1.5">
                 <Label className="text-xs">Método</Label>

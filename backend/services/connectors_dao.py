@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass, field
 
 from sqlalchemy import text
@@ -369,6 +370,80 @@ async def update_tool(tenant_id: str, tool_id: str, data: dict) -> bool:
         res = await session.execute(text(
             f"UPDATE connector_tools SET {set_sql} WHERE id = CAST(:id AS uuid)"
         ), params)
+        await session.commit()
+    return res.rowcount > 0
+
+
+# ── Data flywheel: candidatos a ejemplo por operación ───────────────────────────
+def _norm_query(q: str) -> str:
+    """Normaliza para dedup: minúsculas, espacios colapsados, sin signos al borde."""
+    return re.sub(r"\s+", " ", (q or "").strip().lower()).strip(" ?!.¿¡")
+
+
+async def record_example_candidate(tenant_id: str, tool_id: str, query: str) -> None:
+    """Registra una consulta real que ruteó OK a esta tool como candidato a ejemplo.
+    Upsert por (tool_id, query_norm): si ya existe, suma hit y refresca last_seen.
+    Best-effort: el flywheel nunca rompe una consulta."""
+    norm = _norm_query(query)
+    if len(norm) < 8:
+        return  # muy corta para ser un ejemplo útil
+    try:
+        async with get_pg_session(tenant_id) as session:
+            await session.execute(text(
+                "INSERT INTO tool_example_candidates (tool_id, query, query_norm) "
+                "VALUES (CAST(:tid AS uuid), :q, :qn) "
+                "ON CONFLICT (tool_id, query_norm) DO UPDATE SET "
+                "hits = tool_example_candidates.hits + 1, last_seen_at = NOW()"
+            ), {"tid": tool_id, "q": query.strip()[:200], "qn": norm})
+            await session.commit()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("example_candidate_failed tool=%s error=%s", tool_id, exc)
+
+
+async def list_example_candidates(tenant_id: str, tool_id: str, limit: int = 15) -> list[dict]:
+    """Candidatos PENDIENTES de una tool, más frecuentes primero."""
+    async with get_pg_session(tenant_id) as session:
+        rows = (await session.execute(text(
+            "SELECT id::text, query, hits, "
+            "to_char(last_seen_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS last_seen_at "
+            "FROM tool_example_candidates "
+            "WHERE tool_id = CAST(:tid AS uuid) AND status = 'pending' "
+            "ORDER BY hits DESC, last_seen_at DESC LIMIT :lim"
+        ), {"tid": tool_id, "lim": limit})).mappings().all()
+    return [dict(r) for r in rows]
+
+
+async def approve_example_candidate(tenant_id: str, candidate_id: str) -> str | None:
+    """Mueve un candidato a connector_tools.examples y lo borra. Devuelve la query
+    aprobada, o None si no existía / ya estaba en los ejemplos."""
+    async with get_pg_session(tenant_id) as session:
+        row = (await session.execute(text(
+            "SELECT tool_id::text, query FROM tool_example_candidates WHERE id = CAST(:id AS uuid)"
+        ), {"id": candidate_id})).mappings().first()
+        if row is None:
+            return None
+        cur = (await session.execute(text(
+            "SELECT examples FROM connector_tools WHERE id = CAST(:tid AS uuid)"
+        ), {"tid": row["tool_id"]})).scalar()
+        examples = list(cur or [])
+        if row["query"] not in examples:
+            examples = (examples + [row["query"]])[:20]
+            await session.execute(text(
+                "UPDATE connector_tools SET examples = :ex WHERE id = CAST(:tid AS uuid)"
+            ), {"ex": examples, "tid": row["tool_id"]})
+        await session.execute(text(
+            "DELETE FROM tool_example_candidates WHERE id = CAST(:id AS uuid)"
+        ), {"id": candidate_id})
+        await session.commit()
+    return row["query"]
+
+
+async def dismiss_example_candidate(tenant_id: str, candidate_id: str) -> bool:
+    """Descarta un candidato (status='dismissed'): no se vuelve a sugerir."""
+    async with get_pg_session(tenant_id) as session:
+        res = await session.execute(text(
+            "UPDATE tool_example_candidates SET status = 'dismissed' WHERE id = CAST(:id AS uuid)"
+        ), {"id": candidate_id})
         await session.commit()
     return res.rowcount > 0
 

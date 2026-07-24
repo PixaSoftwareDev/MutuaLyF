@@ -288,6 +288,21 @@ CREATE TABLE IF NOT EXISTS connector_tools (
     UNIQUE (connector_id, slug)
 );
 
+-- Candidatos a ejemplo (data flywheel del ruteo). Ver migración 043.
+CREATE TABLE IF NOT EXISTS tool_example_candidates (
+    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tool_id      UUID NOT NULL REFERENCES connector_tools(id) ON DELETE CASCADE,
+    query        TEXT NOT NULL,
+    query_norm   TEXT NOT NULL,
+    hits         INTEGER NOT NULL DEFAULT 1,
+    status       TEXT NOT NULL DEFAULT 'pending',
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (tool_id, query_norm)
+);
+CREATE INDEX IF NOT EXISTS idx_example_candidates_tool
+    ON tool_example_candidates (tool_id, status, hits DESC);
+
 -- RBAC por tool. Sin fila → denegado (fail-closed).
 CREATE TABLE IF NOT EXISTS connector_roles (
     tool_id UUID NOT NULL REFERENCES connector_tools(id) ON DELETE CASCADE,
