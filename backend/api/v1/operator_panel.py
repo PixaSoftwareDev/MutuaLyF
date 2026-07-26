@@ -9,7 +9,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from sqlalchemy import text
 
 from core.database import get_pg_session
@@ -55,6 +55,27 @@ class HandoffConfigUpdate(BaseModel):
     attention_hours:                 str | None = None
     contact_info:                    str | None = None   # tel/email/texto — reusado en no-operadores y fallback anti-alucinación
     transition_messages:             dict | None = None
+    # Regla 5: [{"words": ["turno", ...], "message": "..."}] — lista vacía la apaga
+    keyword_triggers:                list | None = None
+
+    @field_validator("keyword_triggers")
+    @classmethod
+    def valid_keyword_triggers(cls, v: list | None) -> list | None:
+        if v is None:
+            return v
+        if len(v) > 20:
+            raise ValueError("máximo 20 grupos de palabras")
+        cleaned = []
+        for group in v:
+            if not isinstance(group, dict):
+                raise ValueError("cada grupo debe ser un objeto {words, message}")
+            words = [str(w).strip()[:80] for w in (group.get("words") or []) if str(w).strip()]
+            if not words:
+                continue  # grupo sin palabras no dispara nada — se descarta
+            if len(words) > 50:
+                raise ValueError("máximo 50 palabras por grupo")
+            cleaned.append({"words": words, "message": str(group.get("message") or "").strip()[:500]})
+        return cleaned
 
 
 def _operator_sector_scope(current_user: CurrentUser, column: str = "sector_id") -> tuple[str, dict]:

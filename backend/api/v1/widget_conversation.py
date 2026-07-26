@@ -421,7 +421,17 @@ async def send_message(
     )
 
     if offer_with_operators:
-        # Hay operadores conectados → cartel con botón. El bot_answer no se persiste.
+        # Hay operadores conectados → cartel con botón.
+        # keep_answer (Regla 5 por keyword): la respuesta del bot SÍ se persiste
+        # y el cartel va debajo — el afiliado pudo pedir info que el bot tiene.
+        # Reglas por fallo: el bot_answer genérico es redundante y no se persiste.
+        if signal.keep_answer:
+            bot_msg_id = str(uuid.uuid4())
+            async with get_pg_session(tenant_id) as session:
+                await session.execute(text("""
+                    INSERT INTO mensajes (id, conversation_id, sender_type, content)
+                    VALUES (:id, :cid, 'bot', :content)
+                """), {"id": bot_msg_id, "cid": conversation_id, "content": bot_answer})
         async with get_pg_session(tenant_id) as session:
             await session.execute(text("""
                 INSERT INTO mensajes (conversation_id, sender_type, content, is_handoff_offer)
@@ -429,9 +439,12 @@ async def send_message(
             """), {"cid": conversation_id, "msg": signal.offer_message})
         await _publish_event(tenant_id, "new_message", {"conversation_id": conversation_id})
         await _mark_offer_pending(conversation_id)  # cooldown 90s SOLO al mostrar el cartel
+        if signal.trigger == HandoffTrigger.KEYWORD:
+            from services.handoff import mark_keyword_offered
+            await mark_keyword_offered(conversation_id)  # supresión 1h por conversación
         handoff_message = signal.offer_message
         handoff_offered = True
-        suppress_bot = True
+        suppress_bot = not signal.keep_answer
     else:
         # Respuesta normal del bot. Incluye el caso "deriva pero sin operadores":
         # ahí el genérico sí aporta contexto al aviso de no-disponibilidad.
@@ -443,7 +456,10 @@ async def send_message(
             """), {"id": bot_msg_id, "cid": conversation_id, "content": bot_answer})
         await _publish_event(tenant_id, "new_message", {"conversation_id": conversation_id})
 
-        if signal.trigger != HandoffTrigger.NONE:
+        # keep_answer (keyword) sin operadores: el bot respondió bien y nadie pidió
+        # humano — no ensuciar con el aviso de no-disponibilidad; la oferta podrá
+        # dispararse en otro mensaje cuando haya operadores.
+        if signal.trigger != HandoffTrigger.NONE and not signal.keep_answer:
             # Sin operadores online → no derivar a una cola vacía. Avisar y, si está
             # configurado, indicar el horario de atención del tenant.
             cfg = await _get_handoff_config(tenant_id)
