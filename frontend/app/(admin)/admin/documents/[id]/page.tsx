@@ -16,6 +16,7 @@ import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
+import { HighlightedText, normSearch } from "@/lib/highlight";
 import { ListDetailShell } from "@/components/admin/list-detail-shell";
 import { DetailShell as Shell } from "@/components/admin/detail-shell";
 import {
@@ -42,6 +43,14 @@ export default function DocumentDetailPage() {
   const [panelOpen, setPanelOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState<StatusKey>("all");
   const [search, setSearch] = useState("");
+
+  // El buscador general de la tabla propaga su término via ?q= — el detalle
+  // abre ya filtrado. Se lee en effect (no useSearchParams) para no requerir
+  // Suspense en el prerender y evitar hydration mismatch en el Input.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get("q");
+    if (q) setSearch(q);
+  }, []);
 
   // El doc sale de la lista cacheada; si se entra directo por URL, la query la trae.
   const { data: documents, isLoading: listLoading } = useQuery({
@@ -87,10 +96,12 @@ export default function DocumentDetailPage() {
   }, [chunks]);
 
   const filteredChunks = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    // Sin tildes ni mayúsculas: coherente con el full-text del buscador general
+    // ("autorizacion" encuentra "Autorización").
+    const q = normSearch(search.trim());
     return (chunks ?? []).filter((c) =>
       (statusFilter === "all" || c.quality_gate_status === statusFilter) &&
-      (!q || c.text.toLowerCase().includes(q)),
+      (!q || normSearch(c.text).includes(q)),
     );
   }, [chunks, statusFilter, search]);
 
@@ -102,7 +113,8 @@ export default function DocumentDetailPage() {
 
   const backLink = (
     <Link
-      href="/admin/documents"
+      // Preserva la búsqueda activa: la lista la restaura desde ?q=
+      href={search.trim() ? `/admin/documents?q=${encodeURIComponent(search.trim())}` : "/admin/documents"}
       aria-label="Volver a Documentos"
       title="Volver a Documentos"
       className="-ml-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
@@ -232,6 +244,7 @@ export default function DocumentDetailPage() {
             key={selectedChunk.id}
             chunk={selectedChunk}
             documentId={doc.id}
+            highlight={search}
             onCollapse={() => setPanelOpen(false)}
           />
         ) : null}
@@ -282,6 +295,15 @@ export default function DocumentDetailPage() {
                 </div>
               </div>
 
+              {/* Con búsqueda activa, el resultado del filtro en palabras: acá
+                  se cuenta PARTES que contienen el término (la tabla general
+                  cuenta menciones — son medidas distintas y ambas visibles). */}
+              {search.trim() && filteredChunks.length > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  {filteredChunks.length} de {counts.all} {filteredChunks.length === 1 ? "parte contiene" : "partes contienen"} «{search.trim()}»
+                </p>
+              )}
+
               {/* Tabla de partes */}
               {filteredChunks.length === 0 ? (
                 <div className="rounded-2xl border bg-card p-10 text-center text-muted-foreground">
@@ -302,6 +324,7 @@ export default function DocumentDetailPage() {
                       <PartRow
                         key={chunk.id}
                         chunk={chunk}
+                        highlight={search}
                         selected={chunk.id === selectedId}
                         onSelect={() => { setSelectedId(chunk.id); setPanelOpen(true); }}
                       />
@@ -321,7 +344,7 @@ export default function DocumentDetailPage() {
 
 // ── Fila de una parte ─────────────────────────────────────────────────────────
 
-function PartRow({ chunk, selected, onSelect }: { chunk: ChunkResponse; selected: boolean; onSelect: () => void }) {
+function PartRow({ chunk, highlight, selected, onSelect }: { chunk: ChunkResponse; highlight?: string; selected: boolean; onSelect: () => void }) {
   const st = partStatus(chunk.quality_gate_status);
   const isSkipped = chunk.quality_gate_status === "skipped";
   return (
@@ -331,7 +354,11 @@ function PartRow({ chunk, selected, onSelect }: { chunk: ChunkResponse; selected
       </TableCell>
       <TableCell className="py-4 align-middle">
         <p className={cn("line-clamp-1 text-sm", isSkipped ? "text-muted-foreground" : "text-foreground/80")}>
-          {chunk.text}
+          {/* Con búsqueda activa, snippet centrado en la coincidencia: el match
+              puede estar más allá del recorte de una línea. */}
+          {highlight?.trim()
+            ? <HighlightedText text={chunk.text} term={highlight} snippet />
+            : chunk.text}
         </p>
       </TableCell>
       <TableCell className="whitespace-nowrap py-4 text-right align-middle">

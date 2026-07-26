@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -36,10 +36,23 @@ export default function DocumentsPage() {
   // título sigue siendo instantáneo sobre la lista ya cargada.
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // La búsqueda vive en la URL (?q=): "volver" desde el detalle la restaura,
+  // entrar de cero desde el menú arranca limpia — patrón estándar de listas.
+  // Se lee en effect (no useSearchParams) para no requerir Suspense.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get("q");
+    if (q) { setSearch(q); setDebouncedSearch(q); }
+  }, []);
+
   const handleSearch = (v: string) => {
     setSearch(v);
     if (searchTimer.current) clearTimeout(searchTimer.current);
-    searchTimer.current = setTimeout(() => setDebouncedSearch(v), 350);
+    searchTimer.current = setTimeout(() => {
+      setDebouncedSearch(v);
+      const t = v.trim();
+      window.history.replaceState(null, "", t ? `?q=${encodeURIComponent(t)}` : window.location.pathname);
+    }, 350);
   };
   const [uploadOpen, setUploadOpen] = useState(false);
   const { sort, toggle } = useTableSort<SortKey>({ fragmentos: "desc", fecha: "desc" });
@@ -198,6 +211,7 @@ export default function DocumentsPage() {
                       pendingChunkCount={pendingByDocId[doc.id]?.chunks.length ?? 0}
                       pendingDuplicateCount={duplicateCountByDocId[doc.id] ?? 0}
                       contentMatchCount={contentMatches.get(doc.id) ?? 0}
+                      searchTerm={debouncedSearch}
                     />
                   ))}
                 </TableBody>
@@ -230,12 +244,13 @@ export default function DocumentsPage() {
 // ── DocumentTableRow ──────────────────────────────────────────────────────────
 
 function DocumentTableRow({
-  doc, pendingChunkCount, pendingDuplicateCount, contentMatchCount = 0,
+  doc, pendingChunkCount, pendingDuplicateCount, contentMatchCount = 0, searchTerm = "",
 }: {
   doc: DocumentResponse;
   pendingChunkCount: number;
   pendingDuplicateCount: number;
   contentMatchCount?: number;
+  searchTerm?: string;
 }) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -258,10 +273,16 @@ function DocumentTableRow({
   const processing = doc.status === "processing" || doc.status === "pending";
   const hasPendingWork = pendingChunkCount > 0 || pendingDuplicateCount > 0;
 
+  // El término viaja al detalle SOLO si hubo coincidencias de contenido — si
+  // matcheó por título, entrar filtrado mostraría "ninguna parte coincide".
+  const detailHref = contentMatchCount > 0 && searchTerm.trim()
+    ? `/admin/documents/${doc.id}?q=${encodeURIComponent(searchTerm.trim())}`
+    : `/admin/documents/${doc.id}`;
+
   return (
     <TableRow
       className="cursor-pointer group"
-      onClick={() => router.push(`/admin/documents/${doc.id}`)}
+      onClick={() => router.push(detailHref)}
       onMouseEnter={() => router.prefetch(`/admin/documents/${doc.id}`)}
     >
       {/* w-full + max-w-0: la columna toma el espacio restante y el título trunca
@@ -290,7 +311,7 @@ function DocumentTableRow({
             {contentMatchCount > 0 && (
               <span className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground">
                 <Search className="h-3 w-3" />
-                {contentMatchCount} {contentMatchCount === 1 ? "coincidencia" : "coincidencias"} en el contenido
+                {contentMatchCount} {contentMatchCount === 1 ? "mención" : "menciones"} en el contenido
               </span>
             )}
             {hasPendingWork && (

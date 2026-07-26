@@ -57,15 +57,41 @@ async def search_documents_content(
     if len(term) < 2:
         return []
     async with get_pg_session(tenant_id) as session:
+        # El LIKE es insensible a tildes vía translate() en ambos lados: buscar
+        # "garantia" encuentra "garantía" (coherente con el filtro del detalle).
+        # Sin extensión unaccent — la base compartida prod/staging no la tiene y
+        # agregarla implica migración coordinada. Seq scan aceptable: parent_chunks
+        # por tenant es chico (cientos de filas).
+        accented, plain = "áéíóúàèìòùäëïöüâêîôûñç", "aeiouaeiouaeiouaeiounc"
+        # `matches` = MENCIONES del término en el documento (ocurrencias reales,
+        # no "partes que matchean"): es lo que el usuario espera leer como
+        # "N coincidencias". Se cuenta sobre parent_chunks (texto sin solapar —
+        # los chunks hijos de Qdrant se pisan por el overlap y duplicarían).
+        # Si solo matchea el full-text (stemming: "psicólogos" para "psicólogo")
+        # sin ocurrencia literal, la parte aporta 1 para no reportar 0.
+        norm_term = term.lower().translate(str.maketrans(accented, plain))
         result = await session.execute(
             text(
-                "SELECT document_id, COUNT(*) AS matches FROM parent_chunks "
-                "WHERE ts_body @@ plainto_tsquery('spanish', :q) "
-                "   OR text ILIKE '%' || :q_like || '%' "
+                "SELECT document_id, SUM(GREATEST("
+                "  (length(t) - length(replace(t, :q_norm, ''))) / length(:q_norm), "
+                "  CASE WHEN fts THEN 1 ELSE 0 END"
+                ")) AS matches FROM ("
+                "  SELECT document_id, translate(lower(text), :acc, :pl) AS t, "
+                "         ts_body @@ plainto_tsquery('spanish', :q) AS fts "
+                "  FROM parent_chunks"
+                ") s "
+                "WHERE fts OR t LIKE '%' || :q_like || '%' "
                 "GROUP BY document_id ORDER BY matches DESC LIMIT 200"
             ),
-            # ILIKE con el término escapado: % y _ literales no deben actuar de comodines
-            {"q": term, "q_like": term.replace("\\", "\\\\").replace("%", r"\%").replace("_", r"\_")},
+            {
+                "q": term,
+                "acc": accented,
+                "pl": plain,
+                # Para contar ocurrencias: término normalizado igual que la columna.
+                "q_norm": norm_term,
+                # Para el LIKE: además escapado (% y _ literales).
+                "q_like": norm_term.replace("\\", "\\\\").replace("%", r"\%").replace("_", r"\_"),
+            },
         )
         return [
             {"document_id": str(row["document_id"]), "matches": row["matches"]}
