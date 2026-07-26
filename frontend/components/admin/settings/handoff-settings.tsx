@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Workflow, Repeat, Timer, MessagesSquare, CalendarClock, Headphones } from "lucide-react";
-import { api } from "@/lib/api";
+import { Workflow, Repeat, Timer, MessagesSquare, CalendarClock, Headphones, Tags, X, Plus, Info } from "lucide-react";
+import { api, type KeywordTriggerGroup } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { extractErrorMessage } from "@/lib/errors";
 import { Input } from "@/components/ui/input";
@@ -63,6 +63,7 @@ export function HandoffSettings() {
   const [attentionHours, setAttentionHours] = useState("");
   const [contactInfo, setContactInfo] = useState("");
   const [messages, setMessages]   = useState<Record<string, string>>({});
+  const [kwGroups, setKwGroups]   = useState<KeywordTriggerGroup[]>([]);
   // Mensaje que el admin está editando → se resalta en el preview del costado.
   const [focusedKey, setFocusedKey] = useState<string | null>(null);
 
@@ -76,6 +77,7 @@ export function HandoffSettings() {
     ah: config.attention_hours || "",
     ci: config.contact_info || "",
     m: config.transition_messages || {},
+    kw: config.keyword_triggers || [],
   }) : null, [config]);
 
   useEffect(() => {
@@ -85,11 +87,12 @@ export function HandoffSettings() {
     setAttentionHours(config.attention_hours || "");
     setContactInfo(config.contact_info || "");
     setMessages(config.transition_messages || {});
+    setKwGroups(config.keyword_triggers || []);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [snapshot]);
 
   const dirty = snapshot != null && stable({
-    t: inactivityMinutes, th: threshold, ah: attentionHours, ci: contactInfo, m: messages,
+    t: inactivityMinutes, th: threshold, ah: attentionHours, ci: contactInfo, m: messages, kw: kwGroups,
   }) !== snapshot;
 
   const updateM = useMutation({
@@ -101,6 +104,7 @@ export function HandoffSettings() {
       attention_hours:                attentionHours,
       contact_info:                   contactInfo,
       transition_messages:            messages,
+      keyword_triggers:               kwGroups.filter(g => g.words.length > 0),
     }),
     onSuccess: () => {
       // El refetch trae el snapshot guardado → dirty vuelve a false solo.
@@ -196,16 +200,46 @@ export function HandoffSettings() {
         </div>
       </SectionCard>
 
+      {/* Regla 5: temas que ofrecen derivación proactiva */}
+      <SectionCard
+        icon={Tags}
+        title="Temas que ofrecen derivación"
+        description="El bot ofrece un operador cuando la conversación toca estos temas."
+      >
+        <div className="space-y-5">
+          {kwGroups.map((group, gi) => (
+            <KeywordGroupEditor
+              key={gi}
+              group={group}
+              onChange={g => setKwGroups(kwGroups.map((x, i) => (i === gi ? g : x)))}
+              onRemove={() => setKwGroups(kwGroups.filter((_, i) => i !== gi))}
+            />
+          ))}
+          {kwGroups.length === 0 && (
+            <p className="text-sm text-muted-foreground">
+              Sin temas configurados — el bot solo ofrece operador cuando no logra resolver la consulta.
+            </p>
+          )}
+          <button
+            type="button"
+            onClick={() => setKwGroups([...kwGroups, { words: [], message: "" }])}
+            className="inline-flex items-center gap-1.5 text-sm font-medium text-action hover:underline"
+          >
+            <Plus className="h-4 w-4" /> Agregar tema
+          </button>
+        </div>
+      </SectionCard>
+
       {/* Timeline del flujo de transición */}
       <SectionCard
         icon={MessagesSquare}
         title="Mensajes durante la transición"
-        description="El texto que ve el usuario en cada paso. Vacío = mensaje por defecto."
+        description="El texto que ve el usuario en cada paso."
       >
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
           {/* Editor: timeline con los 3 mensajes */}
           <div className="space-y-0">
-            {MESSAGE_KEYS.map(({ key, label, hint }, i) => (
+            {MESSAGE_KEYS.map(({ key, label, hint, sample }, i) => (
               <div key={key} className="relative flex gap-4 pb-6 last:pb-0">
                 {/* Línea conectora del timeline */}
                 {i < MESSAGE_KEYS.length - 1 && (
@@ -225,10 +259,14 @@ export function HandoffSettings() {
                     onChange={e => setMessage(key, e.target.value)}
                     onFocus={() => setFocusedKey(key)}
                     onBlur={() => setFocusedKey(null)}
-                    placeholder="Mensaje por defecto del sistema"
+                    placeholder={sample}
                     className="h-9 text-sm"
                   />
-                  <p className="text-[11px] leading-snug text-muted-foreground">{hint}</p>
+                  {/* Ayuda en foco, no permanente: el contexto de cada paso aparece
+                      solo mientras se edita ese campo — el resto queda limpio. */}
+                  {focusedKey === key && (
+                    <p className="text-[11px] leading-snug text-muted-foreground animate-fade-in">{hint}</p>
+                  )}
                 </div>
               </div>
             ))}
@@ -248,64 +286,186 @@ export function HandoffSettings() {
   );
 }
 
+// ── Editor de un grupo de palabras (Regla 5) ──────────────────────────────────
+// Chips de palabras/frases + mensaje opcional de la oferta. Sin cajas anidadas:
+// cada grupo es una fila con sus dos campos, separada por el espacio vertical.
+
+function KeywordGroupEditor({ group, onChange, onRemove }: {
+  group: KeywordTriggerGroup;
+  onChange: (g: KeywordTriggerGroup) => void;
+  onRemove: () => void;
+}) {
+  const [draft, setDraft] = useState("");
+
+  const addWord = () => {
+    const w = draft.trim();
+    if (!w) return;
+    if (!group.words.some(x => x.toLowerCase() === w.toLowerCase())) {
+      onChange({ ...group, words: [...group.words, w] });
+    }
+    setDraft("");
+  };
+
+  return (
+    <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-start">
+      <div className="space-y-1.5">
+        <Label className="flex items-center gap-1.5 text-sm">
+          Palabras o frases
+          {/* Detalle técnico en tooltip: info de referencia, no de lectura diaria */}
+          <span title="Coincide como palabra completa, sin distinguir tildes ni mayúsculas." className="inline-flex cursor-help">
+            <Info className="h-3.5 w-3.5 text-muted-foreground/60" />
+          </span>
+        </Label>
+        <div className="flex flex-wrap items-center gap-1.5 rounded-lg border bg-background px-2 py-1.5 focus-within:ring-1 focus-within:ring-ring">
+          {group.words.map(w => (
+            <span key={w} className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-xs font-medium">
+              {w}
+              <button type="button" aria-label={`Quitar ${w}`}
+                      onClick={() => onChange({ ...group, words: group.words.filter(x => x !== w) })}
+                      className="text-muted-foreground hover:text-foreground">
+                <X className="h-3 w-3" />
+              </button>
+            </span>
+          ))}
+          <input
+            value={draft}
+            onChange={e => setDraft(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === "Enter" || e.key === ",") { e.preventDefault(); addWord(); }
+              // Backspace con el input vacío borra la última chip — patrón estándar
+              if (e.key === "Backspace" && !draft && group.words.length) {
+                onChange({ ...group, words: group.words.slice(0, -1) });
+              }
+            }}
+            onBlur={addWord}
+            placeholder={group.words.length ? "" : "Escribí y Enter: turno, agenda…"}
+            className="min-w-[120px] flex-1 bg-transparent py-0.5 text-sm outline-none placeholder:text-muted-foreground"
+          />
+        </div>
+      </div>
+      <div className="space-y-1.5">
+        <Label className="text-sm">Mensaje de la oferta <span className="font-normal text-muted-foreground">(opcional)</span></Label>
+        <Input
+          value={group.message}
+          onChange={e => onChange({ ...group, message: e.target.value })}
+          placeholder="¿Querés que te derive con un operador?"
+          className="h-9 text-sm"
+        />
+      </div>
+      <button
+        type="button" aria-label="Quitar tema" title="Quitar tema" onClick={onRemove}
+        className="mt-0 inline-flex h-8 w-8 items-center justify-center self-start rounded-md text-muted-foreground/50 transition-colors hover:bg-destructive/10 hover:text-destructive sm:mt-7"
+      >
+        <X className="h-4 w-4" />
+      </button>
+    </div>
+  );
+}
+
 // ── Preview en vivo del flujo de transición ───────────────────────────────────
-// Muestra los tres mensajes tal como se ven en la conversación real (la oferta
-// como cartel ámbar con su botón, las otras como avisos del sistema). Refleja lo
-// que se escribe (o el ejemplo si el campo está vacío) y resalta el que se edita.
+// Una ESCENA por paso (no los tres mensajes apilados — saturaba el chat): en
+// reposo muestra la oferta; al enfocar un campo, transiciona con fade a la
+// escena de ese paso. Los puntitos 1·2·3 permiten recorrerlas a mano. Refleja
+// lo que se escribe (o el ejemplo si el campo está vacío).
 function HandoffPreview({ messages, focusedKey }: {
   messages: Record<string, string>;
   focusedKey: string | null;
 }) {
-  const val = (k: string) => (messages[k]?.trim() || MESSAGE_KEYS.find(m => m.key === k)!.sample);
-  const hl = (k: string) => focusedKey === k;
+  // La escena persiste al desenfocar (no "rebota" a la primera al salir del campo).
+  const [scene, setScene] = useState<string>(MESSAGE_KEYS[0].key);
+  useEffect(() => { if (focusedKey) setScene(focusedKey); }, [focusedKey]);
 
-  const systemPill = (k: string) => (
-    <div className="flex justify-center">
-      <span className={cn(
-        "max-w-[92%] rounded-full px-3 py-1 text-center text-[10px] leading-snug transition-all",
-        hl(k)
-          ? "bg-action/15 text-action ring-1 ring-action/30"
-          : "bg-slate-100 text-slate-500 dark:bg-white/10 dark:text-slate-300",
+  const val = (k: string) => (messages[k]?.trim() || MESSAGE_KEYS.find(m => m.key === k)!.sample);
+  const avatar = <BotAvatar size={24} online />;
+
+  const botBubble = (text: string, muted = false) => (
+    <div className="flex items-end gap-2">
+      {avatar}
+      <div className={cn(
+        "max-w-[80%] rounded-2xl rounded-bl-md bg-slate-100 px-2.5 py-1.5 text-[11px] leading-snug dark:bg-white/10",
+        muted ? "text-slate-400 dark:text-slate-400" : "text-slate-600 dark:text-slate-200",
       )}>
-        {val(k)}
+        {text}
+      </div>
+    </div>
+  );
+
+  const userBubble = (text: string) => (
+    <div className="flex justify-end">
+      <div className="max-w-[80%] rounded-2xl rounded-br-md bg-gradient-to-br from-brand to-brand-dark px-2.5 py-1.5 text-[11px] leading-snug text-brand-foreground">
+        {text}
+      </div>
+    </div>
+  );
+
+  const systemPill = (text: string) => (
+    <div className="flex justify-center">
+      <span className="max-w-[92%] rounded-full bg-slate-100 px-3 py-1 text-center text-[10px] leading-snug text-slate-500 dark:bg-white/10 dark:text-slate-300">
+        {text}
       </span>
     </div>
   );
 
-  // Avatar del bot — el compartido de Configuración (un solo dibujo del bot).
-  const avatar = <BotAvatar size={24} online />;
-
   return (
     // Fondo suave sin borde: la tarjeta blanca del chat ya se recorta sola.
     <div className="rounded-2xl bg-muted/40 p-3.5 lg:sticky lg:top-4 lg:self-start">
-      <p className="mb-2.5 px-1 text-[11px] font-medium text-muted-foreground">Vista previa</p>
-      <div className="space-y-2.5 rounded-xl bg-white p-3 shadow-sm dark:bg-[#15181b]">
-        {/* Contexto: mensaje del bot que dispara la oferta */}
-        <div className="flex items-end gap-2">
-          {avatar}
-          <div className="max-w-[80%] rounded-2xl rounded-bl-md bg-slate-100 px-2.5 py-1.5 text-[11px] leading-snug text-slate-600 dark:bg-white/10 dark:text-slate-200">
-            No tengo esa información a mano.
-          </div>
+      <div className="mb-2.5 flex items-center justify-between px-1">
+        <p className="text-[11px] font-medium text-muted-foreground">Vista previa</p>
+        {/* Navegación de escenas — sincronizada con el campo enfocado */}
+        <div className="flex items-center gap-1">
+          {MESSAGE_KEYS.map(({ key }, i) => (
+            <button
+              key={key}
+              type="button"
+              aria-label={`Ver paso ${i + 1}`}
+              onClick={() => setScene(key)}
+              className={cn(
+                "flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold transition-all",
+                scene === key
+                  ? "bg-action-gradient text-action-foreground shadow-sm"
+                  : "text-muted-foreground/60 hover:bg-muted hover:text-muted-foreground",
+              )}
+            >
+              {i + 1}
+            </button>
+          ))}
         </div>
+      </div>
 
-        {/* 1. Oferta del bot — formato burbuja con botón de marca (igual que el chat) */}
-        <div className="flex items-end gap-2">
-          {avatar}
-          <div className={cn(
-            "flex max-w-[85%] flex-col gap-2 rounded-2xl rounded-bl-md bg-slate-100 px-3 py-2.5 transition-all dark:bg-white/10",
-            hl("handoff_offer") && "ring-2 ring-action/30",
-          )}>
-            <p className="text-[11px] leading-snug text-slate-700 dark:text-slate-200">{val("handoff_offer")}</p>
-            <span className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-gradient-to-br from-brand to-brand-dark px-2.5 py-1.5 text-[10px] font-semibold text-brand-foreground shadow-sm">
-              <Headphones className="h-3 w-3" /> Conectarme con un operador
-            </span>
-            <span className="self-center text-[10px] text-slate-400">Seguir con el asistente</span>
-          </div>
-        </div>
+      {/* key={scene} remonta el contenido → cada cambio de escena entra con fade.
+          Alto FIJO (el de la escena más alta) y contenido centrado: cambiar de
+          escena no mueve el layout de alrededor. */}
+      <div key={scene} className="flex min-h-[235px] animate-fade-in flex-col justify-center gap-2.5 rounded-xl bg-white p-3 shadow-sm dark:bg-[#15181b]">
+        {scene === "handoff_offer" && (
+          <>
+            {botBubble("No tengo esa información a mano.", true)}
+            <div className="flex items-end gap-2">
+              {avatar}
+              <div className="flex max-w-[85%] flex-col gap-2 rounded-2xl rounded-bl-md bg-slate-100 px-3 py-2.5 dark:bg-white/10">
+                <p className="text-[11px] leading-snug text-slate-700 dark:text-slate-200">{val("handoff_offer")}</p>
+                <span className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-gradient-to-br from-brand to-brand-dark px-2.5 py-1.5 text-[10px] font-semibold text-brand-foreground shadow-sm">
+                  <Headphones className="h-3 w-3" /> Conectarme con un operador
+                </span>
+                <span className="self-center text-[10px] text-slate-400">Seguir con el asistente</span>
+              </div>
+            </div>
+          </>
+        )}
 
-        {/* 2 y 3. Avisos del sistema */}
-        {systemPill("handoff_confirmed")}
-        {systemPill("operator_inactive_alert")}
+        {scene === "handoff_confirmed" && (
+          <>
+            {userBubble("Quiero hablar con un operador")}
+            {systemPill(val("handoff_confirmed"))}
+          </>
+        )}
+
+        {scene === "operator_inactive_alert" && (
+          <>
+            {systemPill(val("handoff_confirmed"))}
+            <p className="text-center text-[10px] italic text-muted-foreground/60">— unos minutos después —</p>
+            {systemPill(val("operator_inactive_alert"))}
+          </>
+        )}
       </div>
     </div>
   );

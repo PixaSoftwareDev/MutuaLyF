@@ -490,6 +490,11 @@ export interface PublicSector {
   is_default: boolean;
 }
 
+export interface KeywordTriggerGroup {
+  words: string[];
+  message: string;
+}
+
 export interface HandoffConfig {
   id: string;
   inactivity_timeout_minutes: number;
@@ -497,6 +502,8 @@ export interface HandoffConfig {
   attention_hours: string | null;
   contact_info: string | null;
   transition_messages: Record<string, string>;
+  /** Regla 5: temas que ofrecen derivación proactiva (el bot responde igual). */
+  keyword_triggers: KeywordTriggerGroup[];
   updated_at: string;
 }
 
