@@ -15,15 +15,15 @@ Tabla por schema tenant_*: connector_users. Idempotente (IF NOT EXISTS).
 Nace is_active=TRUE por fila (un usuario cargado por el admin está habilitado);
 el conector sigue naciendo inactivo desde la 031.
 
-Revision ID: 033
-Revises: 032
+Revision ID: 036 (renumerada de 033 al mergear main→dev-local: colisionaba con 033_seed_personalities; en main sigue siendo 033 — al mergear de vuelta, conservar UNA sola, esta es idempotente)
+Revises: 035
 """
 
 from alembic import op
 from sqlalchemy import text
 
-revision = "033"
-down_revision = "032"
+revision = "036"
+down_revision = "035"
 branch_labels = None
 depends_on = None
 
