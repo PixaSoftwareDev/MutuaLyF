@@ -350,6 +350,7 @@ function Dashboard({ m, view, range, setRange }: { m: TenantMetrics; view: ViewK
         </div>
         <DailyBars
           data={m.conversations.daily.map(d => ({ day: d.day, total: d.total, secondary: d.handoffs }))}
+          days={range}
           titleFmt={s => `${s.date.toLocaleDateString("es-AR", { day: "2-digit", month: "short" })}: ${nf(s.total)} conversaciones · ${nf(s.secondary)} derivadas`}
         />
       </Card>
