@@ -450,12 +450,14 @@ async def process_incoming_message(account: WhatsAppAccount, value: dict, messag
             sources=sources,
             bot_answer=bot_answer,
         )
-        from services.handoff import has_online_operators, build_no_operators_message, _get_handoff_config, _mark_offer_pending
-        offer_with_operators = (
-            signal.trigger != HandoffTrigger.NONE
-            and await has_online_operators(tenant_id, conv_sector_id)
-        )
-        if offer_with_operators:
+        from services.handoff import has_online_operators, offer_expectation_suffix, _get_handoff_config, _mark_offer_pending
+
+        # POLÍTICA FAIL-SOFT (incidente 2026-07-27): la presencia de operadores
+        # NUNCA bloquea la oferta — solo modula la expectativa. WhatsApp es
+        # asíncrono por naturaleza: el pedido queda en la fila y el operador
+        # responde cuando mira el panel. Nunca más un "no hay operadores" seco.
+        if signal.trigger != HandoffTrigger.NONE:
+            has_ops = await has_online_operators(tenant_id, conv_sector_id)
             # keep_answer (Regla 5 por keyword): la respuesta del bot se envía
             # igual y la oferta va como mensaje aparte debajo. En las reglas por
             # fallo el genérico es redundante con la oferta → no se envía.
@@ -463,6 +465,9 @@ async def process_incoming_message(account: WhatsAppAccount, value: dict, messag
                 await _insert_message(tenant_id, conv_id, "bot", bot_answer)
                 await send_text(account, wa_id, bot_answer)
             offer = f"{signal.offer_message}\n\nRespondé *OPERADOR* para hablar con una persona."
+            if not has_ops:
+                cfg = await _get_handoff_config(tenant_id)
+                offer = f"{offer}{offer_expectation_suffix(cfg)}"
             await _insert_message(tenant_id, conv_id, "system", offer, is_handoff_offer=True)
             await send_text(account, wa_id, offer)
             await _mark_offer_pending(conv_id)  # cooldown 90s SOLO al mostrar el cartel
@@ -472,14 +477,6 @@ async def process_incoming_message(account: WhatsAppAccount, value: dict, messag
         else:
             await _insert_message(tenant_id, conv_id, "bot", bot_answer)
             await send_text(account, wa_id, bot_answer)
-            # keep_answer (keyword) sin operadores: el bot respondió bien y nadie
-            # pidió humano — no agregar el aviso de no-disponibilidad.
-            if signal.trigger != HandoffTrigger.NONE and not signal.keep_answer:
-                # Deriva pero sin operadores: el genérico aporta contexto al aviso.
-                cfg = await _get_handoff_config(tenant_id)
-                msg = build_no_operators_message(cfg)
-                await _insert_message(tenant_id, conv_id, "system", msg)
-                await send_text(account, wa_id, msg)
 
     except Exception:
         logger.exception("whatsapp_inbound_error tenant=%s", tenant_id)

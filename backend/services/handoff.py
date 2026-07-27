@@ -531,6 +531,21 @@ def build_no_operators_message(config: dict) -> str:
     return " ".join(parts)
 
 
+def offer_expectation_suffix(config: dict) -> str:
+    """Sufijo para la OFERTA de derivación cuando no se detectan operadores
+    conectados. Política fail-soft (2026-07-27): la presencia no bloquea la
+    derivación — solo ajusta la expectativa. Si la presencia mintió (pestaña
+    en background, socket caído), el afiliado igual entra a la fila."""
+    parts = [
+        "\n\nEn este momento no vemos operadores conectados — tu consulta "
+        "queda en la fila y te responden a la brevedad."
+    ]
+    hours = (config.get("attention_hours") or "").strip()
+    if hours:
+        parts.append(f" Horario de atención: {hours}.")
+    return "".join(parts)
+
+
 def build_no_info_message(config: dict) -> str:
     """Mensaje determinístico cuando el RAG no encontró información confiable.
 

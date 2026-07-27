@@ -432,15 +432,16 @@ async def send_message(
     suppress_bot = False  # se suprime el genérico SOLO cuando se muestra la oferta
 
     from services.handoff import (
-        has_online_operators, build_no_operators_message, _get_handoff_config, _mark_offer_pending,
-    )
-    offer_with_operators = (
-        signal.trigger != HandoffTrigger.NONE
-        and await has_online_operators(tenant_id, conv_sector_id)
+        has_online_operators, offer_expectation_suffix, _get_handoff_config, _mark_offer_pending,
     )
 
-    if offer_with_operators:
-        # Hay operadores conectados → cartel con botón.
+    # POLÍTICA FAIL-SOFT (incidente 2026-07-27: "no hay operadores" con el
+    # operador conectado, por presencia vencida): la disponibilidad NUNCA
+    # bloquea la oferta de derivación — solo MODULA el mensaje de expectativa.
+    # El pedido siempre puede entrar a la fila; si la presencia mintió, el
+    # costo es una espera, nunca una puerta cerrada falsa.
+    if signal.trigger != HandoffTrigger.NONE:
+        has_ops = await has_online_operators(tenant_id, conv_sector_id)
         # keep_answer (Regla 5 por keyword): la respuesta del bot SÍ se persiste
         # y el cartel va debajo — el afiliado pudo pedir info que el bot tiene.
         # Reglas por fallo: el bot_answer genérico es redundante y no se persiste.
@@ -451,22 +452,25 @@ async def send_message(
                     INSERT INTO mensajes (id, conversation_id, sender_type, content)
                     VALUES (:id, :cid, 'bot', :content)
                 """), {"id": bot_msg_id, "cid": conversation_id, "content": bot_answer})
+        offer_text = signal.offer_message
+        if not has_ops:
+            cfg = await _get_handoff_config(tenant_id)
+            offer_text = f"{offer_text}{offer_expectation_suffix(cfg)}"
         async with get_pg_session(tenant_id) as session:
             await session.execute(text("""
                 INSERT INTO mensajes (conversation_id, sender_type, content, is_handoff_offer)
                 VALUES (:cid, 'system', :msg, TRUE)
-            """), {"cid": conversation_id, "msg": signal.offer_message})
+            """), {"cid": conversation_id, "msg": offer_text})
         await _publish_event(tenant_id, "new_message", {"conversation_id": conversation_id})
         await _mark_offer_pending(conversation_id)  # cooldown 90s SOLO al mostrar el cartel
         if signal.trigger == HandoffTrigger.KEYWORD:
             from services.handoff import mark_keyword_offered
             await mark_keyword_offered(conversation_id)  # supresión 1h por conversación
-        handoff_message = signal.offer_message
+        handoff_message = offer_text
         handoff_offered = True
         suppress_bot = not signal.keep_answer
     else:
-        # Respuesta normal del bot. Incluye el caso "deriva pero sin operadores":
-        # ahí el genérico sí aporta contexto al aviso de no-disponibilidad.
+        # Respuesta normal del bot, sin señal de derivación.
         bot_msg_id = str(uuid.uuid4())
         async with get_pg_session(tenant_id) as session:
             await session.execute(text("""
@@ -474,21 +478,6 @@ async def send_message(
                 VALUES (:id, :cid, 'bot', :content)
             """), {"id": bot_msg_id, "cid": conversation_id, "content": bot_answer})
         await _publish_event(tenant_id, "new_message", {"conversation_id": conversation_id})
-
-        # keep_answer (keyword) sin operadores: el bot respondió bien y nadie pidió
-        # humano — no ensuciar con el aviso de no-disponibilidad; la oferta podrá
-        # dispararse en otro mensaje cuando haya operadores.
-        if signal.trigger != HandoffTrigger.NONE and not signal.keep_answer:
-            # Sin operadores online → no derivar a una cola vacía. Avisar y, si está
-            # configurado, indicar el horario de atención del tenant.
-            cfg = await _get_handoff_config(tenant_id)
-            msg = build_no_operators_message(cfg)
-            async with get_pg_session(tenant_id) as session:
-                await session.execute(text("""
-                    INSERT INTO mensajes (conversation_id, sender_type, content)
-                    VALUES (:cid, 'system', :msg)
-                """), {"cid": conversation_id, "msg": msg})
-            await _publish_event(tenant_id, "new_message", {"conversation_id": conversation_id})
 
     return {
         "message_id": bot_msg_id,

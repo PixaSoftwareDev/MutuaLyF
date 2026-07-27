@@ -15,10 +15,11 @@ logger = logging.getLogger(__name__)
 _CHANNEL_PREFIX = "events:"
 _PRESENCE_PREFIX = "presence:"
 # TTL holgado para sobrevivir reconexiones del EventSource (Chrome throttlea
-# pestañas en background y puede reconectar cada ~60s). Con keepalive cada 15s
-# el TTL se refresca seis veces antes de expirar, y si el cliente cae 1 min
-# y vuelve, la presencia no parpadea.
-_PRESENCE_TTL = 90  # seconds
+# pestañas en background y puede reconectar cada ~60s) y suspensiones breves
+# en mobile. Con la renovación por conexión (cada ≤15s mientras el SSE viva)
+# el TTL solo importa en los huecos: 180s da colchón real sin que un operador
+# que CIERRA el panel figure online por demasiado tiempo.
+_PRESENCE_TTL = 180  # seconds
 
 
 def _channel(tenant_id: str) -> str:
@@ -150,15 +151,32 @@ async def subscribe(tenant_id: str, user_id: str | None = None, user_name: str |
     if user_id and user_name:
         await set_presence(tenant_id, user_id, user_name)
 
+    # Renovación de presencia POR CONEXIÓN: mientras este generador viva, el
+    # operador está online — independiente del foco de la pestaña del browser.
+    # OJO histórico (incidente 2026-07-27, "Josué"): antes solo se renovaba en
+    # la rama del TimeoutError; con eventos fluyendo cada <15s (tenant activo)
+    # el timeout nunca disparaba y la presencia EXPIRABA con la conexión viva
+    # → "no hay operadores" con el operador conectado. Ahora se renueva en
+    # CADA vuelta del loop, con throttle de 10s para no castigar Redis.
+    import time as _time
+    last_presence = _time.monotonic()
+
+    async def _refresh_presence():
+        nonlocal last_presence
+        if user_id and user_name and _time.monotonic() - last_presence >= 10.0:
+            await set_presence(tenant_id, user_id, user_name)
+            last_presence = _time.monotonic()
+
     try:
         while True:
             try:
                 message = await asyncio.wait_for(pubsub.get_message(ignore_subscribe_messages=True), timeout=15.0)
             except asyncio.TimeoutError:
                 yield ": keepalive\n\n"
-                if user_id and user_name:
-                    await set_presence(tenant_id, user_id, user_name)
+                await _refresh_presence()
                 continue
+
+            await _refresh_presence()
 
             if message is None:
                 await asyncio.sleep(0.05)

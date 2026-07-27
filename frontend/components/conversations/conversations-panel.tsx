@@ -152,6 +152,11 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
     queryKey: ["operator-presence"],
     queryFn:  api.operator.presence,
     refetchInterval: 20_000,
+    // El GET /operator/presence ES el heartbeat de respaldo del operador (el
+    // primario es la conexión SSE, renovada por el servidor). Debe seguir
+    // latiendo con la pestaña en segundo plano — pausarlo fue parte del
+    // incidente "no hay operadores con Josué conectado" (2026-07-27).
+    refetchIntervalInBackground: true,
     enabled: !readOnly,
   });
 
