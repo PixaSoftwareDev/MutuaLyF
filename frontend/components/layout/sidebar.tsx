@@ -284,6 +284,12 @@ export function Sidebar() {
 
   const handleOpenChatTester = async () => {
     if (!tenantId) return;
+    // iOS/Safari bloquea window.open que no sea SINCRÓNICO con el gesto del
+    // usuario — con los await de abajo, el popup moría silenciosamente en
+    // celular. Abrimos la pestaña YA (en blanco) y la navegamos cuando el
+    // token está listo. Si igual la bloquean (win null), misma pestaña.
+    const win = window.open("", "_blank");
+    if (win) { try { win.opener = null; } catch { /* cross-origin guard */ } }
     try {
       const data = await api.tenants.generateWidgetToken(tenantId);
       // Chequeo de completitud (best-effort, no bloquea la apertura): el tester
@@ -298,8 +304,10 @@ export function Sidebar() {
         (sectors !== null && sectors.length === 0 ? "&sectors=0" : "");
       const brand = branding.primary_color ? `&brand=${encodeURIComponent(branding.primary_color)}` : "";
       const url = `/chat?token=${encodeURIComponent(data.widget_token)}&tenant=${encodeURIComponent(tenantId)}&test=1${flags}${brand}`;
-      window.open(url, "_blank", "noopener");
+      if (win && !win.closed) win.location.href = url;
+      else window.location.href = url;
     } catch {
+      if (win && !win.closed) win.close();
       toast({ title: "No se pudo generar el link de prueba", variant: "destructive" });
     }
   };
