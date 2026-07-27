@@ -305,6 +305,9 @@ async def evaluate_handoff(
             "handoff_keyword conversation_id=%s words=%s",
             conversation_id, (group.get("words") or [])[:5],
         )
+        # keep_answer solo si el bot tiene algo que decir: cuando la respuesta
+        # es "no encontré esa información", mostrarla arriba del cartel es puro
+        # ruido ("no sé" + "¿querés un operador?") — va el cartel solo.
         return HandoffSignal(
             trigger=HandoffTrigger.KEYWORD,
             auto_activate=False,
@@ -312,7 +315,7 @@ async def evaluate_handoff(
                 or config["transition_messages"].get(
                     "handoff_offer", "¿Querés que te conecte con un operador?"
                 ),
-            keep_answer=True,
+            keep_answer=not any(p in (bot_answer or "") for p in _NO_INFO_PATTERNS),
         )
 
     if _is_response_insufficient(sources, user_message, bot_answer):

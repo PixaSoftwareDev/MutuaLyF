@@ -3,7 +3,8 @@
 import { useEffect, useLayoutEffect, useRef, useState, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
-import { Loader2, Send, Bot, UserCheck, AlertTriangle, Paperclip, Headphones, RotateCcw, Tag } from "lucide-react";
+import { Loader2, Send, Bot, UserCheck, AlertTriangle, Paperclip, Headphones, RotateCcw, Tag, Check } from "lucide-react";
+import { FEEDBACK_UI_ENABLED } from "@/lib/features";
 import { api, type TenantBranding } from "@/lib/api";
 import { applyBrandingVars, readCachedBranding, writeCachedBranding } from "@/lib/use-tenant-branding";
 import { renderWithLinks } from "@/lib/render-with-links";
@@ -258,14 +259,11 @@ function FeedbackCard({ onSubmit, onDismiss, title = "¿Cómo estuvo tu consulta
   );
 }
 
+// Los mensajes de sistema ("Listo, tu solicitud fue recibida…", avisos de
+// operador, demoras) se muestran como burbuja normal del bot — igual que en
+// WhatsApp, todo sale como un mensaje de quien escribe, sin piezas especiales.
 function SystemBubble({ content }: { content: string }) {
-  return (
-    <div className="flex justify-center py-1 animate-fade-in-up">
-      <span className="inline-flex max-w-[90%] items-center rounded-full bg-slate-100 px-3.5 py-1.5 text-xs leading-snug text-slate-500">
-        {renderWithLinks(content)}
-      </span>
-    </div>
-  );
+  return <BotBubble content={content} />;
 }
 
 // Error como mini-card (sin borde duro): círculo de ícono + texto. Opcional retry.
@@ -295,6 +293,7 @@ function HandoffOfferBubble({
   content,
   onConfirm,
   confirmed,
+  resolved,
   identified,
   sectors,
   preselectedSectorId,
@@ -302,6 +301,7 @@ function HandoffOfferBubble({
   content: string;
   onConfirm: (identif?: { afiliado_nombre?: string; afiliado_dni?: string; sector_id?: string }) => void;
   confirmed: boolean;
+  resolved: boolean;
   identified: boolean;
   sectors: Sector[];
   preselectedSectorId: string | null;
@@ -348,7 +348,16 @@ function HandoffOfferBubble({
       </div>
       <div className="flex max-w-[85%] flex-col gap-3 rounded-2xl rounded-bl-md bg-[#f4f5f7] px-4 py-3">
         <p className="text-sm leading-relaxed text-slate-800">{renderWithLinks(content)}</p>
-        {dismissed ? null : confirmed ? (
+        {/* resolved: la conversación ya salió de bot_active (derivada/atendida/
+            cerrada) — la tarjeta queda como registro, sin botón ni spinner. */}
+        {dismissed || resolved ? (
+          resolved && !dismissed ? (
+            <span className="inline-flex items-center gap-1.5 text-xs text-slate-400">
+              <Check className="h-3.5 w-3.5" />
+              Solicitud enviada
+            </span>
+          ) : null
+        ) : confirmed ? (
           <span className="inline-flex items-center gap-2 text-sm text-slate-500">
             <Loader2 className="h-4 w-4 animate-spin text-brand" />
             Buscando operador disponible…
@@ -518,7 +527,6 @@ function ChatInner() {
   const [operatorName, setOperatorName]     = useState<string | null>(null);
   const [error, setError]                   = useState<string | null>(null);
   const [resolvedToken, setResolvedToken]   = useState(token);
-  const [operatorsOnline, setOperatorsOnline] = useState<{ count: number; names: string[] } | null>(null);
   const [handoffConfirmed, setHandoffConfirmed] = useState(false);
   const [afiliadoIdentified, setAfiliadoIdentified] = useState(false);
   // Feedback al cierre (caritas 1-3). feedbackGiven viene del poll; dismissed
@@ -634,15 +642,16 @@ function ChatInner() {
       const r = await fetch(url, { headers: getHeaders() });
       if (!r.ok) return;
       const data = await r.json();
-      // El flag handoffOffer ahora viene de la DB (is_handoff_offer). El cliente
-      // solo lo respeta mientras la conversacion siga en bot_active — si ya
-      // paso a handoff_requested, la tarjeta deja de ofrecer accion.
-      const isStillBot = data.status === "bot_active";
+      // El flag handoffOffer viene de la DB (is_handoff_offer) y se respeta
+      // SIEMPRE: una oferta se dibuja como tarjeta toda su vida. Si la conv ya
+      // no esta en bot_active, la tarjeta se renderiza "resuelta" (sin boton) —
+      // degradarla a burbuja de texto hacia reaparecer la pregunta como si el
+      // bot mandara mensajes de mas (reporte 2026-07-27).
       const msgs = (data.messages || []).map((m: { id: string; sender_type: string; content: string; is_handoff_offer?: boolean; attachment_name?: string | null; attachment_mime?: string | null }) => ({
         id:   m.id,
         role: m.sender_type as Message["role"],
         content: m.content,
-        handoffOffer: isStillBot && Boolean(m.is_handoff_offer),
+        handoffOffer: Boolean(m.is_handoff_offer),
         attachment: m.attachment_name ? { name: m.attachment_name, mime: m.attachment_mime || "" } : null,
       }));
       setMessages(msgs);
@@ -683,14 +692,6 @@ function ChatInner() {
     loop();
   }, [pollMessages]);
 
-  async function fetchOperatorsOnline(sectorId?: string | null) {
-    try {
-      const qs = sectorId ? `?sector_id=${sectorId}` : "";
-      const r = await fetch(`${API_BASE}/api/v1/widget/operators-online${qs}`, { headers: getHeaders() });
-      if (r.ok) { const d = await r.json(); setOperatorsOnline({ count: d.online ?? 0, names: d.operators ?? [] }); }
-    } catch { /* non-critical */ }
-  }
-
   async function startChat(pendingMessage?: string) {
     // Reset critico: matar polling viejo (si lo hay) y limpiar todos los refs
     // que persisten entre ciclos. Sin esto, al renovar conv el cliente quedaba
@@ -703,7 +704,6 @@ function ChatInner() {
     setMessages([]);
     setHandoffConfirmed(false);
     setTimeout(() => inputRef.current?.focus(), 100);
-    fetchOperatorsOnline(selectedSector?.id);
     try {
       const r = await fetch(`${API_BASE}/api/v1/widget/conversation/start`, {
         method: "POST", headers: getHeaders(),
@@ -887,14 +887,10 @@ function ChatInner() {
     status === "handoff_requested"  ? "bg-warning animate-pulse" :
     "bg-success animate-pulse";
 
-  // Texto de estado combinado (nombre aparte) — dispara la animación al cambiar.
-  const statusSuffix =
-    operatorsOnline !== null && status === "bot_active"
-      ? (operatorsOnline.count > 0
-          ? ` · ${operatorsOnline.count === 1 ? "1 operador disponible" : `${operatorsOnline.count} operadores disponibles`}`
-          : " · Sin operadores")
-      : "";
-  const statusText = statusLabel + statusSuffix;
+  // Sin contador de operadores en el header: es un dato interno que no le
+  // aporta al afiliado (pedido 2026-07-27; la expectativa de espera va en el
+  // cartel de derivación, no acá).
+  const statusText = statusLabel;
 
   // Efecto "Dynamic Island" (igual que el widget): la tarjeta de identidad crece
   // o se achica con un spring suave cuando cambia el texto de estado, en vez de
@@ -1011,7 +1007,7 @@ function ChatInner() {
             )}
             <div className="space-y-4">
               {/* Reapertura: la charla anterior quedó sin calificar — una vez */}
-              {prevFeedbackConvId && (
+              {FEEDBACK_UI_ENABLED && prevFeedbackConvId && (
                 <FeedbackCard
                   title="¿Cómo estuvo tu consulta anterior?"
                   onSubmit={(rating, reason) => submitFeedback(rating, reason, prevFeedbackConvId)}
@@ -1032,7 +1028,7 @@ function ChatInner() {
                 if (m.role === "user")     return <UserBubble     key={m.id} content={m.content} />;
                 if (m.role === "operator") return <OperatorBubble key={m.id} content={m.content} operatorName={operatorName} />;
                 if (m.role === "system" && m.handoffOffer)
-                  return <HandoffOfferBubble key={m.id} content={m.content} onConfirm={confirmHandoff} confirmed={handoffConfirmed} identified={afiliadoIdentified} sectors={sectors} preselectedSectorId={selectedSector?.id ?? null} />;
+                  return <HandoffOfferBubble key={m.id} content={m.content} onConfirm={confirmHandoff} confirmed={handoffConfirmed} resolved={status !== "bot_active"} identified={afiliadoIdentified} sectors={sectors} preselectedSectorId={selectedSector?.id ?? null} />;
                 if (m.role === "error")    return <ErrorBubble    key={m.id} content={m.content} />;
                 if (m.role === "system")   return <SystemBubble   key={m.id} content={m.content} />;
                 return                            <BotBubble      key={m.id} content={m.content} />;
@@ -1042,13 +1038,13 @@ function ChatInner() {
                 <SectorChooser
                   sectors={sectors}
                   selected={selectedSector}
-                  onSelect={s => { setSelectedSector(s); fetchOperatorsOnline(s.id); }}
+                  onSelect={s => setSelectedSector(s)}
                 />
               )}
               {sending && status === "bot_active" && <TypingIndicator />}
               {/* Feedback al cierre: caritas 1-3 (+ chips de causa si 😞/😐).
                   Aparece con la conversación cerrada y sin voto; descartable. */}
-              {conversationId && status === "closed" && !feedbackGiven && !feedbackDismissed && (
+              {FEEDBACK_UI_ENABLED && conversationId && status === "closed" && !feedbackGiven && !feedbackDismissed && (
                 <FeedbackCard
                   onSubmit={submitFeedback}
                   onDismiss={() => setFeedbackDismissed(true)}
