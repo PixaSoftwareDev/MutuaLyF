@@ -89,6 +89,7 @@ derivación, branding).
 | `CONNECTORS_ENABLED` | `.env` backend | **false** | Apaga el router de conectores en conversaciones. |
 | `NEXT_PUBLIC_CONNECTORS_UI` | build-arg frontend (`docker-compose.prod.yml`) | **false** | Oculta "Fuentes de datos" en el panel admin (`frontend/lib/features.ts`). |
 | `NEXT_PUBLIC_ENABLE_DEV_LOGIN` | build-arg frontend | false (solo builds locales en true) | Panel de acceso rápido del login. Doble gate con hostname localhost. |
+| `NEXT_PUBLIC_FEEDBACK_UI` | build-arg frontend (staging y prod en `false`) | **false** | Oculta las caritas al cierre del chat y la cola Feedback del admin hasta validar la feature. |
 
 Conectores está **oculto en prod hasta validarlo** (decisión 2026-07-26).
 NUNCA ocultar features comentando código — siempre flags, mismas ramas.
