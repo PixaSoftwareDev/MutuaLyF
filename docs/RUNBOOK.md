@@ -133,9 +133,10 @@ docker exec ia_backend python -c "from workers.ingest_tasks import process_docum
 
 ### Fix por causa más probable
 
-**Groq responde lento** (el span LLM domina, >3s):
-- Verificar status: https://groqstatus.com
-- Workaround: forzar uso del modelo rápido para todas las queries (edit `orchestrator.py:choose_model`).
+**El LLM responde lento** (el span LLM domina, >3s — el proveedor real es
+**OpenAI** `gpt-4o-mini`, aunque el código use nombres "groq" por herencia):
+- Verificar status: https://status.openai.com
+- Verificar saldo/límites: https://platform.openai.com (ver `docs/OPERACION_OPENAI_KEYS_Y_SALDO.md`).
 
 **Embeddings lentos** (span embed >500ms):
 - Modelo `multilingual-e5-large` corre en CPU. Si el VPS está saturado, embed sube.
@@ -354,7 +355,7 @@ curl -X POST https://intellix.com.ar/api/v1/tenants/$TID/activate \
 
 ## Apéndice: contactos / escalación
 
-- **Groq down:** workaround = forzar modelo rápido o devolver 503 con mensaje al cliente
+- **OpenAI down / sin saldo:** el bot deja de responder. Ver `docs/OPERACION_OPENAI_KEYS_Y_SALDO.md` (recargar saldo / rotar key en `/opt/mutualyf/.env` + restart backend)
 - **Let's Encrypt down:** los certs duran 90 días, no es urgente
 - **Dattaweb (VPS provider):** soporte a través de panel web — incidentes de red/host
 - **DNS:** registrar dónde está delegado intellix.com.ar (registrador)
