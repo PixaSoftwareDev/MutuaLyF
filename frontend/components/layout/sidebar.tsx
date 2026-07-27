@@ -9,7 +9,7 @@ import {
   MessageSquare, Clock, UserCheck, Archive, UserRound, ChevronDown, Globe, Database, Grid3x3, Pin, PinOff, ShieldCheck, Smile,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { CONNECTORS_UI_ENABLED } from "@/lib/features";
+import { CONNECTORS_UI_ENABLED, FEEDBACK_UI_ENABLED } from "@/lib/features";
 import { useAuthStore, useUIStore } from "@/lib/store";
 import { api, apiClient } from "@/lib/api";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -582,7 +582,7 @@ function InboxViews({ focusRing }: { focusRing: string }) {
           </Link>
         ))}
         {/* Feedback del afiliado — badge de pendientes de revisión */}
-        <FeedbackNavItem itemCls={itemCls} />
+        {FEEDBACK_UI_ENABLED && <FeedbackNavItem itemCls={itemCls} />}
       </CollapsibleGroup>
 
       {(sectors as any[]).length > 0 && (

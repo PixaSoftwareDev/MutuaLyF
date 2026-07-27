@@ -90,6 +90,8 @@ services:
       dockerfile: Dockerfile
       args:
         - NEXT_PUBLIC_API_URL=
+        # Feedback oculto en staging hasta validar la feature (lib/features.ts).
+        - NEXT_PUBLIC_FEEDBACK_UI=false
     container_name: ia_frontend_staging
     restart: unless-stopped
     env_file: /opt/mutualyf-staging/.env

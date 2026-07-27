@@ -6,8 +6,10 @@
 // sospechosos resaltados) y la botonera de resolución de causa raíz.
 // Diseño: 10 minutos por semana — cada 😞 se resuelve con un click.
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { FEEDBACK_UI_ENABLED } from "@/lib/features";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Frown, Meh, Smile, Loader2, FileQuestion, FilePen, Bot, XCircle, Globe,
@@ -49,6 +51,17 @@ function isSuspect(m: { sender_type: string; content: string }): boolean {
 type StatusView = "pending" | "all";
 
 export default function FeedbackPage() {
+  if (!FEEDBACK_UI_ENABLED) return <FeedbackDisabledRedirect />;
+  return <FeedbackPageInner />;
+}
+
+function FeedbackDisabledRedirect() {
+  const router = useRouter();
+  useEffect(() => { router.replace("/admin/conversations"); }, [router]);
+  return null;
+}
+
+function FeedbackPageInner() {
   const qc = useQueryClient();
   const [view, setView] = useState<StatusView>("pending");
   const [selectedId, setSelectedId] = useState<string | null>(null);
