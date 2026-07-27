@@ -9,6 +9,7 @@ import {
   MessageSquare, Clock, UserCheck, Archive, UserRound, ChevronDown, Globe, Database, Grid3x3, Pin, PinOff, ShieldCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { CONNECTORS_UI_ENABLED } from "@/lib/features";
 import { useAuthStore, useUIStore } from "@/lib/store";
 import { api, apiClient } from "@/lib/api";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -83,8 +84,11 @@ export const navGroups: NavGroup[] = [
     items: [
       { href: "/admin/settings", label: "Configuración", icon: Settings, adminOnly: true,
         tooltip: "Identidad, apariencia y comportamiento del asistente, y reglas de derivación." },
-      { href: "/admin/connectors", label: "Fuentes de datos", icon: Database, adminOnly: true,
-        tooltip: "APIs y bases externas que el asistente puede consultar (datos personales o públicos)." },
+      // Oculto por flag de build cuando el ambiente aún no valida conectores
+      ...(CONNECTORS_UI_ENABLED ? [
+        { href: "/admin/connectors", label: "Fuentes de datos", icon: Database, adminOnly: true,
+          tooltip: "APIs y bases externas que el asistente puede consultar (datos personales o públicos)." },
+      ] : []),
       { href: "/admin/cuenta", label: "Mi cuenta", icon: UserRound, adminOnly: true },
     ],
   },
@@ -172,7 +176,10 @@ export const CANAL_LINKS = [
   { href: "/admin/settings/canales?canal=all",      label: "Todos",           icon: Grid3x3 },
   { href: "/admin/settings/canales?canal=widget",   label: "Widget web",      icon: Globe },
   { href: "/admin/settings/canales?canal=whatsapp", label: "WhatsApp",        icon: WhatsAppIcon },
-  { href: "/admin/connectors",                      label: "Fuentes de datos", icon: Database },
+  // Oculto por flag de build cuando el ambiente aún no valida conectores
+  ...(CONNECTORS_UI_ENABLED ? [
+    { href: "/admin/connectors",                    label: "Fuentes de datos", icon: Database },
+  ] : []),
 ] as const;
 
 // Ruta de cada tab de Configuración (asistente es la base).

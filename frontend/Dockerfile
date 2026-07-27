@@ -18,6 +18,10 @@ ARG NEXT_PUBLIC_ENABLE_DEV_LOGIN=false
 ENV NEXT_PUBLIC_ENABLE_DEV_LOGIN=$NEXT_PUBLIC_ENABLE_DEV_LOGIN
 ARG NEXT_PUBLIC_DEV_QUICK_PASSWORD=
 ENV NEXT_PUBLIC_DEV_QUICK_PASSWORD=$NEXT_PUBLIC_DEV_QUICK_PASSWORD
+# Superficie de conectores en el panel (ver lib/features.ts). Default habilitada;
+# prod se buildea con "false" hasta validar la feature.
+ARG NEXT_PUBLIC_CONNECTORS_UI=true
+ENV NEXT_PUBLIC_CONNECTORS_UI=$NEXT_PUBLIC_CONNECTORS_UI
 RUN pnpm build
 
 FROM node:20-alpine AS runner
