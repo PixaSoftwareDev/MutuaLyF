@@ -362,10 +362,18 @@ async def process_incoming_message(account: WhatsAppAccount, value: dict, messag
         # ¿Estaba pendiente una oferta de derivación y el cliente confirma?
         # Se evalúa ANTES de insertar el mensaje para que la oferta siga siendo
         # el último mensaje no-user al momento del chequeo.
-        confirm_handoff = (
-            conv_status == ConvStatus.BOT_ACTIVE
-            and _CONFIRM_RE.match(content) is not None
-            and await _has_pending_offer(tenant_id, conv_id)
+        # Pedido EXPLÍCITO de humano ("quiero hablar con un operador"): encola
+        # directo aunque no haya oferta previa — mismo criterio que el widget
+        # (F2): el LLM jamás gestiona derivaciones. El "sí"/"dale" a secas
+        # sigue exigiendo oferta pendiente para no derivar confirmaciones
+        # conversacionales.
+        from services.handoff import is_explicit_human_request
+        confirm_handoff = conv_status == ConvStatus.BOT_ACTIVE and (
+            (
+                _CONFIRM_RE.match(content) is not None
+                and await _has_pending_offer(tenant_id, conv_id)
+            )
+            or is_explicit_human_request(content)
         )
 
         await _insert_message(tenant_id, conv_id, "user", content)
