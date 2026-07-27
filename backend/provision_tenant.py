@@ -55,7 +55,6 @@ async def provision_tenant(
         "pg_schema": False,
         "pg_global_row": False,
         "qdrant_docs": False,
-        "qdrant_intents": False,
         "neo4j_db": False,
         "models_dir": False,
     }
@@ -108,14 +107,13 @@ async def provision_tenant(
 
         # ── Step 3: Qdrant collections ─────────────────────────────────────────
         docs_collection = f"{tenant_id}_docs"
-        intents_collection = f"{tenant_id}_intenciones"
 
         # Guard: stale collections can exist when the PG volume is wiped in dev
         # but Qdrant is not. Treat existing collection as a hard error (not silent
         # reuse) so ops are aware of orphaned data. The error surfaces clearly.
         existing = await qdrant.get_collections()
         existing_names = {c.name for c in existing.collections}
-        for col in (docs_collection, intents_collection):
+        for col in (docs_collection,):
             if col in existing_names:
                 raise RuntimeError(
                     f"Qdrant collection '{col}' already exists but has no matching PG tenant. "
@@ -127,12 +125,6 @@ async def provision_tenant(
             vectors_config=VectorParams(size=EMBEDDING_DIM, distance=Distance.COSINE),
         )
         created["qdrant_docs"] = True
-
-        await qdrant.create_collection(
-            collection_name=intents_collection,
-            vectors_config=VectorParams(size=EMBEDDING_DIM, distance=Distance.COSINE),
-        )
-        created["qdrant_intents"] = True
         logger.info("step_3_done qdrant_collections tenant_id=%s", tenant_id)
 
         # ── Step 4: Neo4j database ─────────────────────────────────────────────
@@ -201,12 +193,6 @@ async def _rollback(pg_conn, neo4j_driver, qdrant, tenant_id: str, created: dict
             await qdrant.delete_collection(f"{tenant_id}_docs")
         except Exception as e:
             logger.error("rollback_qdrant_docs_failed error=%s", e)
-
-    if created.get("qdrant_intents"):
-        try:
-            await qdrant.delete_collection(f"{tenant_id}_intenciones")
-        except Exception as e:
-            logger.error("rollback_qdrant_intents_failed error=%s", e)
 
     if created.get("neo4j_db"):
         try:

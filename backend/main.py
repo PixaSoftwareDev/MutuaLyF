@@ -18,7 +18,7 @@ from core.database import connect_all, disconnect_all
 from core.tenant import TenantMiddleware
 from core.metrics import setup_metrics
 from core.tracing import setup_tracing
-from api.v1 import auth, query, ingest, intentions, tenants, widget_conversation, operator_panel, duplicates, audit_log, system_prompts, branding, export, attachments, channels, connectors
+from api.v1 import auth, query, ingest, tenants, widget_conversation, operator_panel, duplicates, audit_log, system_prompts, branding, export, attachments, channels, connectors, metrics
 # ENTITIES_DISABLED: from api.v1 import entities
 
 # ── Logging — must be first, before any other import that logs ─────────────────
@@ -146,6 +146,9 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # Sin esto el JS no puede leer el nombre del archivo en las descargas
+    # cuando front y back corren en orígenes distintos (dev local).
+    expose_headers=["Content-Disposition"],
 )
 app.add_middleware(TenantMiddleware)
 # Widget CORS: se agrega ÚLTIMO → queda como el middleware más externo, así
@@ -208,7 +211,6 @@ setup_metrics(app)
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
 app.include_router(query.router, prefix="/api/v1", tags=["query"])
 app.include_router(ingest.router, prefix="/api/v1", tags=["ingest"])
-app.include_router(intentions.router, prefix="/api/v1", tags=["intentions"])
 app.include_router(tenants.router, prefix="/api/v1/tenants", tags=["tenants"])
 app.include_router(widget_conversation.router, prefix="/api/v1", tags=["widget-chat"])
 app.include_router(operator_panel.router, prefix="/api/v1", tags=["operator-panel"])
@@ -221,6 +223,7 @@ app.include_router(branding.router, prefix="/api/v1", tags=["branding"])
 app.include_router(export.router, prefix="/api/v1", tags=["export"])
 app.include_router(channels.router, prefix="/api/v1", tags=["channels"])
 app.include_router(connectors.router, prefix="/api/v1", tags=["connectors"])
+app.include_router(metrics.router, prefix="/api/v1", tags=["metrics"])
 
 
 # ── Static: tenant uploads (logos, favicons) ──────────────────────────────────

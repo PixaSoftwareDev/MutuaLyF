@@ -700,10 +700,13 @@ class OnboardingGenerateRequest(BaseModel):
     """Pide la generacion final del bot_description. Toma respuestas curadas
     + opcional followup + lee documentos cargados del tenant."""
     org_name:           str = Field(..., min_length=1, max_length=200)
-    org_type:           str = Field(..., min_length=1, max_length=100)
+    org_type:           str = Field(default="", max_length=100)
+    # "A qué se dedica / qué ofrece la organización" — contexto principal del
+    # wizard simplificado. Reemplaza a las 5 preguntas curadas.
+    description:        str = Field(default="", max_length=1000)
     tone:               str = Field(..., min_length=1, max_length=50)
     bot_name:           str = Field(default="", max_length=100)
-    answers:            OnboardingFixedAnswers
+    answers:            OnboardingFixedAnswers = Field(default_factory=OnboardingFixedAnswers)
     followup_question:  str = Field(default="", max_length=500)
     followup_answer:    str = Field(default="", max_length=1000)
 
@@ -959,7 +962,8 @@ Debe incluir explícitamente:
 
 Datos:
 - Nombre de la organización: {body.org_name}
-- Tipo: {body.org_type}
+- A qué se dedica / qué ofrece: {body.description.strip() or '(no especificado)'}
+- Tipo: {body.org_type.strip() or '(no especificado)'}
 - Tono elegido: {body.tone}
 - {bot_name_line}
 
@@ -1471,11 +1475,10 @@ async def get_tenant_metrics(
             ORDER BY day
         """), {"tid": tenant_id})).mappings().all()
 
-    # 2. Per-tenant consultas_log (performance + quality + intents + recent)
-    perf = {"latency_p50": None, "latency_p95": None, "cache_hit_rate": None, "avg_confidence": None, "total_logged": 0}
+    # 2. Per-tenant consultas_log (performance + quality + recent)
+    perf = {"latency_p50": None, "latency_p95": None, "cache_hit_rate": None, "total_logged": 0}
     quality = {"passed": 0, "pending": 0, "skipped": 0}
     recent_queries: list = []
-    top_intents: list = []
 
     try:
         async with get_pg_session(tenant_id) as session:
@@ -1484,7 +1487,6 @@ async def get_tenant_metrics(
                     PERCENTILE_CONT(0.5)  WITHIN GROUP (ORDER BY latency_ms)                     AS p50,
                     PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY latency_ms)                     AS p95,
                     AVG(CASE WHEN from_cache THEN 1.0 ELSE 0.0 END)                              AS cache_hit_rate,
-                    AVG(intent_confidence) FILTER (WHERE intent_confidence IS NOT NULL)           AS avg_confidence,
                     COUNT(*)                                                                       AS total_logged
                 FROM consultas_log
                 WHERE created_at >= NOW() - INTERVAL '30 days'
@@ -1495,7 +1497,6 @@ async def get_tenant_metrics(
                     "latency_p50":    int(perf_row["p50"])  if perf_row["p50"]  else None,
                     "latency_p95":    int(perf_row["p95"])  if perf_row["p95"]  else None,
                     "cache_hit_rate": round(float(perf_row["cache_hit_rate"] or 0), 3),
-                    "avg_confidence": round(float(perf_row["avg_confidence"]), 3) if perf_row["avg_confidence"] else None,
                     "total_logged":   int(perf_row["total_logged"]),
                 }
 
@@ -1515,34 +1516,14 @@ async def get_tenant_metrics(
             recent_queries = [
                 {
                     "question_text":    r["question_text"],
-                    "intent_label":     r["intent_label"],
-                    "intent_confidence": round(float(r["intent_confidence"]), 2) if r["intent_confidence"] else None,
                     "latency_ms":       r["latency_ms"],
                     "from_cache":       r["from_cache"],
                     "created_at":       r["created_at"].isoformat(),
                 }
                 for r in (await session.execute(text("""
-                    SELECT question_text, intent_label, intent_confidence,
-                           latency_ms, from_cache, created_at
+                    SELECT question_text, latency_ms, from_cache, created_at
                     FROM consultas_log
                     ORDER BY created_at DESC LIMIT 10
-                """))).mappings().all()
-            ]
-
-            top_intents = [
-                {
-                    "label":          r["intent_label"],
-                    "count":          int(r["cnt"]),
-                    "avg_confidence": round(float(r["avg_conf"]), 2) if r["avg_conf"] else None,
-                }
-                for r in (await session.execute(text("""
-                    SELECT intent_label, COUNT(*)::int AS cnt,
-                           AVG(intent_confidence) AS avg_conf
-                    FROM consultas_log
-                    WHERE intent_label IS NOT NULL
-                      AND created_at >= NOW() - INTERVAL '30 days'
-                    GROUP BY intent_label
-                    ORDER BY cnt DESC LIMIT 10
                 """))).mappings().all()
             ]
 
@@ -1607,7 +1588,6 @@ async def get_tenant_metrics(
             "documents":     quota_entry(d_used, limits.get("documents", -1)),
         },
         "recent_queries": recent_queries,
-        "top_intents":    top_intents,
     }
 
 

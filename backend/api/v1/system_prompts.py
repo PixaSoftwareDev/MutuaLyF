@@ -61,6 +61,21 @@ class AssignRequest(BaseModel):
     tenant_ids: list[str] = Field(..., min_length=1)
 
 
+class PersonalityTestMessage(BaseModel):
+    role: Literal["user", "bot"]
+    content: str = Field(..., min_length=1, max_length=2000)
+
+
+class PersonalityTestRequest(BaseModel):
+    contenido: str = Field(..., min_length=10, max_length=MAX_PROMPT_LENGTH)
+    messages: list[PersonalityTestMessage] = Field(..., min_length=1, max_length=20)
+
+    @field_validator("contenido")
+    @classmethod
+    def sanitize_content(cls, v: str) -> str:
+        return "".join(c for c in v if c.isprintable() or c in ("\n", "\t"))
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 async def auto_assign_system_templates(tenant_id: str) -> None:
@@ -109,9 +124,81 @@ def _fmt(row: dict) -> dict:
     }
 
 
+# Contexto ficticio y genérico para el sandbox de prueba de personalidades.
+# Simula el bloque "Contexto disponible" que arma el orquestador en producción
+# (incluye líneas "Fuente:" para que las personalidades que citan puedan citar).
+_DEMO_CONTEXT = """\
+Fuente: manual-de-tramites.pdf
+Para solicitar la credencial se debe presentar DNI y completar el formulario F-01 \
+en la oficina de atención o por el portal web. El trámite demora 5 días hábiles. \
+La renovación es automática salvo cambio de datos personales.
+
+---
+
+Fuente: horarios-de-atencion.pdf
+La oficina central atiende de lunes a viernes de 8:00 a 16:00. \
+La atención telefónica (0800-555-0100) funciona de 8:00 a 20:00. \
+Los sábados solo se atiende con turno previo solicitado por el portal.
+
+---
+
+Fuente: reglamento-reintegros.pdf
+Los reintegros se solicitan dentro de los 60 días corridos de emitida la factura. \
+Se debe adjuntar factura original y comprobante de pago. El monto máximo por \
+solicitud es de $150.000. La acreditación demora hasta 10 días hábiles. \
+Las solicitudes fuera de término requieren autorización de la gerencia.\
+"""
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # SUPER ADMIN — template management
 # ═══════════════════════════════════════════════════════════════════════════════
+
+
+@router.post("/superadmin/prompt-templates/test")
+async def test_personality(
+    body: PersonalityTestRequest,
+    current_user: CurrentUser = Depends(require_super_admin),
+):
+    """Sandbox de prueba: conversa con una personalidad (guardada o borrador) sin tocar ningún tenant.
+
+    Arma el system prompt igual que el orquestador (personalidad + reglas
+    anti-alucinación + contexto) pero con un contexto demo ficticio, y llama
+    al LLM directamente. No pasa por cache, retrieval ni logging de consultas.
+    """
+    import time
+
+    from services.groq_client import QueryComplexity, complete
+    from services.orchestrator import _get_system_template, _sanitize_input
+
+    anti_hallucination = await _get_system_template("Reglas anti-alucinación")
+
+    system_parts = [body.contenido.strip()]
+    if anti_hallucination:
+        system_parts.append(anti_hallucination.strip())
+    system_parts.append("Contexto disponible:\n" + _DEMO_CONTEXT)
+
+    messages: list[dict[str, str]] = [{"role": "system", "content": "\n\n".join(system_parts)}]
+    role_map = {"user": "user", "bot": "assistant"}
+    for m in body.messages:
+        messages.append({"role": role_map[m.role], "content": _sanitize_input(m.content)})
+
+    start = time.monotonic()
+    try:
+        answer = await complete(
+            messages=messages,
+            complexity=QueryComplexity.SIMPLE,
+            temperature=0.0,
+            max_tokens=1024,
+        )
+    except Exception as exc:
+        logger.error("personality_test_failed by=%s error=%s", current_user.user_id, exc)
+        raise HTTPException(status_code=502, detail="El LLM no respondió. Probá de nuevo en unos segundos.")
+
+    return {
+        "answer": answer,
+        "latency_ms": int((time.monotonic() - start) * 1000),
+    }
 
 @router.get("/superadmin/prompt-categories")
 async def list_categories(
@@ -411,7 +498,14 @@ async def list_tenant_bots(
         """), {"tid": tenant_id})
         rows = result.mappings().all()
 
+        limits = await session.execute(
+            text("SELECT max_prompt_templates FROM tenants WHERE id = :tid"),
+            {"tid": tenant_id},
+        )
+        limit_row = limits.mappings().fetchone()
+
     return {
+        "max_prompt_templates": limit_row["max_prompt_templates"] if limit_row else 1,
         "bots": [
             {
                 "id": str(r["id"]),

@@ -34,8 +34,10 @@ export function ListToolbar({
   search: string;
   onSearch: (v: string) => void;
   placeholder?: string;
-  view: ViewMode;
-  onView: (v: ViewMode) => void;
+  // Toggle Tarjetas/Lista OPCIONAL: solo aparece si se pasan ambos. Las listas
+  // que son solo tabla (ej. Sectores) no los pasan y no muestran toggle.
+  view?: ViewMode;
+  onView?: (v: ViewMode) => void;
   // CTA primario (botón "Nuevo…"). Vive acá, no en el PageHeader.
   action?: React.ReactNode;
   // Cuando la lista está vacía, ocultamos buscador y toggle y dejamos solo el
@@ -69,7 +71,7 @@ export function ListToolbar({
       </div>
 
       <div className="flex items-center gap-2.5 shrink-0">
-        <ViewToggle view={view} onView={onView} />
+        {view && onView && <ViewToggle view={view} onView={onView} />}
         {action}
       </div>
     </div>

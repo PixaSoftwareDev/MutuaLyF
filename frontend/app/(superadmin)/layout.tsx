@@ -3,8 +3,11 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/lib/store";
+import { AppRail } from "@/components/layout/app-rail";
+import { TopBar } from "@/components/layout/top-bar";
 import { Sidebar } from "@/components/layout/sidebar";
 import { MobileNavBar } from "@/components/layout/mobile-nav-bar";
+import { ThemeApplier } from "@/components/layout/theme-applier";
 
 export default function SuperAdminLayout({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, userRole, _hasHydrated } = useAuthStore();
@@ -20,15 +23,30 @@ export default function SuperAdminLayout({ children }: { children: React.ReactNo
   if (!isAuthenticated || userRole !== "super_admin") return null;
 
   return (
-    <div className="flex h-[100dvh] overflow-hidden bg-background">
-      <Sidebar />
-      <div className="flex flex-col flex-1 overflow-hidden min-w-0">
-        <MobileNavBar />
-        {/* overflow-y-auto: las páginas de flujo normal (Inicio, Organizaciones,
-            Monitoreo, Auditoría) scrollean acá; las de scroll interno (detalle
-            de tenant) ocupan h-full y no desbordan. */}
-        <main className="flex-1 overflow-y-auto">{children}</main>
+    // Misma estructura que el admin: lienzo gris + rail + contenedor blanco.
+    <>
+    <ThemeApplier />
+    <div className="flex h-[100dvh] flex-col overflow-hidden bg-canvas">
+      <TopBar />
+      <div className="flex min-h-0 flex-1">
+        {/* Zona de navegación (rail + submenú). group/nav: con el submenú sin
+            fijar, se despliega como overlay al pasar el mouse por acá. */}
+        <div className="group/nav relative flex">
+          <AppRail />
+          {/* Panel secundario sobre el lienzo, fuera del recuadro (referencia Text) */}
+          <Sidebar />
+        </div>
+        <div className="flex min-w-0 flex-1 lg:pb-2 lg:pr-2">
+          <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-card lg:rounded-2xl lg:border lg:shadow-xs">
+            <MobileNavBar />
+            {/* overflow-y-auto: las páginas de flujo normal (Inicio, Organizaciones,
+                Monitoreo, Auditoría) scrollean acá; las de scroll interno (detalle
+                de tenant) ocupan h-full y no desbordan. */}
+            <main className="flex-1 overflow-y-auto scrollbar-slim">{children}</main>
+          </div>
+        </div>
       </div>
     </div>
+    </>
   );
 }

@@ -45,6 +45,7 @@ class HandoffTrigger(str, Enum):
     NONE         = "none"
     INSUFFICIENT = "insufficient"  # bot no encontro respuesta N veces
     MANUAL       = "manual"        # afiliado clickeo "Pedir humano"
+    KEYWORD      = "keyword"       # Regla 5: el mensaje menciona un tema derivable (config del tenant)
 
 
 @dataclass
@@ -52,6 +53,11 @@ class HandoffSignal:
     trigger:      HandoffTrigger
     auto_activate: bool   # siempre False — el afiliado decide via cartel + DNI
     offer_message: str    # texto del cartel amarillo
+    # Regla 5 (responder-y-ofrecer): la respuesta del bot SE MUESTRA igual y el
+    # cartel va debajo. En las reglas por fallo (insuficiente) la respuesta
+    # genérica es redundante con la oferta y se suprime — acá NO: el afiliado
+    # pudo preguntar info que el bot sí tiene ("¿qué llevo al turno?").
+    keep_answer:  bool = False
 
 
 _CHITCHAT_RE = re.compile(
@@ -156,6 +162,59 @@ async def _get_insufficient(conversation_id: str) -> int:
         return 0
 
 
+# ── Regla 5: derivación proactiva por palabras clave ──────────────────────────
+
+# Una vez mostrada la oferta por keyword, no re-ofrecer por la misma vía durante
+# esta ventana aunque el afiliado siga mencionando el tema en cada mensaje.
+# (El cooldown corto de 90s es para el ritmo conversacional de las reglas por
+# fallo; acá el tema no desaparece de la charla y 90s spamearía.)
+_KEYWORD_OFFERED_KEY = "handoff_kw_offered:"
+_KEYWORD_OFFERED_TTL = 3600  # 1h por conversación
+
+
+def _norm_kw(s: str) -> str:
+    """lower + sin tildes + solo alfanuméricos separados por espacios simples.
+    Da bordes de palabra reales: 'turno' NO matchea dentro de 'saturno'."""
+    import unicodedata
+    s = unicodedata.normalize("NFD", s.lower())
+    s = "".join(c for c in s if unicodedata.category(c) != "Mn")
+    s = re.sub(r"[^a-z0-9ñ]+", " ", s)
+    return f" {s.strip()} "
+
+
+def match_keyword_trigger(user_message: str, groups: list) -> dict | None:
+    """Primer grupo cuyo words matchea el mensaje como palabra/frase completa,
+    insensible a tildes y mayúsculas. None si ninguno."""
+    if not groups or not user_message:
+        return None
+    haystack = _norm_kw(user_message)
+    for group in groups:
+        for word in (group.get("words") or []):
+            needle = _norm_kw(str(word))
+            if needle.strip() and needle in haystack:
+                return group
+    return None
+
+
+async def _is_keyword_offered(conversation_id: str) -> bool:
+    from core.database import get_redis_cache
+    try:
+        redis = await get_redis_cache()
+        return await redis.exists(f"{_KEYWORD_OFFERED_KEY}{conversation_id}") > 0
+    except Exception:
+        return False
+
+
+async def mark_keyword_offered(conversation_id: str) -> None:
+    """La marca el CALLER y solo si el cartel efectivamente se mostró."""
+    from core.database import get_redis_cache
+    try:
+        redis = await get_redis_cache()
+        await redis.set(f"{_KEYWORD_OFFERED_KEY}{conversation_id}", "1", ex=_KEYWORD_OFFERED_TTL)
+    except Exception as exc:
+        logger.warning("handoff_kw_mark_failed conversation_id=%s error=%s", conversation_id, exc)
+
+
 async def _is_offer_pending(conversation_id: str) -> bool:
     """True si ya hay una oferta de handoff vigente para esta conversacion."""
     try:
@@ -235,6 +294,26 @@ async def evaluate_handoff(
     """
     config = await _get_handoff_config(tenant_id)
     offer_pending = await _is_offer_pending(conversation_id)
+
+    # ── Regla 5 (primera): tema derivable por palabras clave del tenant ───────
+    # Responder-y-ofrecer: keep_answer=True → el caller muestra la respuesta del
+    # bot Y el cartel. No toca el contador de insuficientes (son señales
+    # independientes) y tiene su propia supresión de 1h por conversación.
+    group = match_keyword_trigger(user_message, config.get("keyword_triggers") or [])
+    if group is not None and not offer_pending and not await _is_keyword_offered(conversation_id):
+        logger.info(
+            "handoff_keyword conversation_id=%s words=%s",
+            conversation_id, (group.get("words") or [])[:5],
+        )
+        return HandoffSignal(
+            trigger=HandoffTrigger.KEYWORD,
+            auto_activate=False,
+            offer_message=(group.get("message") or "").strip()
+                or config["transition_messages"].get(
+                    "handoff_offer", "¿Querés que te conecte con un operador?"
+                ),
+            keep_answer=True,
+        )
 
     if _is_response_insufficient(sources, user_message, bot_answer):
         count = await _incr_insufficient(conversation_id)
@@ -373,7 +452,8 @@ async def _get_handoff_config(tenant_id: str) -> dict:
 
         async with get_pg_session(tenant_id) as session:
             result = await session.execute(text("""
-                SELECT consecutive_insufficient_count, attention_hours, contact_info, transition_messages
+                SELECT consecutive_insufficient_count, attention_hours, contact_info,
+                       transition_messages, keyword_triggers
                 FROM handoff_config LIMIT 1
             """))
             row = result.mappings().fetchone()
@@ -383,6 +463,7 @@ async def _get_handoff_config(tenant_id: str) -> dict:
             "attention_hours":                row["attention_hours"] if row else None,
             "contact_info":                   row["contact_info"] if row else None,
             "transition_messages":            dict(row["transition_messages"]) if row else {},
+            "keyword_triggers":               list(row["keyword_triggers"] or []) if row else [],
             "_ts": time.monotonic(),
         }
     except Exception as exc:
@@ -396,6 +477,7 @@ async def _get_handoff_config(tenant_id: str) -> dict:
                 "handoff_confirmed": "Listo, tu solicitud fue recibida. Un operador te atenderá en breve.",
                 "operator_inactive_alert": "Seguís en cola. Lamentamos la demora.",
             },
+            "keyword_triggers": [],
             "_ts": time.monotonic(),
         }
 

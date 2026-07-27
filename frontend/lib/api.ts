@@ -161,6 +161,10 @@ export interface TenantBranding {
   favicon_url:      string | null;
   bot_name:         string | null;
   greeting_message: string | null;
+  /** Tema del widget embebido: 'light' (default) o 'dark'. */
+  widget_theme?: "light" | "dark";
+  /** Esquina del widget embebido: 'right' (default) o 'left'. */
+  widget_position?: "right" | "left";
 }
 
 export interface SourceChunk {
@@ -214,88 +218,6 @@ export interface PendingChunkResponse extends ChunkResponse {
   document_title: string;
 }
 
-export interface Intention {
-  id: string;
-  label: string;
-  description: string | null;
-  example_count: number;
-  auto_learned_count: number;
-  is_active: boolean;
-  model_version: string | null;
-  queries_7d: number;
-  avg_confidence_7d: number;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface PendingIntention {
-  id: string;
-  label: string;
-  query_count: number;
-  avg_confidence: number;
-  last_seen: string | null;
-  auto_learning_blocked_count: number;
-}
-
-export interface PendingExample {
-  id: string;
-  question_text: string | null;
-  intent_confidence: number | null;
-  auto_learning_blocked: boolean;
-  latency_ms: number | null;
-  created_at: string;
-}
-
-export interface ClusterQuery {
-  id: string;
-  text: string;
-}
-
-export interface DiscoveredCluster {
-  id: string;
-  cluster_id: string;
-  query_count: number;
-  first_seen: string | null;
-  last_seen: string | null;
-  queries: ClusterQuery[];
-  suggested_label: string;
-}
-
-export interface IntentionResponse {
-  intentions: Intention[];
-  pending_review: PendingIntention[];
-  discovered_clusters: DiscoveredCluster[];
-  total: number;
-  pending_total: number;
-  clusters_total: number;
-}
-
-export interface TrainingExample {
-  id: string;
-  question_text: string | null;
-  is_auto_learned: boolean;
-  is_approved: boolean;
-  version_id: string | null;
-  created_at: string;
-}
-
-export interface RecentMatch {
-  id: string;
-  question_text: string | null;
-  intent_confidence: number | null;
-  auto_learning_blocked: boolean;
-  from_cache: boolean;
-  latency_ms: number | null;
-  created_at: string;
-}
-
-export interface IntentionDetail {
-  intention_id: string;
-  label: string;
-  training_examples: TrainingExample[];
-  recent_matches: RecentMatch[];
-}
-
 export interface ConversationRow {
   id: string;
   status: "bot_active" | "handoff_requested" | "human_attending" | "closed";
@@ -342,6 +264,8 @@ export interface ConversationHistoryRow {
   updated_at: string | null;
   closed_at: string | null;
   last_message_at: string | null;
+  last_message_preview: string | null;
+  last_message_sender: "user" | "bot" | "operator" | "system" | null;
 }
 
 export interface ConversationHistoryFilters {
@@ -372,6 +296,15 @@ export interface SectorRow {
 }
 
 // ── Conectores de terceros (pantalla /admin/connectors) ───────────────────────
+export interface ConnectorHealth {
+  status: "ok" | "failing";
+  last_call_at: string;
+  last_ok_at: string | null;
+  failing_since: string | null;
+  calls_24h: number;
+  errors_24h: number;
+}
+
 export interface ConnectorRow {
   id: string;
   slug: string;
@@ -381,23 +314,21 @@ export interface ConnectorRow {
   auth_type: string;
   auth_validate_path: string | null;
   is_active: boolean;
+  // Inactivo con solicitud de activación esperando al super-admin (hosts sin aprobar).
+  pending_approval?: boolean;
   timeout_ms: number;
   has_secret: boolean;
   tool_count: number;
-}
-
-export interface ConnectorBinding {
-  id: string;
-  intencion_id: string;
-  intent_label: string;
-  min_confidence: number;
-  is_active: boolean;
+  health: ConnectorHealth | null;
 }
 
 export interface ConnectorTool {
   id: string;
   slug: string;
   display_name: string;
+  description: string | null;
+  /** Consultas de ejemplo (capability profile) que ayudan al router a elegir esta operación. */
+  examples: string[];
   http_method: string;
   path_template: string;
   params_schema: Record<string, unknown>;
@@ -405,8 +336,56 @@ export interface ConnectorTool {
   identity_kind: string;
   is_read_only: boolean;
   is_active: boolean;
+  // Última prueba persistida: null = nunca probada (gris) · true = verde · false = rojo.
+  last_test_ok: boolean | null;
+  last_test_at: string | null;
+  last_test_detail: string | null;
   roles: string[];
-  bindings: ConnectorBinding[];
+}
+
+export interface ActivationRequest {
+  tenant_id: string;
+  tenant_name: string;
+  connector_id: string;
+  connector_name: string;
+  base_url: string;
+  hosts: Array<{ host: string; approved: boolean }>;
+  requested_by: string | null;
+  requested_at: string | null;
+  tools: Array<{ display_name: string; http_method: string; path_template: string; is_active: boolean }>;
+}
+
+export interface PlatformConnector {
+  tenant_id: string;
+  tenant_name: string;
+  id: string;
+  display_name: string;
+  base_url: string;
+  is_active: boolean;
+  auth_type: string;
+  egress_allow: string[];
+  tools: Array<{ display_name: string; http_method: string; path_template: string; is_active: boolean }>;
+}
+
+export interface ConnectorChange {
+  tenant_id: string;
+  tenant_name: string;
+  action: string;
+  resource: string | null;
+  /** Nombre humano del recurso (conector u operación), resuelto por el backend. */
+  resource_label: string | null;
+  actor_email: string | null;
+  detail: Record<string, unknown>;
+  created_at: string | null;
+}
+
+export interface ToolTestAllResult {
+  results: Array<{
+    tool_id: string; slug: string; display_name: string;
+    skipped: boolean; ok: boolean | null;
+    status?: number | null; error?: string | null; detail?: string | null; latency_ms?: number;
+  }>;
+  total: number; ok: number; failed: number; skipped: number;
 }
 
 export interface ConnectorDetail extends Omit<ConnectorRow, "tool_count"> {
@@ -425,9 +404,18 @@ export interface ConnectorPayload {
   timeout_ms?: number;
 }
 
+export interface ExampleCandidate {
+  id: string;
+  query: string;
+  hits: number;
+  last_seen_at: string | null;
+}
+
 export interface ConnectorToolPayload {
   slug: string;
   display_name: string;
+  description?: string | null;
+  examples?: string[];
   http_method: string;
   path_template: string;
   params_schema?: Record<string, unknown>;
@@ -455,7 +443,7 @@ export interface ConnectorUserPayload {
 }
 
 export interface ConnectorTestResult {
-  url: string;
+  url: string | null;
   method: string;
   ok: boolean;
   status?: number;
@@ -465,6 +453,10 @@ export interface ConnectorTestResult {
   suggested_response_map?: Record<string, unknown>;
   error?: string;
   detail?: string;
+  /** Ids de recurso conseguidos automáticamente (recorrido lista→detalle del backend). */
+  auto_filled?: Array<{ param: string; value: string; label?: string | null; from: string }>;
+  /** El backend aplicó solo el response_map sugerido (prueba OK + tool sin mapeo). */
+  response_map_applied?: boolean;
 }
 
 export interface DiscoveryRoute {
@@ -473,6 +465,7 @@ export interface DiscoveryRoute {
   discard_reason?: string | null;
   slug?: string;
   display_name?: string;
+  description?: string | null;
   http_method?: string;
   path_template?: string;
   params_schema?: Record<string, unknown>;
@@ -480,9 +473,6 @@ export interface DiscoveryRoute {
   identity_kind?: string;
   identity_param?: string | null;
   is_lookup?: boolean;
-  intent_label?: string | null;
-  intent_description?: string | null;
-  examples?: string[];
   test?: { ok: boolean; status?: number; latency_ms?: number; url?: string; error?: string };
 }
 
@@ -500,6 +490,11 @@ export interface PublicSector {
   is_default: boolean;
 }
 
+export interface KeywordTriggerGroup {
+  words: string[];
+  message: string;
+}
+
 export interface HandoffConfig {
   id: string;
   inactivity_timeout_minutes: number;
@@ -507,6 +502,8 @@ export interface HandoffConfig {
   attention_hours: string | null;
   contact_info: string | null;
   transition_messages: Record<string, string>;
+  /** Regla 5: temas que ofrecen derivación proactiva (el bot responde igual). */
+  keyword_triggers: KeywordTriggerGroup[];
   updated_at: string;
 }
 
@@ -536,13 +533,15 @@ export interface OnboardingFixedAnswers {
 }
 
 export interface OnboardingGenerateRequest {
-  org_name:          string;
-  org_type:          string;
-  tone:              string;
-  bot_name:          string;
-  answers:           OnboardingFixedAnswers;
-  followup_question: string;
-  followup_answer:   string;
+  org_name:           string;
+  org_type?:          string;
+  /** "A qué se dedica / qué ofrece" — contexto principal del wizard simple. */
+  description?:       string;
+  tone:               string;
+  bot_name?:          string;
+  answers?:           OnboardingFixedAnswers;
+  followup_question?: string;
+  followup_answer?:   string;
 }
 
 export interface OnboardingFollowupRequest {
@@ -575,9 +574,58 @@ export interface DuplicatesResponse {
   pending: number;
 }
 
+// ── Métricas del tenant ─────────────────────────────────────────────────────────
+
+export interface TenantMetrics {
+  tenant: { id: string; name: string | null; plan: string | null; limits: Record<string, number> };
+  usage: {
+    queries_today: number; queries_7d: number; queries_30d: number;
+    queries_this_month: number; queries_prev_month: number; mom_pct: number | null;
+    ingests_30d: number; llm_tokens_30d: number;
+    queries_prev_30d: number; llm_tokens_prev_30d: number;
+    daily: Array<{ day: string; total: number }>;
+    ingest_daily: Array<{ day: string; total: number }>;
+    tokens_daily: Array<{ day: string; total: number }>;
+  };
+  performance: {
+    latency_p50: number | null; latency_p95: number | null;
+    cache_hit_rate: number | null; total_logged: number;
+  };
+  docs: { total: number; ready: number; failed: number; processing: number; storage_bytes: number };
+  quality: { passed: number; pending: number; skipped: number };
+  conversations: {
+    total: number; widget: number; whatsapp: number;
+    handoffs: number; handoff_rate: number | null; bot_resolved_pct: number | null;
+    avg_resolution_seconds: number | null;
+    prev_total: number; avg_wait_seconds: number | null;
+    daily: Array<{ day: string; total: number; handoffs: number }>;
+    by_sector: Array<{ nombre: string; total: number }>;
+  };
+  recent_queries: Array<{
+    question_text: string | null;
+    latency_ms: number | null; from_cache: boolean; created_at: string;
+  }>;
+  quota: {
+    queries_month: { used: number; limit: number; pct: number | null };
+    documents: { used: number; limit: number; pct: number | null };
+    users: { used: number; limit: number; pct: number | null };
+  };
+}
+
 // ── API functions ──────────────────────────────────────────────────────────────
 
 export const api = {
+  metrics: {
+    // `days` (7 | 30 | 90) acota la ventana de los informes Asistente/Atención y
+    // la serie de actividad. Las cuotas del plan no dependen de este parámetro.
+    get: async (days?: number): Promise<TenantMetrics> => {
+      const { data } = await apiClient.get<TenantMetrics>("/metrics", {
+        params: days ? { days } : undefined,
+      });
+      return data;
+    },
+  },
+
   auth: {
     /** Email-first lookup. Devuelve los tenants donde existe ese email. */
     lookupTenant: async (email: string): Promise<LookupTenantResponse> => {
@@ -656,7 +704,7 @@ export const api = {
 
     /** Admin: patch branding fields. Send only the fields you want to change. */
     update: async (
-      patch: Partial<Pick<TenantBranding, "display_name" | "primary_color" | "secondary_color" | "favicon_url">>,
+      patch: Partial<Pick<TenantBranding, "display_name" | "primary_color" | "secondary_color" | "favicon_url" | "widget_theme" | "widget_position">>,
       tenantId?: string,
     ): Promise<TenantBranding> => {
       const url = tenantId
@@ -758,8 +806,17 @@ export const api = {
       const { data } = await apiClient.get<PendingChunkResponse[]>("/chunks/pending");
       return data;
     },
-    download: async (documentId: string): Promise<void> => {
-      const response = await apiClient.get(`/documents/${documentId}/download`, { responseType: "blob" });
+    /** Busca dentro del contenido de los documentos. Devuelve doc ids con nº de coincidencias. */
+    searchContent: async (q: string): Promise<Array<{ document_id: string; matches: number }>> => {
+      const { data } = await apiClient.get("/documents/search", { params: { q } });
+      return data;
+    },
+    /** variant "original" = archivo tal como se subió; "edited" = partes vigentes (.txt). */
+    download: async (documentId: string, variant: "original" | "edited" = "original"): Promise<void> => {
+      const path = variant === "edited"
+        ? `/documents/${documentId}/download/edited`
+        : `/documents/${documentId}/download`;
+      const response = await apiClient.get(path, { responseType: "blob" });
       const blob = new Blob([response.data], { type: response.headers["content-type"] || "application/octet-stream" });
       const cd = response.headers["content-disposition"] || "";
       const match = cd.match(/filename="?([^"]+)"?/);
@@ -795,59 +852,6 @@ export const api = {
     },
   },
 
-  intentions: {
-    list: async (): Promise<IntentionResponse> => {
-      const { data } = await apiClient.get<IntentionResponse>("/intentions");
-      return data;
-    },
-    getExamples: async (intentionId: string): Promise<IntentionDetail> => {
-      const { data } = await apiClient.get<IntentionDetail>(`/intentions/${intentionId}/examples`);
-      return data;
-    },
-    // Consultas que dispararon un tema pendiente (por label detectado).
-    getPendingExamples: async (label: string): Promise<{ label: string; examples: PendingExample[] }> => {
-      const { data } = await apiClient.get(`/intentions/label/${encodeURIComponent(label)}/examples`);
-      return data;
-    },
-    approve: async (intentionId: string) => {
-      await apiClient.post(`/intentions/${intentionId}/approve`);
-    },
-    reject: async (intentionId: string) => {
-      await apiClient.post(`/intentions/${intentionId}/reject`);
-    },
-    toggleActive: async (intentionId: string, isActive: boolean) => {
-      await apiClient.patch(`/intentions/${intentionId}`, { is_active: !isActive });
-    },
-    delete: async (intentionId: string) => {
-      await apiClient.delete(`/intentions/${intentionId}`);
-    },
-    create: async (label: string, description?: string, examples?: string[]) => {
-      await apiClient.post("/intentions", { label, description, examples: examples ?? [] });
-    },
-    approveCluster: async (clusterId: string, label: string) => {
-      const { data } = await apiClient.post(`/intentions/cluster/${clusterId}/approve`, { label });
-      return data;
-    },
-    dismissCluster: async (clusterId: string) => {
-      await apiClient.post(`/intentions/cluster/${clusterId}/dismiss`);
-    },
-    removeQueryFromCluster: async (clusterId: string, queryId: string) => {
-      await apiClient.delete(`/intentions/cluster/${clusterId}/query/${queryId}`);
-    },
-    triggerClustering: async () => {
-      const { data } = await apiClient.post("/intentions/cluster");
-      return data;
-    },
-    triggerRetrain: async () => {
-      const { data } = await apiClient.post("/intentions/retrain");
-      return data;
-    },
-    trainingStatus: async () => {
-      const { data } = await apiClient.get("/intentions/training/status");
-      return data as { intentions: Array<{ label: string; model_version: string | null; last_accuracy: number | null; example_count: number }> };
-    },
-  },
-
   connectors: {
     list: async (): Promise<{ connectors: ConnectorRow[] }> => {
       const { data } = await apiClient.get("/admin/connectors");
@@ -873,11 +877,48 @@ export const api = {
     },
     setActive: async (id: string, isActive: boolean) => {
       const { data } = await apiClient.patch(`/admin/connectors/${id}/active`, { is_active: isActive });
-      return data as { ok: boolean; is_active: boolean };
+      // pending_approval: la activación no falló — quedó esperando que el
+      // super-admin apruebe los hosts (pending_hosts dice cuáles).
+      return data as { ok: boolean; is_active: boolean; pending_approval?: boolean; pending_hosts?: string[] };
     },
-    approvedHosts: async (): Promise<{ hosts: Array<{ host: string; approved_by: string | null; note: string | null }> }> => {
+    approvedHosts: async (): Promise<{ hosts: Array<{ host: string; approved_by: string | null; note: string | null; created_at: string | null }> }> => {
       const { data } = await apiClient.get("/admin/connectors/approved-hosts");
       return data;
+    },
+    addApprovedHost: async (host: string, note?: string) => {
+      const { data } = await apiClient.post("/admin/connectors/approved-hosts", { host, note: note || null });
+      return data as { host: string; approved: boolean };
+    },
+    removeApprovedHost: async (host: string) => {
+      await apiClient.delete(`/admin/connectors/approved-hosts/${encodeURIComponent(host)}`);
+    },
+    // Solicitudes de activación pendientes (super-admin): qué tenant pide activar
+    // qué conector, con sus hosts y rutas a la vista para aprobar con fundamento.
+    activationRequests: async (): Promise<{ requests: ActivationRequest[] }> => {
+      const { data } = await apiClient.get("/admin/connectors/activation-requests");
+      return data;
+    },
+    // Oversight de plataforma: todos los conectores de todos los tenants con sus
+    // rutas, más el feed de cambios de configuración (30 días).
+    platformOverview: async (): Promise<{ connectors: PlatformConnector[]; changes: ConnectorChange[] }> => {
+      const { data } = await apiClient.get("/admin/connectors/overview");
+      return data;
+    },
+    // Usuarios autorizados por conector (modo platform_registry): lista blanca
+    // documento + email + nombre. El login busca por documento y manda OTP al email.
+    listConnectorUsers: async (connectorId: string) => {
+      const { data } = await apiClient.get(`/admin/connectors/${connectorId}/users`);
+      return data as { users: Array<{ id: string; documento: string; email: string; nombre: string; is_active: boolean }> };
+    },
+    createConnectorUser: async (connectorId: string, body: { documento: string; email: string; nombre: string }) => {
+      const { data } = await apiClient.post(`/admin/connectors/${connectorId}/users`, body);
+      return data as { id: string };
+    },
+    updateConnectorUser: async (userId: string, body: Partial<{ documento: string; email: string; nombre: string; is_active: boolean }>) => {
+      await apiClient.patch(`/admin/connectors/users/${userId}`, body);
+    },
+    deleteConnectorUser: async (userId: string) => {
+      await apiClient.delete(`/admin/connectors/users/${userId}`);
     },
     createTool: async (connectorId: string, body: ConnectorToolPayload): Promise<{ id: string }> => {
       const { data } = await apiClient.post(`/admin/connectors/${connectorId}/tools`, body);
@@ -886,22 +927,29 @@ export const api = {
     updateTool: async (toolId: string, body: Partial<ConnectorToolPayload> & { is_active?: boolean }) => {
       await apiClient.put(`/admin/connectors/tools/${toolId}`, body);
     },
+    // Data flywheel: candidatos a ejemplo (consultas reales que rutearon OK).
+    exampleCandidates: async (toolId: string): Promise<{ candidates: ExampleCandidate[] }> => {
+      const { data } = await apiClient.get(`/admin/connectors/tools/${toolId}/example-candidates`);
+      return data;
+    },
+    approveExampleCandidate: async (candidateId: string) => {
+      const { data } = await apiClient.post(`/admin/connectors/example-candidates/${candidateId}/approve`);
+      return data as { ok: boolean; query: string };
+    },
+    dismissExampleCandidate: async (candidateId: string) => {
+      await apiClient.post(`/admin/connectors/example-candidates/${candidateId}/dismiss`);
+    },
     deleteTool: async (toolId: string) => {
       await apiClient.delete(`/admin/connectors/tools/${toolId}`);
-    },
-    upsertBinding: async (toolId: string, body: {
-      intencion_id?: string; intent_label?: string; intent_description?: string;
-      min_confidence?: number; is_active?: boolean; examples?: string[];
-    }) => {
-      const { data } = await apiClient.put(`/admin/connectors/tools/${toolId}/bindings`, body);
-      return data as { id: string; intencion_id: string; intent_label: string };
-    },
-    deleteBinding: async (bindingId: string) => {
-      await apiClient.delete(`/admin/connectors/bindings/${bindingId}`);
     },
     testTool: async (connectorId: string, toolId: string, body: { identity?: string; params?: Record<string, unknown> }) => {
       const { data } = await apiClient.post(`/admin/connectors/${connectorId}/tools/${toolId}/test`, body);
       return data as ConnectorTestResult;
+    },
+    testAllTools: async (connectorId: string, identity: string) => {
+      const { data } = await apiClient.post(`/admin/connectors/${connectorId}/tools/test-all`,
+        { identity }, { timeout: 120_000 });
+      return data as ToolTestAllResult;
     },
     discover: async (connectorId: string, testIdentity: string) => {
       const { data } = await apiClient.post(`/admin/connectors/${connectorId}/discover`,
@@ -922,14 +970,14 @@ export const api = {
     apply: async (connectorId: string, tools: DiscoveryRoute[]) => {
       const { data } = await apiClient.post(`/admin/connectors/${connectorId}/apply`, {
         tools: tools.map(t => ({
-          slug: t.slug, display_name: t.display_name, http_method: t.http_method ?? "GET",
+          slug: t.slug, display_name: t.display_name, description: t.description ?? null,
+          http_method: t.http_method ?? "GET",
           path_template: t.path_template, params_schema: t.params_schema ?? {},
           response_map: t.response_map ?? {}, identity_kind: t.identity_kind,
-          is_lookup: t.is_lookup, identity_param: t.identity_param, intent_label: t.intent_label,
-          intent_description: t.intent_description, examples: t.examples ?? [],
+          is_lookup: t.is_lookup, identity_param: t.identity_param,
         })),
       });
-      return data as { created: string[]; identity_lookup_path: string | null };
+      return data as { created: string[]; kept: string[]; identity_lookup_path: string | null };
     },
     // Usuarios autorizados por conector (registro de identidad, modo platform_registry).
     listUsers: async (connectorId: string): Promise<{ users: ConnectorUserRow[] }> => {
@@ -1046,13 +1094,12 @@ export const api = {
       const { data } = await apiClient.get(`/tenants/${tenantId}/metrics`);
       return data as {
         tenant: { id: string; name: string; plan: string; status: string; admin_email: string; created_at: string; limits: Record<string, number> };
-        usage: { queries_today: number; queries_7d: number; queries_30d: number; ingests_30d: number; llm_tokens_30d: number; daily_30d: Array<{ day: string; total: number }> };
+        usage: { queries_today: number; queries_7d: number; queries_30d: number; ingests_30d: number; llm_tokens_30d: number; daily: Array<{ day: string; total: number }> };
         docs: { total: number; ready: number; failed: number; processing: number; storage_bytes: number };
-        performance: { latency_p50: number | null; latency_p95: number | null; cache_hit_rate: number | null; avg_confidence: number | null; total_logged: number };
+        performance: { latency_p50: number | null; latency_p95: number | null; cache_hit_rate: number | null; total_logged: number };
         quality: { passed: number; pending: number; skipped: number };
         quota: { queries_month: { used: number; limit: number; pct: number | null }; documents: { used: number; limit: number; pct: number | null } };
-        recent_queries: Array<{ question_text: string | null; intent_label: string | null; intent_confidence: number | null; latency_ms: number; from_cache: boolean; created_at: string }>;
-        top_intents: Array<{ label: string; count: number; avg_confidence: number | null }>;
+        recent_queries: Array<{ question_text: string | null; latency_ms: number; from_cache: boolean; created_at: string }>;
       };
     },
     listUsers: async (tenantId: string): Promise<Array<{ id: string; email: string; name: string; role: string; is_active: boolean; created_at: string | null }>> => {
@@ -1256,6 +1303,10 @@ export const api = {
     unassign: async (tenant_id: string, template_id: string) => {
       await apiClient.delete(`/superadmin/tenants/${tenant_id}/prompt-assignments/${template_id}`);
     },
+    test: async (contenido: string, messages: { role: "user" | "bot"; content: string }[]) => {
+      const { data } = await apiClient.post("/superadmin/prompt-templates/test", { contenido, messages });
+      return data as { answer: string; latency_ms: number };
+    },
     setMaxTemplates: async (tenant_id: string, max: number) => {
       const { data } = await apiClient.patch(`/superadmin/tenants/${tenant_id}/max-templates`, { max_prompt_templates: max });
       return data;
@@ -1286,7 +1337,7 @@ export const api = {
   tenantBots: {
     list: async (tenantId: string) => {
       const { data } = await apiClient.get(`/superadmin/tenants/${tenantId}/bots`);
-      return data as { bots: TenantBot[] };
+      return data as { max_prompt_templates: number; bots: TenantBot[] };
     },
     activate: async (tenantId: string, templateId: string) => {
       const { data } = await apiClient.post(`/superadmin/tenants/${tenantId}/bots/${templateId}/activate`);

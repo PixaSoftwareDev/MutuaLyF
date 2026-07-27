@@ -9,6 +9,7 @@ Etapa 3 improvements:
 
 import asyncio
 import logging
+import re
 from dataclasses import dataclass
 from functools import lru_cache
 
@@ -24,13 +25,10 @@ from services.embedding_cache import embed_query_cached
 logger = logging.getLogger(__name__)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# PyTorch threading config — solo aplica si reranker_provider=local (fallback).
-# F1: ahora corren 4 workers uvicorn con cgroup limit 12 CPUs. Cada worker
-# deberia usar ~3 threads para no oversubscribir (4 workers x 3 threads = 12).
-# Si todos usan los 6 viejos: 24 threads pelean por 12 CPU cores → context
-# switching mata performance.
-# Si reranker_provider=tei (default produccion), el modelo corre en otro
-# container y este import solo sirve por si torch fue importado por otro path.
+# PyTorch threading config — aplica a cualquier modelo torch cargado en el
+# proceso (GLiNER/NLU). 4 workers uvicorn con cgroup limit 12 CPUs → ~3
+# threads por worker para no oversubscribir (24 threads en 12 cores = context
+# switching que mata performance).
 # ─────────────────────────────────────────────────────────────────────────────
 try:
     import torch as _torch
@@ -49,91 +47,16 @@ try:
 except ImportError:
     pass
 
-# ── TEI client para reranker — async per-event-loop ──────────────────────────
-_tei_rerank_client_sync: httpx.Client | None = None  # legacy, sync (no usar en query path)
-_tei_rerank_async_client: httpx.AsyncClient | None = None
-_tei_rerank_async_client_loop: asyncio.AbstractEventLoop | None = None
+# RERANKER ELIMINADO (2026-07-23, F3 del plan de calidad): el cross-encoder
+# local/TEI nunca funcionó para español (bge-reranker-base es zh/en — probado
+# A/B: 0.996 en inglés, 0.0 en TODO español) y llevaba apagado desde junio.
+# Su función (¿los chunks RESPONDEN la pregunta?) la cumple el trust gate
+# (services/trust_gate.py: capa léxica + juez LLM selectivo), validado por la
+# suite de calidad (scripts/run_quality_suite.py). Los chunks se ordenan por
+# el score de la fusión Qdrant+BM25.
 
-
-def _current_loop() -> asyncio.AbstractEventLoop | None:
-    try:
-        return asyncio.get_running_loop()
-    except RuntimeError:
-        return None
-
-
-def _get_tei_rerank_client() -> httpx.Client:
-    """Sync TEI rerank client — legacy, no usar en query path async."""
-    global _tei_rerank_client_sync
-    if _tei_rerank_client_sync is None:
-        _tei_rerank_client_sync = httpx.Client(
-            base_url=settings.tei_reranker_url,
-            timeout=settings.tei_timeout_ms / 1000,
-            limits=httpx.Limits(
-                max_connections=settings.http_pool_max_connections,
-                max_keepalive_connections=settings.http_pool_max_keepalive,
-            ),
-        )
-    return _tei_rerank_client_sync
-
-
-def _get_tei_rerank_async_client() -> httpx.AsyncClient:
-    """Async TEI rerank client para el query path. Per-event-loop init."""
-    global _tei_rerank_async_client, _tei_rerank_async_client_loop
-    loop = _current_loop()
-    if _tei_rerank_async_client is None or loop is not _tei_rerank_async_client_loop:
-        _tei_rerank_async_client = httpx.AsyncClient(
-            base_url=settings.tei_reranker_url,
-            timeout=settings.tei_timeout_ms / 1000,
-            limits=httpx.Limits(
-                max_connections=settings.http_pool_max_connections,
-                max_keepalive_connections=settings.http_pool_max_keepalive,
-            ),
-        )
-        _tei_rerank_async_client_loop = loop
-    return _tei_rerank_async_client
-
-
-def _rerank_via_tei() -> bool:
-    return (settings.reranker_provider or "local").lower() == "tei"
-
-# Per-source timeouts (independent — Qdrant and reranker don't block each other)
-_QDRANT_TIMEOUT_S  = settings.db_timeout_ms / 1000       # default 500ms
-_RERANKER_TIMEOUT_S = settings.reranker_timeout_ms / 1000  # default 5000ms (was 300ms, raised in .env)
-
-# TTL del cache de conteo de documentos para la decision auto-rerank.
-# 5 minutos: un doc nuevo activa el reranker en max 5 min sin golpear PG en cada query.
-_DOC_COUNT_CACHE_TTL = 300
-
-
-async def _count_ready_docs(tenant_id: str) -> int:
-    """Devuelve el numero de documentos listos del tenant, cacheado en Redis 5 min.
-
-    Usado para decidir si activar el reranker automaticamente. Si Redis falla,
-    retorna un valor alto (999) para que el reranker se active por default —
-    preferimos falso positivo (reranker innecesario) a falso negativo (KB grande sin reranker).
-    """
-    cache_key = f"{tenant_id}:reranker:doc_count"
-    redis = get_redis_cache()
-
-    try:
-        cached = await redis.get(cache_key)
-        if cached is not None:
-            return int(cached)
-    except Exception:
-        return 999  # Redis down → activar reranker por precaucion
-
-    try:
-        async with get_pg_session(tenant_id) as session:
-            row = await session.execute(
-                text("SELECT COUNT(*) FROM documentos WHERE status = 'ready'")
-            )
-            count = int(row.scalar_one())
-        await redis.setex(cache_key, _DOC_COUNT_CACHE_TTL, str(count))
-        return count
-    except Exception as exc:
-        logger.warning("doc_count_failed tenant_id=%s error=%s — reranker activado", tenant_id, exc)
-        return 999
+# Per-source timeout
+_QDRANT_TIMEOUT_S = settings.db_timeout_ms / 1000       # default 500ms
 
 
 @dataclass
@@ -153,34 +76,6 @@ class RetrievedChunk:
     @property
     def strategy(self) -> str:
         return self.metadata.get("strategy", "fixed")
-
-
-@lru_cache(maxsize=1)
-def _load_reranker():
-    """Carga el reranker local (sentence-transformers CrossEncoder).
-
-    Solo se llama si reranker_provider=local. En produccion default es tei,
-    asi que esta funcion no se invoca y el modelo no se carga (libera ~2GB RAM
-    en el proceso uvicorn).
-    """
-    if not settings.reranker_enabled:
-        logger.info("reranker_disabled via RERANKER_ENABLED=false")
-        return None
-    if _rerank_via_tei():
-        logger.info("reranker_via_tei skipping local model load")
-        return None
-    try:
-        from sentence_transformers import CrossEncoder
-        logger.info("reranker_loading model=%s", settings.reranker_model)
-        model = CrossEncoder(settings.reranker_model)
-        logger.info("reranker_loaded model=%s", settings.reranker_model)
-        return model
-    except ImportError:
-        logger.warning("cross_encoder_not_installed reranker_disabled")
-        return None
-    except Exception as exc:
-        logger.error("reranker_load_failed error=%s", exc)
-        return None
 
 
 async def retrieve_multi_query(
@@ -235,29 +130,13 @@ async def retrieve_multi_query(
         logger.error("retrieve_multi_all_failed queries=%d", len(queries))
         return []
 
-    # RRF fusion entre los N rankings: SELECCIONA los mejores candidatos entre las
-    # variantes. Pero su score (~1/60 ≈ 0.016-0.05) está en una escala incomparable
-    # con el min_score downstream (calibrado a la escala del reranker/embedding).
+    # RRF fusion entre los N rankings: SELECCIONA los mejores candidatos entre
+    # las variantes. Su score (~1/60 ≈ 0.016-0.05) queda en escala RRF — el
+    # orquestador lo maneja con max(score, _cosine_score) al filtrar por
+    # min_score (parche defendido por la suite: sin él, listados/enumeraciones
+    # caían a falsos "no encontré").
     fused = _rrf_fuse_lists(valid_lists, top_k=max(rerank_top_k, 20))
-
-    # Rerank FINAL sobre los candidatos fusionados con la query ORIGINAL (queries[0]).
-    # Sin esto, el score que llega al orquestador es el de RRF (~0.05) y el min_score
-    # lo corta todo → cae a low-confidence con pocos chunks (listaba 2 de N, o
-    # rechazaba consultas válidas). Con el rerank, el score final es del cross-encoder
-    # (escala consistente, igual que retrieve() single) → el min_score vuelve a ser
-    # válido. RRF = selección de candidatos; reranker = puntuación de relevancia.
-    # Genérico: aplica a cualquier query/tenant.
-    if not settings.reranker_enabled or len(fused) < settings.reranker_min_candidates:
-        return fused[:rerank_top_k]
-    try:
-        async with asyncio.timeout(_RERANKER_TIMEOUT_S):
-            if _rerank_via_tei():
-                return await _arerank_tei(queries[0], fused, rerank_top_k)
-            loop = asyncio.get_running_loop()
-            return await loop.run_in_executor(None, _rerank, queries[0], fused, rerank_top_k)
-    except asyncio.TimeoutError:
-        logger.warning("retrieve_multi_rerank_timeout candidates=%d", len(fused))
-        return sorted(fused, key=lambda c: c.score, reverse=True)[:rerank_top_k]
+    return fused[:rerank_top_k]
 
 
 def _rrf_fuse_lists(
@@ -412,52 +291,8 @@ async def retrieve(
         except Exception as exc:
             logger.warning("bm25_search_failed tenant_id=%s error=%s", tenant_id, exc)
 
-    # ── 6. Rerank with independent timeout ───────────────────────────────────
-    # Skip si hay pocos candidatos: rerankear 1-4 elementos no agrega calidad
-    # significativa (Qdrant ya los ordeno por similitud) y agrega ~2s en CPU.
-    # Cuando se carguen 5+ docs relevantes el reranker se activa automaticamente.
-    with tracer.start_as_current_span("retrieval.rerank") as span:
-        span.set_attribute("candidates", len(chunks))
-        span.set_attribute("provider", "tei" if _rerank_via_tei() else "local")
-        if not settings.reranker_enabled:
-            logger.debug("rerank_skipped reason=disabled")
-            span.set_attribute("skipped", "disabled")
-            reranked = sorted(chunks, key=lambda c: c.score, reverse=True)[:rerank_top_k]
-        elif (doc_count := await _count_ready_docs(tenant_id)) < settings.reranker_auto_min_docs:
-            logger.info(
-                "rerank_auto_skipped tenant_id=%s docs=%d threshold=%d",
-                tenant_id, doc_count, settings.reranker_auto_min_docs,
-            )
-            span.set_attribute("skipped", "few_docs")
-            span.set_attribute("doc_count", doc_count)
-            reranked = sorted(chunks, key=lambda c: c.score, reverse=True)[:rerank_top_k]
-        elif len(chunks) < settings.reranker_min_candidates:
-            logger.debug(
-                "rerank_skipped reason=few_candidates count=%d min=%d",
-                len(chunks), settings.reranker_min_candidates,
-            )
-            span.set_attribute("skipped", "few_candidates")
-            reranked = sorted(chunks, key=lambda c: c.score, reverse=True)[:rerank_top_k]
-        else:
-            try:
-                async with asyncio.timeout(_RERANKER_TIMEOUT_S):
-                    if _rerank_via_tei():
-                        # TEI async — sin executor, no consume thread pool.
-                        reranked = await _arerank_tei(query, chunks, rerank_top_k)
-                    else:
-                        # Local sentence-transformers es CPU-bound sync,
-                        # mandamos al executor para no bloquear event loop.
-                        reranked = await loop.run_in_executor(
-                            None, _rerank, query, chunks, rerank_top_k
-                        )
-                span.set_attribute("reranked", len(reranked))
-            except asyncio.TimeoutError:
-                logger.warning(
-                    "reranker_timeout tenant_id=%s timeout_s=%.1f fallback=qdrant_scores",
-                    tenant_id, _RERANKER_TIMEOUT_S,
-                )
-                span.set_attribute("timeout", True)
-                reranked = sorted(chunks, key=lambda c: c.score, reverse=True)[:rerank_top_k]
+    # ── 6. Orden final por score de fusión (reranker eliminado — ver arriba) ──
+    reranked = sorted(chunks, key=lambda c: c.score, reverse=True)[:rerank_top_k]
 
     logger.debug(
         "retrieve_done tenant_id=%s candidates=%d reranked=%d",
@@ -544,7 +379,18 @@ async def _bm25_search(query: str, tenant_id: str, limit: int = 20) -> list[dict
     # matchea pocos/ningún chunk → BM25 no contamina y el embedding manda (lo correcto
     # para queries semánticas). Si AND da 0 hits (término raro faltante), cae a
     # embedding-only, que para nombres propios ya funciona bien.
-    words = [w for w in query.replace("'", " ").split() if len(w) > 1]
+    # Sanitizar cada token a alfanumérico ANTES de armar el tsquery: caracteres
+    # como ( ) ? ! & | * : son sintaxis de to_tsquery y un input de usuario con
+    # paréntesis desbalanceados o "?!!" rompía la query SQL → BM25 devolvía []
+    # en silencio y ese turno perdía todo el recall léxico (bug encontrado por
+    # fuzzing accidental durante el eval de tool-routing, 2026-07-21).
+    words = [
+        w for w in (
+            re.sub(r"[^0-9a-zñáéíóúü]+", "", t, flags=re.IGNORECASE)
+            for t in query.replace("'", " ").split()
+        )
+        if len(w) > 1
+    ]
     if not words:
         return []
     tsquery = " & ".join(words)
@@ -638,99 +484,3 @@ def _rrf_merge(
             chunk_by_pid[key].score = rrf
 
     return sorted(chunk_by_pid.values(), key=lambda c: c.score, reverse=True)
-
-
-async def _arerank_tei(query: str, chunks: list[RetrievedChunk], top_k: int) -> list[RetrievedChunk]:
-    """Rerank async via TEI /rerank — sin executor, libera thread pool.
-
-    TEI maneja batching server-side y devuelve scores [0,1] normalizados (sigmoid
-    sobre los logits del cross-encoder). Si TEI falla, fallback a Qdrant scores.
-    """
-    if not chunks:
-        return []
-    client = _get_tei_rerank_async_client()
-    # TEI forced max_batch_requests=8 (CPU backend limitation).
-    # Sending > 8 triggers multiple sequential batches: 30 candidates = 4 batches ≈ 9s.
-    # 8 candidates = 1 batch ≈ 1.5-2s. Sweet spot: rerank the top 8 by Qdrant score.
-    # The value of cross-encoder reranking is highest on the top candidates anyway.
-    _TEI_MAX_BATCH = 20
-    candidates = sorted(chunks, key=lambda c: c.score, reverse=True)[:_TEI_MAX_BATCH]
-    # Antes 900 fijo: el cross-encoder solo veía el inicio de cada chunk y descartaba
-    # parents largos cuya frase relevante estaba más allá. Configurable (settings),
-    # cerca del máximo del modelo, que igual trunca solo con truncate=True.
-    truncated_texts = [c.text[:settings.rerank_max_chars] for c in candidates]
-    try:
-        r = await client.post(
-            "/rerank",
-            json={
-                "query": query,
-                "texts": truncated_texts,
-                "raw_scores": False,
-                "return_text": False,
-                "truncate": True,
-            },
-        )
-        r.raise_for_status()
-        results = r.json()
-        if not isinstance(results, list):
-            logger.warning("arerank_tei_unexpected_response type=%s", type(results).__name__)
-            return sorted(candidates, key=lambda c: c.score, reverse=True)[:top_k]
-        for item in results:
-            idx = item.get("index")
-            if idx is not None and 0 <= idx < len(candidates):
-                candidates[idx].score = float(item.get("score", 0.0))
-        sorted_chunks = sorted(candidates, key=lambda c: c.score, reverse=True)
-        logger.info("arerank_tei_done candidates=%d reranked=%d", len(candidates), len(sorted_chunks[:top_k]))
-        return sorted_chunks[:top_k]
-    except Exception as exc:
-        logger.error(
-            "arerank_tei_failed candidates=%d error=%s fallback=qdrant_scores",
-            len(candidates), exc,
-        )
-        return sorted(candidates, key=lambda c: c.score, reverse=True)[:top_k]
-
-
-def _rerank(query: str, chunks: list[RetrievedChunk], top_k: int) -> list[RetrievedChunk]:
-    """Rerank chunks using a CrossEncoder. Falls back to Qdrant scores on failure.
-
-    Memory hygiene (critical — without these, the backend OOMs after ~5-10 queries):
-      1. torch.no_grad() — disable autograd
-      2. torch.inference_mode() — even stronger; disables view tracking
-      3. del refs + gc.collect() after each predict — release tokenizer/output tensors
-    """
-    import gc
-
-    reranker = _load_reranker()
-    if reranker is None:
-        return sorted(chunks, key=lambda c: c.score, reverse=True)[:top_k]
-
-    try:
-        import math
-        import torch
-        pairs = [(query, chunk.text) for chunk in chunks]
-        with torch.inference_mode():
-            raw_scores = reranker.predict(pairs, convert_to_tensor=False, show_progress_bar=False)
-        # Materialize as plain Python list and drop any tensor reference.
-        scores: list[float] = list(raw_scores) if not hasattr(raw_scores, "tolist") else raw_scores.tolist()
-        # Normalize cross-encoder logits to [0,1] via sigmoid so the downstream
-        # min_score filter (orchestrator.py) uses comparable values.
-        # Without this, the orchestrator still saw the old Qdrant cosine score
-        # and dropped chunks the reranker had ranked at the top.
-        def _sigmoid(x: float) -> float:
-            try:
-                return 1.0 / (1.0 + math.exp(-x))
-            except OverflowError:
-                return 0.0 if x < 0 else 1.0
-        normalized = [_sigmoid(s) for s in scores]
-        for chunk, norm in zip(chunks, normalized):
-            chunk.score = norm
-        scored = sorted(zip(normalized, chunks), key=lambda x: x[0], reverse=True)
-        result = [chunk for _, chunk in scored[:top_k]]
-        # Drop intermediates and force GC: empty_cache is a no-op on CPU but
-        # gc.collect() releases tokenizer state held by sentence-transformers.
-        del raw_scores, pairs, scored, normalized
-        gc.collect()
-        return result
-    except Exception as exc:
-        logger.error("rerank_failed error=%s falling_back_to_qdrant_scores", exc)
-        return sorted(chunks, key=lambda c: c.score, reverse=True)[:top_k]

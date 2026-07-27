@@ -3,7 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
-import { OnboardingModal } from "./onboarding-modal";
+import { OnboardingFlow } from "./onboarding-flow";
 
 export function OnboardingGate() {
   const { tenantId, userRole, _hasHydrated } = useAuthStore();
@@ -18,5 +18,5 @@ export function OnboardingGate() {
   if (!_hasHydrated || isLoading || !tenantId || userRole !== "admin") return null;
   if (botConfig?.onboarding_completed) return null;
 
-  return <OnboardingModal />;
+  return <OnboardingFlow />;
 }

@@ -456,15 +456,25 @@ async def process_incoming_message(account: WhatsAppAccount, value: dict, messag
             and await has_online_operators(tenant_id, conv_sector_id)
         )
         if offer_with_operators:
-            # Oferta de operador: el bot_answer genérico es redundante → no se envía.
+            # keep_answer (Regla 5 por keyword): la respuesta del bot se envía
+            # igual y la oferta va como mensaje aparte debajo. En las reglas por
+            # fallo el genérico es redundante con la oferta → no se envía.
+            if signal.keep_answer:
+                await _insert_message(tenant_id, conv_id, "bot", bot_answer)
+                await send_text(account, wa_id, bot_answer)
             offer = f"{signal.offer_message}\n\nRespondé *OPERADOR* para hablar con una persona."
             await _insert_message(tenant_id, conv_id, "system", offer, is_handoff_offer=True)
             await send_text(account, wa_id, offer)
             await _mark_offer_pending(conv_id)  # cooldown 90s SOLO al mostrar el cartel
+            if signal.trigger == HandoffTrigger.KEYWORD:
+                from services.handoff import mark_keyword_offered
+                await mark_keyword_offered(conv_id)  # supresión 1h por conversación
         else:
             await _insert_message(tenant_id, conv_id, "bot", bot_answer)
             await send_text(account, wa_id, bot_answer)
-            if signal.trigger != HandoffTrigger.NONE:
+            # keep_answer (keyword) sin operadores: el bot respondió bien y nadie
+            # pidió humano — no agregar el aviso de no-disponibilidad.
+            if signal.trigger != HandoffTrigger.NONE and not signal.keep_answer:
                 # Deriva pero sin operadores: el genérico aporta contexto al aviso.
                 cfg = await _get_handoff_config(tenant_id)
                 msg = build_no_operators_message(cfg)

@@ -5,7 +5,11 @@
  * componentes de métricas que usan Inicio, Organizaciones y Monitoreo.
  */
 
-import { type LucideIcon } from "lucide-react";
+import { useState } from "react";
+import {
+  type LucideIcon, ChevronDown, KeyRound, HardDrive, Activity, Bot,
+  Database, Zap, MessageCircle, Mail, Building2, Wifi, Gauge, Bug,
+} from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
@@ -36,41 +40,189 @@ export function fmtTs(ts: number): string {
   });
 }
 
-// ── Fila de error del buffer (misma vista en Inicio y Monitoreo) ─────────────
+// ── Traducción de errores a lenguaje claro ───────────────────────────────────
+// Los logs del backend llegan con una clave técnica (`jwt_decode_failed`,
+// `tenant_minio_usage_failed`, …). En vez de mostrar la clave cruda, la
+// clasificamos por DOMINIO y explicamos en palabras qué pasó y si es grave.
+// El clasificador es por keywords → escala a claves nuevas sin tocar código.
 
 export type PlatformError = {
   ts: number; level: string; logger: string; message: string;
   detail?: string; count?: number;
 };
 
+type ErrorGroup = {
+  match: RegExp;
+  icon: LucideIcon;
+  group: string;      // dominio ("Autenticación", "Almacenamiento", …)
+  plain: string;      // qué pasó, en palabras
+  benign?: boolean;   // típicamente inofensivo (ruido de entorno)
+};
+
+// Orden importa: la primera coincidencia gana. De lo más específico a lo general.
+const ERROR_GROUPS: ErrorGroup[] = [
+  { match: /unhandled_exception|exception_group|traceback|internal_server|500\b/,
+    icon: Bug, group: "Excepción no controlada",
+    plain: "El backend lanzó una excepción no controlada procesando una request. Revisá el traceback para ubicar la causa." },
+  { match: /alertmanager|prometheus|\bmetrics?\b|tracing|monitor/,
+    icon: Activity, group: "Monitoreo",
+    plain: "El stack de monitoreo no respondió. Es normal si Prometheus/Alertmanager no está activo en este entorno.", benign: true },
+  { match: /jwt|token|auth|unauthor|forbidden|signature/,
+    icon: KeyRound, group: "Autenticación",
+    plain: "Un token no se pudo validar (firma inválida o vencido). Habitual con sesiones viejas; solo preocupa si es masivo o repentino." },
+  { match: /minio|_s3|bucket|storage|upload_media|media_download|attachment/,
+    icon: HardDrive, group: "Almacenamiento",
+    plain: "Falló una operación de archivos (MinIO/S3). Suele ser credenciales que no coinciden o un bucket que no existe." },
+  { match: /whatsapp/,
+    icon: MessageCircle, group: "WhatsApp",
+    plain: "Falló una operación del canal WhatsApp (envío, media o relay). Revisá el token del número y la conexión con la Cloud API." },
+  { match: /groq|llm|rerank|embed|rag|answer|tool_upstream|upstream|maverick|generat/,
+    icon: Bot, group: "IA / LLM",
+    plain: "Un servicio de IA (Groq o embeddings) falló o tardó de más. Posibles causas: saldo agotado, rate-limit o timeout del proveedor." },
+  { match: /email|smtp|resend|welcome_email/,
+    icon: Mail, group: "Email",
+    plain: "No se pudo enviar un email (SMTP/Resend). Revisá la API key del proveedor y el dominio remitente." },
+  { match: /redis|celery|broker|queue|retrain|retry|cluster|worker/,
+    icon: Zap, group: "Colas / tareas",
+    plain: "Falló una tarea en segundo plano o la cola (Redis/Celery). Si es aislado, suele reintentarse solo." },
+  { match: /db_error|deadlock|postgres|\bsql\b|pool|connection_acquisition|\bpg\b/,
+    icon: Database, group: "Base de datos",
+    plain: "Problema con la base de datos: una conexión o una consulta no se completó. Vigilá si se repite." },
+  { match: /egress_blocked|socket_timeout|connect_timeout|refused|unreachable|\bdns\b|network/,
+    icon: Wifi, group: "Red / conectividad",
+    plain: "No se pudo conectar a un servicio externo (timeout o bloqueo de red). Suele ser transitorio." },
+  { match: /rate_limit|exceeded|throttl|quota/,
+    icon: Gauge, group: "Límites de uso",
+    plain: "Se alcanzó un límite de uso (rate-limit o cuota). Si es frecuente, conviene subir el límite o revisar quién lo dispara." },
+  { match: /tenant|config|schema|onboarding|provision/,
+    icon: Building2, group: "Organización",
+    plain: "Problema al resolver o configurar una organización (tenant). Puede ser un tenant mal aprovisionado o config faltante." },
+];
+
+/** Clasifica un error a lenguaje claro. Si no matchea ningún dominio conocido,
+ *  devuelve un fallback genérico pero igual legible. */
+export function explainError(e: PlatformError): {
+  icon: LucideIcon; group: string; title: string; plain: string; benign: boolean;
+} {
+  const hay = `${e.message} ${e.detail ?? ""} ${e.logger}`.toLowerCase();
+  const g = ERROR_GROUPS.find(g => g.match.test(hay));
+  // Título humano: la clave técnica pasada a Frase Legible.
+  const title = humanizeKey(e.message);
+  // Si el log trae la ruta HTTP que falló, la sumamos a la explicación.
+  const path = (e.detail ?? "").match(/['"]path['"]\s*:\s*['"]([^'"]+)['"]/)?.[1]
+    ?? e.message.match(/\/(api|v1)\/[\w/{}-]+/)?.[0];
+  const withPath = (base: string) => path ? `${base} Ruta: ${path}.` : base;
+  if (g) return { icon: g.icon, group: g.group, title, plain: withPath(g.plain), benign: !!g.benign };
+  return { icon: Bug, group: "Backend", title, plain: withPath("Error registrado por el backend. Abrí el detalle técnico para ver la causa exacta."), benign: false };
+}
+
+/** `tenant_minio_usage_failed` → "Tenant minio usage failed" → limpio y legible. */
+function humanizeKey(key: string): string {
+  const s = key.replace(/[_\-.]+/g, " ").trim();
+  if (!s) return "Error";
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+// ── Fila de error del buffer (misma vista en Inicio y Monitoreo) ─────────────
+// Muestra QUÉ pasó en palabras; el log crudo queda detrás de "Ver detalle
+// técnico" (colapsado) — porque tener el código a mano también sirve.
+
 export function ErrorRow({ e }: { e: PlatformError }) {
+  const [open, setOpen] = useState(false);
   const isError = e.level === "ERROR";
+  const ex = explainError(e);
+  const Icon = ex.icon;
   return (
-    <div className="px-3.5 py-2.5 flex items-start gap-2.5">
-      <span className={cn(
-        "shrink-0 mt-0.5 rounded px-1.5 py-0.5 text-[10px] font-bold",
-        isError ? "bg-destructive/10 text-destructive" : "bg-warning/10 text-warning"
-      )}>
-        {isError ? "ERROR" : "WARN"}
-      </span>
-      <div className="min-w-0 flex-1">
-        <p className="text-[13px] font-medium leading-snug break-words">
-          {e.message}
-          {(e.count ?? 1) > 1 && (
-            <span className="ml-2 inline-flex items-center rounded-full bg-muted px-1.5 py-px text-[10px] font-semibold text-muted-foreground tabular-nums align-middle">
-              ×{e.count}
+    <div className="px-3.5 py-3">
+      <div className="flex items-start gap-3">
+        <span className={cn(
+          "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg",
+          isError ? "bg-destructive/10 text-destructive" : "bg-warning/10 text-warning",
+        )}>
+          <Icon className="h-4 w-4" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span className={cn(
+              "rounded px-1.5 py-0.5 text-[10px] font-bold leading-none",
+              isError ? "bg-destructive/10 text-destructive" : "bg-warning/10 text-warning",
+            )}>
+              {isError ? "ERROR" : "WARN"}
             </span>
+            <span className="text-[13px] font-semibold text-foreground">{ex.group}</span>
+            {ex.benign && (
+              <span className="rounded-full bg-muted px-1.5 py-px text-[10px] font-medium text-muted-foreground">probablemente inofensivo</span>
+            )}
+            {(e.count ?? 1) > 1 && (
+              <span className="inline-flex items-center rounded-full bg-muted px-1.5 py-px text-[10px] font-semibold text-muted-foreground tabular-nums">
+                ×{e.count}
+              </span>
+            )}
+          </div>
+          {/* Qué pasó, en palabras */}
+          <p className="mt-1 text-[13px] leading-snug text-muted-foreground">{ex.plain}</p>
+
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span className="text-[10px] text-muted-foreground/70 tabular-nums">{fmtTs(e.ts)} · {e.logger}</span>
+            <button
+              type="button"
+              onClick={() => setOpen(o => !o)}
+              className="inline-flex items-center gap-1 text-[10px] font-medium text-muted-foreground/80 transition-colors hover:text-foreground"
+            >
+              <ChevronDown className={cn("h-3 w-3 transition-transform", open && "rotate-180")} />
+              {open ? "Ocultar detalle técnico" : "Ver detalle técnico"}
+            </button>
+          </div>
+
+          {/* Log crudo — el código, para quien lo necesite */}
+          {open && (
+            <div className="mt-2 rounded-lg border bg-muted/40 p-2.5 animate-fade-in">
+              <p className="font-mono text-[11px] font-semibold text-foreground break-all">{e.message}</p>
+              {e.detail && (
+                <p className="mt-1 font-mono text-[11px] leading-relaxed text-muted-foreground break-all whitespace-pre-wrap">
+                  {e.detail}
+                </p>
+              )}
+            </div>
           )}
-        </p>
-        {e.detail && (
-          <p className="font-mono text-[11px] text-muted-foreground break-all leading-relaxed mt-0.5 line-clamp-2">
-            {e.detail}
-          </p>
-        )}
-        <p className="text-[10px] text-muted-foreground/80 mt-0.5 tabular-nums">
-          {fmtTs(e.ts)} · {e.logger}
-        </p>
+        </div>
       </div>
+    </div>
+  );
+}
+
+/** Resumen por dominio: agrupa los errores y muestra "qué está fallando" en
+ *  chips con conteo. Un vistazo antes de leer la lista completa. */
+export function ErrorSummary({ errors, inline }: { errors: PlatformError[]; inline?: boolean }) {
+  if (errors.length === 0) return null;
+  const byGroup = new Map<string, { icon: LucideIcon; count: number; benign: boolean }>();
+  for (const e of errors) {
+    const ex = explainError(e);
+    const prev = byGroup.get(ex.group);
+    const n = e.count ?? 1;
+    if (prev) { prev.count += n; prev.benign = prev.benign && ex.benign; }
+    else byGroup.set(ex.group, { icon: ex.icon, count: n, benign: ex.benign });
+  }
+  const groups = [...byGroup.entries()].sort((a, b) => b[1].count - a[1].count);
+  return (
+    <div className={cn("flex flex-wrap gap-1.5", !inline && "mb-3 gap-2")}>
+      {groups.map(([name, g]) => {
+        const Icon = g.icon;
+        return (
+          <span
+            key={name}
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-full border font-medium",
+              inline ? "px-2 py-0.5 text-[11px]" : "px-2.5 py-1 text-xs",
+              g.benign ? "border-border bg-muted/40 text-muted-foreground" : "border-warning/25 bg-warning/[0.06] text-foreground",
+            )}
+          >
+            <Icon className={cn("h-3.5 w-3.5 shrink-0", g.benign ? "text-muted-foreground/70" : "text-warning")} />
+            {name}
+            <span className="tabular-nums text-muted-foreground">{g.count}</span>
+          </span>
+        );
+      })}
     </div>
   );
 }
@@ -96,11 +248,11 @@ export function HeaderKpi({ label, value, tone = "neutral", loading }: {
   return (
     <div
       className={cn(
-        "relative bg-card border border-border rounded-xl pl-4 pr-4 py-3 shadow-sm overflow-hidden before:content-[''] before:absolute before:left-0 before:top-0 before:bottom-0 before:w-1",
+        "relative overflow-hidden rounded-xl border border-border bg-card px-4 py-3 before:absolute before:left-0 before:top-0 before:bottom-0 before:w-1 before:content-['']",
         accent
       )}
     >
-      <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+      <div className="text-xs font-medium text-muted-foreground">
         {label}
       </div>
       {loading ? (
@@ -146,12 +298,12 @@ export function Kpi({ icon: Icon, label, value, tone = "neutral", accentBrand, s
                          "text-muted-foreground/50";
   return (
     <div className={cn(
-      "relative overflow-hidden rounded-xl border bg-card px-4 py-3.5 shadow-sm",
+      "relative overflow-hidden rounded-xl border bg-card px-4 py-3.5",
       "before:absolute before:left-0 before:top-0 before:bottom-0 before:w-1 before:content-['']",
       accent,
     )}>
       <div className="flex items-center justify-between">
-        <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">{label}</span>
+        <span className="text-xs font-medium text-muted-foreground">{label}</span>
         {Icon && <Icon className={cn("h-4 w-4 shrink-0", iconColor)} />}
       </div>
       {loading
@@ -172,10 +324,10 @@ export function Section({ icon: Icon, label, sublabel, children }: {
   icon: any; label: string; sublabel?: string; children: React.ReactNode;
 }) {
   return (
-    <div className="rounded-2xl border bg-card shadow overflow-hidden">
-      <div className="flex items-center gap-2.5 px-4 py-3 border-b bg-muted/30">
-        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-action-gradient-soft shrink-0">
-          <Icon className="h-4 w-4 text-action" />
+    <div className="overflow-hidden rounded-2xl border bg-card">
+      <div className="flex items-center gap-2.5 border-b bg-muted/30 px-4 py-3">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+          <Icon className="h-4 w-4" />
         </span>
         <span className="text-sm font-semibold">{label}</span>
         {sublabel && <span className="text-xs text-muted-foreground">{sublabel}</span>}
@@ -208,11 +360,11 @@ export function StatTile({ label, value, tone = "neutral", sublabel }: {
                          "before:bg-border";
   return (
     <div className={cn(
-      "relative overflow-hidden rounded-xl border bg-card px-3.5 py-3 shadow-sm",
+      "relative overflow-hidden rounded-xl border bg-card px-3.5 py-3",
       "before:absolute before:left-0 before:top-0 before:bottom-0 before:w-0.5 before:content-['']",
       accent,
     )}>
-      <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground leading-tight">
+      <p className="text-xs font-medium leading-tight text-muted-foreground">
         {label}
       </p>
       <p className={cn("mt-1 text-xl font-semibold tabular-nums leading-none", TILE_TONE[tone])}>{value}</p>
@@ -229,7 +381,7 @@ export function BackupStat({ label, b }: {
 }) {
   return (
     <div className="rounded-lg bg-muted/50 px-3.5 py-3">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground leading-tight">{label}</p>
+      <p className="text-xs font-medium leading-tight text-muted-foreground">{label}</p>
       {!b ? (
         <p className="mt-1 text-lg font-semibold text-muted-foreground leading-none">—</p>
       ) : (
@@ -259,7 +411,7 @@ export function DiskStat({ storage }: {
                    "bg-success";
   return (
     <div className="rounded-lg bg-muted/50 px-3.5 py-3">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground leading-tight">Disco del servidor</p>
+      <p className="text-xs font-medium leading-tight text-muted-foreground">Disco del servidor</p>
       {pct === null || !storage?.total_bytes ? (
         <p className="mt-1 text-lg font-semibold text-muted-foreground leading-none">—</p>
       ) : (

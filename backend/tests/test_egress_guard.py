@@ -17,18 +17,18 @@ def _fake_getaddrinfo(ip: str):
     return _inner
 
 
-ALLOW = {"api.nexa.com.ar"}
+ALLOW = {"api.ejemplo.com.ar"}
 
 
 def test_permite_host_publico_en_allowlist(monkeypatch):
     monkeypatch.setattr(socket, "getaddrinfo", _fake_getaddrinfo("200.58.109.110"))
     # No debe lanzar.
-    assert_egress_allowed("https://api.nexa.com.ar/afiliados", ALLOW)
+    assert_egress_allowed("https://api.ejemplo.com.ar/afiliados", ALLOW)
 
 
 def test_permite_subdominio_de_allowlist(monkeypatch):
     monkeypatch.setattr(socket, "getaddrinfo", _fake_getaddrinfo("200.58.109.110"))
-    assert_egress_allowed("https://test.api.nexa.com.ar/v1", ALLOW)
+    assert_egress_allowed("https://test.api.ejemplo.com.ar/v1", ALLOW)
 
 
 def test_bloquea_host_fuera_de_allowlist(monkeypatch):
@@ -44,17 +44,17 @@ def test_bloquea_esquema_no_http(monkeypatch):
 
 def test_bloquea_http_en_prod(monkeypatch):
     with pytest.raises(EgressBlocked, match="http"):
-        assert_egress_allowed("http://api.nexa.com.ar/x", ALLOW, allow_http=False)
+        assert_egress_allowed("http://api.ejemplo.com.ar/x", ALLOW, allow_http=False)
 
 
 def test_permite_http_en_dev(monkeypatch):
     monkeypatch.setattr(socket, "getaddrinfo", _fake_getaddrinfo("200.58.109.110"))
-    assert_egress_allowed("http://api.nexa.com.ar/x", ALLOW, allow_http=True)
+    assert_egress_allowed("http://api.ejemplo.com.ar/x", ALLOW, allow_http=True)
 
 
 def test_bloquea_allowlist_vacia():
     with pytest.raises(EgressBlocked, match="allowlist vacía"):
-        assert_egress_allowed("https://api.nexa.com.ar/x", set())
+        assert_egress_allowed("https://api.ejemplo.com.ar/x", set())
 
 
 @pytest.mark.parametrize("internal_ip", [
@@ -69,7 +69,7 @@ def test_bloquea_dns_rebinding_a_ip_interna(monkeypatch, internal_ip):
     # Host ESTÁ en la allowlist pero resuelve a una IP interna → SSRF, bloquear.
     monkeypatch.setattr(socket, "getaddrinfo", _fake_getaddrinfo(internal_ip))
     with pytest.raises(EgressBlocked, match="SSRF"):
-        assert_egress_allowed("https://api.nexa.com.ar/x", ALLOW)
+        assert_egress_allowed("https://api.ejemplo.com.ar/x", ALLOW)
 
 
 def test_bloquea_si_dns_no_resuelve(monkeypatch):
@@ -77,17 +77,17 @@ def test_bloquea_si_dns_no_resuelve(monkeypatch):
         raise socket.gaierror("no such host")
     monkeypatch.setattr(socket, "getaddrinfo", _boom)
     with pytest.raises(EgressBlocked, match="resolver"):
-        assert_egress_allowed("https://api.nexa.com.ar/x", ALLOW)
+        assert_egress_allowed("https://api.ejemplo.com.ar/x", ALLOW)
 
 
 def test_trusted_internal_host_exento_de_check_ip():
-    # mock_nexa resuelve a IP interna (172.x) pero es host de confianza dev → permitido.
-    # No mockeamos DNS: si intentara resolver mock_nexa fallaría; la excepción
+    # mock_pixs resuelve a IP interna (172.x) pero es host de confianza dev → permitido.
+    # No mockeamos DNS: si intentara resolver mock_pixs fallaría; la excepción
     # debe cortar ANTES de resolver.
     assert_egress_allowed(
-        "http://mock_nexa:4003/afiliados/1/ordenes",
-        allowlist={"mock_nexa"}, allow_http=True,
-        trusted_internal_hosts={"mock_nexa"},
+        "http://mock_pixs:4003/afiliados/1/ordenes",
+        allowlist={"mock_pixs"}, allow_http=True,
+        trusted_internal_hosts={"mock_pixs"},
     )
 
 
@@ -95,6 +95,6 @@ def test_trusted_internal_host_igual_debe_estar_en_allowlist():
     # Ser "trusted" no saltea la allowlist: si no está, se bloquea igual.
     with pytest.raises(EgressBlocked, match="allowlist"):
         assert_egress_allowed(
-            "http://mock_nexa:4003/x", allowlist={"otro"}, allow_http=True,
-            trusted_internal_hosts={"mock_nexa"},
+            "http://mock_pixs:4003/x", allowlist={"otro"}, allow_http=True,
+            trusted_internal_hosts={"mock_pixs"},
         )

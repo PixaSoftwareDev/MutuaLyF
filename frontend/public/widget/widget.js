@@ -25,7 +25,7 @@
       try { API_BASE = new URL(scriptTag.src).origin; } catch (_e) { API_BASE = ""; }
     }
   }
-  var PLACEHOLDER   = scriptTag ? (scriptTag.getAttribute("data-placeholder") || "Escribí tu mensaje…") : "Escribí tu mensaje…";
+  var PLACEHOLDER   = scriptTag ? (scriptTag.getAttribute("data-placeholder") || "Escribí un mensaje…") : "Escribí un mensaje…";
   // TITLE y branding son defaults; se sobreescriben con el branding del tenant.
   var TITLE         = scriptTag ? (scriptTag.getAttribute("data-title") || "Asistente") : "Asistente";
   // Color neutro: SOLO se usa si el branding del tenant no carga (fallback).
@@ -35,6 +35,9 @@
   var GREETING      = null;  // saludo del tenant si esta configurado
   var PANEL_WIDTH   = scriptTag ? (scriptTag.getAttribute("data-width")  || "400") : "400";
   var PANEL_HEIGHT  = scriptTag ? (scriptTag.getAttribute("data-height") || "640") : "640";
+  // Tamaño "agrandado" (botón expandir) — proporción del preview del panel.
+  var PANEL_WIDTH_XL  = Math.round(Number(PANEL_WIDTH)  * 1.28);
+  var PANEL_HEIGHT_XL = Math.round(Number(PANEL_HEIGHT) * 1.10);
 
   if (!WIDGET_TOKEN) { console.error("[IA Widget] data-token is required"); return; }
 
@@ -76,6 +79,7 @@
     // Variantes con alpha (sin color-mix, para compat con navegadores viejos)
     root.style.setProperty("--ia-brand-30", _rgba(hex, 0.3));
     root.style.setProperty("--ia-brand-25", _rgba(hex, 0.25));
+    root.style.setProperty("--ia-brand-06", _rgba(hex, 0.06));
   }
   _applyBrand(DEFAULT_PRIMARY);
 
@@ -91,9 +95,17 @@
   // ── SVG icons (lucide, igual que el chat) ────────────────────────────────────
   var ICON_BOT       = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>';
   var ICON_SEND      = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22 11 13 2 9z"/></svg>';
-  var ICON_BACK      = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>';
+  // Maximize2 / Minimize2 de lucide (igual que el preview del panel).
+  var ICON_EXPAND    = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>';
+  var ICON_SHRINK    = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/></svg>';
   var ICON_USERCHECK = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><polyline points="16 11 18 13 22 9"/></svg>';
   var ICON_SPINNER   = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="ia-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>';
+  // Auriculares (operador humano) — para el botón de derivación.
+  var ICON_HEADSET   = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H4a1 1 0 0 1-1-1v-7a9 9 0 0 1 18 0v7a1 1 0 0 1-1 1h-2a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3"/><path d="M21 16v2a4 4 0 0 1-4 4h-5"/></svg>';
+  // Etiqueta (nota de área), alerta (error) y reintentar.
+  var ICON_TAG       = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/></svg>';
+  var ICON_ALERT     = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>';
+  var ICON_RETRY     = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>';
   var ICON_CLIP      = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 1 1-2.83-2.83l8.49-8.48"/></svg>';
 
   // ── Session + remembered sector ──────────────────────────────────────────────
@@ -103,9 +115,9 @@
     widgetSessionId = "ws_" + Date.now() + "_" + Math.random().toString(36).slice(2, 9);
     localStorage.setItem(SESSION_KEY, widgetSessionId);
   }
-  var SECTOR_KEY = "ia_widget_sector_" + WIDGET_TOKEN.slice(-8);
-  var rememberedSector = null;
-  try { rememberedSector = JSON.parse(localStorage.getItem(SECTOR_KEY) || "null"); } catch (e) {}
+  // El sector ya no se elige al abrir — se decide recién al derivar a un humano
+  // (no afecta lo que responde el bot). Limpiar la preferencia de sesiones viejas.
+  try { localStorage.removeItem("ia_widget_sector_" + WIDGET_TOKEN.slice(-8)); } catch (e) {}
 
   // ── State ─────────────────────────────────────────────────────────────────────
   var conversationId = null;
@@ -134,13 +146,21 @@
     // FAB
     "#ia-w-btn{position:fixed;bottom:24px;right:24px;width:64px;height:64px;border-radius:50%;background:linear-gradient(135deg,var(--ia-brand-light),var(--ia-brand-dark));color:#fff;border:none;cursor:pointer;box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:2147483000;display:flex;align-items:center;justify-content:center;transition:transform .2s,box-shadow .2s,opacity .25s;opacity:0;}",
     "#ia-w-btn.ia-ready{opacity:1;}",
-    "#ia-w-btn svg{width:28px;height:28px;}",
+    "#ia-w-btn svg{width:28px;height:28px;transition:opacity .15s;}",
     "#ia-w-btn:hover{transform:scale(1.08);box-shadow:0 8px 28px rgba(0,0,0,.3);}",
-    "#ia-w-btn img{width:34px;height:34px;border-radius:50%;object-fit:cover;}",
+    "#ia-w-btn img{width:34px;height:34px;border-radius:50%;object-fit:cover;transition:opacity .15s;}",
+    // Hover del FAB: la cara/logo se desvanece y aparecen 3 puntitos que rebotan
+    // (idéntico al preview del panel).
+    "#ia-w-btn:hover>svg,#ia-w-btn:hover>img{opacity:0;}",
+    "#ia-w-dots{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:5px;opacity:0;transition:opacity .15s;pointer-events:none;}",
+    "#ia-w-btn:hover #ia-w-dots{opacity:1;}",
+    "#ia-w-dots span{width:7px;height:7px;border-radius:50%;background:#fff;animation:ia-bounce 1.4s infinite ease-in-out;}",
+    "#ia-w-dots span:nth-child(2){animation-delay:.15s;}",
+    "#ia-w-dots span:nth-child(3){animation-delay:.3s;}",
     "#ia-w-badge{position:absolute;top:-4px;right:-4px;background:#ef4444;color:#fff;border-radius:50%;width:20px;height:20px;font-size:11px;display:none;align-items:center;justify-content:center;font-weight:700;border:2px solid #fff;}",
 
     // Panel
-    "#ia-w-panel{position:fixed;bottom:24px;right:24px;width:" + PANEL_WIDTH + "px;max-width:calc(100vw - 32px);height:" + PANEL_HEIGHT + "px;max-height:calc(100vh - 48px);border-radius:16px;background:" + SLATE_50 + ";color:" + SLATE_800 + ";color-scheme:light;box-shadow:0 12px 40px rgba(0,0,0,.18);z-index:2147483000;display:none;flex-direction:column;font-family:'Inter',system-ui,-apple-system,sans-serif;overflow:hidden;}",
+    "#ia-w-panel{position:fixed;bottom:24px;right:24px;width:" + PANEL_WIDTH + "px;max-width:calc(100vw - 32px);height:" + PANEL_HEIGHT + "px;max-height:calc(100vh - 48px);border-radius:16px;background:#fff;color:" + SLATE_800 + ";color-scheme:light;box-shadow:0 12px 40px rgba(0,0,0,.18);z-index:2147483000;display:none;flex-direction:column;font-family:'Inter',system-ui,-apple-system,sans-serif;overflow:hidden;}",
     "#ia-w-panel *,#ia-w-panel *::before,#ia-w-panel *::after{box-sizing:border-box;color-scheme:light;}",
     "#ia-w-panel.open{display:flex;animation:ia-slideup .28s cubic-bezier(.16,1,.3,1);transform-origin:bottom right;}",
     "#ia-w-panel.closing{display:flex;animation:ia-slidedown .2s cubic-bezier(.4,0,1,1) forwards;transform-origin:bottom right;}",
@@ -160,7 +180,9 @@
       + "#ia-w-panel{top:0;right:0;left:0;bottom:auto;width:100vw;height:100vh;height:100dvh;max-width:100vw;max-height:none;border-radius:0;box-shadow:none;overflow-x:hidden;touch-action:manipulation;}"
       + "#ia-w-panel.open{animation:ia-slideup-m .2s ease-out;transform-origin:center;}"
       + "#ia-w-btn{bottom:16px;right:16px;width:56px;height:56px;box-shadow:0 2px 10px rgba(0,0,0,.25);touch-action:manipulation;}"
-      + "#ia-w-header{padding-top:env(safe-area-inset-top,0);height:calc(64px + env(safe-area-inset-top,0));}"
+      + "#ia-w-close{top:calc(12px + env(safe-area-inset-top,0));}"
+      + "#ia-w-expand{display:none;}"
+      + "#ia-w-idcard{margin-top:calc(16px + env(safe-area-inset-top,0));}"
       + "#ia-w-inputbar{-webkit-backdrop-filter:none;backdrop-filter:none;background:#fff;padding-bottom:calc(12px + env(safe-area-inset-bottom,0));}"
       + "#ia-w-avatar{-webkit-backdrop-filter:none;backdrop-filter:none;}"
       + "#ia-w-input,.ia-w-hf-form input{font-size:16px;}"
@@ -169,48 +191,68 @@
     "@keyframes ia-slideup-m{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}}",
     "@media (min-width:1441px){#ia-w-panel{width:440px;height:700px;bottom:32px;right:32px;}#ia-w-btn{width:72px;height:72px;bottom:32px;right:32px;}}",
 
-    // Header — gradiente que cambia por estado (igual que /chat)
-    "#ia-w-header{flex-shrink:0;padding:0 16px;height:64px;display:flex;align-items:center;gap:12px;background:linear-gradient(to right,var(--ia-brand-dark),var(--ia-brand),var(--ia-brand-light));box-shadow:0 4px 12px rgba(0,0,0,.18);transition:background .5s;z-index:10;}",
-    "#ia-w-header.handoff{background:linear-gradient(to right,#d97706,#f59e0b,#f97316);}",
-    "#ia-w-header.attending{background:linear-gradient(to right,#047857,#059669,#0d9488);}",
-    "#ia-w-back{display:none;background:none;border:none;color:rgba(255,255,255,.7);cursor:pointer;padding:4px;margin-left:-4px;border-radius:8px;align-items:center;justify-content:center;transition:color .2s,background .2s;}",
-    "#ia-w-back svg{width:20px;height:20px;}",
-    "#ia-w-back:hover{color:#fff;background:rgba(255,255,255,.1);}",
-    "#ia-w-avatar{width:36px;height:36px;border-radius:12px;background:rgba(255,255,255,.2);backdrop-filter:blur(4px);border:1px solid rgba(255,255,255,.3);display:flex;align-items:center;justify-content:center;flex-shrink:0;overflow:hidden;box-shadow:inset 0 1px 2px rgba(0,0,0,.1);}",
-    "#ia-w-avatar svg{width:20px;height:20px;color:#fff;}",
-    "#ia-w-avatar img{width:100%;height:100%;object-fit:cover;}",
-    "#ia-w-titlewrap{flex:1;min-width:0;}",
-    "#ia-w-title{color:#fff;font-weight:600;font-size:14px;line-height:1.1;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}",
-    "#ia-w-substatus{display:flex;align-items:center;gap:6px;margin-top:5px;}",
-    "#ia-w-dot{width:6px;height:6px;border-radius:50%;background:#4ade80;flex-shrink:0;}",
-    "#ia-w-dot.pulse{animation:ia-pulse 2s infinite;}",
-    "#ia-w-dot.amber{background:#fbbf24;}",
-    "#ia-w-dot.gray{background:#94a3b8;}",
-    "@keyframes ia-pulse{0%{box-shadow:0 0 0 0 rgba(74,222,128,.6);}70%{box-shadow:0 0 0 5px rgba(74,222,128,0);}100%{box-shadow:0 0 0 0 rgba(74,222,128,0);}}",
-    "#ia-w-substatus-text{font-size:12px;color:rgba(255,255,255,.8);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}",
-    "#ia-w-close{background:none;border:none;color:rgba(255,255,255,.8);cursor:pointer;font-size:22px;line-height:1;padding:4px 6px;border-radius:6px;flex-shrink:0;}",
-    "#ia-w-close:hover{color:#fff;background:rgba(255,255,255,.15);}",
+    // Posición IZQUIERDA (branding.widget_position === 'left'): flip esquina.
+    "#ia-w-btn.ia-left{right:auto;left:24px;}",
+    "#ia-w-panel.ia-left{right:auto;left:24px;transform-origin:bottom left;}",
+    "@media (max-width:640px){#ia-w-btn.ia-left{left:16px;}}",
+    "@media (min-width:1441px){#ia-w-btn.ia-left{left:32px;}#ia-w-panel.ia-left{left:32px;}}",
 
-    // Body scrollable
-    "#ia-w-body{flex:1 1 auto;min-height:0;overflow-y:auto;background:" + SLATE_50 + ";}",
+    // Top WHITE-FIRST (idéntico al preview de personalización): sin barra de
+    // color. El botón cerrar flota arriba a la derecha; una tarjeta de identidad
+    // centrada (avatar + nombre + estado) va fijada arriba y refleja el estado en
+    // vivo (handoff/atendiendo tiñen su borde). El color de marca es acento.
+    "#ia-w-close{position:absolute;top:10px;right:12px;z-index:20;background:none;border:none;color:#94a3b8;cursor:pointer;font-size:22px;line-height:1;width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;transition:color .2s,background .2s;}",
+    "#ia-w-close:hover{color:#1e293b;background:rgba(0,0,0,.05);}",
+    "#ia-w-panel.ia-dark #ia-w-close{color:#8b939e;}",
+    "#ia-w-panel.ia-dark #ia-w-close:hover{color:#e7e9ec;background:rgba(255,255,255,.08);}",
+    // Agrandar/reducir — espejo del cerrar, arriba a la izquierda (igual preview).
+    "#ia-w-expand{position:absolute;top:10px;left:12px;z-index:20;background:none;border:none;color:#94a3b8;cursor:pointer;width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;transition:color .2s,background .2s;}",
+    "#ia-w-expand svg{width:15px;height:15px;}",
+    "#ia-w-expand:hover{color:#1e293b;background:rgba(0,0,0,.05);}",
+    "#ia-w-panel.ia-dark #ia-w-expand{color:#8b939e;}",
+    "#ia-w-panel.ia-dark #ia-w-expand:hover{color:#e7e9ec;background:rgba(255,255,255,.08);}",
+    // El panel anima el cambio de tamaño (igual que el preview del panel).
+    "#ia-w-panel{transition:width .3s cubic-bezier(.22,1,.36,1),height .3s cubic-bezier(.22,1,.36,1);}",
+    "#ia-w-panel.ia-expanded{width:" + PANEL_WIDTH_XL + "px;height:" + PANEL_HEIGHT_XL + "px;}",
+    "#ia-w-idcard{flex-shrink:0;margin:14px auto 8px;display:flex;align-items:center;gap:10px;width:fit-content;max-width:calc(100% - 88px);background:#fff;border:1px solid #eceef1;border-radius:16px;padding:8px 14px 8px 9px;box-shadow:0 4px 12px -3px rgba(0,0,0,.10),0 1px 4px -1px rgba(0,0,0,.06);min-width:0;transition:width .38s cubic-bezier(.34,1.4,.5,1),border-color .3s,box-shadow .3s;overflow:hidden;}",
+    "#ia-w-substatus{min-width:0;}",
+    "#ia-w-substatus-text{min-width:0;transition:opacity .16s;}",
+    "#ia-w-panel.ia-dark #ia-w-idcard{background:#1c2126;border-color:#262c33;}",
+    "#ia-w-idcard.handoff{border-color:#fcd34d;}",
+    "#ia-w-idcard.attending{border-color:var(--ia-brand-30);}",
+    "#ia-w-avatar{position:relative;width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,var(--ia-brand-light),var(--ia-brand-dark));display:flex;align-items:center;justify-content:center;flex-shrink:0;}",
+    "#ia-w-avatar svg{width:18px;height:18px;color:#fff;}",
+    "#ia-w-avatar img{width:100%;height:100%;border-radius:50%;object-fit:cover;}",
+    "#ia-w-avatar::after{content:'';position:absolute;bottom:0;right:0;width:10px;height:10px;border-radius:50%;background:#22c55e;border:2px solid #fff;}",
+    "#ia-w-panel.ia-dark #ia-w-avatar::after{border-color:#1c2126;}",
+    "#ia-w-titlewrap{min-width:0;}",
+    "#ia-w-title{color:#1e293b;font-weight:600;font-size:13px;line-height:1.15;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}",
+    "#ia-w-panel.ia-dark #ia-w-title{color:#e7e9ec;}",
+    "#ia-w-substatus{display:flex;align-items:center;gap:6px;margin-top:2px;}",
+    // El indicador de estado vive en el punto del avatar (igual que el preview);
+    // este dot separado se oculta para no duplicarlo. Sigue en el DOM porque el
+    // JS lo referencia; el color de estado lo pinta el avatar según la clase.
+    "#ia-w-dot{display:none;}",
+    "#ia-w-idcard.handoff #ia-w-avatar::after{background:#f59e0b;}",
+    "#ia-w-idcard.attending #ia-w-avatar::after{background:#22c55e;}",
+    "#ia-w-idcard.closed #ia-w-avatar::after{background:#94a3b8;}",
+    "@keyframes ia-pulse{0%{box-shadow:0 0 0 0 rgba(34,197,94,.5);}70%{box-shadow:0 0 0 5px rgba(34,197,94,0);}100%{box-shadow:0 0 0 0 rgba(34,197,94,0);}}",
+    "#ia-w-substatus-text{font-size:11px;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}",
+    "#ia-w-panel.ia-dark #ia-w-substatus-text{color:#8b939e;}",
+
+    // Body scrollable — gris base con un velo apenas perceptible del color de
+    // marca cayendo desde el header: le da atmósfera sin ensuciar la lectura.
+    "#ia-w-body{flex:1 1 auto;min-height:0;overflow-y:auto;background:#fff;}",
     "#ia-w-body-inner{min-height:100%;display:flex;flex-direction:column;padding:20px 16px;gap:14px;}",
 
-    // Hero de seleccion (igual que /chat phase selecting)
-    "#ia-w-hero{flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:28px;padding:8px 0;}",
-    "#ia-w-hero-top{text-align:center;display:flex;flex-direction:column;align-items:center;gap:14px;}",
-    "#ia-w-hero-avatar{width:76px;height:76px;border-radius:24px;background:linear-gradient(135deg,var(--ia-brand-light),var(--ia-brand-dark));display:flex;align-items:center;justify-content:center;box-shadow:0 12px 28px rgba(0,0,0,.18);overflow:hidden;}",
-    "#ia-w-hero-avatar svg{width:38px;height:38px;color:#fff;}",
-    "#ia-w-hero-avatar img{width:100%;height:100%;object-fit:cover;}",
-    "#ia-w-hero-greeting{color:" + SLATE_600 + ";font-size:14px;line-height:1.5;white-space:pre-line;max-width:300px;margin:0;}",
-    "#ia-w-pills{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;max-width:340px;}",
-    ".ia-w-pill{background:#fff;border:2px solid var(--ia-brand-30);color:var(--ia-brand);font-weight:500;font-size:13px;border-radius:9999px;padding:9px 18px;cursor:pointer;transition:all .2s;box-shadow:0 1px 2px rgba(0,0,0,.05);font-family:inherit;}",
-    ".ia-w-pill:hover{background:linear-gradient(135deg,var(--ia-brand),var(--ia-brand-dark));border-color:transparent;color:#fff;box-shadow:0 6px 16px rgba(0,0,0,.18);transform:translateY(-1px);}",
-    ".ia-w-pill:active{transform:translateY(0);}",
-    ".ia-w-skel{height:38px;width:96px;border-radius:9999px;background:" + SLATE_200 + ";animation:ia-pulse-bg 1.4s infinite;}",
-    "@keyframes ia-pulse-bg{0%,100%{opacity:1;}50%{opacity:.5;}}",
-    "#ia-w-divider{display:flex;align-items:center;gap:12px;width:100%;max-width:280px;}",
-    "#ia-w-divider .ln{flex:1;height:1px;background:" + SLATE_200 + ";}",
-    "#ia-w-divider .tx{font-size:11px;color:" + SLATE_400 + ";white-space:nowrap;}",
+    // Elección de área (opcional): lista vertical directa bajo el saludo,
+    // estilo lista de mensajería. Escala a cualquier cantidad de sectores.
+    ".ia-w-seclist{align-self:stretch;background:#fff;border:1px solid " + SLATE_100 + ";border-radius:16px;box-shadow:0 4px 16px rgba(0,0,0,.08);max-height:280px;overflow-y:auto;}",
+    ".ia-w-seclist .hd{padding:10px 14px;font-size:12px;font-weight:600;color:" + SLATE_600 + ";border-bottom:1px solid " + SLATE_100 + ";background:" + SLATE_50 + ";position:sticky;top:0;}",
+    ".ia-w-secitem{display:block;width:100%;text-align:left;background:none;border:none;border-bottom:1px solid " + SLATE_100 + ";padding:11px 14px;font-size:13px;color:" + SLATE_800 + ";cursor:pointer;font-family:inherit;transition:background .15s,color .15s;}",
+    ".ia-w-secitem:last-child{border-bottom:none;}",
+    ".ia-w-secitem:hover{background:var(--ia-brand-06);color:var(--ia-brand);}",
+    ".ia-w-secitem.muted{color:" + SLATE_400 + ";font-size:12px;}",
 
     // Burbujas (igual que /chat)
     // Entrada de mensajes: fade + 6px de deslizamiento. Como los mensajes se
@@ -221,67 +263,121 @@
     "@media (prefers-reduced-motion:reduce){.ia-w-row{animation:none;}}",
     ".ia-w-row.user{justify-content:flex-end;}",
     ".ia-w-row.center{justify-content:center;padding:2px 0;}",
-    ".ia-w-bavatar{width:30px;height:30px;border-radius:11px;flex-shrink:0;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,.15);}",
+    ".ia-w-bavatar{position:relative;width:28px;height:28px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;}",
     ".ia-w-bavatar.bot{background:linear-gradient(135deg,var(--ia-brand-light),var(--ia-brand-dark));}",
     ".ia-w-bavatar.op{background:linear-gradient(135deg,#34d399,#0d9488);}",
     ".ia-w-bavatar svg{width:15px;height:15px;color:#fff;}",
-    ".ia-w-bavatar img{width:100%;height:100%;border-radius:11px;object-fit:cover;}",
+    ".ia-w-bavatar img{width:100%;height:100%;border-radius:50%;object-fit:cover;}",
+    // Punto verde \"en línea\" (igual que el preview): esquina inferior-derecha.
+    ".ia-w-bavatar::after{content:'';position:absolute;bottom:-1px;right:-1px;width:8px;height:8px;border-radius:50%;background:#22c55e;border:2px solid #fff;}",
+    "#ia-w-panel.ia-dark .ia-w-bavatar::after{border-color:#101214;}",
     ".ia-w-bubble{max-width:80%;padding:10px 14px;border-radius:16px;font-size:14px;line-height:1.5;word-break:break-word;}",
-    ".ia-w-bubble.bot{background:#fff;color:" + SLATE_800 + ";border:1px solid " + SLATE_100 + ";border-bottom-left-radius:4px;box-shadow:0 1px 2px rgba(0,0,0,.06);}",
+    ".ia-w-bubble.bot{background:#f4f5f7;color:" + SLATE_800 + ";border-bottom-left-radius:4px;}",
     ".ia-w-bubble.op{background:#ecfdf5;color:" + SLATE_800 + ";border:1px solid #a7f3d0;border-bottom-left-radius:4px;box-shadow:0 1px 2px rgba(0,0,0,.06);}",
-    ".ia-w-bubble.user{background:linear-gradient(135deg,var(--ia-brand),var(--ia-brand-dark));color:#fff;border-bottom-right-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,.15);}",
+    ".ia-w-bubble.user{background:linear-gradient(135deg,var(--ia-brand),var(--ia-brand-dark));color:var(--ia-brand-fg);border-bottom-right-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,.15);}",
     ".ia-w-bubble.user a{color:#fff;}",
     ".ia-w-opname{font-size:11px;color:#059669;margin-top:4px;margin-left:2px;font-weight:500;}",
     ".ia-w-sys{align-self:center;background:" + SLATE_100 + ";color:" + SLATE_400 + ";font-size:12px;border-radius:9999px;padding:5px 16px;max-width:90%;text-align:center;}",
     ".ia-w-bubble a,.ia-w-sys a{color:inherit;text-decoration:underline;text-underline-offset:2px;word-break:break-all;}",
 
     // Typing
-    ".ia-w-typing{display:flex;gap:5px;align-items:center;padding:12px 16px;background:#fff;border:1px solid " + SLATE_100 + ";border-radius:16px;border-bottom-left-radius:4px;box-shadow:0 1px 2px rgba(0,0,0,.06);}",
+    ".ia-w-typing{display:flex;gap:5px;align-items:center;padding:12px 16px;background:#f4f5f7;border-radius:16px;border-bottom-left-radius:4px;}",
     ".ia-w-typing span{width:7px;height:7px;border-radius:50%;background:var(--ia-brand-light);animation:ia-bounce 1.4s infinite ease-in-out;}",
     ".ia-w-typing span:nth-child(2){animation-delay:.16s;}",
     ".ia-w-typing span:nth-child(3){animation-delay:.32s;}",
     "@keyframes ia-bounce{0%,80%,100%{transform:translateY(0);opacity:.4;}40%{transform:translateY(-5px);opacity:1;}}",
 
-    // Handoff inline (igual que /chat HandoffOfferBubble)
-    ".ia-w-handoff{align-self:center;max-width:90%;background:#fffbeb;border:1px solid #fde68a;border-radius:16px;padding:14px 16px;text-align:center;display:flex;flex-direction:column;gap:12px;}",
-    ".ia-w-handoff .ia-w-hf-text{font-size:13px;color:#92400e;line-height:1.5;margin:0;}",
-    ".ia-w-hf-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;background:#f59e0b;color:#fff;border:none;border-radius:12px;padding:9px 16px;cursor:pointer;font-size:13px;font-weight:500;transition:all .15s;font-family:inherit;align-self:center;}",
-    ".ia-w-hf-btn svg{width:16px;height:16px;}",
-    ".ia-w-hf-btn:hover{background:#d97706;}",
-    ".ia-w-hf-btn:active{transform:scale(.95);}",
-    ".ia-w-hf-loader{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:#d97706;font-weight:500;justify-content:center;}",
-    ".ia-w-hf-loader svg{width:13px;height:13px;}",
-    ".ia-w-hf-form{text-align:left;display:flex;flex-direction:column;gap:8px;}",
-    ".ia-w-hf-form .t{font-size:12px;font-weight:600;color:#78350f;}",
-    ".ia-w-hf-form .h{font-size:11px;color:#a16207;line-height:1.5;}",
-    ".ia-w-hf-form input{padding:9px 12px;border:1px solid #fde68a;border-radius:10px;font-size:14px;width:100%;background:#fff;font-family:inherit;}",
-    ".ia-w-hf-form input:focus{outline:none;border-color:#f59e0b;box-shadow:0 0 0 3px rgba(245,158,11,.18);}",
+    // Derivación a humano en FORMATO BURBUJA (avatar + burbuja del bot): la oferta
+    // se lee como un mensaje más, con un botón de acción de marca adentro.
+    ".ia-w-bubble.ia-w-hf{display:flex;flex-direction:column;gap:11px;max-width:85%;}",
+    ".ia-w-hf-cta{width:100%;display:flex;align-items:center;justify-content:center;gap:8px;background:linear-gradient(135deg,var(--ia-brand),var(--ia-brand-dark));color:var(--ia-brand-fg);border:none;border-radius:11px;padding:10px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;box-shadow:0 3px 10px -3px var(--ia-brand-30);transition:transform .12s,box-shadow .12s;}",
+    ".ia-w-hf-cta svg{width:16px;height:16px;}",
+    ".ia-w-hf-cta:hover{transform:translateY(-1px);box-shadow:0 5px 14px -3px var(--ia-brand-30);}",
+    ".ia-w-hf-cta:active{transform:scale(.98);}",
+    ".ia-w-hf-keep{align-self:center;background:none;border:none;color:#94a3b8;font-size:12px;cursor:pointer;font-family:inherit;padding:2px 4px;transition:color .15s;}",
+    ".ia-w-hf-keep:hover{color:#475569;}",
+    "#ia-w-panel.ia-dark .ia-w-hf-keep{color:#6b7280;}",
+    "#ia-w-panel.ia-dark .ia-w-hf-keep:hover{color:#aab2bc;}",
+
+    ".ia-w-hf-loader{display:inline-flex;align-items:center;gap:9px;font-size:13px;color:" + SLATE_600 + ";justify-content:center;}",
+    ".ia-w-hf-loader svg{width:16px;height:16px;color:var(--ia-brand);}",
+    ".ia-w-hf-form{text-align:left;display:flex;flex-direction:column;gap:9px;}",
+    ".ia-w-hf-form .t{font-size:13px;font-weight:600;color:#1e293b;}",
+    ".ia-w-hf-form .h{font-size:12px;color:" + SLATE_600 + ";line-height:1.4;}",
+    ".ia-w-hf-form input,.ia-w-hf-form select{padding:10px 12px;border:1px solid " + SLATE_200 + ";border-radius:10px;font-size:14px;width:100%;background:#fff;font-family:inherit;color:" + SLATE_800 + ";box-sizing:border-box;}",
+    ".ia-w-hf-form input:focus,.ia-w-hf-form select:focus{outline:none;border-color:var(--ia-brand);box-shadow:0 0 0 3px var(--ia-brand-25);}",
     ".ia-w-hf-form .err{font-size:11px;color:#dc2626;}",
-    ".ia-w-hf-form .actions{display:flex;align-items:center;justify-content:space-between;gap:8px;padding-top:2px;}",
+    ".ia-w-hf-form .actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;padding-top:2px;}",
+
+    // Nota de sistema mejorada (pill con ícono) + nota de área (con área en negrita)
+    ".ia-w-sysnote{display:inline-flex;align-items:center;gap:6px;background:" + SLATE_100 + ";color:" + SLATE_600 + ";font-size:12px;border-radius:9999px;padding:6px 13px;max-width:90%;line-height:1.35;}",
+    ".ia-w-sysnote svg{width:13px;height:13px;flex-shrink:0;}",
+    ".ia-w-sysnote b{font-weight:600;color:#475569;}",
+    "#ia-w-panel.ia-dark .ia-w-sysnote{background:#1c2126;color:#aab2bc;}",
+    "#ia-w-panel.ia-dark .ia-w-sysnote b{color:#e7e9ec;}",
+
+    // Error como mini-card (sin borde duro): círculo de ícono + texto + reintentar
+    ".ia-w-errcard{display:flex;align-items:center;gap:10px;background:#fef2f2;border-radius:14px;padding:9px 13px 9px 10px;max-width:92%;}",
+    ".ia-w-erricon{width:28px;height:28px;border-radius:50%;background:#fee2e2;color:#dc2626;display:flex;align-items:center;justify-content:center;flex-shrink:0;}",
+    ".ia-w-erricon svg{width:15px;height:15px;}",
+    ".ia-w-errtxt{font-size:12.5px;color:#991b1b;line-height:1.35;}",
+    ".ia-w-errbtn{display:inline-flex;align-items:center;gap:5px;background:#fff;color:#dc2626;border:none;border-radius:9px;padding:6px 11px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;box-shadow:0 1px 2px rgba(0,0,0,.06);flex-shrink:0;}",
+    ".ia-w-errbtn svg{width:13px;height:13px;}",
+    ".ia-w-errbtn:hover{background:#fff5f5;}",
+    "#ia-w-panel.ia-dark .ia-w-errcard{background:#2a1618;}",
+    "#ia-w-panel.ia-dark .ia-w-erricon{background:#3f1d1d;color:#f87171;}",
+    "#ia-w-panel.ia-dark .ia-w-errtxt{color:#fca5a5;}",
+    "#ia-w-panel.ia-dark .ia-w-errbtn{background:#1c2126;color:#f87171;}",
     ".ia-w-hf-skip{background:none;border:none;cursor:pointer;color:#92400e;font-size:12px;text-decoration:underline;font-family:inherit;}",
 
-    // Input bar (igual que /chat)
-    "#ia-w-inputbar{flex-shrink:0;border-top:1px solid " + SLATE_200 + ";background:rgba(255,255,255,.85);backdrop-filter:blur(8px);padding:12px 14px;}",
-    "#ia-w-inputrow{display:flex;gap:10px;align-items:center;}",
-    "#ia-w-input{flex:1;background:" + SLATE_100 + ";border:1px solid transparent;border-radius:16px;padding:11px 16px;font-size:14px;outline:none;resize:none;min-height:42px;max-height:96px;font-family:inherit;line-height:1.4;overflow-y:hidden;transition:background .15s,border-color .15s,box-shadow .15s;}",
+    // Input tipo píldora (idéntico al preview del panel): la FILA es la píldora
+    // gris; el textarea va transparente adentro; el enviar es un círculo con el
+    // gradiente de marca. El clip queda a la izquierda dentro de la misma píldora.
+    "#ia-w-inputbar{flex-shrink:0;background:#fff;padding:10px 12px;}",
+    "#ia-w-inputrow{display:flex;gap:4px;align-items:flex-end;background:" + SLATE_100 + ";border-radius:22px;padding:5px 5px 5px 6px;transition:background .15s,box-shadow .15s;}",
+    "#ia-w-inputrow:focus-within{background:#fff;box-shadow:0 0 0 2px var(--ia-brand-25);}",
+    "#ia-w-input{flex:1;background:transparent;border:none;padding:7px 6px;font-size:14px;outline:none;resize:none;min-height:20px;max-height:96px;font-family:inherit;line-height:1.4;overflow-y:hidden;}",
     "#ia-w-input::placeholder{color:" + SLATE_400 + ";}",
-    "#ia-w-input:hover{background:#fefefe;}",
-    "#ia-w-input:focus{background:#fff;border-color:var(--ia-brand);box-shadow:0 0 0 3px var(--ia-brand-25);}",
-    "#ia-w-clip{flex-shrink:0;width:38px;height:38px;border:none;background:none;color:" + SLATE_400 + ";cursor:pointer;border-radius:50%;display:flex;align-items:center;justify-content:center;transition:all .15s;}",
-    "#ia-w-clip:hover{background:" + SLATE_100 + ";color:var(--ia-brand);}",
-    "#ia-w-clip svg{width:20px;height:20px;}",
+    "#ia-w-clip{flex-shrink:0;width:34px;height:34px;border:none;background:none;color:" + SLATE_400 + ";cursor:pointer;border-radius:50%;display:flex;align-items:center;justify-content:center;transition:all .15s;}",
+    "#ia-w-clip:hover{color:var(--ia-brand);}",
+    "#ia-w-clip svg{width:18px;height:18px;}",
     "#ia-w-clip:disabled{opacity:.45;cursor:default;}",
     ".ia-w-attach-img{max-width:210px;max-height:210px;border-radius:10px;margin-top:4px;cursor:pointer;display:block;border:1px solid " + SLATE_200 + ";}",
     ".ia-w-attach-file{display:inline-flex;align-items:center;gap:6px;margin-top:4px;padding:8px 12px;background:rgba(0,0,0,.05);border-radius:10px;text-decoration:none;color:inherit;font-size:13px;word-break:break-all;}",
     ".ia-w-attach-file svg{width:16px;height:16px;flex-shrink:0;}",
     ".ia-w-attach-file:hover{background:rgba(0,0,0,.09);}",
-    "#ia-w-send{width:46px;height:46px;flex-shrink:0;border-radius:14px;background:linear-gradient(135deg,var(--ia-brand),var(--ia-brand-dark));color:#fff;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,.15);transition:transform .15s,box-shadow .15s,opacity .15s;}",
-    "#ia-w-send svg{width:18px;height:18px;}",
-    "#ia-w-send:hover:not(:disabled){transform:scale(1.05);box-shadow:0 4px 12px rgba(0,0,0,.22);}",
-    "#ia-w-send:active:not(:disabled){transform:scale(.95);}",
+    "#ia-w-send{width:34px;height:34px;flex-shrink:0;border-radius:50%;background:linear-gradient(135deg,var(--ia-brand),var(--ia-brand-dark));color:#fff;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 3px rgba(0,0,0,.12);transition:transform .15s,opacity .15s;}",
+    "#ia-w-send svg{width:15px;height:15px;}",
+    "#ia-w-send:hover:not(:disabled){transform:scale(1.06);}",
+    "#ia-w-send:active:not(:disabled){transform:scale(.94);}",
     "#ia-w-send:disabled{opacity:.4;cursor:not-allowed;}",
     ".ia-spin{animation:ia-rotate 1s linear infinite;}",
     "@keyframes ia-rotate{to{transform:rotate(360deg);}}",
+
+    // ── Tema OSCURO del widget (branding.widget_theme === 'dark') ─────────────
+    // Scope por clase en el panel: superficies oscuras, texto claro. El color de
+    // marca (header, burbuja del usuario, FAB) no cambia — es la identidad.
+    "#ia-w-panel.ia-dark{background:#101214;color:#e7e9ec;color-scheme:dark;}",
+    "#ia-w-panel.ia-dark *,#ia-w-panel.ia-dark *::before,#ia-w-panel.ia-dark *::after{color-scheme:dark;}",
+    "#ia-w-panel.ia-dark #ia-w-body{background:#101214;}",
+    "#ia-w-panel.ia-dark .ia-w-bubble.bot{background:#1c2126;color:#e7e9ec;}",
+    "#ia-w-panel.ia-dark .ia-w-bubble.op{background:#0e2a21;color:#d9f5e8;border-color:#1d4536;}",
+    "#ia-w-panel.ia-dark .ia-w-sys{background:#1c2126;color:#8b939e;}",
+    "#ia-w-panel.ia-dark .ia-w-typing{background:#1c2126;border-color:#262c33;}",
+    "#ia-w-panel.ia-dark #ia-w-inputbar{background:#101214;}",
+    "#ia-w-panel.ia-dark #ia-w-inputrow{background:#1c2126;}",
+    "#ia-w-panel.ia-dark #ia-w-inputrow:focus-within{background:#20262c;}",
+    "#ia-w-panel.ia-dark #ia-w-input{background:transparent;color:#e7e9ec;-webkit-text-fill-color:#e7e9ec;}",
+    "#ia-w-panel.ia-dark #ia-w-input::placeholder{color:#6b7280;}",
+    "#ia-w-panel.ia-dark .ia-w-seclist{background:#171b1f;border-color:#262c33;box-shadow:0 4px 16px rgba(0,0,0,.4);}",
+    "#ia-w-panel.ia-dark .ia-w-seclist .hd{background:#1c2126;border-bottom-color:#262c33;color:#aab2bc;}",
+    "#ia-w-panel.ia-dark .ia-w-secitem{color:#e7e9ec;border-bottom-color:#262c33;}",
+    "#ia-w-panel.ia-dark .ia-w-secitem.muted{color:#6b7280;}",
+    "#ia-w-panel.ia-dark .ia-w-hf-form .t{color:#e7e9ec;}",
+    "#ia-w-panel.ia-dark .ia-w-hf-form .h{color:#aab2bc;}",
+    "#ia-w-panel.ia-dark .ia-w-hf-form input,#ia-w-panel.ia-dark .ia-w-hf-form select{background:#1c2126;border-color:#2a3138;color:#e7e9ec;-webkit-text-fill-color:#e7e9ec;}",
+    "#ia-w-panel.ia-dark .ia-w-attach-file{background:rgba(255,255,255,.08);}",
+    "#ia-w-panel.ia-dark ::-webkit-scrollbar-thumb{background:#3a424b;border:2px solid transparent;background-clip:content-box;}",
   ].join("");
   document.head.appendChild(style);
 
@@ -289,21 +385,22 @@
   var btn = document.createElement("button");
   btn.id = "ia-w-btn";
   btn.setAttribute("aria-label", "Abrir asistente");
-  btn.innerHTML = ICON_BOT + "<span id='ia-w-badge'></span>";
+  var FAB_DOTS = "<span id='ia-w-dots'><span></span><span></span><span></span></span>";
+  btn.innerHTML = ICON_BOT + FAB_DOTS + "<span id='ia-w-badge'></span>";
 
   var panel = document.createElement("div");
   panel.id = "ia-w-panel";
   panel.setAttribute("role", "dialog");
   panel.setAttribute("aria-label", TITLE);
   panel.innerHTML = [
-    '<div id="ia-w-header">',
-    '  <button id="ia-w-back" aria-label="Cambiar área">' + ICON_BACK + '</button>',
+    '<button id="ia-w-expand" type="button" aria-label="Agrandar">' + ICON_EXPAND + '</button>',
+    '<button id="ia-w-close" aria-label="Cerrar">&times;</button>',
+    '<div id="ia-w-idcard">',
     '  <div id="ia-w-avatar">' + ICON_BOT + '</div>',
     '  <div id="ia-w-titlewrap">',
     '    <span id="ia-w-title">' + _escape(TITLE) + '</span>',
     '    <div id="ia-w-substatus"><span id="ia-w-dot" class="pulse"></span><span id="ia-w-substatus-text">En línea</span></div>',
     '  </div>',
-    '  <button id="ia-w-close" aria-label="Cerrar">&times;</button>',
     '</div>',
     '<div id="ia-w-body"><div id="ia-w-body-inner"></div></div>',
     '<div id="ia-w-inputbar">',
@@ -319,8 +416,7 @@
   document.body.appendChild(btn);
   document.body.appendChild(panel);
 
-  var headerEl   = document.getElementById("ia-w-header");
-  var backBtn    = document.getElementById("ia-w-back");
+  var headerEl   = document.getElementById("ia-w-idcard");
   var avatarEl   = document.getElementById("ia-w-avatar");
   var titleEl    = document.getElementById("ia-w-title");
   var dotEl      = document.getElementById("ia-w-dot");
@@ -332,6 +428,14 @@
   var clipBtn    = document.getElementById("ia-w-clip");
   var fileInput  = document.getElementById("ia-w-file");
   var badge      = document.getElementById("ia-w-badge");
+  var expandBtn  = document.getElementById("ia-w-expand");
+
+  // Agrandar/reducir el panel (desktop) — mismo gesto que el preview del panel.
+  expandBtn.addEventListener("click", function () {
+    var xl = panel.classList.toggle("ia-expanded");
+    expandBtn.innerHTML = xl ? ICON_SHRINK : ICON_EXPAND;
+    expandBtn.setAttribute("aria-label", xl ? "Reducir" : "Agrandar");
+  });
 
   // ── Branding del tenant ───────────────────────────────────────────────────────
   // Revela la esfera (fade-in). Se llama SOLO cuando ya se aplicó el color del
@@ -345,11 +449,16 @@
       .then(function (b) {
         if (b) {
           if (b.primary_color) _applyBrand(b.primary_color);
+          // Color de letra personalizado (secondary_color): pisa el legible-auto
+          // del header/burbuja del usuario, igual que "Color de la letra" del panel.
+          if (b.secondary_color) document.documentElement.style.setProperty("--ia-brand-fg", b.secondary_color);
+          if (b.widget_theme === "dark") panel.classList.add("ia-dark");
+          if (b.widget_position === "left") { btn.classList.add("ia-left"); panel.classList.add("ia-left"); }
           if (b.bot_name) { TITLE = b.bot_name; titleEl.textContent = b.bot_name; panel.setAttribute("aria-label", b.bot_name); }
           if (b.greeting_message) GREETING = b.greeting_message;
           if (b.logo_url) {
             LOGO_URL = b.logo_url.indexOf("http") === 0 ? b.logo_url : (API_BASE + b.logo_url);
-            btn.innerHTML = '<img src="' + LOGO_URL + '" alt="" /><span id="ia-w-badge"></span>';
+            btn.innerHTML = '<img src="' + LOGO_URL + '" alt="" />' + FAB_DOTS + '<span id="ia-w-badge"></span>';
             badge = document.getElementById("ia-w-badge");
             avatarEl.innerHTML = '<img src="' + LOGO_URL + '" alt="" />';
           }
@@ -380,9 +489,9 @@
       // Mobile: bloquear el scroll de la web de fondo (evita scroll bleed / jank).
       if (_isMobile()) _lockBody(true);
       if (conversationId) { /* ya en chat */ }
-      else if (rememberedSector) { _enterChat(rememberedSector); }
-      // Mobile: NO auto-focus — abrir el teclado durante la animación causa jank.
-      else { _showHero(); if (!_isMobile()) inputEl.focus(); }
+      // Directo a la conversación: saludo del bot + input listo. Sin pantalla
+      // de selección de sector. Mobile: NO auto-focus (teclado + animación = jank).
+      else { _enterChat(); if (!_isMobile()) inputEl.focus(); }
     }
   });
 
@@ -429,16 +538,6 @@
     inputEl.addEventListener("blur", function () { setTimeout(_syncViewport, 100); });
   }
 
-  backBtn.addEventListener("click", function () {
-    _stopPolling();
-    conversationId = null; lastMessageId = null; selectedSector = null;
-    handoffBubble = null; handoffConfirmed = false;
-    convStatus = "bot_active";
-    localStorage.removeItem(SECTOR_KEY);
-    _showHero();
-    _updateHeader();
-  });
-
   sendBtn.addEventListener("click", _onSubmit);
   clipBtn.addEventListener("click", function () { if (!fileInput.disabled) fileInput.click(); });
   fileInput.addEventListener("change", function () {
@@ -461,9 +560,7 @@
     if (!text) return;
     inputEl.value = ""; inputEl.style.height = "auto"; inputEl.style.overflowY = "hidden";
     if (!conversationId) {
-      // En el hero, escribir directo manda al sector default
-      var def = sectors.find(function (s) { return s.is_default; }) || sectors[0];
-      if (def) _enterChat(def, text);
+      _enterChat(text);
     } else {
       _sendMessage(text);
     }
@@ -474,48 +571,18 @@
     return { "Content-Type": "application/json", "Authorization": "Bearer " + WIDGET_TOKEN };
   }
 
-  // ── Hero / sectores ─────────────────────────────────────────────────────────
-  function _showHero() {
-    backBtn.style.display = "none";
+  // ── Arranque directo en conversación ────────────────────────────────────────
+  // El chat abre listo para usar: saludo como burbuja del bot + input con foco.
+  // El sector NO se pide por adelantado (no afecta lo que responde el bot);
+  // se elige recién al derivar a un humano, o antes con el chip opcional.
+  function _enterChat(pendingMessage) {
     titleEl.textContent = TITLE;
     bodyInner.innerHTML = "";
-    var hero = document.createElement("div");
-    hero.id = "ia-w-hero";
-    var greetingText = GREETING || "¡Hola! 👋 Soy tu asistente virtual. ¿En qué área puedo ayudarte?";
-    hero.innerHTML =
-      '<div id="ia-w-hero-top">' +
-      '  <div id="ia-w-hero-avatar">' + (LOGO_URL ? '<img src="' + LOGO_URL + '" alt="" />' : ICON_BOT) + '</div>' +
-      '  <p id="ia-w-hero-greeting"></p>' +
-      '</div>' +
-      '<div id="ia-w-pills"></div>';
-    bodyInner.appendChild(hero);
-    hero.querySelector("#ia-w-hero-greeting").textContent = greetingText;
-
-    inputEl.placeholder = sectors.length ? "Escribí tu consulta y presioná Enter…" : "Cargando sectores…";
-    _renderPills();
+    sectorListEl = null;
+    inputEl.placeholder = PLACEHOLDER;
     if (!sectors.length) _loadSectors();
-  }
-
-  function _renderPills() {
-    var pills = document.getElementById("ia-w-pills");
-    if (!pills) return;
-    pills.innerHTML = "";
-    if (!sectors.length) {
-      for (var i = 0; i < 4; i++) { var sk = document.createElement("div"); sk.className = "ia-w-skel"; pills.appendChild(sk); }
-      return;
-    }
-    sectors.forEach(function (s) {
-      var p = document.createElement("button");
-      p.className = "ia-w-pill";
-      p.textContent = s.nombre;
-      p.addEventListener("click", function () { _enterChat(s); });
-      pills.appendChild(p);
-    });
-    // Divider
-    var div = document.createElement("div");
-    div.id = "ia-w-divider";
-    div.innerHTML = '<div class="ln"></div><span class="tx">o escribí directamente</span><div class="ln"></div>';
-    pills.parentNode.appendChild(div);
+    _fetchOperatorsOnline(null);
+    _startConversation(pendingMessage);
   }
 
   function _loadSectors() {
@@ -524,43 +591,88 @@
       .then(function (data) {
         if (Array.isArray(data)) { sectors = data; }
         else { sectors = (data && Array.isArray(data.sectors)) ? data.sectors : []; if (data && data.greeting_message) GREETING = data.greeting_message; }
-        if (!conversationId) {
-          var g = document.getElementById("ia-w-hero-greeting");
-          if (g && GREETING) g.textContent = GREETING;
-          inputEl.placeholder = "Escribí tu consulta y presioná Enter…";
-          _renderPills();
-        }
+        // Mostrar la lista de áreas directa bajo el saludo (sin chip previo).
+        _renderSectorList();
       })
-      .catch(function (err) {
-        werr("[IA Widget] sectores:", err);
-        var pills = document.getElementById("ia-w-pills");
-        if (pills) pills.innerHTML = '<p style="color:' + SLATE_400 + ';font-size:13px;">No se pudieron cargar los sectores.</p>';
-      });
+      .catch(function (err) { werr("[IA Widget] sectores:", err); });
   }
 
-  function _enterChat(sector, pendingMessage) {
-    selectedSector = sector;
-    localStorage.setItem(SECTOR_KEY, JSON.stringify(sector));
-    backBtn.style.display = "flex";
-    titleEl.textContent = sector.nombre;
-    bodyInner.innerHTML = "";
-    inputEl.placeholder = "Escribí tu mensaje…";
-    if (!_isMobile()) inputEl.focus();
-    _fetchOperatorsOnline(sector.id);
-    _startConversation(sector.id, pendingMessage);
+  // Lista de áreas directa bajo el saludo (sin globito). Solo si hay más de una.
+  var sectorListEl = null;
+  function _renderSectorList() {
+    if (sectorListEl || selectedSector || sectors.length < 2) return;
+    if (!conversationId || convStatus !== "bot_active") return;
+    var list = document.createElement("div");
+    list.className = "ia-w-seclist";
+    var hd = document.createElement("div"); hd.className = "hd"; hd.textContent = "¿Con qué área querés hablar?";
+    list.appendChild(hd);
+    sectors.forEach(function (s) {
+      var b = document.createElement("button");
+      b.className = "ia-w-secitem";
+      b.textContent = s.nombre;
+      b.addEventListener("click", function () {
+        selectedSector = s;
+        list.remove(); sectorListEl = null;
+        _appendAreaNote(s.nombre);
+        _fetchOperatorsOnline(s.id);
+      });
+      list.appendChild(b);
+    });
+    var skip = document.createElement("button");
+    skip.className = "ia-w-secitem muted";
+    skip.textContent = "No importa, sigo con el asistente";
+    // Sin área elegida → conversación general (selectedSector queda null).
+    skip.addEventListener("click", function () { list.remove(); sectorListEl = null; });
+    list.appendChild(skip);
+    bodyInner.appendChild(list);
+    sectorListEl = list;
+    _scrollBottom();
+  }
+
+  // Nota de sistema al elegir área: pill con ícono de etiqueta + área en negrita.
+  function _appendAreaNote(nombre) {
+    var row = document.createElement("div");
+    row.className = "ia-w-row center";
+    var pill = document.createElement("div");
+    pill.className = "ia-w-sysnote";
+    pill.innerHTML = ICON_TAG + "<span>Consulta dirigida al área <b></b></span>";
+    pill.querySelector("b").textContent = nombre;  // XSS-safe
+    row.appendChild(pill);
+    bodyInner.appendChild(row);
+    _scrollBottom();
+  }
+
+  // Error como mini-card con acción opcional de "Reintentar".
+  function _appendError(text, retryFn) {
+    var row = document.createElement("div");
+    row.className = "ia-w-row center";
+    var ec = document.createElement("div"); ec.className = "ia-w-errcard";
+    ec.innerHTML = '<span class="ia-w-erricon">' + ICON_ALERT + '</span><span class="ia-w-errtxt"></span>';
+    _renderTextWithLinks(text, ec.querySelector(".ia-w-errtxt"));
+    if (retryFn) {
+      var btn = document.createElement("button");
+      btn.className = "ia-w-errbtn";
+      btn.innerHTML = ICON_RETRY + "<span>Reintentar</span>";
+      btn.addEventListener("click", function () { row.remove(); retryFn(); });
+      ec.appendChild(btn);
+    }
+    row.appendChild(ec);
+    bodyInner.appendChild(row);
+    _scrollBottom();
   }
 
   function _fetchOperatorsOnline(sectorId) {
-    fetch(API_BASE + "/api/v1/widget/operators-online?sector_id=" + encodeURIComponent(sectorId), { headers: _headers() })
+    var url = API_BASE + "/api/v1/widget/operators-online" + (sectorId ? "?sector_id=" + encodeURIComponent(sectorId) : "");
+    fetch(url, { headers: _headers() })
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (d) { if (d) { operatorsOnline = { count: d.online || 0, names: d.operators || [] }; _updateHeader(); } })
       .catch(function () {});
   }
 
-  function _startConversation(sectorId, pendingMessage) {
+  function _startConversation(pendingMessage) {
     fetch(API_BASE + "/api/v1/widget/conversation/start", {
       method: "POST", headers: _headers(),
-      body: JSON.stringify({ widget_session_id: widgetSessionId, sector_id: sectorId }),
+      body: JSON.stringify({ widget_session_id: widgetSessionId, sector_id: selectedSector ? selectedSector.id : null }),
     })
       .then(function (r) { return r.json(); })
       .then(function (data) {
@@ -571,8 +683,10 @@
         if (data.resumed) {
           _loadHistory();
         } else {
-          var greeting = GREETING || ("¡Hola! Soy " + TITLE + ", asistente de " + (selectedSector ? selectedSector.nombre : TITLE) + ". ¿En qué te puedo ayudar?");
-          _appendMessage("system", greeting);
+          // El saludo llega del backend (personalizado por tenant); fallback local.
+          var greeting = data.greeting || GREETING || ("¡Hola! Soy " + TITLE + ". ¿En qué te puedo ayudar?");
+          _appendMessage("bot", greeting);
+          _renderSectorList();
           if (pendingMessage) _sendMessage(pendingMessage);
         }
         _startPolling();
@@ -631,11 +745,9 @@
         if (r.status === 410) {
           // Conversacion cerrada por operador: reabrir y reenviar
           _hideTyping();
-          if (selectedSector) {
-            _stopPolling(); conversationId = null; lastMessageId = null; handoffBubble = null;
-            bodyInner.innerHTML = "";
-            _startConversation(selectedSector.id, question);
-          }
+          _stopPolling(); conversationId = null; lastMessageId = null; handoffBubble = null;
+          bodyInner.innerHTML = ""; sectorListEl = null;
+          _startConversation(question);
           return null;
         }
         return r.json();
@@ -708,6 +820,10 @@
         if (isImg) {
           el.src = burl;
           el.addEventListener("click", function () { window.open(burl, "_blank"); });
+        } else if (attach.mime === "application/pdf") {
+          // Vista previa en el visor de PDF del navegador (pestaña nueva);
+          // descargar queda disponible desde ese visor.
+          el.href = burl; el.setAttribute("target", "_blank"); el.setAttribute("rel", "noopener");
         } else {
           el.href = burl; el.setAttribute("download", attach.name);
         }
@@ -761,54 +877,75 @@
   function _showHandoffOffer(message) {
     if (handoffBubble) return;  // ya mostrada
     handoffBubble = document.createElement("div");
-    handoffBubble.className = "ia-w-handoff";
+    handoffBubble.className = "ia-w-row";
     _renderHandoffOffer(message);
     bodyInner.appendChild(handoffBubble);
     _scrollBottom();
   }
 
+  // Avatar del bot para las burbujas de derivación (logo del tenant o ícono).
+  function _handoffAvatarHTML() { return LOGO_URL ? '<img src="' + LOGO_URL + '" alt="" />' : ICON_BOT; }
+  // Envuelve el contenido de derivación en avatar + burbuja del bot.
+  function _setHandoffContent(inner) {
+    handoffBubble.innerHTML =
+      '<div class="ia-w-bavatar bot">' + _handoffAvatarHTML() + '</div>' +
+      '<div class="ia-w-bubble bot ia-w-hf">' + inner + '</div>';
+  }
+
   function _renderHandoffOffer(message) {
     lastHandoffMessage = message;
-    handoffBubble.innerHTML = "";
-    var p = document.createElement("p");
-    p.className = "ia-w-hf-text";
-    _renderTextWithLinks(message, p);
-    handoffBubble.appendChild(p);
-
-    var btnOffer = document.createElement("button");
-    btnOffer.className = "ia-w-hf-btn";
-    btnOffer.innerHTML = ICON_USERCHECK + "<span>Sí, conectarme con un operador</span>";
-    btnOffer.addEventListener("click", function () {
+    _setHandoffContent(
+      '<span class="ia-w-hf-txt"></span>' +
+      '<button class="ia-w-hf-cta" type="button" id="ia-w-hf-offer">' + ICON_HEADSET + '<span>Conectarme con un operador</span></button>' +
+      '<button class="ia-w-hf-keep" type="button" id="ia-w-hf-keep">Seguir con el asistente</button>'
+    );
+    _renderTextWithLinks(message, handoffBubble.querySelector(".ia-w-hf-txt"));
+    handoffBubble.querySelector("#ia-w-hf-offer").addEventListener("click", function () {
       // Si la conversación ya tiene nombre + DNI (handoff previo), no re-pedirlos.
       if (afiliadoIdentified) _confirmHandoff(null);
       else _renderHandoffForm(message);
     });
-    handoffBubble.appendChild(btnOffer);
+    handoffBubble.querySelector("#ia-w-hf-keep").addEventListener("click", function () {
+      // Descartar la oferta: dejar solo el mensaje. handoffBubble sigue !== null,
+      // así que el poll no la vuelve a mostrar.
+      _setHandoffContent('<span class="ia-w-hf-txt"></span>');
+      _renderTextWithLinks(message, handoffBubble.querySelector(".ia-w-hf-txt"));
+    });
   }
 
   function _renderHandoffForm(message) {
-    handoffBubble.innerHTML = "";
-    var p = document.createElement("p");
-    p.className = "ia-w-hf-text"; _renderTextWithLinks(message, p);
-    handoffBubble.appendChild(p);
+    // El área solo se pregunta acá si NO se eligió antes (en la lista bajo el
+    // saludo). Si ya la eligió, no la repetimos — se usa selectedSector.
+    var sectorField = "";
+    if (sectors.length > 1 && !selectedSector) {
+      var pre = sectors.find(function (s) { return s.is_default; }) || sectors[0];
+      sectorField =
+        '<div class="h">¿Con qué área querés hablar?</div>' +
+        '<select id="ia-w-hf-sector" aria-label="Área que te va a atender">' +
+        sectors.map(function (s) {
+          return '<option value="' + _escape(s.id) + '"' + (pre && s.id === pre.id ? ' selected' : '') + '>' + _escape(s.nombre) + '</option>';
+        }).join("") +
+        '</select>';
+    }
 
-    var form = document.createElement("div");
-    form.className = "ia-w-hf-form";
-    form.innerHTML =
+    _setHandoffContent(
+      '<span class="ia-w-hf-txt"></span>' +
+      '<div class="ia-w-hf-form">' +
       '<div class="t">Antes de conectarte con un operador</div>' +
-      '<div class="h">Para una mejor atención, decinos tu nombre y DNI:</div>' +
       '<input type="text" id="ia-w-hf-nombre" placeholder="Nombre y apellido" maxlength="200" />' +
       '<input type="text" id="ia-w-hf-dni" inputmode="numeric" placeholder="DNI (sin puntos)" maxlength="20" />' +
+      sectorField +
       '<div class="err" id="ia-w-hf-err" style="display:none"></div>' +
-      '<div class="actions" style="justify-content:flex-end;">' +
-      '  <button class="ia-w-hf-btn" id="ia-w-hf-submit" style="padding:8px 16px;"><span>Continuar</span></button>' +
-      '</div>';
-    handoffBubble.appendChild(form);
+      '<div class="actions"><button class="ia-w-hf-cta" id="ia-w-hf-submit" style="width:auto;padding:9px 20px;"><span>Continuar</span></button></div>' +
+      '</div>'
+    );
+    _renderTextWithLinks(message, handoffBubble.querySelector(".ia-w-hf-txt"));
 
-    var nombreEl = form.querySelector("#ia-w-hf-nombre");
-    var dniEl    = form.querySelector("#ia-w-hf-dni");
-    var errEl    = form.querySelector("#ia-w-hf-err");
-    var submitEl = form.querySelector("#ia-w-hf-submit");
+    var nombreEl = handoffBubble.querySelector("#ia-w-hf-nombre");
+    var dniEl    = handoffBubble.querySelector("#ia-w-hf-dni");
+    var sectorEl = handoffBubble.querySelector("#ia-w-hf-sector");
+    var errEl    = handoffBubble.querySelector("#ia-w-hf-err");
+    var submitEl = handoffBubble.querySelector("#ia-w-hf-submit");
     nombreEl.focus();
 
     function showErr(m) { errEl.textContent = m; errEl.style.display = "block"; }
@@ -819,7 +956,7 @@
       // Sin mínimo de largo: es solo un identificador para el operador (mismo
       // criterio que /chat y el back, min_length=1). Antes exigía 4 y quedaba
       // inconsistente con el otro front.
-      _confirmHandoff({ afiliado_nombre: n, afiliado_dni: d });
+      _confirmHandoff({ afiliado_nombre: n, afiliado_dni: d, sector_id: sectorEl ? sectorEl.value : (selectedSector ? selectedSector.id : null) });
     }
     submitEl.addEventListener("click", submit);
     dniEl.addEventListener("keydown", function (e) { if (e.key === "Enter") submit(); });
@@ -827,16 +964,19 @@
 
   function _renderHandoffLoader() {
     if (!handoffBubble) return;
-    handoffBubble.innerHTML =
-      '<div class="ia-w-hf-loader">' + ICON_SPINNER + '<span>Buscando operador disponible…</span></div>';
+    _setHandoffContent('<div class="ia-w-hf-loader">' + ICON_SPINNER + '<span>Buscando operador disponible…</span></div>');
   }
 
   function _confirmHandoff(identifyData) {
     handoffConfirmed = true;
     _renderHandoffLoader();
     var opts = { method: "POST", headers: _headers() };
-    if (identifyData && (identifyData.afiliado_nombre || identifyData.afiliado_dni)) {
-      opts.body = JSON.stringify(identifyData);
+    // Siempre que haya un sector elegido (form o chip), mandarlo: el backend
+    // re-etiqueta la conversación para que caiga en la cola correcta.
+    var payload = identifyData ? Object.assign({}, identifyData) : {};
+    if (!payload.sector_id && selectedSector) payload.sector_id = selectedSector.id;
+    if (payload.afiliado_nombre || payload.afiliado_dni || payload.sector_id) {
+      opts.body = JSON.stringify(payload);
     }
     fetch(API_BASE + "/api/v1/widget/conversation/" + conversationId + "/confirm-handoff?widget_session_id=" + encodeURIComponent(widgetSessionId), opts)
       .then(function (r) {
@@ -855,14 +995,20 @@
       })
       .then(function (data) {
         convStatus = data.status; _updateHeader();
-        if (data.message) _appendMessage("system", data.message);
+        // Quitar el loader (la solicitud ya está encolada; el estado lo refleja la
+        // tarjeta). El mensaje de confirmación lo entrega el poll, con dedup por id
+        // → así no queda el loader pegado ni el "Listo…" duplicado.
+        if (handoffBubble) { handoffBubble.remove(); handoffBubble = null; }
       })
       .catch(function (err) {
         werr("[IA Widget] confirm handoff:", err);
         handoffConfirmed = false;
-        // Restaurar la oferta (el loader había reemplazado el botón) para reintentar.
-        if (handoffBubble) _renderHandoffOffer(lastHandoffMessage);
-        _appendMessage("error", err && err.message ? err.message : "No pudimos conectarte. Probá de nuevo.");
+        // Quitar el loader y mostrar el error con "Reintentar" (vuelve a ofrecer).
+        if (handoffBubble) { handoffBubble.remove(); handoffBubble = null; }
+        _appendError(
+          err && err.message ? err.message : "No pudimos conectarte. Probá de nuevo.",
+          function () { _showHandoffOffer(lastHandoffMessage); }
+        );
       });
   }
 
@@ -893,11 +1039,19 @@
       owrap.appendChild(oname);
       row.appendChild(oav); row.appendChild(owrap);
 
-    } else if (senderType === "system" || senderType === "error") {
+    } else if (senderType === "error") {
+      // Error como mini-card (ícono en círculo + texto), sin borde duro.
       row.className = "ia-w-row center";
-      var sb = document.createElement("div"); sb.className = "ia-w-sys";
-      if (senderType === "error") { sb.style.background = "#fee2e2"; sb.style.color = "#b91c1c"; }
-      _renderTextWithLinks(text, sb); row.appendChild(sb);
+      var ec = document.createElement("div"); ec.className = "ia-w-errcard";
+      ec.innerHTML = '<span class="ia-w-erricon">' + ICON_ALERT + '</span><span class="ia-w-errtxt"></span>';
+      _renderTextWithLinks(text, ec.querySelector(".ia-w-errtxt"));
+      row.appendChild(ec);
+
+    } else if (senderType === "system") {
+      row.className = "ia-w-row center";
+      var sb = document.createElement("div"); sb.className = "ia-w-sysnote";
+      _renderTextWithLinks(text, sb);
+      row.appendChild(sb);
 
     } else { // bot
       row.className = "ia-w-row";
@@ -915,8 +1069,30 @@
   function _scrollBottom() { bodyEl.scrollTop = bodyEl.scrollHeight; }
 
   // ── Header / estado ───────────────────────────────────────────────────────────
+  // Cambia el texto de estado con efecto "Dynamic Island": la tarjeta crece/achica
+  // con un spring suave y el texto hace cross-fade, en vez de saltar de golpe.
+  var _statusT1 = null, _statusT2 = null;
+  function _setSubstatus(label) {
+    if (substatusEl.textContent === label) return;
+    var card = headerEl;
+    substatusEl.style.opacity = "0";              // fade out del texto viejo
+    if (_statusT1) clearTimeout(_statusT1);
+    if (_statusT2) clearTimeout(_statusT2);
+    _statusT1 = setTimeout(function () {
+      var w0 = card.offsetWidth;                  // ancho actual
+      substatusEl.textContent = label;
+      card.style.width = "";                       // liberar → CSS fit-content
+      var w1 = card.offsetWidth;                   // ancho natural nuevo
+      card.style.width = w0 + "px";                // fijar al viejo
+      void card.offsetWidth;                       // forzar reflow
+      card.style.width = w1 + "px";                // animar al nuevo (spring)
+      substatusEl.style.opacity = "1";             // fade in del texto nuevo
+      _statusT2 = setTimeout(function () { card.style.width = ""; }, 440);
+    }, 140);
+  }
+
   function _updateHeader() {
-    headerEl.classList.remove("handoff", "attending");
+    headerEl.classList.remove("handoff", "attending", "closed");
     dotEl.className = "";
     var label;
     if (convStatus === "handoff_requested") {
@@ -924,7 +1100,7 @@
     } else if (convStatus === "human_attending") {
       headerEl.classList.add("attending"); dotEl.className = "pulse"; label = operatorName ? ("Atendiéndote: " + operatorName) : "Operador conectado";
     } else if (convStatus === "closed") {
-      dotEl.className = "gray"; label = "Conversación cerrada";
+      headerEl.classList.add("closed"); dotEl.className = "gray"; label = "Conversación cerrada";
     } else {
       dotEl.className = "pulse"; label = "En línea";
       // Operadores disponibles (solo en bot_active, igual que /chat)
@@ -932,7 +1108,7 @@
         if (operatorsOnline.count > 0) label += operatorsOnline.count === 1 ? " · 1 operador disponible" : (" · " + operatorsOnline.count + " operadores disponibles");
       }
     }
-    substatusEl.textContent = label;
+    _setSubstatus(label);
 
     var closed = convStatus === "closed";
     inputEl.disabled = closed; sendBtn.disabled = closed;

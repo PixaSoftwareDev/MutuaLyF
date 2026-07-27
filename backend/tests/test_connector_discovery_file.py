@@ -14,7 +14,10 @@ from services.connector_discovery import (
 
 
 def _mock_complete(response_text: str):
-    async def _complete(messages, complexity=None, temperature=0.0, max_tokens=1024, tenant_id=None):
+    # **kwargs: la firma real de complete() suma params (ej. timeout_s) y el mock
+    # no debe romperse con cada uno nuevo.
+    async def _complete(messages, complexity=None, temperature=0.0, max_tokens=1024,
+                        tenant_id=None, **kwargs):
         return response_text
     return _complete
 

@@ -57,6 +57,8 @@ class BrandingUpdate(BaseModel):
     primary_color:   str | None = Field(default=None, max_length=9)
     secondary_color: str | None = Field(default=None, max_length=9)
     favicon_url:     str | None = Field(default=None, max_length=2000)
+    widget_theme:    str | None = Field(default=None, max_length=10)
+    widget_position: str | None = Field(default=None, max_length=6)
 
 
 @router.get("/admin/branding")
@@ -68,7 +70,7 @@ async def get_branding(
     target = _resolve_target_tenant(current_user, tenant_id)
     async with get_pg_session() as session:
         row = await session.execute(text("""
-            SELECT id, name, display_name, logo_url, primary_color, secondary_color, favicon_url
+            SELECT id, name, display_name, logo_url, primary_color, secondary_color, favicon_url, widget_theme, widget_position
             FROM tenants WHERE id = :tid LIMIT 1
         """), {"tid": target})
         t = row.mappings().fetchone()
@@ -81,6 +83,8 @@ async def get_branding(
         "primary_color":   t["primary_color"]   or "#99323D",
         "secondary_color": t["secondary_color"],
         "favicon_url":     t["favicon_url"],
+        "widget_theme":    t["widget_theme"] or "light",
+        "widget_position": t["widget_position"] or "right",
     }
 
 
@@ -105,6 +109,14 @@ async def update_branding(
         updates["secondary_color"] = _validate_color(body.secondary_color, "secondary_color") or None
     if body.favicon_url is not None:
         updates["favicon_url"] = body.favicon_url.strip() or None
+    if body.widget_theme is not None:
+        if body.widget_theme not in ("light", "dark"):
+            raise HTTPException(status_code=400, detail="widget_theme debe ser 'light' o 'dark'")
+        updates["widget_theme"] = body.widget_theme
+    if body.widget_position is not None:
+        if body.widget_position not in ("right", "left"):
+            raise HTTPException(status_code=400, detail="widget_position debe ser 'right' o 'left'")
+        updates["widget_position"] = body.widget_position
 
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")

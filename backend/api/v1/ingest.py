@@ -40,6 +40,65 @@ async def list_documents(
         return [document_response_from_row(dict(row)) for row in rows]
 
 
+@router.get("/documents/search")
+async def search_documents_content(
+    q: str,
+    tenant_id: str = Depends(get_tenant_id),
+    current_user: CurrentUser = Depends(require_admin),
+):
+    """Busca dentro del CONTENIDO de los documentos (no solo el título).
+
+    Devuelve los document_id cuyas partes mencionan el término, con la cantidad
+    de coincidencias. Combina full-text en español (con stemming, vía el índice
+    GIN de parent_chunks.ts_body) con ILIKE para substrings/nombres propios que
+    el stemming no cubre. El frontend lo usa para el buscador de la tabla.
+    """
+    term = q.strip()
+    if len(term) < 2:
+        return []
+    async with get_pg_session(tenant_id) as session:
+        # El LIKE es insensible a tildes vía translate() en ambos lados: buscar
+        # "garantia" encuentra "garantía" (coherente con el filtro del detalle).
+        # Sin extensión unaccent — la base compartida prod/staging no la tiene y
+        # agregarla implica migración coordinada. Seq scan aceptable: parent_chunks
+        # por tenant es chico (cientos de filas).
+        accented, plain = "áéíóúàèìòùäëïöüâêîôûñç", "aeiouaeiouaeiouaeiounc"
+        # `matches` = MENCIONES del término en el documento (ocurrencias reales,
+        # no "partes que matchean"): es lo que el usuario espera leer como
+        # "N coincidencias". Se cuenta sobre parent_chunks (texto sin solapar —
+        # los chunks hijos de Qdrant se pisan por el overlap y duplicarían).
+        # Si solo matchea el full-text (stemming: "psicólogos" para "psicólogo")
+        # sin ocurrencia literal, la parte aporta 1 para no reportar 0.
+        norm_term = term.lower().translate(str.maketrans(accented, plain))
+        result = await session.execute(
+            text(
+                "SELECT document_id, SUM(GREATEST("
+                "  (length(t) - length(replace(t, :q_norm, ''))) / length(:q_norm), "
+                "  CASE WHEN fts THEN 1 ELSE 0 END"
+                ")) AS matches FROM ("
+                "  SELECT document_id, translate(lower(text), :acc, :pl) AS t, "
+                "         ts_body @@ plainto_tsquery('spanish', :q) AS fts "
+                "  FROM parent_chunks"
+                ") s "
+                "WHERE fts OR t LIKE '%' || :q_like || '%' "
+                "GROUP BY document_id ORDER BY matches DESC LIMIT 200"
+            ),
+            {
+                "q": term,
+                "acc": accented,
+                "pl": plain,
+                # Para contar ocurrencias: término normalizado igual que la columna.
+                "q_norm": norm_term,
+                # Para el LIKE: además escapado (% y _ literales).
+                "q_like": norm_term.replace("\\", "\\\\").replace("%", r"\%").replace("_", r"\_"),
+            },
+        )
+        return [
+            {"document_id": str(row["document_id"]), "matches": row["matches"]}
+            for row in result.mappings().all()
+        ]
+
+
 @router.get("/documents/{document_id}/status")
 async def document_status(
     document_id: uuid.UUID,
@@ -129,6 +188,59 @@ async def download_document(
     media_type, _ = mimetypes.guess_type(filename)
     cd = f"attachment; filename=\"{filename}\""
     return Response(content=content, media_type=media_type or "application/octet-stream", headers={"Content-Disposition": cd})
+
+
+@router.get("/documents/{document_id}/download/edited")
+async def download_document_edited(
+    document_id: uuid.UUID,
+    tenant_id: str = Depends(get_tenant_id),
+    current_user: CurrentUser = Depends(require_admin),
+):
+    """Descarga la versión vigente del documento: las partes tal como las usa el
+    asistente hoy (con las ediciones del admin, sin las marcadas "sin usar").
+
+    No reconstruye el formato original (un PDF no se rearma desde las partes) —
+    siempre exporta texto plano.
+    """
+    from fastapi.responses import Response
+    async with get_pg_session(tenant_id) as session:
+        result = await session.execute(
+            text("SELECT filename FROM documentos WHERE id = :id"),
+            {"id": document_id},
+        )
+        row = result.mappings().fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    qdrant = get_qdrant_client()
+    results, _ = await qdrant.scroll(
+        collection_name=f"{tenant_id}_docs",
+        scroll_filter=Filter(
+            must=[FieldCondition(key="document_id", match=MatchValue(value=str(document_id)))]
+        ),
+        limit=500,
+        with_payload=True,
+        with_vectors=False,
+    )
+    parts = sorted(
+        (
+            (p.payload.get("chunk_index", 0), p.payload.get("text", ""))
+            for p in results
+            if p.payload.get("quality_gate_status") != "skipped"
+        ),
+        key=lambda t: t[0],
+    )
+    if not parts:
+        raise HTTPException(status_code=404, detail="El documento no tiene partes en uso para exportar")
+
+    body = "\n\n".join(txt.strip() for _, txt in parts if txt.strip())
+    stem = (row["filename"] or "documento").rsplit(".", 1)[0]
+    cd = f"attachment; filename=\"{stem} (editado).txt\""
+    return Response(
+        content=body.encode("utf-8"),
+        media_type="text/plain; charset=utf-8",
+        headers={"Content-Disposition": cd},
+    )
 
 
 

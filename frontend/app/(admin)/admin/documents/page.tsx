@@ -1,40 +1,61 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  FileText, Loader2, ChevronDown, ChevronUp, Search,
-  AlertTriangle, ArrowRight, Copy, Plus,
+  FileText, Loader2, Search,
+  AlertTriangle, Copy, Plus, Trash2, Upload,
 } from "lucide-react";
 import { api, type DocumentResponse, type PendingChunkResponse } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
-import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
-} from "@/components/ui/dialog";
+import { FormDialog } from "@/components/ui/form-dialog";
 import { DocumentUploader } from "@/components/documents/document-uploader";
 import { toast } from "@/components/ui/toast";
-import { PageShell } from "@/components/layout/page-shell";
-import { PageHeader, CountChip } from "@/components/layout/page-header";
 import { ExportKbButton } from "@/components/admin/export-kb-button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
+import { ListToolbar } from "@/components/admin/list-toolbar";
+import { useTableSort, applySort, SortHeader } from "@/components/admin/sortable";
 import { cn } from "@/lib/utils";
 import {
-  DOC_STATUS_CONFIG, fileExt, fmtDate, PendingChunkCard,
+  DOC_STATUS_CONFIG, fileExt, fmtDate, DocumentDeleteDialog,
 } from "@/components/documents/document-shared";
+
+type SortKey = "nombre" | "fragmentos" | "fecha";
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function DocumentsPage() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
+  // Debounce para la búsqueda en contenido (pega al backend); el filtro por
+  // título sigue siendo instantáneo sobre la lista ya cargada.
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // La búsqueda vive en la URL (?q=): "volver" desde el detalle la restaura,
+  // entrar de cero desde el menú arranca limpia — patrón estándar de listas.
+  // Se lee en effect (no useSearchParams) para no requerir Suspense.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get("q");
+    if (q) { setSearch(q); setDebouncedSearch(q); }
+  }, []);
+
+  const handleSearch = (v: string) => {
+    setSearch(v);
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    searchTimer.current = setTimeout(() => {
+      setDebouncedSearch(v);
+      const t = v.trim();
+      window.history.replaceState(null, "", t ? `?q=${encodeURIComponent(t)}` : window.location.pathname);
+    }, 350);
+  };
   const [uploadOpen, setUploadOpen] = useState(false);
+  const { sort, toggle } = useTableSort<SortKey>({ fragmentos: "desc", fecha: "desc" });
 
   const { data: documents = [], isLoading, error, refetch } = useQuery({
     queryKey: ["documents"],
@@ -48,14 +69,28 @@ export default function DocumentsPage() {
     },
   });
 
-  const { data: pendingChunks = [], isLoading: pendingLoading } = useQuery({
+  const { data: pendingChunks = [] } = useQuery({
     queryKey: ["chunks", "pending"],
     queryFn: api.documents.pendingChunks,
     staleTime: 15_000,
     refetchInterval: documents.some(d => d.status === "pending" || d.status === "processing") ? 5_000 : 30_000,
   });
 
-  const { data: duplicatesData, isLoading: duplicatesLoading } = useQuery({
+  // Coincidencias en el CONTENIDO (partes) de los documentos, no solo el título.
+  const contentQ = debouncedSearch.trim();
+  const { data: contentHits = [] } = useQuery({
+    queryKey: ["documents-content-search", contentQ],
+    queryFn: () => api.documents.searchContent(contentQ),
+    enabled: contentQ.length >= 2,
+    staleTime: 30_000,
+  });
+  const contentMatches = useMemo(() => {
+    const map = new Map<string, number>();
+    if (contentQ.length >= 2) for (const h of contentHits) map.set(h.document_id, h.matches);
+    return map;
+  }, [contentHits, contentQ]);
+
+  const { data: duplicatesData } = useQuery({
     queryKey: ["duplicates"],
     queryFn: api.duplicates.list,
     staleTime: 30_000,
@@ -88,172 +123,172 @@ export default function DocumentsPage() {
     return map;
   }, [duplicatesData]);
 
-  const pendingDuplicatesTotal = duplicatesData?.pending ?? 0;
-
   const filtered = documents.filter(
-    (d) => !search || d.title.toLowerCase().includes(search.toLowerCase()),
+    (d) => !search || d.title.toLowerCase().includes(search.toLowerCase()) || contentMatches.has(d.id),
   );
+  const sorted = useMemo(() => applySort(filtered, sort, (a, b, key) =>
+    key === "nombre"     ? a.title.localeCompare(b.title, "es") :
+    key === "fragmentos" ? (a.chunk_count ?? 0) - (b.chunk_count ?? 0) :
+                           new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+  ), [filtered, sort]);
 
-  const processingCount = documents.filter((d) => ["pending", "processing"].includes(d.status)).length;
   const isEmpty = !isLoading && !error && documents.length === 0;
-  const totalChunks = documents.reduce((acc, d) => acc + (d.chunk_count ?? 0), 0);
 
   return (
-    <PageShell>
-      <PageHeader
-        title="Documentos"
-        badge={!isLoading && !error && documents.length > 0
-          ? <CountChip>
-              {documents.length} {documents.length === 1 ? "documento" : "documentos"}
-              {totalChunks > 0 ? ` · ${totalChunks.toLocaleString("es-AR")} fragmentos` : ""}
-            </CountChip>
-          : undefined}
-        description="La base de conocimiento que el asistente usa para responder."
-        actions={
-          !isEmpty ? (
-            <div className="flex items-center gap-2">
-              <ExportKbButton />
-              <Button onClick={() => setUploadOpen(true)} className="gap-1.5">
-                <Plus className="h-4 w-4" />
-                Subir documento
-              </Button>
-            </div>
-          ) : undefined
-        }
-      />
+    <div className="flex h-full min-h-0 flex-col">
+      {/* Header bar */}
+      <div className="flex h-12 shrink-0 items-center justify-between gap-2 border-b px-4 sm:px-6">
+        <h1 className="min-w-0 truncate text-[15px] font-semibold tracking-tight text-foreground">Documentos</h1>
+        {!isEmpty && (
+          <div className="flex shrink-0 items-center gap-2">
+            <ExportKbButton />
+            <Button size="sm" className="shrink-0" onClick={() => setUploadOpen(true)}>
+              <Plus className="h-4 w-4 sm:mr-1.5" />
+              <span className="hidden sm:inline">Subir documento</span>
+              <span className="sm:hidden">Subir</span>
+            </Button>
+          </div>
+        )}
+      </div>
 
-      <PendingTasksBanner
-        pendingDuplicates={pendingDuplicatesTotal}
-        pendingChunks={pendingChunks}
-        pendingByDocId={pendingByDocId}
-        isLoading={pendingLoading || duplicatesLoading}
-        onReviewed={refresh}
-      />
-
-      {isLoading ? (
-        <Card className="rounded-2xl p-2">
-          <div className="space-y-1">
-            {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="flex items-center gap-3 px-3 py-3">
-                <Skeleton className="h-9 w-9 rounded-lg shrink-0" />
-                <div className="flex-1 space-y-2"><Skeleton className="h-4 w-56" /><Skeleton className="h-3 w-20" /></div>
-                <Skeleton className="h-6 w-20 rounded-full" />
+      {/* Contenido scrolleable */}
+      <div className="min-h-0 flex-1 overflow-y-auto scrollbar-slim p-4 sm:p-6">
+        {isLoading ? (
+          <Skeleton className="h-72 rounded-2xl" />
+        ) : error ? (
+          <div className="rounded-2xl border">
+            <ErrorState
+              title="Error al cargar documentos"
+              description="No pudimos traer tus documentos. Revisá la conexión y probá de nuevo."
+              onRetry={() => refetch()}
+            />
+          </div>
+        ) : isEmpty ? (
+          /* Estado inicial: hero centrado con el uploader */
+          <div className="mx-auto w-full max-w-2xl">
+            <div className="mb-5 text-center">
+              {/* Ícono neutro, igual que el resto de los estados vacíos (EmptyState). */}
+              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-muted">
+                <FileText className="h-6 w-6 text-muted-foreground" />
               </div>
-            ))}
-          </div>
-        </Card>
-      ) : error ? (
-        <Card className="rounded-2xl">
-          <ErrorState
-            title="Error al cargar documentos"
-            description="No pudimos traer tus documentos. Revisá la conexión y probá de nuevo."
-            onRetry={() => refetch()}
-          />
-        </Card>
-      ) : isEmpty ? (
-        <Card className="rounded-2xl p-6 sm:p-8">
-          <div className="max-w-xl mx-auto text-center mb-5">
-            <h2 className="text-lg font-semibold tracking-tight">Subí tu primer documento</h2>
-            <p className="text-sm text-muted-foreground mt-1.5">
-              El asistente va a leerlo y usarlo para responder. Aceptamos PDF, DOCX, TXT, HTML y JSON.
-            </p>
-          </div>
-          <DocumentUploader onUploaded={() => {
-            refresh();
-            toast({ title: "Documento enviado", description: "El procesamiento comenzó en segundo plano.", variant: "success" });
-          }} />
-        </Card>
-      ) : (
-        <Card className="rounded-2xl overflow-hidden">
-          <div className="flex items-center justify-between gap-4 px-4 py-3 border-b">
-            <div className="relative w-full max-w-[300px]">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-              <Input
-                placeholder="Buscar documento…"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-8 h-9 text-sm"
-              />
+              <h2 className="mt-4 text-lg font-semibold tracking-tight">Subí tu primer documento</h2>
+              {/* Los formatos y el tamaño máximo ya los muestra el dropzone; acá no se repiten. */}
+              <p className="mx-auto mt-1.5 max-w-md text-sm leading-relaxed text-muted-foreground">
+                El asistente lo lee y lo usa para responder.
+              </p>
             </div>
-            {search && (
-              <span className="text-sm text-muted-foreground shrink-0 tabular-nums">
-                {filtered.length} resultado{filtered.length !== 1 ? "s" : ""}
-              </span>
-            )}
-          </div>
-
-          {filtered.length === 0 ? (
-            <EmptyState icon={Search} title="Sin resultados" description="No se encontraron documentos con ese nombre." />
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow className="hover:bg-transparent">
-                  <TableHead>Documento</TableHead>
-                  <TableHead className="hidden sm:table-cell w-[140px]">Estado</TableHead>
-                  <TableHead className="hidden lg:table-cell w-[110px] text-right">Fragmentos</TableHead>
-                  <TableHead className="hidden md:table-cell w-[130px]">Subido</TableHead>
-                  <TableHead className="w-[40px]" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filtered.map((doc) => (
-                  <DocumentTableRow
-                    key={doc.id}
-                    doc={doc}
-                    pendingChunkCount={pendingByDocId[doc.id]?.chunks.length ?? 0}
-                    pendingDuplicateCount={duplicateCountByDocId[doc.id] ?? 0}
-                  />
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </Card>
-      )}
-
-      {/* Dialog de carga */}
-      <Dialog open={uploadOpen} onOpenChange={setUploadOpen}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Subir documentos</DialogTitle>
-            <DialogDescription>
-              Arrastrá o elegí archivos. El procesamiento sigue en segundo plano — podés cerrar esta ventana.
-            </DialogDescription>
-          </DialogHeader>
-          <DocumentUploader
-            onUploaded={() => {
+            <DocumentUploader onUploaded={() => {
               refresh();
               toast({ title: "Documento enviado", description: "El procesamiento comenzó en segundo plano.", variant: "success" });
-            }}
-            onDone={() => setUploadOpen(false)}
-          />
-        </DialogContent>
-      </Dialog>
-    </PageShell>
+            }} />
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <ListToolbar search={search} onSearch={handleSearch} placeholder="Buscar por nombre o contenido…" />
+
+            {sorted.length === 0 ? (
+              <EmptyState icon={Search} title="Sin resultados" description="Ningún documento coincide por nombre ni por contenido." />
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow className="hover:bg-transparent">
+                    <TableHead><SortHeader label="Documento" sortKey="nombre" sort={sort} onToggle={toggle} /></TableHead>
+                    <TableHead className="hidden w-[150px] sm:table-cell">Estado</TableHead>
+                    <TableHead className="hidden w-[120px] text-right lg:table-cell">
+                      <SortHeader label="Fragmentos" sortKey="fragmentos" sort={sort} onToggle={toggle} />
+                    </TableHead>
+                    <TableHead className="hidden w-[150px] md:table-cell">
+                      <SortHeader label="Subido" sortKey="fecha" sort={sort} onToggle={toggle} />
+                    </TableHead>
+                    <TableHead className="w-[48px]" />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {sorted.map((doc) => (
+                    <DocumentTableRow
+                      key={doc.id}
+                      doc={doc}
+                      pendingChunkCount={pendingByDocId[doc.id]?.chunks.length ?? 0}
+                      pendingDuplicateCount={duplicateCountByDocId[doc.id] ?? 0}
+                      contentMatchCount={contentMatches.get(doc.id) ?? 0}
+                      searchTerm={debouncedSearch}
+                    />
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Modal de carga */}
+      <FormDialog
+        open={uploadOpen}
+        onOpenChange={setUploadOpen}
+        icon={Upload}
+        title="Subir documentos"
+        description="Arrastrá o elegí archivos. El procesamiento sigue en segundo plano — podés cerrar esta ventana."
+      >
+        <DocumentUploader
+          onUploaded={() => {
+            refresh();
+            toast({ title: "Documento enviado", description: "El procesamiento comenzó en segundo plano.", variant: "success" });
+          }}
+          onDone={() => setUploadOpen(false)}
+        />
+      </FormDialog>
+    </div>
   );
 }
 
 // ── DocumentTableRow ──────────────────────────────────────────────────────────
 
 function DocumentTableRow({
-  doc, pendingChunkCount, pendingDuplicateCount,
+  doc, pendingChunkCount, pendingDuplicateCount, contentMatchCount = 0, searchTerm = "",
 }: {
   doc: DocumentResponse;
   pendingChunkCount: number;
   pendingDuplicateCount: number;
+  contentMatchCount?: number;
+  searchTerm?: string;
 }) {
   const router = useRouter();
+  const queryClient = useQueryClient();
+  const [showDelete, setShowDelete] = useState(false);
+
+  const { mutate: deleteDoc, isPending: deleting } = useMutation({
+    mutationFn: () => api.documents.delete(doc.id),
+    onSuccess: () => {
+      toast({ title: "Documento eliminado", variant: "success" });
+      setShowDelete(false);
+      queryClient.invalidateQueries({ queryKey: ["documents"] });
+      queryClient.invalidateQueries({ queryKey: ["chunks", "pending"] });
+      queryClient.invalidateQueries({ queryKey: ["duplicates"] });
+    },
+    onError: () => toast({ title: "Error al eliminar", description: "Intentá de nuevo.", variant: "destructive" }),
+  });
+
   const st = DOC_STATUS_CONFIG[doc.status];
   const ext = fileExt(doc.title);
   const processing = doc.status === "processing" || doc.status === "pending";
   const hasPendingWork = pendingChunkCount > 0 || pendingDuplicateCount > 0;
 
+  // El término viaja al detalle SOLO si hubo coincidencias de contenido — si
+  // matcheó por título, entrar filtrado mostraría "ninguna parte coincide".
+  const detailHref = contentMatchCount > 0 && searchTerm.trim()
+    ? `/admin/documents/${doc.id}?q=${encodeURIComponent(searchTerm.trim())}`
+    : `/admin/documents/${doc.id}`;
+
   return (
     <TableRow
       className="cursor-pointer group"
-      onClick={() => router.push(`/admin/documents/${doc.id}`)}
+      onClick={() => router.push(detailHref)}
       onMouseEnter={() => router.prefetch(`/admin/documents/${doc.id}`)}
     >
-      <TableCell className="py-2.5">
+      {/* w-full + max-w-0: la columna toma el espacio restante y el título trunca
+          (sin esto, en mobile los títulos largos ensanchan la tabla y hacían
+          scroll lateral interno). */}
+      <TableCell className="w-full max-w-0 py-2.5">
         <div className="flex items-center gap-3 min-w-0">
           <div className="relative h-9 w-9 rounded-lg bg-muted flex flex-col items-center justify-center shrink-0 text-muted-foreground">
             {processing ? (
@@ -273,6 +308,12 @@ function DocumentTableRow({
               </span>
               {doc.chunk_count > 0 && <span className="text-[11px] text-muted-foreground">· {doc.chunk_count} frag.</span>}
             </div>
+            {contentMatchCount > 0 && (
+              <span className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground">
+                <Search className="h-3 w-3" />
+                {contentMatchCount} {contentMatchCount === 1 ? "mención" : "menciones"} en el contenido
+              </span>
+            )}
             {hasPendingWork && (
               <div className="hidden sm:flex items-center gap-1.5 mt-1">
                 {pendingChunkCount > 0 && (
@@ -291,8 +332,8 @@ function DocumentTableRow({
         </div>
       </TableCell>
 
-      <TableCell className="hidden sm:table-cell">
-        <Badge variant={st.variant} className="gap-1.5">
+      <TableCell className="hidden whitespace-nowrap sm:table-cell">
+        <Badge variant={st.variant} className="gap-1.5 whitespace-nowrap">
           <span className={cn("h-1.5 w-1.5 rounded-full", doc.status === "processing" && "animate-pulse", st.dot)} />
           {st.label}
         </Badge>
@@ -306,83 +347,29 @@ function DocumentTableRow({
         {fmtDate(doc.created_at)}
       </TableCell>
 
-      <TableCell className="text-right">
-        <ArrowRight className="h-4 w-4 text-muted-foreground/40 group-hover:text-action group-hover:translate-x-0.5 transition-all inline-block" />
+      <TableCell className="text-right whitespace-nowrap">
+        {/* stopPropagation: el click en el tachito no debe navegar al detalle */}
+        <button
+          type="button"
+          aria-label={`Eliminar ${doc.title}`}
+          title="Eliminar documento"
+          onClick={(e) => { e.stopPropagation(); setShowDelete(true); }}
+          className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground/40 transition-colors hover:bg-destructive/10 hover:text-destructive"
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
+        {/* El diálogo vive fuera del flujo de click de la fila (portal), pero
+            frenamos la propagación por si el overlay re-dispara sobre la fila */}
+        <span onClick={(e) => e.stopPropagation()}>
+          <DocumentDeleteDialog
+            open={showDelete}
+            onOpenChange={setShowDelete}
+            title={doc.title}
+            onConfirm={() => deleteDoc()}
+            deleting={deleting}
+          />
+        </span>
       </TableCell>
     </TableRow>
-  );
-}
-
-// ── PendingTasksBanner ────────────────────────────────────────────────────────
-
-function PendingTasksBanner({
-  pendingDuplicates, pendingChunks, pendingByDocId, isLoading, onReviewed,
-}: {
-  pendingDuplicates: number;
-  pendingChunks: PendingChunkResponse[];
-  pendingByDocId: Record<string, { title: string; chunks: PendingChunkResponse[] }>;
-  isLoading: boolean;
-  onReviewed: () => void;
-}) {
-  const router = useRouter();
-  const [expanded, setExpanded] = useState(false);
-
-  const pendingChunkCount = pendingChunks.length;
-  const hasDuplicates = pendingDuplicates > 0;
-  const hasChunks = pendingChunkCount > 0;
-
-  if (isLoading) return null;
-  if (!hasDuplicates && !hasChunks) return null;
-
-  const parts: string[] = [];
-  if (hasDuplicates) parts.push(`${pendingDuplicates} ${pendingDuplicates === 1 ? "duplicado" : "duplicados"}`);
-  if (hasChunks) parts.push(`${pendingChunkCount} fragmento${pendingChunkCount !== 1 ? "s" : ""} por revisar`);
-
-  return (
-    <div className="rounded-xl border border-warning/30 bg-warning/[0.06] overflow-hidden">
-      <div className="px-4 py-3 flex items-center justify-between gap-4 flex-wrap">
-        <div className="flex items-center gap-2.5 min-w-0">
-          <AlertTriangle className="h-4 w-4 text-warning shrink-0" />
-          <p className="text-sm text-foreground">
-            <span className="font-semibold">Tareas pendientes:</span>{" "}
-            <span className="text-muted-foreground">{parts.join(" · ")}</span>
-          </p>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          {hasChunks && (
-            <Button size="sm" variant="outline" onClick={() => setExpanded((v) => !v)}>
-              {expanded ? <>Ocultar <ChevronUp className="h-3.5 w-3.5 ml-1.5" /></> : <>Revisar fragmentos <ChevronDown className="h-3.5 w-3.5 ml-1.5" /></>}
-            </Button>
-          )}
-          {hasDuplicates && (
-            <Button size="sm" variant="outline" onClick={() => router.push("/admin/duplicates")}>
-              <Copy className="h-3.5 w-3.5 mr-1.5" /> Ver duplicados <ArrowRight className="h-3.5 w-3.5 ml-1.5" />
-            </Button>
-          )}
-        </div>
-      </div>
-
-      {expanded && hasChunks && (
-        <div className="border-t border-warning/20 px-4 py-4 bg-card/50">
-          <p className="text-xs text-muted-foreground mb-3">
-            El verificador automático no pudo decidir sobre estos fragmentos. Incluí los útiles y excluí el resto.
-          </p>
-          <div className="space-y-4">
-            {Object.entries(pendingByDocId).map(([docId, group]) => (
-              <div key={docId}>
-                <p className="text-xs font-semibold text-foreground flex items-center gap-1.5 mb-2">
-                  <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  {group.title}
-                  <span className="font-normal text-muted-foreground">· {group.chunks.length} fragmento{group.chunks.length !== 1 ? "s" : ""}</span>
-                </p>
-                <div className="space-y-2 pl-5">
-                  {group.chunks.map((chunk) => <PendingChunkCard key={chunk.id} chunk={chunk} onReviewed={onReviewed} />)}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
   );
 }

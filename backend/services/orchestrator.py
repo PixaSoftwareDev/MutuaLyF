@@ -2,11 +2,7 @@
 
 Execution flow:
   1. Check Redis cache → return immediately on hit
-  2. In parallel (asyncio.gather):
-     a. Classify intent (embedding similarity)
-     b. Extract entities via GLiNER (NLU)
-     c. Check if query warrants Neo4j lookup
-  3. Retrieve from Qdrant (always) + Neo4j (only if entities found)
+  2. Retrieve from Qdrant (always) + Neo4j (only if entities found)
   4. Rerank merged results
   5. Choose Groq model based on query complexity
   6. Generate response with isolated user input
@@ -54,12 +50,33 @@ def _keyword_overlap(query: str, text: str) -> float:
     text_lower = text.lower()
     return sum(1 for t in tokens if t in text_lower) / len(tokens)
 
+async def _try_tool_pick(question: str, tool_schemas: list[dict], tenant_id: str) -> dict | None:
+    """Decisión de tool SOLA (para la rama hard_fallback del modo unificado).
+
+    Usa el prompt del router de conectores; el texto que genere el modelo se
+    descarta (solo importa si eligió tool) → sin riesgo de alucinación. Fail-open
+    a None ante cualquier error: el fallback determinístico sigue su curso.
+    """
+    try:
+        from services.connector_router import TOOL_ROUTER_SYSTEM  # lazy: sin ciclo de import
+        from services.groq_client import select_tool
+        msgs = [
+            {"role": "system", "content": TOOL_ROUTER_SYSTEM},
+            {"role": "user", "content": (question or "")[:1000]},
+        ]
+        return await select_tool(msgs, tool_schemas, tenant_id=tenant_id)
+    except Exception as exc:
+        logger.warning("tool_pick_on_fallback_failed tenant_id=%s error=%s", tenant_id, exc)
+        return None
+
+
 async def handle_query(
     question: str,
     tenant_id: str,
     user_id: str | None = None,
     language: str = "es",
     conversation_history: list[tuple[str, str]] | None = None,
+    tool_schemas: list[dict] | None = None,
 ) -> dict[str, Any]:
     """Main entry point for a user query.
 
@@ -68,9 +85,18 @@ async def handle_query(
         tenant_id: Tenant scope.
         user_id: Optional user ID for audit logging.
         language: Response language hint.
+        tool_schemas: Function schemas de conectores (modo unificado 2b). Si el LLM
+            elige una tool en vez de responder, se devuelve {"tool_call": {...}}
+            con answer=None y el CALLER (capa widget) la ejecuta — por acá pasa la
+            DECISIÓN, nunca el resultado de la tool (datos personales no entran al
+            cache compartido). Nota: los hits de cache exacto/semántico se sirven
+            ANTES de considerar tools; una respuesta RAG cacheada previa puede
+            opacar una consulta de tool similar (edge aceptado: intellix registra
+            0 hits históricos; revisar si aparece en telemetría).
 
     Returns:
-        Dict with keys: answer, sources, intent_label, intent_confidence, from_cache, latency_ms.
+        Dict with keys: answer, sources, intent_label, intent_confidence, from_cache,
+        latency_ms — y opcionalmente tool_call (solo modo unificado).
     """
     from core.tracing import get_tracer
     tracer = get_tracer()
@@ -143,50 +169,29 @@ async def handle_query(
                 sem_cached["from_cache"] = True
                 sem_cached["latency_ms"] = latency_ms
                 asyncio.ensure_future(_log_usage_event_app(tenant_id, "query", 1))
-                # Un hit semántico sirve la respuesta cacheada de OTRA pregunta
-                # similar, cuyo intent_label puede no ser el de ESTA consulta.
-                # Re-clasificamos en background (el embedding ya está cacheado por
-                # texto → solo cuesta la búsqueda en Qdrant, no re-embebe) para
-                # loguear el label correcto sin sumar latencia a la respuesta.
-                asyncio.ensure_future(_relog_semantic_hit(
+                asyncio.ensure_future(_log_query(
                     tenant_id=tenant_id,
                     user_id=user_id,
-                    question=question,
-                    normalized_question=normalized_question,
+                    question_text=question[:500],
                     question_hash=question_hash,
+                    intent_label=None,
+                    intent_confidence=None,
                     latency_ms=latency_ms,
-                    fallback_label=sem_cached.get("intent_label"),
-                    fallback_confidence=sem_cached.get("intent_confidence", 0.0),
+                    from_cache=True,
                 ))
                 return sem_cached
 
-    # ── Step 2: Parallel classification + NLU ─────────────────────────────────
-    from services.classifier import classify_intent
-    # ENTITIES_DISABLED: from services.nlu import extract_entities
-
-    intent_task = asyncio.create_task(classify_intent(normalized_question, tenant_id))
-    # ENTITIES_DISABLED: NLU entity extraction desactivado
-    # loop = asyncio.get_running_loop()
-    # nlu_timeout = settings.nlu_timeout_ms / 1000
-    # async def _extract_with_timeout() -> list: ...
-    # entity_task = asyncio.create_task(_extract_with_timeout())
-
-    (intent_result,) = await asyncio.gather(intent_task, return_exceptions=True)
-
-    if isinstance(intent_result, Exception):
-        logger.warning("intent_classification_failed error=%s", intent_result)
-        intent_result = None
-    entities = []  # ENTITIES_DISABLED
+    # ── Step 2: (eliminado) clasificación de intenciones ──────────────────────
+    # El clasificador coseno se quitó del camino de consulta (decisión 2026-07-21:
+    # las intenciones no aportan al RAG y el ruteo de tools ya es por LLM
+    # tool-calling). intent_label/intent_confidence quedan como None en la
+    # respuesta y en consultas_log para no romper contratos existentes.
 
     # ── Step 3: Retrieve from Qdrant ──────────────────────────────────────────
     from services.retrieval import retrieve, retrieve_multi_query
     # ENTITIES_DISABLED: from services.neo4j_client import query_entities
 
     entity_names = []  # ENTITIES_DISABLED: [e.text for e in (entities or [])]
-
-    # Detect ambiguity from classifier result
-    is_ambiguous = intent_result is not None and getattr(intent_result, "is_ambiguous", False)
-    second_label = getattr(intent_result, "second_label", None) if intent_result else None
 
     # Load tenant config early — needed by rewriter (bot_description) and context builder.
     # Redis-cached: <5ms, safe to load here before retrieval.
@@ -425,6 +430,43 @@ async def handle_query(
             min_score,
         )
 
+    # ── Step 5b: Trust gate — ¿el contexto RESPONDE o solo se parece? ─────────
+    # Si nada responde, activa la rama determinística de no-info (hard_fallback)
+    # en vez de dejar que el LLM invente. Si responde a medias, filtra el
+    # contexto y fuerza la respuesta parcial honesta. Fail-open ante errores.
+    # Ver services/trust_gate.py (validado en staging 2026-07-23, 33/33).
+    if (
+        settings.trust_gate_enabled
+        and context_parts and not hard_fallback and not low_confidence_fallback
+    ):
+        try:
+            from services.trust_gate import coverage_note, evaluate_coverage
+            _tg = await evaluate_coverage(normalized_question, context_parts, tenant_id)
+            # F2a (plan de calidad): scores crudos junto al veredicto — cada
+            # consulta real acumula datos para calibrar la señal de confianza
+            # única (best_rrf vs best_cosine vs lex vs veredicto del juez).
+            _best_rrf = max((c.score for c in all_chunks), default=0.0)
+            _best_cos = max(
+                (c.metadata.get("_cosine_score", 0.0) for c in all_chunks), default=0.0
+            )
+            logger.info(
+                "trust_gate tenant_id=%s action=%s judge=%s lex=%.2f best_rrf=%.3f best_cos=%.3f reason=%s",
+                tenant_id, _tg["action"], _tg["judge_used"], _tg["lex_coverage"],
+                _best_rrf, _best_cos, _tg["reason"],
+            )
+            if _tg["action"] == "refuse":
+                hard_fallback = True
+                context_parts, sources = [], []
+            elif _tg.get("kept"):
+                # NO filtrar el contexto a los chunks aprobados: las preguntas
+                # de síntesis necesitan combinar varios y el filtro las rompía
+                # (medido: síntesis 92%→58% con filtro). El veredicto decide
+                # responder/rechazar; la nota maneja la cobertura parcial.
+                if _tg.get("missing"):
+                    context_parts.append(coverage_note(_tg["missing"]))
+        except Exception as exc:  # noqa: BLE001 — el gate nunca tira la consulta
+            logger.warning("trust_gate_error tenant_id=%s error=%s", tenant_id, exc)
+
     # ── Step 6: Choose model based on complexity ───────────────────────────────
     from services.groq_client import classify_complexity, complete
 
@@ -436,13 +478,6 @@ async def handle_query(
     #
     # Putting everything in system gives the LLM a single coherent ground truth.
     # The user turn is kept clean so conversation history stays readable.
-
-    ambiguity_note = ""
-    if is_ambiguous and second_label and intent_result:
-        ambiguity_note = (
-            f"La consulta del usuario podría referirse a '{intent_result.label}' "
-            f"o a '{second_label}'. Considerá ambos contextos al responder."
-        )
 
     if context_parts and low_confidence_fallback:
         context_block = (
@@ -468,8 +503,6 @@ async def handle_query(
             f"¿Hay algo de eso en lo que pueda ayudarte?\"\n"
             f"No des información fuera del alcance aunque la conozcas."
         )
-    if ambiguity_note:
-        system_parts.append(ambiguity_note)
     system_parts.append(anti_hallucination.strip())
     system_parts.append(context_block)
 
@@ -477,6 +510,29 @@ async def handle_query(
     facts_note = await _canonical_facts_note(tenant_id, question)
     if facts_note:
         system_parts.append(facts_note)
+    if tool_schemas:
+        # Modo unificado (2b): el modelo tiene herramientas de datos EN VIVO
+        # adjuntas a esta misma llamada. Guía explícita de cuándo usarlas — sin
+        # esto tiende a responder desde el contexto documental aunque la consulta
+        # pida datos vivos del sistema del cliente (CRM etc.).
+        system_parts.append(
+            "=== DATOS EN VIVO (HERRAMIENTAS) — TIENEN PRIORIDAD ===\n"
+            "Tenés herramientas que consultan datos EN VIVO y PRIVADOS del sistema de "
+            "la organización (CRM: proyectos, finanzas, clientes, oportunidades, tareas). "
+            "REGLA: el contexto documental de abajo describe a la organización en general, "
+            "pero NO contiene los datos personales de cada persona ni el estado actual del "
+            "sistema. Por eso:\n"
+            "• Si la consulta está en PRIMERA PERSONA o pide algo PROPIO del usuario "
+            "(«mi/mis/mío», «yo», «cuánto facturé», «cómo vengo», «qué tengo», «mis "
+            "números/plata/cuenta/proyectos/horas»), DEBÉS llamar la herramienta que "
+            "corresponda. NUNCA respondas eso desde el contexto documental ni digas que "
+            "no lo encontraste: esos datos SOLO están en la herramienta.\n"
+            "• Si pide el estado ACTUAL o la lista VIVA de algo del negocio (proyectos "
+            "en curso, clientes, cobros), llamá la herramienta aunque el contexto "
+            "mencione algo parecido: el contexto puede estar incompleto o desactualizado.\n"
+            "• Solo respondé sin herramienta cuando la consulta es claramente general "
+            "(qué es la empresa, quién es alguien del equipo, horarios, contacto)."
+        )
     system_parts.append(
         "FORMATO DE ENLACES: escribí las URLs completas en texto plano "
         "(por ejemplo https://www.ejemplo.com/pagina). NUNCA uses formato Markdown "
@@ -527,6 +583,26 @@ async def handle_query(
         # Corte duro: respuesta determinística con el contacto del tenant, sin LLM.
         # Imposible alucinar porque no hay generación. Reusa el contact_info del
         # config del handoff (mismo campo que el mensaje de "no hay operadores").
+        #
+        # PERO: con tools presentes, este es EXACTAMENTE el camino donde caen las
+        # consultas de datos vivos ("¿qué oportunidades tenemos?" no tiene docs →
+        # score bajo). Antes de rendirnos, una llamada de SOLO-decisión (el texto
+        # se descarta → cero riesgo de alucinación): si el LLM elige tool, el
+        # caller la ejecuta; si no, sigue el mensaje determinístico de siempre.
+        if tool_schemas:
+            pick = await _try_tool_pick(question, tool_schemas, tenant_id)
+            if pick:
+                latency_ms = int(time.monotonic() * 1000) - start_ms
+                logger.info("unified_tool_pick_on_fallback tenant_id=%s tool=%s", tenant_id, pick["name"])
+                return {
+                    "answer": None,
+                    "tool_call": pick,
+                    "sources": [],
+                    "intent_label": None,
+                    "intent_confidence": None,
+                    "from_cache": False,
+                    "latency_ms": latency_ms,
+                }
         from services.handoff import _get_handoff_config, build_no_info_message
         handoff_cfg = await _get_handoff_config(tenant_id)
         answer = build_no_info_message(handoff_cfg)
@@ -534,19 +610,42 @@ async def handle_query(
         return {
             "answer": answer,
             "sources": [],
-            "intent_label": intent_result.label if intent_result else None,
-            "intent_confidence": intent_result.confidence if intent_result else None,
+            "intent_label": None,
+            "intent_confidence": None,
             "from_cache": False,
             "latency_ms": latency_ms,
             "low_confidence": True,
         }
 
     try:
-        answer = await complete(
-            messages=messages,
-            complexity=complexity,
-            tenant_id=tenant_id,
-        )
+        if tool_schemas:
+            # Modo unificado (2b): UNA llamada decide tool-vs-respuesta. Cero hops
+            # extra en turnos RAG; si elige tool, la salida es corta (más rápida
+            # que generar respuesta) y el caller ejecuta.
+            from services.groq_client import complete_with_tools
+            answer, tool_pick = await complete_with_tools(
+                messages=messages,
+                tools=tool_schemas,
+                complexity=complexity,
+                tenant_id=tenant_id,
+            )
+            if tool_pick:
+                latency_ms = int(time.monotonic() * 1000) - start_ms
+                return {
+                    "answer": None,
+                    "tool_call": tool_pick,
+                    "sources": [],
+                    "intent_label": None,
+                    "intent_confidence": None,
+                    "from_cache": False,
+                    "latency_ms": latency_ms,
+                }
+        else:
+            answer = await complete(
+                messages=messages,
+                complexity=complexity,
+                tenant_id=tenant_id,
+            )
     except (APITimeoutError, RateLimitError, APIError, httpx.HTTPError) as exc:
         # APITimeoutError/RateLimitError/APIError come from the `groq` SDK.
         # httpx.HTTPError covers OpenAI (called via raw httpx in groq_client.complete)
@@ -557,8 +656,8 @@ async def handle_query(
         return {
             "answer": "Lo siento, el servicio de IA no está disponible en este momento. Por favor intentá de nuevo en unos segundos.",
             "sources": sources,
-            "intent_label": intent_result.label if intent_result else None,
-            "intent_confidence": intent_result.confidence if intent_result else None,
+            "intent_label": None,
+            "intent_confidence": None,
             "from_cache": False,
             "latency_ms": latency_ms,
         }
@@ -568,8 +667,8 @@ async def handle_query(
     response = {
         "answer": answer,
         "sources": sources,
-        "intent_label": intent_result.label if intent_result else None,
-        "intent_confidence": intent_result.confidence if intent_result else None,
+        "intent_label": None,
+        "intent_confidence": None,
         "from_cache": False,
         "latency_ms": latency_ms,
         "low_confidence": low_confidence_fallback,
@@ -749,44 +848,6 @@ async def _set_cache(question_hash: str, tenant_id: str, response: dict) -> None
         logger.warning("cache_write_failed key=%s error=%s", key, exc)
 
 
-async def _relog_semantic_hit(
-    tenant_id: str,
-    user_id: str | None,
-    question: str,
-    normalized_question: str,
-    question_hash: str,
-    latency_ms: int,
-    fallback_label: str | None,
-    fallback_confidence: float | None,
-) -> None:
-    """Loguea una consulta servida por semantic cache con su clasificación ACTUAL.
-
-    El semantic cache devuelve la entrada de una pregunta similar, cuyo label
-    puede no ser el de esta consulta. Re-clasificamos acá (en background, ya
-    fuera del camino de respuesta) para que `consultas_log` — base del análisis
-    de intenciones y del auto-aprendizaje — reciba el label correcto. Si la
-    re-clasificación falla, caemos al label de la entrada cacheada.
-    """
-    label, confidence = fallback_label, fallback_confidence
-    try:
-        from services.classifier import classify_intent
-        result = await classify_intent(normalized_question, tenant_id)
-        if result and result.label:
-            label, confidence = result.label, result.confidence
-    except Exception as exc:
-        logger.debug("relog_reclassify_failed tenant_id=%s error=%s", tenant_id, exc)
-    await _log_query(
-        tenant_id=tenant_id,
-        user_id=user_id,
-        question_text=question[:500],
-        question_hash=question_hash,
-        intent_label=label,
-        intent_confidence=confidence,
-        latency_ms=latency_ms,
-        from_cache=True,
-    )
-
-
 async def _log_query(
     question_hash: str,
     question_text: str,
@@ -797,45 +858,19 @@ async def _log_query(
     latency_ms: int,
     from_cache: bool = False,
 ) -> None:
-    """Persist query log to consultas_log and trigger auto-learning when applicable.
+    """Persist query log to consultas_log. Non-fatal on failure.
 
-    Auto-learning (per CLAUDE.md):
-      - confidence >= 95% AND intent exists → add to intencion_ejemplos (cap 30%)
-      - if cap exceeded → set auto_learning_blocked=TRUE instead
-    Non-fatal on failure.
+    intent_label/intent_confidence quedan por compatibilidad de schema (columnas
+    nullable); el clasificador de intenciones ya no corre en el camino de consulta.
     """
     from core.database import get_pg_session
     from sqlalchemy import text
     from core.text_utils import repair_mojibake
 
-    # Reparar doble-encoding antes de persistir: el texto alimenta clustering y el
-    # panel, y el mojibake fragmenta clusters y ensucia las intenciones aprendidas.
+    # Reparar doble-encoding antes de persistir: el texto alimenta el panel de
+    # conversaciones y los análisis sobre consultas_log.
     question_text = repair_mojibake(question_text) or question_text
 
-    auto_learning_blocked = False
-
-    # Auto-learning en su PROPIA transacción: si falla (constraint, intención
-    # borrada en paralelo, etc.) NO debe abortar ni perder el insert del log de
-    # la consulta. Antes compartían session y transacción, así que un error del
-    # auto-learn se tragaba toda la fila de consultas_log (que alimenta
-    # clustering, billing y la retención 60/90 días) sin más que un warning.
-    if (
-        intent_label
-        and intent_confidence is not None
-        and intent_confidence >= settings.intent_confidence_high
-        and not from_cache
-        and question_text
-    ):
-        try:
-            async with get_pg_session(tenant_id) as session:
-                auto_learning_blocked = await _maybe_auto_learn(
-                    session, tenant_id, intent_label, question_hash, question_text
-                )
-        except Exception as exc:
-            logger.warning("auto_learn_failed tenant_id=%s error=%s", tenant_id, exc)
-            auto_learning_blocked = False
-
-    # Log de la consulta — transacción independiente del auto-learning.
     try:
         async with get_pg_session(tenant_id) as session:
             await session.execute(
@@ -854,91 +889,11 @@ async def _log_query(
                     "intent_confidence": intent_confidence,
                     "latency_ms": latency_ms,
                     "from_cache": from_cache,
-                    "auto_learning_blocked": auto_learning_blocked,
+                    "auto_learning_blocked": False,
                 },
             )
     except Exception as exc:
         logger.warning("query_log_failed tenant_id=%s error=%s", tenant_id, exc)
-
-
-async def _maybe_auto_learn(
-    session,
-    tenant_id: str,
-    intent_label: str,
-    question_hash: str,
-    question_text: str,
-) -> bool:
-    """Add example to intencion_ejemplos if under the 30% auto-learn cap.
-
-    Returns True if the cap was exceeded (auto_learning_blocked).
-    """
-    from sqlalchemy import text
-
-    # Fetch intention stats: example_count, auto_learned_count
-    row = await session.execute(
-        text(
-            "SELECT id, example_count, auto_learned_count "
-            "FROM intenciones WHERE label = :label AND is_active = TRUE"
-        ),
-        {"label": intent_label},
-    )
-    intention = row.mappings().fetchone()
-    if not intention:
-        return False  # Intention doesn't exist yet — skip
-
-    example_count = intention["example_count"] or 0
-    auto_learned = intention["auto_learned_count"] or 0
-    cap = settings.intent_auto_learn_cap  # 0.30
-
-    # Check if this exact query_hash already exists as an example
-    dup = await session.execute(
-        text(
-            "SELECT 1 FROM intencion_ejemplos "
-            "WHERE intencion_id = :iid AND question_hash = :qh LIMIT 1"
-        ),
-        {"iid": str(intention["id"]), "qh": question_hash},
-    )
-    if dup.fetchone():
-        return False  # Already learned — not blocked
-
-    # Enforce 30% cap: auto_learned / (example_count + auto_learned) <= 30%
-    total = example_count + auto_learned
-    if total > 0 and auto_learned / total >= cap:
-        logger.debug(
-            "auto_learn_cap_exceeded tenant=%s label=%s auto=%d total=%d",
-            tenant_id, intent_label, auto_learned, total,
-        )
-        return True  # Blocked — caller sets auto_learning_blocked=TRUE in log
-
-    # Under cap — insert example
-    import uuid as _uuid
-    await session.execute(
-        text(
-            "INSERT INTO intencion_ejemplos "
-            "(id, intencion_id, question_hash, question_text, is_auto_learned, is_approved) "
-            "VALUES (:id, :iid, :qh, :qt, TRUE, TRUE)"
-        ),
-        {
-            "id": str(_uuid.uuid4()),
-            "iid": str(intention["id"]),
-            "qh": question_hash,
-            "qt": question_text,
-        },
-    )
-    # Increment auto_learned_count
-    await session.execute(
-        text(
-            "UPDATE intenciones "
-            "SET auto_learned_count = auto_learned_count + 1, updated_at = NOW() "
-            "WHERE id = :id"
-        ),
-        {"id": str(intention["id"])},
-    )
-    logger.debug(
-        "auto_learned tenant=%s label=%s auto=%d total=%d",
-        tenant_id, intent_label, auto_learned + 1, total + 1,
-    )
-    return False
 
 
 async def _log_usage_event_app(tenant_id: str, event_type: str, value: int) -> None:

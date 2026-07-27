@@ -22,6 +22,18 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             setea las CSS vars en <html>. Si no hay cache o estamos en /login,
             no toca nada y queda el branding generico. */}
         <script dangerouslySetInnerHTML={{ __html: BRANDING_PRELOAD_SCRIPT }} />
+        {/* Tema (auto/claro/oscuro) ANTES del primer paint — cero flash. Lee la
+            misma clave que lib/theme.ts; "auto" sigue al sistema operativo. */}
+        <script dangerouslySetInnerHTML={{ __html: `
+          try {
+            var p = location.pathname;
+            if (p.indexOf("/admin") === 0 || p.indexOf("/superadmin") === 0) {
+              var t = localStorage.getItem("ui-theme");
+              var dark = t === "dark" || (t !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+              if (dark) document.documentElement.classList.add("dark");
+            }
+          } catch (e) {}
+        `.trim() }} />
       </head>
       <body className={jakarta.className}>
         <Providers>

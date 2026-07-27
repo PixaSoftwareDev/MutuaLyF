@@ -1,6 +1,6 @@
 {
   "version": "1.9",
-  "last_updated": "2026-07-08T13:30:00Z",
+  "last_updated": "2026-07-22",
   "current_stage": "etapa_3",
   "current_step": "completed",
   "overall_status": "etapa_3_complete",
@@ -197,6 +197,23 @@
       "decision": "Auto-promoción de clusters coherentes → intenciones (con gate de coherencia Groq)",
       "reason": "El sistema de intenciones tenía un cold-start: el unico camino cluster→intencion era aprobacion manual, que nunca ocurria (mutualyf: 59 clusters, 0 intenciones). Ahora los clusters coherentes se promueven solos; los incoherentes quedan para revision.",
       "date": "2026-07-08"
+    },
+    {
+      "decision": "Ruteo de conectores por LLM tool-calling (modos tool_calling/unified) en lugar del clasificador coseno; pipeline nocturno de intenciones apagado por flag",
+      "reason": "Datos de prod: el coseno ruteo 1/11 consultas CRM en toda la historia y asigno labels erroneos (futbol->crm_finanzas). Eval 46 casos reales: LLM tool-calling 46/46 estricto. Modo unified (la misma llamada RAG decide tool-vs-responder) medido con delta de latencia ~0 vs baseline. El pipeline nocturno (clustering/auto-promote/retrain) no aporta valor al producto hoy: queda tras INTENT_NIGHTLY_PIPELINE_ENABLED=false, reversible por env. Eliminacion total del subsistema de intenciones (Fase 3) diferida hasta validar unified en prod.",
+      "date": "2026-07-21"
+    },
+    {
+      "decision": "Fase 1 de eliminacion de intenciones: classify_intent fuera del camino de consulta del orquestador (sin nota de ambiguedad ni auto-learning), modo cosine eliminado del connector_router, default connector_routing_mode=unified con coercion de valores legacy",
+      "reason": "Las intenciones no aportaban al RAG (solo metadata/ambiguedad marginal) y el ruteo de tools ya es por LLM. Ahorra ~60ms + 1 busqueda Qdrant por consulta. intent_label/intent_confidence quedan NULL en consultas_log y respuesta (compat de schema). Fase 2 pendiente: borrar modulos classifier/clustering/promotion, API intentions, panel frontend y tablas.",
+      "date": "2026-07-22",
+      "verification": "pytest 202 passed (3 fallas preexistentes de test_connector_discovery_file por mock timeout_s, identicas en HEAD); chat_suite 35/62 identico a baseline HEAD (27 fallas preexistentes por drift del entorno local: conector apunta a upstream real 149.50.152.218 con SSL invalido -> circuit breaker); smoke manual: RAG ok, tool_pick ok, FSM login DNI->OTP->sesion ok con rehidratacion por slug"
+    },
+    {
+      "decision": "Fase 2a eliminacion de intenciones: borrados modulos (classifier, trainer, clustering, promotion, reconcile, examples, keywords, workers clustering/training, api intentions, calibrate_intents), panel /admin/intentions + componentes, bindings de conectores (API+DAO+UI), metricas de clasificador (top_intents/confianza/sin-clasificar), seccion intenciones del export, coleccion _intenciones en provision. purge_stale_query_cache movido a maintenance_tasks.",
+      "reason": "Continuacion de Fase 1: dejar solo codigo vivo. Queda Fase 2b (drop de tablas intenciones/intencion_ejemplos/connector_intent_bindings + colecciones Qdrant) para despues de validar en prod — staging comparte PG/Qdrant con prod.",
+      "date": "2026-07-22",
+      "verification": "pytest 184/184 (incluye fix mock timeout_s preexistente), tsc --noEmit limpio, smoke RAG+FSM ok, chat_suite 62 turnos con fallas identicas a baseline HEAD (0 regresiones)"
     }
   ],
   "blockers": [],

@@ -1,13 +1,16 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   MessageSquare, Loader2, Send, UserCheck, UserMinus, XCircle, User, Bot,
-  Info, ChevronDown, ChevronLeft, Search, ArrowRightLeft, Eye,
-  RotateCcw, MoreVertical, Paperclip, X, Globe,
+  Info, ChevronLeft, Search, ArrowRightLeft, Eye,
+  RotateCcw, MoreVertical, Paperclip, X, Globe, PanelRight, Download,
 } from "lucide-react";
 import { api, type ConversationRow } from "@/lib/api";
+import { ConversationContextPanel } from "@/components/conversations/conversation-context-panel";
 import { extractErrorMessage } from "@/lib/errors";
 import { renderWithLinks } from "@/lib/render-with-links";
 import { WhatsAppIcon } from "@/components/ui/whatsapp-icon";
@@ -25,15 +28,27 @@ import { cn } from "@/lib/utils";
 
 const URGENT_MS       = 120_000; // 2 min waiting → urgent (amber)
 const VERY_URGENT_MS  = 300_000; // 5 min waiting → very urgent (red)
-const COLLAPSED_KEY = "ia_ops_collapsed_v2";
 
 // La bandeja muestra solo lo accionable. Cerradas viven en /historial
 // para no mezclar y evitar que el operador piense que tiene que hacer algo.
 type SectionKey = "handoff_requested" | "human_attending";
 
-const SECTION_DEFS: Array<{ key: SectionKey; label: string; tone: string; badge: string; defaultOpen: boolean }> = [
-  { key: "handoff_requested", label: "En espera",   tone: "text-warning", badge: "bg-warning/15 text-warning", defaultOpen: true },
-  { key: "human_attending",   label: "En atención", tone: "text-success", badge: "bg-success/15 text-success", defaultOpen: true },
+// Vistas por estado — el estado activo vive en la URL (?status=), lo escribe el
+// submenú (OperatorSidebar) y este panel lo lee para filtrar la lista. Mismo
+// patrón que el inbox del admin. "all" muestra las dos secciones combinadas.
+type StatusView = "all" | SectionKey;
+
+const VIEW_LABELS: Record<StatusView, string> = {
+  all:               "Todas",
+  handoff_requested: "En espera",
+  human_attending:   "En atención",
+};
+
+// Vistas para el segmented control mobile (en desktop viven en el submenú).
+const MOBILE_VIEWS: Array<{ key: StatusView; label: string }> = [
+  { key: "all",               label: "Todas" },
+  { key: "handoff_requested", label: "En espera" },
+  { key: "human_attending",   label: "En atención" },
 ];
 
 export type ConversationsPanelMode = "operator" | "admin-readonly";
@@ -66,10 +81,18 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
   const [selectedId, setSelectedId]     = useState<string | null>(null);
   const [replyText, setReplyText]       = useState("");
   const [search, setSearch]             = useState("");
-  const [sectorFilter, setSectorFilter] = useState<string>("all");
   const [showTransfer, setShowTransfer] = useState(false);
+
+  // Vista y sector activos — desde la URL (los escribe el submenú OperatorSidebar
+  // en desktop y el segmented control en mobile). Mismo patrón que el admin.
+  const params = useSearchParams();
+  const statusView = (params.get("status") ?? "all") as StatusView;
+  const sectorFilter = params.get("sector") ?? "";
   const [transferSector, setTransferSector] = useState("");
   const [confirmRelease, setConfirmRelease] = useState(false);
+  // Panel de contexto del afiliado (columna 3) — colapsable con pin, igual que el
+  // inbox del admin. Arranca abierto en pantallas anchas.
+  const [contextOpen, setContextOpen] = useState(true);
   const [sseConnected, setSseConnected] = useState(false);
   const [now, setNow] = useState<number>(() => Date.now());
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -93,22 +116,6 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
     const id = setInterval(() => setNow(Date.now()), 10_000);
     return () => clearInterval(id);
   }, []);
-
-  // Collapsed sections
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => {
-    if (typeof window === "undefined") return {};
-    try { return JSON.parse(localStorage.getItem(COLLAPSED_KEY) ?? "{}"); } catch { return {}; }
-  });
-  useEffect(() => {
-    try { localStorage.setItem(COLLAPSED_KEY, JSON.stringify(collapsed)); } catch { /* ignore */ }
-  }, [collapsed]);
-
-  const isCollapsed  = (k: SectionKey) => {
-    if (k in collapsed) return collapsed[k];
-    const def = SECTION_DEFS.find(s => s.key === k);
-    return def ? !def.defaultOpen : false;
-  };
-  const toggleSection = (k: SectionKey) => setCollapsed(p => ({ ...p, [k]: !isCollapsed(k) }));
 
   // ── Queries ────────────────────────────────────────────────────────────────
 
@@ -476,15 +483,10 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
 
   // ── Filtered + segmented ───────────────────────────────────────────────────
 
-  const sectorOptions = useMemo(
-    () => Array.from(new Set(allConvs.map(c => c.sector_nombre).filter(Boolean) as string[])).sort(),
-    [allConvs],
-  );
-
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return allConvs.filter(c => {
-      if (sectorFilter !== "all" && c.sector_nombre !== sectorFilter) return false;
+      if (sectorFilter && c.sector_id !== sectorFilter) return false;
       if (!q) return true;
       return (c.afiliado_nombre || "").toLowerCase().includes(q) ||
              (c.sector_nombre   || "").toLowerCase().includes(q);
@@ -492,6 +494,23 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
   }, [allConvs, search, sectorFilter]);
 
   const sections = useMemo(() => segmentAndSort(filtered, now), [filtered, now]);
+
+  // Lista plana según la vista activa (las secciones ahora viven en el submenú).
+  // "all" combina espera + atención (espera primero, ya viene ordenado por urgencia).
+  const displayed = useMemo<ConversationRow[]>(() => {
+    if (statusView === "handoff_requested") return sections.handoff_requested;
+    if (statusView === "human_attending")   return sections.human_attending;
+    return [...sections.handoff_requested, ...sections.human_attending];
+  }, [sections, statusView]);
+
+  // href para el segmented control mobile (preserva el sector activo).
+  const viewHref = (key: StatusView) => {
+    const p = new URLSearchParams();
+    if (key !== "all")   p.set("status", key);
+    if (sectorFilter)    p.set("sector", sectorFilter);
+    const q = p.toString();
+    return "/operator" + (q ? `?${q}` : "");
+  };
   const onlineNames = useMemo(
     () => new Set((presenceData?.operators ?? []).map(o => o.name)),
     [presenceData],
@@ -512,7 +531,7 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex h-full overflow-hidden">
+    <div className="flex h-full min-h-0 overflow-hidden">
 
       {/* Anuncio para lectores de pantalla: el panel cambia en tiempo real (SSE),
           esta región avisa cuántas conversaciones esperan sin que el operador
@@ -525,58 +544,64 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
         </div>
       )}
 
-      {/* ── LEFT: queue ──────────────────────────────────────────────────── */}
+      {/* ── Columna 1: bandeja (misma estructura que el inbox del admin) ──── */}
       <div className={cn(
-        "border-r border-slate-100 flex flex-col shrink-0 bg-slate-50/40",
-        "w-full sm:w-80",
-        selectedId ? "hidden sm:flex" : "flex"
+        "flex min-h-0 flex-col lg:w-[360px] lg:shrink-0 lg:border-r",
+        selectedId ? "hidden w-full lg:flex" : "flex w-full"
       )}>
 
-        {/* Filters. El título "Panel Operador" y los pills de conteo se
-            quitaron: el topbar ya identifica la vista y los headers de sección
-            ya traen los números — era el mismo dato tres veces. */}
-        <div className="px-4 pt-3 pb-3 space-y-3">
-          {/* Buscador a ancho completo. El estado del SSE en tiempo real sigue
-              activo por debajo (con respaldo de polling); antes se mostraba un
-              indicador Wifi que confundía sin aportar. */}
+        {/* Header: vista activa + total (mismo patrón que el inbox del admin;
+            las vistas por estado viven en el submenú OperatorSidebar). */}
+        <div className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
+          <h2 className="text-[15px] font-semibold tracking-tight text-foreground">{VIEW_LABELS[statusView]}</h2>
+          {!isLoading && (
+            <span className="text-xs tabular-nums text-muted-foreground">{displayed.length}</span>
+          )}
+        </div>
+
+        {/* Segmented control de vistas — SOLO mobile (en desktop está el submenú). */}
+        <div className="shrink-0 px-3 pt-2 lg:hidden">
+          <div className="flex items-center gap-1 rounded-xl bg-muted/60 p-1">
+            {MOBILE_VIEWS.map(v => {
+              const active = statusView === v.key;
+              const count = v.key === "handoff_requested" ? sections.handoff_requested.length
+                          : v.key === "human_attending"   ? sections.human_attending.length
+                          : displayed.length;
+              return (
+                <Link
+                  key={v.key}
+                  href={viewHref(v.key)}
+                  aria-current={active ? "page" : undefined}
+                  className={cn(
+                    "flex flex-1 items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-medium transition-all",
+                    active ? "bg-card text-foreground font-semibold shadow-xs" : "text-muted-foreground",
+                  )}
+                >
+                  {v.label}
+                  {count > 0 && <span className="tabular-nums opacity-70">{count}</span>}
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Búsqueda — subfila (igual que el inbox del admin). */}
+        <div className="shrink-0 px-3 pb-2 pt-2">
           <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
             <input
               type="text"
               aria-label="Buscar conversaciones"
               placeholder="Buscar…"
               value={search}
               onChange={e => setSearch(e.target.value)}
-              className="w-full h-9 pl-8 pr-3 rounded-lg bg-slate-100/80 text-xs placeholder:text-slate-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-action/40 transition"
+              className="w-full h-8 pl-8 pr-3 rounded-lg bg-muted/60 text-[13px] placeholder:text-muted-foreground focus:bg-card focus:outline-none focus-visible:ring-2 focus-visible:ring-action/40 transition-colors"
             />
           </div>
-
-          {/* Sector filter — dropdown */}
-          {sectorOptions.length > 1 && (
-            <div className="relative">
-              <select
-                value={sectorFilter}
-                aria-label="Filtrar por sector"
-                onChange={e => setSectorFilter(e.target.value)}
-                className={cn(
-                  "w-full h-9 pl-3 pr-8 rounded-lg text-xs cursor-pointer appearance-none focus:outline-none focus-visible:ring-2 focus-visible:ring-action/40 transition",
-                  sectorFilter === "all"
-                    ? "bg-slate-100/80 text-muted-foreground"
-                    : "bg-action/[0.08] text-foreground font-medium"
-                )}
-              >
-                <option value="all">Todos los sectores</option>
-                {sectorOptions.map(s => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-              </select>
-              <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
-            </div>
-          )}
         </div>
 
-        {/* List */}
-        <div className="flex-1 overflow-y-auto scrollbar-slim p-2 space-y-1">
+        {/* Lista plana de conversaciones (filtrada por la vista activa) */}
+        <div className="min-h-0 flex-1 overflow-y-auto scrollbar-slim p-2 space-y-1.5">
           {isLoading ? (
             Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-16 rounded-lg" />)
           ) : error ? (
@@ -589,59 +614,38 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
                 No tenés sectores asignados. Pedile al administrador que te asigne los sectores que vas a atender.
               </p>
             </div>
-          ) : filtered.length === 0 ? (
+          ) : displayed.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground">
               <MessageSquare className="h-8 w-8 mx-auto mb-2 opacity-20" />
-              <p className="text-xs">{search ? "Sin resultados" : "Sin conversaciones activas"}</p>
+              <p className="text-xs">
+                {search ? "Sin resultados"
+                  : statusView === "handoff_requested" ? "Sin conversaciones en espera"
+                  : statusView === "human_attending"   ? "No estás atendiendo ninguna conversación"
+                  : "Sin conversaciones activas"}
+              </p>
             </div>
           ) : (
-            <>
-              {SECTION_DEFS.map(def => {
-                const items = sections[def.key];
-                if (items.length === 0) return null;
-                const open = !isCollapsed(def.key);
-                return (
-                  <div key={def.key}>
-                    <button
-                      onClick={() => toggleSection(def.key)}
-                      className="w-full flex items-center gap-1.5 px-2 py-1.5 hover:bg-muted/40 rounded-md transition-colors"
-                    >
-                      <ChevronDown className={cn("h-3.5 w-3.5 text-muted-foreground transition-transform", !open && "-rotate-90")} />
-                      <span className={cn("text-[11px] font-bold uppercase tracking-wide", def.tone)}>{def.label}</span>
-                      <span className={cn("ml-auto text-[11px] font-semibold rounded-full px-1.5 min-w-[20px] text-center", def.badge)}>
-                        {items.length}
-                      </span>
-                    </button>
-                    {open && (
-                      <div className="space-y-1.5 mb-2">
-                        {items.map(conv => (
-                          <ConvCard
-                            key={conv.id}
-                            conv={conv}
-                            now={now}
-                            selected={selectedId === conv.id}
-                            readOnly={readOnly}
-                            onlineNames={onlineNames}
-                            onSelect={() => setSelectedId(conv.id)}
-                            onAccept={() => acceptM.mutate(conv.id)}
-                            accepting={acceptM.isPending && acceptM.variables === conv.id}
-                          />
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-
-            </>
+            displayed.map(conv => (
+              <ConvCard
+                key={conv.id}
+                conv={conv}
+                now={now}
+                selected={selectedId === conv.id}
+                readOnly={readOnly}
+                onlineNames={onlineNames}
+                onSelect={() => setSelectedId(conv.id)}
+                onAccept={() => acceptM.mutate(conv.id)}
+                accepting={acceptM.isPending && acceptM.variables === conv.id}
+              />
+            ))
           )}
         </div>
       </div>
 
-      {/* ── RIGHT: detail ────────────────────────────────────────────────── */}
+      {/* ── Columna 2: conversación ──────────────────────────────────────── */}
       <div className={cn(
-        "flex-1 flex flex-col min-w-0 bg-background",
-        !selectedId && "hidden sm:flex"
+        "flex min-h-0 flex-1 flex-col min-w-0",
+        !selectedId && "hidden lg:flex"
       )}>
         {!selectedId ? (
           <div className="flex-1 flex items-center justify-center text-muted-foreground">
@@ -656,11 +660,11 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
         ) : detailLoading ? (
           // Skeleton de chat (no un panel vacío): al saltar entre conversaciones
           // el operador ve la estructura cargando, no un parpadeo en blanco.
-          <div className="flex-1 flex flex-col">
-            <div className="px-4 py-3 border-b border-slate-100 bg-white">
+          <div className="flex min-h-0 flex-1 flex-col">
+            <div className="flex h-[53px] shrink-0 items-center border-b px-4">
               <Skeleton className="h-4 w-40" />
             </div>
-            <div className="flex-1 p-4 space-y-3 bg-slate-50/50">
+            <div className="mx-auto w-full max-w-3xl flex-1 space-y-3 p-4">
               <Skeleton className="h-12 w-2/3 rounded-2xl" />
               <Skeleton className="h-12 w-1/2 rounded-2xl ml-auto" />
               <Skeleton className="h-10 w-3/5 rounded-2xl" />
@@ -668,35 +672,20 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
           </div>
         ) : detail ? (
           <>
-            {/* ── Header ── */}
-            <div className="px-4 py-3 border-b border-slate-100 bg-white">
-              <div className="max-w-4xl mx-auto w-full flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2 min-w-0">
-                <button
-                  onClick={() => setSelectedId(null)}
-                  className="sm:hidden flex items-center justify-center w-7 h-7 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0"
-                  aria-label="Volver"
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                </button>
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <p className="font-semibold text-sm truncate">{detail.afiliado_nombre || (detail.afiliado_ip ? `IP ${detail.afiliado_ip}` : "Afiliado anónimo")}</p>
-                    <StatusBadge status={detail.status} />
-                    {detail.channel === "whatsapp" && <span aria-label="WhatsApp" className="shrink-0 inline-flex items-center gap-1 text-[10px] font-semibold bg-green-600/10 text-green-700 rounded px-1.5 py-0.5"><WhatsAppIcon className="h-2.5 w-2.5" />WhatsApp</span>}
-                  </div>
-                  <p className="text-xs text-muted-foreground truncate mt-0.5">
-                    {[
-                      detail.sector_nombre,
-                      detail.channel === "whatsapp" && detail.external_id ? `WhatsApp ${formatWaNumber(detail.external_id)}` : null,
-                      detail.afiliado_dni   && `DNI ${detail.afiliado_dni}`,
-                      detail.afiliado_email,
-                      // IP solo si ya mostramos un nombre arriba (si no, el nombre YA es la IP)
-                      (detail.afiliado_ip && detail.afiliado_nombre) ? `IP ${detail.afiliado_ip}` : null,
-                    ].filter(Boolean).join(" · ") || "Sin datos de contacto"}
-                  </p>
-                </div>
-              </div>
+            {/* ── Header ── (h-12: la línea divisoria alinea con la lista y el
+                panel de contexto. Los datos del afiliado —sector, DNI, email—
+                viven en el panel de la derecha, no acá, para no desalinear.) */}
+            <div className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
+              <button
+                onClick={() => setSelectedId(null)}
+                className="lg:hidden -ml-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                aria-label="Volver"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              <p className="min-w-0 flex-1 truncate text-sm font-semibold">{detail.afiliado_nombre || (detail.afiliado_ip ? `IP ${detail.afiliado_ip}` : "Afiliado anónimo")}</p>
+              <StatusBadge status={detail.status} />
+              {detail.channel === "whatsapp" && <span aria-label="WhatsApp" className="shrink-0 inline-flex items-center gap-1 text-[10px] font-semibold bg-green-600/10 text-green-700 rounded px-1.5 py-0.5"><WhatsAppIcon className="h-2.5 w-2.5" />WhatsApp</span>}
               <div className="flex items-center gap-2 shrink-0">
                 {!readOnly && detail.status === "human_attending" && (
                   <>
@@ -759,7 +748,19 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
                   </>
                 )}
                 {readOnly && <Eye className="h-4 w-4 text-muted-foreground" />}
-              </div>
+
+                {/* Pin del panel de contexto: reaparece SOLO cuando está contraído,
+                    en pantallas anchas (igual que el inbox del admin). */}
+                {!contextOpen && (
+                  <button
+                    onClick={() => setContextOpen(true)}
+                    className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground xl:flex focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring animate-fade-in"
+                    aria-label="Mostrar información del afiliado"
+                    title="Mostrar información del afiliado"
+                  >
+                    <PanelRight className="h-4 w-4" />
+                  </button>
+                )}
               </div>
             </div>
 
@@ -790,8 +791,8 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
             )}
 
             {/* ── Messages ── */}
-            <div className="flex-1 overflow-y-auto scrollbar-slim p-4 bg-muted/30">
-             <div className="max-w-4xl mx-auto w-full space-y-3">
+            <div className="min-h-0 flex-1 overflow-y-auto scrollbar-slim">
+             <div className="mx-auto w-full max-w-3xl space-y-3 p-4">
               {/* Bot phase — shown inline, no collapsible box */}
               {botMessages.map(m => <MessageBubble key={m.id} msg={m} conversationId={detail.id} />)}
 
@@ -861,8 +862,8 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
 
             {/* ── Reply ── */}
             {!readOnly && detail.status === "human_attending" && (
-              <div className="border-t border-slate-100 bg-white">
-                <div className="max-w-4xl mx-auto w-full">
+              <div className="border-t bg-card">
+                <div className="max-w-3xl mx-auto w-full">
                 {/* Preview del adjunto pendiente — revisar antes de enviar */}
                 {pendingFile && (
                   <div className="px-4 pt-3">
@@ -971,6 +972,29 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
         ) : null}
       </div>
 
+      {/* ── Columna 3: contexto del afiliado (pantallas anchas, colapsable) ── */}
+      {/* Igual que el inbox del admin: el ancho anima entre 272px y 0; el contenido
+          va en un wrapper de ancho FIJO para que no se reacomode durante el slide. */}
+      {selectedId && (
+        <aside
+          className={cn(
+            "hidden min-h-0 shrink-0 flex-col overflow-hidden xl:flex",
+            "transition-[width,border-color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none",
+            contextOpen ? "w-[272px] border-l" : "w-0 border-l border-l-transparent",
+          )}
+          aria-label="Información del afiliado"
+          aria-hidden={!contextOpen}
+        >
+          <div className="flex min-h-0 w-[272px] shrink-0 flex-1 flex-col overflow-y-auto scrollbar-slim">
+            <ConversationContextPanel
+              detail={detail ?? null}
+              loading={detailLoading}
+              onCollapse={() => setContextOpen(false)}
+            />
+          </div>
+        </aside>
+      )}
+
       {/* Release-to-queue confirmation */}
       <Dialog open={confirmRelease} onOpenChange={(open) => !open && setConfirmRelease(false)}>
         <DialogContent className="max-w-sm">
@@ -1048,15 +1072,6 @@ function ConvCard({ conv, now, selected, readOnly, onlineNames, onSelect, onAcce
 
   const attending = conv.status === "human_attending";
 
-  // Cada conversación es una "burbuja": fondo propio + borde teñido según
-  // estado. El borde de color refuerza la urgencia sin depender solo del fill.
-  const cardBg =
-    urgencyLevel === "critical" ? "bg-destructive/10 hover:bg-destructive/15 border-destructive/25" :
-    urgencyLevel === "urgent"   ? "bg-warning/10 hover:bg-warning/15 border-warning/25"             :
-    yourTurn                    ? "bg-attention/10 hover:bg-attention/15 border-attention/25"       :
-    attending                   ? "bg-success/10 hover:bg-success/15 border-success/25"             :
-    "bg-card hover:bg-muted/50 border-border/60";
-
   const dotColor =
     urgencyLevel === "critical" ? "bg-destructive" :
     urgencyLevel === "urgent"   ? "bg-warning"     :
@@ -1089,22 +1104,54 @@ function ConvCard({ conv, now, selected, readOnly, onlineNames, onSelect, onAcce
   // every message is unread by definition, so the badge adds no information.
   const showUnread = conv.unread_count > 0 && conv.status === "human_attending";
 
+  // Señal de triage: barra de acento a la izquierda (ancho FIJO 3px, transparente
+  // cuando no hay estado → todas las filas alinean) + tinte suave del fondo según
+  // urgencia. Fuerte en lo accionable (en espera / tu turno), calmo en lo que ya
+  // se atiende. Corrés la vista por el borde y detectás qué requiere acción.
+  const accentBar =
+    urgencyLevel === "critical" ? "border-l-destructive" :
+    urgencyLevel === "urgent"   ? "border-l-warning"     :
+    urgencyLevel === "warn"     ? "border-l-warning"     :
+    yourTurn                    ? "border-l-attention"   :
+    attending                   ? "border-l-success"     :
+    "border-l-transparent";
+  const rowTint = selected
+    ? "bg-muted/70"
+    : urgencyLevel === "critical" ? "bg-destructive/[0.07] hover:bg-destructive/10" :
+      urgencyLevel === "urgent"   ? "bg-warning/[0.08] hover:bg-warning/[0.12]"     :
+      urgencyLevel === "warn"     ? "bg-warning/[0.05] hover:bg-warning/[0.09]"     :
+      yourTurn                    ? "bg-attention/[0.07] hover:bg-attention/[0.11]" :
+      attending                   ? "bg-success/[0.04] hover:bg-success/[0.08]"     :
+      "hover:bg-muted/40";
+
   return (
     <div
       className={cn(
-        "rounded-xl border shadow-sm transition-colors group",
-        selected ? "bg-accent border-ring/60" : cardBg,
+        "group rounded-lg border-l-[3px] transition-colors",
+        accentBar,
+        rowTint,
       )}
     >
-      <div className="flex items-center gap-2.5 px-3 py-2.5">
-        <span
-          className={cn(
-            "w-2 h-2 rounded-full shrink-0 mt-0.5 self-start",
-            dotColor,
-            dotPulse && "animate-pulse motion-reduce:animate-none",
+      <div className="flex items-start gap-3 px-3 py-2.5">
+        {/* Avatar con punto de estado en la esquina — misma fila limpia que el
+            inbox del admin; el color de urgencia va en el punto y en la hora,
+            sin teñir toda la burbuja. */}
+        <span className="relative mt-0.5 shrink-0">
+          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-muted text-sm font-semibold text-muted-foreground">
+            {conv.afiliado_nombre?.trim()[0]?.toUpperCase()
+              ?? (conv.channel === "whatsapp" ? <WhatsAppIcon className="h-4 w-4" /> : <User className="h-4 w-4" />)}
+          </span>
+          {dotColor !== "bg-transparent" && (
+            <span
+              className={cn(
+                "absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-background",
+                dotColor,
+                dotPulse && "animate-pulse motion-reduce:animate-none",
+              )}
+              aria-hidden
+            />
           )}
-          aria-hidden
-        />
+        </span>
 
         <button onClick={onSelect} className="flex-1 min-w-0 text-left">
           <p className="text-sm font-medium leading-tight flex items-center gap-1.5 min-w-0">
@@ -1173,6 +1220,7 @@ function AttachmentView({ conversationId, messageId, name, mime }:
   { conversationId: string; messageId: string; name: string; mime: string }) {
   const [url, setUrl] = useState<string | null>(null);
   const [err, setErr] = useState<"expired" | "failed" | null>(null);
+  const [preview, setPreview] = useState(false);
   useEffect(() => {
     let active = true;
     let created: string | null = null;
@@ -1195,15 +1243,49 @@ function AttachmentView({ conversationId, messageId, name, mime }:
       <Loader2 className="h-3 w-3 animate-spin" />{name}
     </span>
   );
-  if (mime.startsWith("image/")) return (
-    <img src={url} alt={name} title={name} onClick={() => window.open(url, "_blank")}
-         className="mt-1 max-w-[220px] max-h-[220px] rounded-lg border cursor-pointer" />
-  );
+  const isImage = mime.startsWith("image/");
+  const isPdf = mime === "application/pdf";
   return (
-    <a href={url} download={name}
-       className="mt-1 inline-flex items-center gap-1.5 px-3 py-2 bg-black/5 rounded-lg text-xs hover:bg-black/10 break-all">
-      <Paperclip className="h-3.5 w-3.5 shrink-0" />{name}
-    </a>
+    <>
+      {isImage ? (
+        <img src={url} alt={name} title={name} onClick={() => setPreview(true)}
+             className="mt-1 max-w-[220px] max-h-[220px] rounded-lg border cursor-pointer" />
+      ) : (
+        <button type="button" onClick={() => (isPdf ? setPreview(true) : undefined)}
+                title={isPdf ? "Ver documento" : name}
+                className={cn("mt-1 inline-flex items-center gap-1.5 px-3 py-2 bg-black/5 rounded-lg text-xs hover:bg-black/10 break-all text-left",
+                              !isPdf && "cursor-default")}>
+          <Paperclip className="h-3.5 w-3.5 shrink-0" />{name}
+          {!isPdf && (
+            <a href={url} download={name} onClick={e => e.stopPropagation()} title="Descargar"
+               className="ml-1 opacity-60 hover:opacity-100">
+              <Download className="h-3.5 w-3.5" />
+            </a>
+          )}
+        </button>
+      )}
+
+      {preview && (
+        <Dialog open onOpenChange={v => !v && setPreview(false)}>
+          <DialogContent className="max-w-4xl w-[calc(100vw-2rem)] h-[85vh] flex flex-col gap-0 p-0 overflow-hidden">
+            <DialogHeader className="flex-row items-center gap-2 space-y-0 border-b px-4 py-2.5">
+              <DialogTitle className="text-sm font-medium truncate min-w-0 flex-1 text-left">{name}</DialogTitle>
+              <a href={url} download={name}
+                 className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs hover:bg-muted shrink-0 mr-6">
+                <Download className="h-3.5 w-3.5" /> Descargar
+              </a>
+            </DialogHeader>
+            {isImage ? (
+              <div className="flex-1 min-h-0 flex items-center justify-center bg-muted/40 p-4 overflow-auto">
+                <img src={url} alt={name} className="max-w-full max-h-full object-contain rounded" />
+              </div>
+            ) : (
+              <iframe src={url} title={name} className="flex-1 min-h-0 w-full border-0" />
+            )}
+          </DialogContent>
+        </Dialog>
+      )}
+    </>
   );
 }
 
@@ -1221,10 +1303,21 @@ function WaTicks({ status }: { status: string }) {
   );
 }
 
-export function MessageBubble({ msg, conversationId }:
+/**
+ * Burbuja de mensaje — lenguaje visual de la referencia (Text):
+ *   Afiliado  → IZQUIERDA: avatar redondo gris + label con el nombre, burbuja
+ *               gris sin borde ni sombra, hora chica adentro.
+ *   Bot (IA)  → DERECHA: label "Asistente" + avatar violeta (violeta = IA en
+ *               todo el sistema), burbuja con tinte violeta suave.
+ *   Operador  → DERECHA: label + avatar verde, burbuja con tinte verde suave.
+ * Es la perspectiva del inbox: "ellos" a la izquierda, "nosotros" a la derecha.
+ */
+export function MessageBubble({ msg, conversationId, senderName }:
   { msg: { id: string; sender_type: string; content: string; created_at: string;
            attachment_name?: string | null; attachment_mime?: string | null; pending?: boolean;
-           delivery_status?: string | null }; conversationId: string }) {
+           delivery_status?: string | null }; conversationId: string;
+    /** Nombre del afiliado — label y para la inicial del avatar. */
+    senderName?: string | null }) {
   const isUser     = msg.sender_type === "user";
   const isSystem   = msg.sender_type === "system";
   const isOperator = msg.sender_type === "operator";
@@ -1239,26 +1332,37 @@ export function MessageBubble({ msg, conversationId }:
     </div>
   );
 
+  const label = isUser
+    ? (senderName || "Afiliado")
+    : isOperator ? "Operador" : "Asistente";
+
+  const avatar = (
+    <span className={cn(
+      "flex h-7 w-7 shrink-0 items-center justify-center rounded-full",
+      isUser     && "bg-muted text-muted-foreground",
+      isOperator && "bg-success/15 text-success",
+      !isUser && !isOperator && "bg-violet-100 text-violet-600 dark:bg-violet-500/20 dark:text-violet-300",
+    )}>
+      {isUser
+        ? (senderName?.trim()[0]
+            ? <span className="text-[11px] font-semibold uppercase">{senderName.trim()[0]}</span>
+            : <UserCheck className="h-3.5 w-3.5" />)
+        : isOperator
+          ? <UserCheck className="h-3.5 w-3.5" />
+          : <Bot className="h-3.5 w-3.5" />}
+    </span>
+  );
+
   return (
-    <div className={cn("flex gap-3 items-end", isUser ? "flex-row-reverse" : "flex-row")}>
-      {!isUser && (
+    <div className={cn("flex items-start gap-2.5", !isUser && "flex-row-reverse")}>
+      {avatar}
+      <div className={cn("flex max-w-[80%] flex-col", !isUser && "items-end")}>
+        <span className="mb-1 px-0.5 text-[11px] font-semibold text-foreground/80">{label}</span>
         <div className={cn(
-          "w-8 h-8 rounded-xl flex items-center justify-center shrink-0 shadow-sm",
-          isOperator
-            ? "bg-success"
-            : "bg-gradient-to-br from-brand-light to-brand",
-        )}>
-          {isOperator
-            ? <UserCheck className="h-4 w-4 text-success-foreground" />
-            : <Bot       className="h-4 w-4 text-brand-foreground" />}
-        </div>
-      )}
-      <div className="max-w-[85%] flex flex-col">
-        <div className={cn(
-          "rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed break-words transition-opacity",
-          isUser     && "bg-brand text-brand-foreground rounded-br-sm shadow-sm",
-          isOperator && "bg-card border border-success/30 text-foreground rounded-bl-sm shadow-sm",
-          !isUser && !isOperator && "bg-card border text-foreground rounded-bl-sm shadow-sm",
+          "rounded-2xl px-4 py-2.5 text-sm leading-relaxed break-words text-foreground transition-opacity",
+          isUser     && "rounded-tl-md bg-muted",
+          isOperator && "rounded-tr-md bg-success/10",
+          !isUser && !isOperator && "rounded-tr-md bg-gradient-to-br from-violet-100/70 to-indigo-100/50 dark:from-violet-500/15 dark:to-indigo-500/10",
           msg.pending && "opacity-65",
         )}>
           {msg.content && <p className="whitespace-pre-wrap break-words">{renderWithLinks(msg.content)}</p>}
@@ -1266,7 +1370,7 @@ export function MessageBubble({ msg, conversationId }:
             <AttachmentView conversationId={conversationId} messageId={msg.id}
                             name={msg.attachment_name} mime={msg.attachment_mime || ""} />
           )}
-          <p className={cn("text-[11px] mt-1 opacity-60 flex items-center gap-1", isUser ? "justify-end" : "justify-start")}>
+          <p className={cn("mt-1 flex items-center gap-1 text-[11px] opacity-60", !isUser && "justify-end")}>
             {msg.pending ? <><Loader2 className="h-2.5 w-2.5 animate-spin" /> enviando…</> : time}
             {!msg.pending && isOperator && msg.delivery_status && <WaTicks status={msg.delivery_status} />}
           </p>

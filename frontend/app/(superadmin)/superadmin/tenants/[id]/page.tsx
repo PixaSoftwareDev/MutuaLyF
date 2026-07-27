@@ -2,12 +2,12 @@
 
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useRouter, useParams } from "next/navigation";
+import { useParams } from "next/navigation";
 import {
-  ArrowLeft, RefreshCw, Loader2, AlertTriangle, CheckCircle2, XCircle,
+  RefreshCw, Loader2, AlertTriangle, CheckCircle2, XCircle,
   PauseCircle, PlayCircle, Settings2, UserPlus, Building2,
   TrendingUp, FileText, Zap, Clock, Database, Shield,
-  MessageSquare, Target, Activity, ChevronRight, ChevronDown, Bot, X, Users, Eye, EyeOff,
+  MessageSquare, Target, Activity, ChevronRight, ChevronDown, Bot, Users, Eye, EyeOff,
   AtSign, Star, Plus, Trash2, HeartPulse, Bug, HardDrive, MoreVertical,
 } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -25,6 +25,8 @@ import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@
 import { EmptyState } from "@/components/ui/empty-state";
 import { Kpi, ErrorRow } from "@/components/superadmin/shared";
 import { toast } from "@/components/ui/toast";
+import { DetailShell, BackLink } from "@/components/admin/detail-shell";
+import { StatePill, type StatePillTone } from "@/components/ui/state-pill";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 
@@ -58,17 +60,16 @@ function relTime(iso: string): string {
   return `hace ${Math.floor(h / 24)}d`;
 }
 
-const PLAN_COLORS: Record<string, string> = {
-  starter:      "bg-muted text-muted-foreground",
-  professional: "bg-info/10 text-info",
-  enterprise:   "bg-action-gradient-soft text-action",
-};
+// Tono del plan para el StatePill compartido (mismo lenguaje que el resto del panel).
+function planTone(plan: string): StatePillTone {
+  return plan === "professional" ? "info" : "muted";
+}
 
-// Mismo lenguaje que la lista de Organizaciones: estado en español, pill suave.
-const STATUS_PILL: Record<string, { label: string; cls: string }> = {
-  active:     { label: "Activa",     cls: "bg-success/10 text-success" },
-  onboarding: { label: "Onboarding", cls: "bg-info/10 text-info" },
-  suspended:  { label: "Suspendida", cls: "bg-destructive/10 text-destructive" },
+// Mismo lenguaje que la lista de Organizaciones: estado en español, tono del StatePill.
+const STATUS_META: Record<string, { label: string; tone: StatePillTone }> = {
+  active:     { label: "Activa",     tone: "success" },
+  onboarding: { label: "Onboarding", tone: "info" },
+  suspended:  { label: "Suspendida", tone: "destructive" },
 };
 
 // Sección "Dominios de email" oculta por ahora: el login funciona sin dominios
@@ -80,7 +81,6 @@ const SHOW_EMAIL_DOMAINS = false;
 // ── Page ──────────────────────────────────────────────────────────────────────
 export default function TenantDetailPage() {
   const { id: tenantId } = useParams() as { id: string };
-  const router   = useRouter();
   const qc       = useQueryClient();
 
   const [showCreateAdmin, setShowCreateAdmin]   = useState(false);
@@ -117,6 +117,7 @@ export default function TenantDetailPage() {
   });
   const bots = botsData?.bots ?? [];
   const activeBot = bots.find(b => b.is_active) ?? null;
+  const maxTemplates = botsData?.max_prompt_templates ?? 1;
 
   const { data: allTemplates = [] } = useQuery({
     queryKey: ["prompt-templates"],
@@ -144,11 +145,30 @@ export default function TenantDetailPage() {
   });
   const assignAndActivateM = useMutation({
     mutationFn: async (templateId: string) => {
-      await api.promptTemplates.assignToTenants(templateId, [tenantId]);
+      const res = await api.promptTemplates.assignToTenants(templateId, [tenantId]);
+      if (res.errors?.length) throw new Error(res.errors[0].error);
       await api.tenantBots.activate(tenantId, templateId);
     },
     onSuccess: () => { invBots(); toast({ title: "Bot asignado y activado", variant: "success" }); },
-    onError: (e: any) => toast({ title: e?.response?.data?.detail ?? "Error al asignar", variant: "destructive" }),
+    onError: (e: any) => toast({ title: e?.response?.data?.detail ?? e?.message ?? "Error al asignar", variant: "destructive" }),
+  });
+  const assignOnlyM = useMutation({
+    mutationFn: async (templateId: string) => {
+      const res = await api.promptTemplates.assignToTenants(templateId, [tenantId]);
+      if (res.errors?.length) throw new Error(res.errors[0].error);
+    },
+    onSuccess: () => { invBots(); toast({ title: "Personalidad habilitada para el tenant", variant: "success" }); },
+    onError: (e: any) => toast({ title: e?.response?.data?.detail ?? e?.message ?? "Error al habilitar", variant: "destructive" }),
+  });
+  const unassignM = useMutation({
+    mutationFn: (templateId: string) => api.promptTemplates.unassign(tenantId, templateId),
+    onSuccess: () => { invBots(); toast({ title: "Personalidad quitada del tenant" }); },
+    onError: (e: any) => toast({ title: e?.response?.data?.detail ?? "Error al quitar", variant: "destructive" }),
+  });
+  const setMaxM = useMutation({
+    mutationFn: (max: number) => api.promptTemplates.setMaxTemplates(tenantId, max),
+    onSuccess: () => { invBots(); toast({ title: "Límite de personalidades actualizado", variant: "success" }); },
+    onError: (e: any) => toast({ title: e?.response?.data?.detail ?? "Error al actualizar el límite", variant: "destructive" }),
   });
 
   const suspendM  = useMutation({ mutationFn: () => apiClient.post(`/tenants/${tenantId}/suspend`),  onSuccess: () => { inv(); qc.invalidateQueries({ queryKey: ["tenants"] }); setShowSuspendConfirm(false); toast({ title: "Organización suspendida" }); }, onError: () => toast({ title: "Error", variant: "destructive" }) });
@@ -166,12 +186,11 @@ export default function TenantDetailPage() {
 
   if (isLoading) return <LoadingState />;
   if (error || !m) return (
-    <div className="h-full flex flex-col overflow-hidden">
-      <TopBar onBack={() => router.push("/superadmin/orgs")} />
-      <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
+    <DetailShell leading={<BackLink href="/superadmin/orgs" label="Volver a Organizaciones" />} title="Organización">
+      <div className="flex items-center justify-center py-20 text-muted-foreground text-sm">
         No se pudo cargar la información del tenant.
       </div>
-    </div>
+    </DetailShell>
   );
 
   const t   = m.tenant;
@@ -179,39 +198,36 @@ export default function TenantDetailPage() {
   const quotaQ = m.quota.queries_month;
   const quotaD = m.quota.documents;
 
+  const statusMeta = STATUS_META[t.status] ?? { label: t.status, tone: "muted" as StatePillTone };
+
   return (
-    <div className="h-full flex flex-col overflow-hidden bg-muted/20">
-      <TopBar onBack={() => router.push("/superadmin/orgs")} />
+    <DetailShell
+      leading={<BackLink href="/superadmin/orgs" label="Volver a Organizaciones" />}
+      title={t.name}
+      actions={
+        <div className="flex shrink-0 items-center gap-2">
+          <StatePill tone={planTone(t.plan)} className="capitalize">{t.plan}</StatePill>
+          <StatePill tone={statusMeta.tone}>{statusMeta.label}</StatePill>
+        </div>
+      }
+    >
+      <div className="mx-auto max-w-[1400px] space-y-4 pb-6">
 
-      <div className="flex-1 overflow-y-auto">
-        <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-4 space-y-4 pb-10">
-
-          {/* ── Identity — siempre visible, arriba de las tabs ─────────── */}
-          <div className="rounded-2xl border bg-card shadow px-5 py-4">
+          {/* ── Identidad + acciones — siempre visible, arriba de las tabs ── */}
+          <div className="rounded-2xl border bg-card px-5 py-4">
             <div className="flex items-start gap-4 flex-wrap">
-              <div className="w-12 h-12 rounded-xl bg-action-gradient-soft flex items-center justify-center shrink-0">
-                <span className="text-lg font-bold text-action uppercase">{t.name[0]}</span>
+              <div className="w-12 h-12 rounded-xl bg-muted flex items-center justify-center shrink-0">
+                <span className="text-lg font-bold text-muted-foreground uppercase">{t.name[0]}</span>
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <h2 className="text-xl font-semibold tracking-tight">{t.name}</h2>
+                  <h2 className="text-base font-semibold tracking-tight">{t.name}</h2>
                   <code className="text-xs font-mono bg-muted px-1.5 py-0.5 rounded text-muted-foreground">{t.id}</code>
                 </div>
                 <p className="text-sm text-muted-foreground mt-0.5">{t.admin_email}</p>
                 <p className="text-xs text-muted-foreground mt-0.5">
                   Creado {t.created_at ? new Date(t.created_at).toLocaleDateString("es-AR", { day: "2-digit", month: "long", year: "numeric" }) : "—"}
                 </p>
-              </div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className={cn("text-xs font-medium px-2.5 py-1 rounded-full capitalize", PLAN_COLORS[t.plan] || "bg-muted")}>
-                  {t.plan}
-                </span>
-                <span className={cn(
-                  "text-xs font-medium px-2.5 py-1 rounded-full",
-                  (STATUS_PILL[t.status] ?? { cls: "bg-muted text-muted-foreground" }).cls
-                )}>
-                  {(STATUS_PILL[t.status] ?? { label: t.status }).label}
-                </span>
               </div>
             </div>
 
@@ -321,7 +337,7 @@ export default function TenantDetailPage() {
           ) : tenantUsers.length === 0 ? (
             <EmptyState icon={Users} title="Sin usuarios registrados" className="rounded-xl border border-dashed" />
           ) : (
-            <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
+            <div className="rounded-xl border bg-card overflow-hidden">
               <Table>
                 <TableHeader>
                   <TableRow className="bg-muted/40 hover:bg-muted/40">
@@ -345,22 +361,14 @@ export default function TenantDetailPage() {
                       </TableCell>
                       <TableCell className="text-muted-foreground text-xs hidden sm:table-cell">{u.email}</TableCell>
                       <TableCell>
-                        <span className={cn(
-                          "text-xs px-2 py-1 rounded-full font-medium",
-                          u.role === "admin"    ? "bg-action-gradient-soft text-action" :
-                          u.role === "operator" ? "bg-info/10 text-info" :
-                          "bg-muted text-muted-foreground"
-                        )}>
+                        <StatePill tone={u.role === "operator" ? "info" : "muted"}>
                           {u.role === "admin" ? "Admin" : u.role === "operator" ? "Operador" : u.role}
-                        </span>
+                        </StatePill>
                       </TableCell>
                       <TableCell>
-                        <span className={cn(
-                          "text-xs px-2 py-1 rounded-full font-medium",
-                          u.is_active ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"
-                        )}>
+                        <StatePill tone={u.is_active ? "success" : "destructive"}>
                           {u.is_active ? "Activo" : "Inactivo"}
-                        </span>
+                        </StatePill>
                       </TableCell>
                       <TableCell className="text-right">
                         <Button size="sm" variant="ghost" className="h-7 text-xs gap-1" onClick={() => setEditingUser(u)}>
@@ -381,9 +389,13 @@ export default function TenantDetailPage() {
               allTemplates={allTemplates}
               bots={bots}
               activeBot={activeBot}
+              maxTemplates={maxTemplates}
               activateBotM={activateBotM}
               deactivateBotM={deactivateBotM}
               assignAndActivateM={assignAndActivateM}
+              assignOnlyM={assignOnlyM}
+              unassignM={unassignM}
+              setMaxM={setMaxM}
             />
           </div>
 
@@ -425,10 +437,9 @@ export default function TenantDetailPage() {
             />
             <Kpi
               icon={Target}
-              label="Confianza prom."
-              value={m.performance.avg_confidence != null ? (m.performance.avg_confidence * 100).toFixed(0) + "%" : "—"}
-              tone={m.performance.avg_confidence == null ? "neutral" : m.performance.avg_confidence >= 0.8 ? "success" : m.performance.avg_confidence >= 0.6 ? "warn" : "danger"}
-              sublabel="calidad de las respuestas"
+              label="Consultas registradas"
+              value={fmtNum(m.performance.total_logged)}
+              sublabel="últimos 30 días"
             />
           </div>
 
@@ -436,7 +447,7 @@ export default function TenantDetailPage() {
           <div className="grid gap-4 lg:grid-cols-2 items-start">
 
             {/* Volumen — número protagonista + barras comparativas */}
-            <div className="rounded-2xl border bg-card shadow-sm overflow-hidden">
+            <div className="rounded-2xl border bg-card overflow-hidden">
               <PanelHeader icon={TrendingUp} label="Volumen de consultas" sublabel="ritmo de uso" />
               <div className="p-4">
                 <div className="flex items-end justify-between gap-4">
@@ -444,9 +455,9 @@ export default function TenantDetailPage() {
                     <p className="text-4xl font-bold tabular-nums leading-none">{fmtNum(m.usage.queries_30d)}</p>
                     <p className="mt-1.5 text-xs text-muted-foreground">consultas en 30 días</p>
                   </div>
-                  <div className="shrink-0 rounded-xl bg-action-gradient-soft px-3 py-2 text-right">
-                    <p className="text-[10px] font-semibold uppercase tracking-wide text-action/80">Promedio</p>
-                    <p className="text-base font-semibold tabular-nums text-action leading-none mt-0.5">
+                  <div className="shrink-0 rounded-xl bg-muted px-3 py-2 text-right">
+                    <p className="text-[10px] font-semibold text-muted-foreground">Promedio</p>
+                    <p className="text-base font-semibold tabular-nums text-muted-foreground leading-none mt-0.5">
                       ≈ {fmtNum(Math.round(m.usage.queries_30d / 30))}<span className="text-[11px] font-normal">/día</span>
                     </p>
                   </div>
@@ -460,7 +471,7 @@ export default function TenantDetailPage() {
             </div>
 
             {/* Rendimiento — anillo de cache + gauges de latencia */}
-            <div className="rounded-2xl border bg-card shadow-sm overflow-hidden">
+            <div className="rounded-2xl border bg-card overflow-hidden">
               <PanelHeader icon={Zap} label="Rendimiento del servicio" sublabel="últimos 30d" />
               <div className="flex items-center gap-5 p-4">
                 <Donut value={m.performance.cache_hit_rate} label="Cache hit" />
@@ -477,32 +488,6 @@ export default function TenantDetailPage() {
           {/* ── Qué consultan + Últimas consultas (desplegables) ──────── */}
           <div className="space-y-3">
 
-            <CollapsiblePanel icon={Target} label="Qué consultan" sublabel="intenciones más frecuentes · 30d" count={m.top_intents.length}>
-              <div className="divide-y">
-                {m.top_intents.map((intent, i) => {
-                  const max = m.top_intents[0].count;
-                  const pct = Math.round((intent.count / max) * 100);
-                  return (
-                    <div key={intent.label} className="flex items-center gap-3 px-4 py-3">
-                      <span className="text-xs text-muted-foreground/50 w-4 tabular-nums shrink-0 font-semibold">{i + 1}</span>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate">{intent.label}</p>
-                        <div className="mt-1.5 h-1.5 bg-muted rounded-full overflow-hidden">
-                          <div className="h-full bg-action-gradient rounded-full" style={{ width: `${Math.max(pct, 4)}%` }} />
-                        </div>
-                      </div>
-                      <div className="shrink-0 text-right">
-                        <p className="text-sm font-semibold tabular-nums leading-none">{fmtNum(intent.count)}</p>
-                        {intent.avg_confidence != null && (
-                          <p className="text-[10px] tabular-nums text-muted-foreground mt-1">{(intent.avg_confidence * 100).toFixed(0)}% conf.</p>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </CollapsiblePanel>
-
             <CollapsiblePanel icon={MessageSquare} label="Últimas consultas" sublabel="las más recientes" count={m.recent_queries.length}>
               <div className="divide-y">
                 {m.recent_queries.map((q, i) => (
@@ -515,9 +500,6 @@ export default function TenantDetailPage() {
                         {q.question_text ?? "Consulta sin texto guardado"}
                       </p>
                       <div className="mt-1 flex items-center gap-x-2 gap-y-1 flex-wrap text-[10px] text-muted-foreground">
-                        {q.intent_label && (
-                          <span className="font-medium bg-action-gradient-soft text-action px-1.5 py-0.5 rounded-full">{q.intent_label}</span>
-                        )}
                         {q.from_cache && (
                           <span className="font-medium bg-info/10 text-info px-1.5 py-0.5 rounded-full">cache</span>
                         )}
@@ -606,7 +588,7 @@ export default function TenantDetailPage() {
           <div className="grid items-start gap-4 lg:grid-cols-2">
 
             {/* Cuotas del plan */}
-            <div className="rounded-2xl border bg-card shadow-sm overflow-hidden">
+            <div className="rounded-2xl border bg-card overflow-hidden">
               <PanelHeader icon={Shield} label="Cuotas del plan" sublabel={t.plan} />
               <div className="p-4 space-y-3.5">
                 <QuotaBar label="Consultas / mes" used={quotaQ.used} limit={quotaQ.limit} pct={quotaQ.pct} />
@@ -615,7 +597,7 @@ export default function TenantDetailPage() {
             </div>
 
             {/* Base de conocimiento — anillo de procesados + estados + quality */}
-            <div className="rounded-2xl border bg-card shadow-sm overflow-hidden">
+            <div className="rounded-2xl border bg-card overflow-hidden">
               <PanelHeader icon={FileText} label="Base de conocimiento" sublabel="documentos e ingesta" />
               <div className="flex items-center gap-5 p-4">
                 <Donut value={m.docs.total > 0 ? m.docs.ready / m.docs.total : null} label="Procesados" />
@@ -646,7 +628,7 @@ export default function TenantDetailPage() {
           <div className="grid items-start gap-4 lg:grid-cols-2">
 
             {/* Almacenamiento + backup global */}
-            <div className="rounded-2xl border bg-card shadow-sm overflow-hidden">
+            <div className="rounded-2xl border bg-card overflow-hidden">
               <PanelHeader icon={HardDrive} label="Almacenamiento" sublabel="lo que ocupa en el servidor" />
               <div className="p-4 space-y-2.5">
                 <StorageRow label="Documentos" value={healthData.storage.documents != null ? fmtNum(healthData.storage.documents) : "—"} />
@@ -665,17 +647,17 @@ export default function TenantDetailPage() {
             </div>
 
             {/* Señal de actividad — ¿el cliente sigue vivo? */}
-            <div className="rounded-2xl border bg-card shadow-sm overflow-hidden">
+            <div className="rounded-2xl border bg-card overflow-hidden">
               <PanelHeader icon={Activity} label="Señal de actividad" sublabel="¿el cliente está activo?" />
               <div className="grid grid-cols-2 divide-x">
                 <div className="px-4 py-4">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Última consulta</p>
+                  <p className="text-[10px] font-semibold text-muted-foreground">Última consulta</p>
                   <p className={cn("mt-1.5 text-lg font-semibold leading-none", healthData.activity.last_query_at ? "text-foreground" : "text-warning")}>
                     {healthData.activity.last_query_at ? relTime(healthData.activity.last_query_at) : "Nunca"}
                   </p>
                 </div>
                 <div className="px-4 py-4">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Última ingesta</p>
+                  <p className="text-[10px] font-semibold text-muted-foreground">Última ingesta</p>
                   <p className={cn("mt-1.5 text-lg font-semibold leading-none", healthData.activity.last_ingest_at ? "text-foreground" : "text-muted-foreground")}>
                     {healthData.activity.last_ingest_at ? relTime(healthData.activity.last_ingest_at) : "Nunca"}
                   </p>
@@ -686,10 +668,10 @@ export default function TenantDetailPage() {
           </div>
 
           {/* ── Errores de esta organización ──────────────────────────── */}
-          <div className="rounded-2xl border bg-card shadow-sm overflow-hidden">
+          <div className="rounded-2xl border bg-card overflow-hidden">
             <div className="flex items-center gap-2.5 px-4 py-2.5 border-b bg-muted/20">
-              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-action-gradient-soft shrink-0">
-                <Bug className="h-3.5 w-3.5 text-action" />
+              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-muted shrink-0">
+                <Bug className="h-3.5 w-3.5 text-muted-foreground" />
               </span>
               <span className="text-sm font-semibold">Errores de esta organización</span>
               <span className="text-xs text-muted-foreground hidden sm:inline">backend · últimos 7 días</span>
@@ -716,7 +698,6 @@ export default function TenantDetailPage() {
           </section>
           )}
 
-        </div>
       </div>
 
       {showCreateAdmin && (
@@ -832,27 +813,11 @@ export default function TenantDetailPage() {
           </DialogContent>
         </Dialog>
       )}
-    </div>
+    </DetailShell>
   );
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
-
-function TopBar({ onBack }: { onBack: () => void }) {
-  return (
-    <div className="shrink-0 bg-background border-b px-4 sm:px-6 py-3">
-      <div className="max-w-[1400px] mx-auto">
-        <button
-          onClick={onBack}
-          className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Organizaciones
-        </button>
-      </div>
-    </div>
-  );
-}
 
 // Panel desplegable: header clickeable con contador; cerrado por defecto.
 function CollapsiblePanel({ icon: Icon, label, sublabel, count, defaultOpen = false, children }: {
@@ -861,7 +826,7 @@ function CollapsiblePanel({ icon: Icon, label, sublabel, count, defaultOpen = fa
   const [open, setOpen] = useState(defaultOpen);
   const empty = count === 0;
   return (
-    <div className="rounded-2xl border bg-card shadow-sm overflow-hidden">
+    <div className="rounded-2xl border bg-card overflow-hidden">
       <button
         type="button"
         onClick={() => !empty && setOpen(o => !o)}
@@ -871,8 +836,8 @@ function CollapsiblePanel({ icon: Icon, label, sublabel, count, defaultOpen = fa
           empty ? "cursor-default" : "hover:bg-muted/30",
         )}
       >
-        <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-action-gradient-soft shrink-0">
-          <Icon className="h-3.5 w-3.5 text-action" />
+        <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-muted shrink-0">
+          <Icon className="h-3.5 w-3.5 text-muted-foreground" />
         </span>
         <span className="text-sm font-semibold">{label}</span>
         {sublabel && <span className="text-xs text-muted-foreground hidden sm:inline">{sublabel}</span>}
@@ -880,7 +845,7 @@ function CollapsiblePanel({ icon: Icon, label, sublabel, count, defaultOpen = fa
           {count != null && (
             <span className={cn(
               "inline-flex min-w-[1.5rem] items-center justify-center rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums",
-              empty ? "bg-muted text-muted-foreground/60" : "bg-action-gradient-soft text-action",
+              empty ? "bg-muted text-muted-foreground/60" : "bg-muted text-muted-foreground",
             )}>
               {count}
             </span>
@@ -897,8 +862,8 @@ function CollapsiblePanel({ icon: Icon, label, sublabel, count, defaultOpen = fa
 function PanelHeader({ icon: Icon, label, sublabel }: { icon: any; label: string; sublabel?: string }) {
   return (
     <div className="flex items-center gap-2.5 px-4 py-2.5 border-b bg-muted/20">
-      <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-action-gradient-soft shrink-0">
-        <Icon className="h-3.5 w-3.5 text-action" />
+      <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-muted shrink-0">
+        <Icon className="h-3.5 w-3.5 text-muted-foreground" />
       </span>
       <span className="text-sm font-semibold">{label}</span>
       {sublabel && <span className="text-xs text-muted-foreground">{sublabel}</span>}
@@ -929,7 +894,7 @@ function Donut({ value, label }: { value: number | null; label: string }) {
           {pct == null ? "—" : `${pct}%`}
         </div>
       </div>
-      <p className="mt-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">{label}</p>
+      <p className="mt-1.5 text-[10px] font-semibold text-muted-foreground">{label}</p>
     </div>
   );
 }
@@ -952,7 +917,7 @@ function LatencyGauge({ label, ms }: { label: string; ms: number | null }) {
   return (
     <div className="flex-1 min-w-0">
       <div className="flex items-center justify-between gap-2">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">{label}</p>
+        <p className="text-[10px] font-semibold text-muted-foreground">{label}</p>
         <span className={cn("inline-flex items-center gap-1 text-[10px] font-semibold", txt)}>
           <span className={cn("h-1.5 w-1.5 rounded-full", bar)} /> {status}
         </span>
@@ -1008,8 +973,8 @@ function StorageRow({ label, value, hint }: { label: string; value: string; hint
 function SectionTitle({ icon: Icon, label, sublabel }: { icon: any; label: string; sublabel?: string }) {
   return (
     <div className="flex items-center gap-2.5 pt-2">
-      <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-action-gradient-soft shrink-0">
-        <Icon className="h-4 w-4 text-action" />
+      <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted shrink-0">
+        <Icon className="h-4 w-4 text-muted-foreground" />
       </span>
       <span className="text-sm font-semibold">{label}</span>
       {sublabel && <span className="text-xs text-muted-foreground">{sublabel}</span>}
@@ -1023,7 +988,7 @@ function QuotaBar({ label, used, limit, pct }: { label: string; used: number; li
   const warn   = !unlimited && (pct ?? 0) >= 70;
 
   return (
-    <div className="rounded-xl border bg-card px-4 py-3 shadow-sm">
+    <div className="rounded-xl border bg-card px-4 py-3">
       <div className="flex items-center justify-between mb-2">
         <span className="text-xs font-medium text-muted-foreground">{label}</span>
         {unlimited
@@ -1058,43 +1023,46 @@ function latencyTone(ms: number | null | undefined): "neutral" | "success" | "wa
 
 function LoadingState() {
   return (
-    <div className="h-full flex flex-col overflow-hidden bg-muted/20">
-      <div className="shrink-0 bg-background border-b px-4 sm:px-6 py-3 h-14" />
-      <div className="flex-1 overflow-y-auto">
-        <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-4 space-y-4">
-          <Skeleton className="h-32 w-full rounded-xl" />
-          <div className="grid grid-cols-3 gap-2.5">
-            {[1,2,3,4,5,6].map(i => <Skeleton key={i} className="h-16 rounded-lg" />)}
-          </div>
-          <div className="grid grid-cols-4 gap-2.5">
-            {[1,2,3,4].map(i => <Skeleton key={i} className="h-16 rounded-lg" />)}
-          </div>
-          <Skeleton className="h-24 w-full rounded-xl" />
+    <DetailShell leading={<BackLink href="/superadmin/orgs" label="Volver a Organizaciones" />} title="Organización">
+      <div className="mx-auto max-w-[1400px] space-y-4">
+        <Skeleton className="h-32 w-full rounded-2xl" />
+        <div className="grid grid-cols-3 gap-2.5">
+          {[1,2,3,4,5,6].map(i => <Skeleton key={i} className="h-16 rounded-lg" />)}
         </div>
+        <div className="grid grid-cols-4 gap-2.5">
+          {[1,2,3,4].map(i => <Skeleton key={i} className="h-16 rounded-lg" />)}
+        </div>
+        <Skeleton className="h-24 w-full rounded-2xl" />
       </div>
-    </div>
+    </DetailShell>
   );
 }
 
 // ── BotSelector ───────────────────────────────────────────────────────────────
-function BotSelector({ allTemplates, bots, activeBot, activateBotM, deactivateBotM, assignAndActivateM }: {
+function BotSelector({ allTemplates, bots, activeBot, maxTemplates, activateBotM, deactivateBotM, assignAndActivateM, assignOnlyM, unassignM, setMaxM }: {
   allTemplates: any[];
   bots: any[];
   activeBot: any | null;
+  maxTemplates: number;
   activateBotM: any;
   deactivateBotM: any;
   assignAndActivateM: any;
+  assignOnlyM: any;
+  unassignM: any;
+  setMaxM: any;
 }) {
   const assignedIds = new Set(bots.map((b: any) => b.id));
   const activeTemplates = allTemplates.filter((t: any) => t.is_active);
   const [confirmOff, setConfirmOff] = useState(false);
+  const [editingMax, setEditingMax] = useState(false);
+  const [maxDraft, setMaxDraft] = useState("");
 
   if (activeTemplates.length === 0) {
     return (
       <EmptyState
         icon={Bot}
         title="No hay bots creados en la plataforma aún"
-        className="rounded-xl border bg-card shadow-sm"
+        className="rounded-xl border bg-card"
       />
     );
   }
@@ -1112,92 +1080,136 @@ function BotSelector({ allTemplates, bots, activeBot, activateBotM, deactivateBo
     ...activeTemplates.filter((t: any) => !assignedIds.has(t.id)),
   ];
 
+  const currentValue = activeBot ? String(activeBot.id) : "__estandar__";
+  const activeDesc = activeBot ? (allTemplates.find((t: any) => t.id === activeBot.id)?.descripcion ?? null) : null;
+  const busy = activateBotM.isPending || assignAndActivateM.isPending || deactivateBotM.isPending;
+
+  // Elegir en el Select dispara la acción: estándar → confirmación de apagado;
+  // bot asignado → activar; bot sin asignar → asignar + activar.
+  const onSelect = (val: string) => {
+    if (val === currentValue) return;
+    if (val === "__estandar__") { setConfirmOff(true); return; }
+    if (assignedIds.has(val)) activateBotM.mutate(val);
+    else assignAndActivateM.mutate(val);
+  };
+
   return (
     <>
-    <div className="rounded-xl border bg-card shadow-sm px-5 py-4 space-y-3">
-      {/* Status strip */}
-      <div className={cn(
-        "flex items-center justify-between gap-3 rounded-lg border px-4 py-3 text-sm",
-        activeBot ? "bg-success/10 border-success/20" : "bg-muted border-border"
-      )}>
-        <div className="flex items-center gap-2">
-          {activeBot ? (
-            <>
-              <CheckCircle2 className="h-4 w-4 text-success shrink-0" />
-              <span className="font-medium text-success">
-                {activeBot.nombre} activo
-              </span>
-            </>
-          ) : (
-            <span className="text-muted-foreground">Modo estándar — hacé clic en un bot para activarlo</span>
-          )}
-        </div>
-        {activeBot && (
-          <button
-            onClick={() => setConfirmOff(true)}
-            className="text-xs text-muted-foreground hover:text-destructive transition-colors shrink-0 flex items-center gap-1"
-          >
-            <X className="h-3 w-3" />
-            Volver a estándar
-          </button>
+    <div className="rounded-xl border bg-card p-4 space-y-3">
+      {/* Selector del bot activo — liviano, sin grilla de cards */}
+      <div className="flex items-center gap-2">
+        <Select value={currentValue} onValueChange={onSelect} disabled={busy}>
+          <SelectTrigger className="w-full sm:max-w-sm">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__estandar__">Modo estándar (sin personalidad)</SelectItem>
+            {sorted.map((t: any) => (
+              <SelectItem key={t.id} value={String(t.id)}>
+                {t.nombre}{!assignedIds.has(t.id) ? " · sin asignar" : ""}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {busy && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground shrink-0" />}
+      </div>
+
+      {/* Estado actual */}
+      <div className="flex items-center gap-2 text-sm min-w-0">
+        {activeBot ? (
+          <>
+            <CheckCircle2 className="h-4 w-4 text-success shrink-0" />
+            <span className="font-medium text-success shrink-0">{activeBot.nombre} activo</span>
+            {activeDesc && <span className="text-muted-foreground truncate">· {activeDesc}</span>}
+          </>
+        ) : (
+          <span className="text-muted-foreground">Modo estándar — elegí un bot en la lista para activarlo.</span>
         )}
       </div>
 
-      {/* Bot grid */}
-      <div className="grid gap-2 sm:grid-cols-2">
-        {sorted.map((t: any) => {
-          const assigned = bots.find((b: any) => b.id === t.id);
-          const isActive = assigned?.is_active ?? false;
-          const isAssigned = !!assigned;
-          const isBusy = (activateBotM.isPending && activateBotM.variables === t.id)
-            || (assignAndActivateM.isPending && assignAndActivateM.variables === t.id);
+      <Separator />
 
-          return (
-            <div
-              key={t.id}
-              className={cn(
-                "flex items-center gap-3 rounded-lg border px-3 py-3 transition-all",
-                isActive
-                  ? "border-primary bg-primary/5 ring-1 ring-primary/20"
-                  : "border-border"
-              )}
+      {/* Personalidades visibles para el admin del tenant — él elige cuál usar */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-sm font-medium">
+            Visibles para el tenant
+            <span className="ml-1.5 text-muted-foreground font-normal">{bots.length} de {maxTemplates} permitidas</span>
+          </p>
+          {editingMax ? (
+            <div className="flex items-center gap-1.5">
+              <Input
+                type="number" min={0} max={99} value={maxDraft}
+                onChange={e => setMaxDraft(e.target.value)}
+                className="h-7 w-16 text-sm"
+                autoFocus
+              />
+              <Button
+                size="sm" variant="outline" className="h-7 px-2 text-xs"
+                disabled={setMaxM.isPending || maxDraft === "" || Number(maxDraft) < 0}
+                onClick={() => setMaxM.mutate(Number(maxDraft), { onSuccess: () => setEditingMax(false) })}
+              >
+                {setMaxM.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Guardar"}
+              </Button>
+              <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => setEditingMax(false)}>Cancelar</Button>
+            </div>
+          ) : (
+            <Button
+              size="sm" variant="ghost" className="h-7 px-2 text-xs text-muted-foreground"
+              onClick={() => { setMaxDraft(String(maxTemplates)); setEditingMax(true); }}
             >
-              <Bot className={cn("h-5 w-5 shrink-0", isActive ? "text-primary" : "text-muted-foreground")} />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium truncate">{t.nombre}</p>
-                {t.descripcion && (
-                  <p className="text-xs text-muted-foreground truncate">{t.descripcion}</p>
-                )}
-                {!isAssigned && (
-                  <p className="text-[11px] text-muted-foreground/60 mt-0.5">No asignado</p>
-                )}
-              </div>
-              <div className="shrink-0">
-                {isActive ? (
-                  <span className="text-xs font-semibold text-primary">Activo</span>
-                ) : isBusy ? (
-                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                ) : isAssigned ? (
-                  <Button
-                    size="sm" variant="outline" className="h-7 text-xs"
-                    onClick={() => activateBotM.mutate(t.id)}
-                    disabled={activateBotM.isPending || assignAndActivateM.isPending}
-                  >
-                    Activar
-                  </Button>
-                ) : (
-                  <Button
-                    size="sm" className="h-7 text-xs"
-                    onClick={() => assignAndActivateM.mutate(t.id)}
-                    disabled={activateBotM.isPending || assignAndActivateM.isPending}
-                  >
-                    Asignar
-                  </Button>
-                )}
-              </div>
+              <Settings2 className="h-3.5 w-3.5 mr-1" /> Cambiar límite
+            </Button>
+          )}
+        </div>
+
+        {bots.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Ninguna todavía — el admin del tenant no ve personalidades para elegir.</p>
+        ) : (
+          <ul className="divide-y">
+            {/* Orden estable (alfabético): reordenar al activar mueve las filas bajo el cursor */}
+            {[...bots].sort((a: any, b: any) => a.nombre.localeCompare(b.nombre)).map((b: any) => (
+              <li key={b.id} className="flex items-center gap-2 py-1.5 text-sm min-w-0">
+                <span className="font-medium shrink-0">{b.nombre}</span>
+                {b.is_active && <StatePill tone="success">en uso</StatePill>}
+                {b.descripcion && <span className="text-muted-foreground truncate">· {b.descripcion}</span>}
+                <Button
+                  size="sm" variant="ghost"
+                  className="h-7 w-7 p-0 ml-auto shrink-0 text-muted-foreground hover:text-destructive"
+                  title={b.is_active ? "Está en uso — activá otra antes de quitarla" : "Quitar del tenant"}
+                  disabled={b.is_active || unassignM.isPending}
+                  onClick={() => unassignM.mutate(b.id)}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {(() => {
+          const unassigned = activeTemplates.filter((t: any) => !assignedIds.has(t.id));
+          const atCap = bots.length >= maxTemplates;
+          if (unassigned.length === 0) return null;
+          return (
+            <div className="flex items-center gap-2">
+              <Select value="" onValueChange={(val: string) => val && assignOnlyM.mutate(val)} disabled={atCap || assignOnlyM.isPending}>
+                <SelectTrigger className="h-8 w-full sm:max-w-xs text-sm">
+                  <span className="flex items-center gap-1.5 text-muted-foreground">
+                    <Plus className="h-3.5 w-3.5" /> Hacer visible otra personalidad…
+                  </span>
+                </SelectTrigger>
+                <SelectContent>
+                  {unassigned.map((t: any) => (
+                    <SelectItem key={t.id} value={String(t.id)}>{t.nombre}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {assignOnlyM.isPending && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground shrink-0" />}
+              {atCap && <span className="text-xs text-muted-foreground shrink-0">Límite alcanzado — subilo para agregar más.</span>}
             </div>
           );
-        })}
+        })()}
       </div>
     </div>
 
@@ -1507,7 +1519,7 @@ function EmailDomainsSection({ tenantId }: { tenantId: string }) {
         sublabel={domains.length === 0 ? "Opcional · email-first login" : `${domains.length} configurado${domains.length === 1 ? "" : "s"}`}
       />
 
-      <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
+      <div className="rounded-xl border bg-card overflow-hidden">
         {/* Lista */}
         {isLoading ? (
           <div className="p-4"><Skeleton className="h-8 w-full" /></div>

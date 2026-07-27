@@ -37,7 +37,7 @@ async def create_session(
     identity: str,
     rol: str,
     nombre: str | None = None,
-    jwt_nexa: str | None = None,
+    jwt_externo: str | None = None,
     ttl_seconds: int | None = None,
 ) -> bool:
     """Crea/reemplaza la sesión autenticada. Devuelve True si persistió."""
@@ -46,7 +46,7 @@ async def create_session(
         "identity": identity,
         "rol": rol,
         "nombre": nombre,
-        "jwt_nexa": jwt_nexa,
+        "jwt_externo": jwt_externo,
         "created_at": int(time.time()),
     }
     try:

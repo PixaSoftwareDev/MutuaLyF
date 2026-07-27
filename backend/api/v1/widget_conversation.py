@@ -68,6 +68,10 @@ class ConfirmHandoffRequest(BaseModel):
     # sin él, ver degraded mode). min_length=1 para coincidir con el front, que no
     # impone un mínimo — antes estaba en 4 y un DNI corto rebotaba con 422 silencioso.
     afiliado_dni:    str | None = Field(default=None, min_length=1, max_length=20)
+    # El sector se elige en el momento del handoff (no al abrir el chat): la
+    # conversación arranca en el sector default y acá se re-etiqueta para que
+    # caiga en la cola de operadores correcta. Inválido/ausente → queda como está.
+    sector_id:       str | None = Field(default=None, max_length=64)
 
 
 # ── Start / resume conversation ───────────────────────────────────────────────
@@ -138,11 +142,10 @@ async def start_conversation(
             except ValueError:
                 sector_id = None
 
-        sector_name = "consultas"
         sector_row = None
         if sector_id:
             sector_result = await session.execute(
-                text("SELECT nombre FROM sectores WHERE id = :id AND is_active = TRUE"),
+                text("SELECT 1 FROM sectores WHERE id = :id AND is_active = TRUE"),
                 {"id": sector_id},
             )
             sector_row = sector_result.fetchone()
@@ -150,27 +153,20 @@ async def start_conversation(
         if not sector_row:
             # sector inválido/inactivo/ausente → default del tenant
             sector_id = await get_default_sector_id(tenant_id)
-            if sector_id:
-                default_result = await session.execute(
-                    text("SELECT nombre FROM sectores WHERE id = :id"), {"id": sector_id}
-                )
-                default_row = default_result.fetchone()
-                if default_row:
-                    sector_name = default_row[0]
-        else:
-            sector_name = sector_row[0]
 
-        # Personalización del saludo: greeting_message custom y bot_name del tenant
-        # (tabla global public.tenants). Si el admin configuró un saludo propio se
-        # usa tal cual; si no, el nombre del bot entra en el saludo por defecto.
-        # Sin esto el bot saluda genérico e ignora lo configurado en el panel.
+        # Personalización del saludo: greeting_message custom, bot_name y nombre de
+        # la organización (tabla global public.tenants). Si el admin configuró un
+        # saludo propio se usa tal cual; si no, el default se presenta como asistente
+        # DE LA ORGANIZACIÓN — no del sector, que es un detalle interno de ruteo y
+        # confunde al visitante ("el asistente de Consultas Generales").
         tenant_cfg = await session.execute(
-            text("SELECT greeting_message, bot_name FROM public.tenants WHERE id = :tid"),
+            text("SELECT greeting_message, bot_name, name FROM public.tenants WHERE id = :tid"),
             {"tid": tenant_id},
         )
         cfg_row = tenant_cfg.mappings().fetchone()
         custom_greeting = cfg_row["greeting_message"] if cfg_row else None
-        bot_name = (cfg_row["bot_name"] if cfg_row else None) or "Asistente"
+        bot_name = (cfg_row["bot_name"] or "").strip() if cfg_row else ""
+        org_name = (cfg_row["name"] if cfg_row else None) or "la organización"
 
         conv_id = str(uuid.uuid4())
         # IP: X-Forwarded-For (Nginx) tiene prioridad; fallback al IP directo
@@ -193,8 +189,12 @@ async def start_conversation(
         # Insert greeting as first bot message so it survives polling
         if custom_greeting:
             greeting = custom_greeting
+        elif bot_name:
+            greeting = f"¡Hola! Soy {bot_name}, el asistente de {org_name}. ¿En qué te puedo ayudar hoy?"
         else:
-            greeting = f"¡Hola! Soy {bot_name}, el asistente de {sector_name}. ¿En qué te puedo ayudar hoy?"
+            # Sin bot_name configurado: presentarse solo con la organización,
+            # no con un "Asistente" genérico que parece nombre propio.
+            greeting = f"¡Hola! Soy el asistente de {org_name}. ¿En qué te puedo ayudar hoy?"
         await session.execute(text("""
             INSERT INTO mensajes (conversation_id, sender_type, content)
             VALUES (:cid, 'bot', :msg)
@@ -333,6 +333,22 @@ async def send_message(
                       "Por favor, comunicate directamente con la organización.")
         sources = []
     else:
+        # Modo unificado (2b): la MISMA llamada LLM del RAG recibe el catálogo de
+        # tools del tenant y decide tool-vs-responder (cero hops extra en turnos
+        # RAG). Si eligió tool, se ejecuta acá — capa de conversación, con estado —
+        # por el mismo camino que los otros modos (público / sesión / FSM login).
+        from core.config import settings as _settings
+        tool_schemas = None
+        if _settings.connectors_enabled and _settings.connector_routing_mode == "unified":
+            try:
+                from services.connector_router import _build_tool_schemas
+                from services.connectors_dao import list_tools_for_tool_calling
+                catalog = await list_tools_for_tool_calling(tenant_id)
+                if catalog:
+                    tool_schemas = _build_tool_schemas(catalog)
+            except Exception as exc:
+                # Sin catálogo no hay tools este turno; el RAG sigue normal.
+                logger.warning("tool_catalog_failed tenant_id=%s error=%s", tenant_id, exc)
         try:
             rag_result = await handle_query(
                 question=body.content,
@@ -340,9 +356,35 @@ async def send_message(
                 user_id=None,
                 language="es",
                 conversation_history=conversation_history,
+                tool_schemas=tool_schemas,
             )
-            bot_answer = rag_result["answer"]
-            sources = rag_result.get("sources", [])
+            if rag_result.get("tool_call"):
+                from services.connector_router import handle_tool_signal
+                tc = rag_result["tool_call"]
+                connector_result = await handle_tool_signal(
+                    tenant_id, conversation_id, body.content,
+                    tc["name"], tc.get("arguments"),
+                )
+                if connector_result is not None:
+                    bot_answer = connector_result["answer"]
+                    sources = []
+                else:
+                    # Slug alucinado / tool desactivada entre medio (raro): la llamada
+                    # devolvió tool_call sin texto → reintento RAG puro, sin tools.
+                    logger.warning("tool_signal_unresolved tenant_id=%s tool=%s — retry RAG",
+                                   tenant_id, tc.get("name"))
+                    rag_result = await handle_query(
+                        question=body.content,
+                        tenant_id=tenant_id,
+                        user_id=None,
+                        language="es",
+                        conversation_history=conversation_history,
+                    )
+                    bot_answer = rag_result["answer"]
+                    sources = rag_result.get("sources", [])
+            else:
+                bot_answer = rag_result["answer"]
+                sources = rag_result.get("sources", [])
         except Exception as exc:
             logger.error("widget_rag_failed conversation_id=%s error=%s", conversation_id, exc)
             bot_answer = "Lo siento, ocurrió un error. Intentá de nuevo en un momento."
@@ -379,7 +421,17 @@ async def send_message(
     )
 
     if offer_with_operators:
-        # Hay operadores conectados → cartel con botón. El bot_answer no se persiste.
+        # Hay operadores conectados → cartel con botón.
+        # keep_answer (Regla 5 por keyword): la respuesta del bot SÍ se persiste
+        # y el cartel va debajo — el afiliado pudo pedir info que el bot tiene.
+        # Reglas por fallo: el bot_answer genérico es redundante y no se persiste.
+        if signal.keep_answer:
+            bot_msg_id = str(uuid.uuid4())
+            async with get_pg_session(tenant_id) as session:
+                await session.execute(text("""
+                    INSERT INTO mensajes (id, conversation_id, sender_type, content)
+                    VALUES (:id, :cid, 'bot', :content)
+                """), {"id": bot_msg_id, "cid": conversation_id, "content": bot_answer})
         async with get_pg_session(tenant_id) as session:
             await session.execute(text("""
                 INSERT INTO mensajes (conversation_id, sender_type, content, is_handoff_offer)
@@ -387,9 +439,12 @@ async def send_message(
             """), {"cid": conversation_id, "msg": signal.offer_message})
         await _publish_event(tenant_id, "new_message", {"conversation_id": conversation_id})
         await _mark_offer_pending(conversation_id)  # cooldown 90s SOLO al mostrar el cartel
+        if signal.trigger == HandoffTrigger.KEYWORD:
+            from services.handoff import mark_keyword_offered
+            await mark_keyword_offered(conversation_id)  # supresión 1h por conversación
         handoff_message = signal.offer_message
         handoff_offered = True
-        suppress_bot = True
+        suppress_bot = not signal.keep_answer
     else:
         # Respuesta normal del bot. Incluye el caso "deriva pero sin operadores":
         # ahí el genérico sí aporta contexto al aviso de no-disponibilidad.
@@ -401,7 +456,10 @@ async def send_message(
             """), {"id": bot_msg_id, "cid": conversation_id, "content": bot_answer})
         await _publish_event(tenant_id, "new_message", {"conversation_id": conversation_id})
 
-        if signal.trigger != HandoffTrigger.NONE:
+        # keep_answer (keyword) sin operadores: el bot respondió bien y nadie pidió
+        # humano — no ensuciar con el aviso de no-disponibilidad; la oferta podrá
+        # dispararse en otro mensaje cuando haya operadores.
+        if signal.trigger != HandoffTrigger.NONE and not signal.keep_answer:
             # Sin operadores online → no derivar a una cola vacía. Avisar y, si está
             # configurado, indicar el horario de atención del tenant.
             cfg = await _get_handoff_config(tenant_id)
@@ -596,8 +654,8 @@ async def confirm_handoff(
         if not owner_row[0]:
             raise HTTPException(status_code=409, detail="No hay una derivación pendiente para confirmar.")
 
-    # Persistir datos de identificación si vinieron en el body
-    if body and (body.afiliado_nombre or body.afiliado_dni):
+    # Persistir datos de identificación + sector elegido si vinieron en el body
+    if body and (body.afiliado_nombre or body.afiliado_dni or body.sector_id):
         updates = []
         params: dict[str, str] = {"cid": conversation_id}
         if body.afiliado_nombre:
@@ -606,6 +664,24 @@ async def confirm_handoff(
         if body.afiliado_dni:
             updates.append("afiliado_dni = :dni")
             params["dni"] = body.afiliado_dni.strip()
+        # Re-etiquetado de sector al derivar. Mismo criterio de validación que en
+        # start: UUID real + existe en este tenant + activo; si no, se ignora en
+        # silencio y la conversación queda en su sector actual (default).
+        sector_id = (body.sector_id or "").strip() or None
+        if sector_id:
+            try:
+                uuid.UUID(sector_id)
+            except ValueError:
+                sector_id = None
+        if sector_id:
+            async with get_pg_session(tenant_id) as session:
+                valid = await session.execute(
+                    text("SELECT 1 FROM sectores WHERE id = :id AND is_active = TRUE"),
+                    {"id": sector_id},
+                )
+                if valid.fetchone():
+                    updates.append("sector_id = :sector_id")
+                    params["sector_id"] = sector_id
         if updates:
             async with get_pg_session(tenant_id) as session:
                 await session.execute(

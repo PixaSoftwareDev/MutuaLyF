@@ -83,7 +83,6 @@ export interface ChatMessage {
     content_excerpt: string;
     score: number;
   }>;
-  intent_label?: string | null;
   from_cache?: boolean;
   latency_ms?: number;
   timestamp: number;
@@ -128,8 +127,12 @@ export const useChatStore = create<ChatState>()((set) => ({
 interface UIState {
   sidebarOpen: boolean;
   mobileSidebarOpen: boolean;
+  // Submenú (panel secundario) fijado. Fijado = queda abierto en el layout.
+  // Sin fijar = colapsado; se despliega como overlay al pasar el mouse.
+  sidebarPinned: boolean;
   toggleSidebar: () => void;
   setSidebarOpen: (v: boolean) => void;
+  toggleSidebarPin: () => void;
   openMobileSidebar: () => void;
   closeMobileSidebar: () => void;
 }
@@ -139,17 +142,19 @@ export const useUIStore = create<UIState>()(
     (set) => ({
       sidebarOpen: true,
       mobileSidebarOpen: false,
+      sidebarPinned: true,
       toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
       setSidebarOpen: (v) => set({ sidebarOpen: v }),
+      toggleSidebarPin: () => set((s) => ({ sidebarPinned: !s.sidebarPinned })),
       openMobileSidebar: () => set({ mobileSidebarOpen: true }),
       closeMobileSidebar: () => set({ mobileSidebarOpen: false }),
     }),
     {
       name: "ia_ui",
       storage: createJSONStorage(() => localStorage),
-      // Solo persistimos el colapso del sidebar — el drawer mobile siempre
+      // Persistimos el colapso y el pin del submenú — el drawer mobile siempre
       // debe arrancar cerrado, sin importar cómo quedó la sesión anterior.
-      partialize: (s) => ({ sidebarOpen: s.sidebarOpen }),
+      partialize: (s) => ({ sidebarOpen: s.sidebarOpen, sidebarPinned: s.sidebarPinned }),
     },
   ),
 );

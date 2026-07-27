@@ -9,7 +9,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from sqlalchemy import text
 
 from core.database import get_pg_session
@@ -55,6 +55,27 @@ class HandoffConfigUpdate(BaseModel):
     attention_hours:                 str | None = None
     contact_info:                    str | None = None   # tel/email/texto — reusado en no-operadores y fallback anti-alucinación
     transition_messages:             dict | None = None
+    # Regla 5: [{"words": ["turno", ...], "message": "..."}] — lista vacía la apaga
+    keyword_triggers:                list | None = None
+
+    @field_validator("keyword_triggers")
+    @classmethod
+    def valid_keyword_triggers(cls, v: list | None) -> list | None:
+        if v is None:
+            return v
+        if len(v) > 20:
+            raise ValueError("máximo 20 grupos de palabras")
+        cleaned = []
+        for group in v:
+            if not isinstance(group, dict):
+                raise ValueError("cada grupo debe ser un objeto {words, message}")
+            words = [str(w).strip()[:80] for w in (group.get("words") or []) if str(w).strip()]
+            if not words:
+                continue  # grupo sin palabras no dispara nada — se descarta
+            if len(words) > 50:
+                raise ValueError("máximo 50 palabras por grupo")
+            cleaned.append({"words": words, "message": str(group.get("message") or "").strip()[:500]})
+        return cleaned
 
 
 def _operator_sector_scope(current_user: CurrentUser, column: str = "sector_id") -> tuple[str, dict]:
@@ -305,11 +326,18 @@ async def list_conversations_history(
                 c.created_at, c.updated_at, c.closed_at,
                 s.nombre AS sector_nombre,
                 u.name   AS operator_name,
-                (SELECT MAX(created_at) FROM mensajes WHERE conversation_id = c.id) AS last_message_at,
+                lm.created_at  AS last_message_at,
+                LEFT(lm.content, 140) AS last_message_preview,
+                lm.sender_type AS last_message_sender,
                 (SELECT COUNT(*) FROM mensajes WHERE conversation_id = c.id) AS message_count
             FROM conversaciones c
             LEFT JOIN sectores s ON s.id = c.sector_id
             LEFT JOIN usuarios u ON u.id = c.assigned_operator_id
+            LEFT JOIN LATERAL (
+                SELECT content, sender_type, created_at
+                FROM mensajes WHERE conversation_id = c.id
+                ORDER BY created_at DESC LIMIT 1
+            ) lm ON TRUE
             {where_sql}
             ORDER BY c.updated_at DESC
             LIMIT :limit OFFSET :offset
@@ -335,6 +363,8 @@ async def list_conversations_history(
                 "updated_at":       r["updated_at"].isoformat() if r["updated_at"] else None,
                 "closed_at":        r["closed_at"].isoformat() if r["closed_at"] else None,
                 "last_message_at":  r["last_message_at"].isoformat() if r["last_message_at"] else None,
+                "last_message_preview": r["last_message_preview"],
+                "last_message_sender":  r["last_message_sender"],
             })
 
     return {
@@ -977,7 +1007,7 @@ async def public_tenant_branding(tenant_id: str):
     async with get_pg_session() as session:
         row = await session.execute(text("""
             SELECT id, name, display_name, logo_url, primary_color, secondary_color,
-                   favicon_url, bot_name, greeting_message
+                   favicon_url, bot_name, greeting_message, widget_theme, widget_position
             FROM tenants
             WHERE id = :tid AND status != 'suspended'
             LIMIT 1
@@ -996,6 +1026,8 @@ async def public_tenant_branding(tenant_id: str):
         "favicon_url":      t["favicon_url"],
         "bot_name":         t["bot_name"],
         "greeting_message": t["greeting_message"],
+        "widget_theme":     t["widget_theme"] or "light",
+        "widget_position":  t["widget_position"] or "right",
     }
 
 

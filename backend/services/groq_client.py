@@ -19,15 +19,6 @@ DEFAULT_PROMPT_QUALITY_GATE = (
     'Respondé ÚNICAMENTE con JSON válido: {"is_coherent": true/false, "confidence": 0.0-1.0, "reason": "una oración en español"}.'
 )
 
-DEFAULT_PROMPT_CLUSTER_LABEL = (
-    "Tu tarea: generar el nombre de una intención de usuario para un chatbot institucional. "
-    "Analizá el grupo de consultas y generá UN nombre corto en snake_case (2-4 palabras, sin tildes). "
-    "Describí la necesidad específica, no el tema genérico. "
-    "Ejemplos buenos: solicitar_certificado, consulta_horario, tramite_jubilacion. "
-    "Ejemplos malos: consulta, pregunta, informacion, otro. "
-    "Respondé SOLO con el nombre en snake_case, sin comillas ni explicaciones."
-)
-
 import httpx
 from groq import AsyncGroq, APIError, APITimeoutError, RateLimitError
 from tenacity import (
@@ -164,6 +155,7 @@ async def complete(
     temperature: float = 0.0,
     max_tokens: int = 1024,
     tenant_id: str | None = None,
+    timeout_s: float | None = None,
 ) -> str:
     """Send a chat completion request to Groq.
 
@@ -178,7 +170,9 @@ async def complete(
         The model's response text.
     """
     provider = (settings.llm_provider or "groq").lower()
-    timeout = (
+    # timeout_s explícito (p.ej. tareas largas como el análisis de un PDF de
+    # documentación) tiene prioridad; si no, se deriva de la complejidad.
+    timeout = timeout_s if timeout_s is not None else (
         settings.llm_reasoning_timeout_ms / 1000
         if complexity == QueryComplexity.COMPLEX
         else settings.llm_fast_timeout_ms / 1000
@@ -247,6 +241,141 @@ async def complete(
     return content
 
 
+def _parse_tool_pick(msg: dict) -> dict | None:
+    """Extrae la PRIMERA tool call del message del LLM (forma normalizada dict).
+
+    Returns {"name": str, "arguments": dict} o None si el modelo respondió texto.
+    """
+    import json as _json
+
+    tool_calls = msg.get("tool_calls") or []
+    if not tool_calls:
+        return None
+    fn = tool_calls[0].get("function") or {}
+    name = fn.get("name")
+    if not name:
+        return None
+    raw_args = fn.get("arguments") or "{}"
+    try:
+        args = raw_args if isinstance(raw_args, dict) else _json.loads(raw_args)
+    except (TypeError, ValueError):
+        args = {}
+    return {"name": name, "arguments": args if isinstance(args, dict) else {}}
+
+
+@retry(
+    retry=retry_if_exception(_is_retryable_llm_error),
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=1, max=10),
+    before_sleep=before_sleep_log(logger, logging.WARNING),
+    reraise=True,
+)
+async def complete_with_tools(
+    messages: list[dict[str, str]],
+    tools: list[dict],
+    *,
+    complexity: str = QueryComplexity.SIMPLE,
+    temperature: float = 0.0,
+    max_tokens: int = 1024,
+    tenant_id: str | None = None,
+    timeout_s: float | None = None,
+) -> tuple[str, dict | None]:
+    """Chat completion CON function-calling (`tool_choice="auto"`).
+
+    La primitiva del modo unificado (2b): una sola llamada donde el modelo decide
+    entre generar la respuesta o pedir una tool. También la usa select_tool (2a).
+
+    Returns:
+        (texto, tool_pick): si el modelo eligió tool, tool_pick={"name","arguments"}
+        y texto puede ser "". Si respondió texto, tool_pick=None.
+    """
+    provider = (settings.llm_provider or "groq").lower()
+    default_timeout = (
+        settings.llm_reasoning_timeout_ms / 1000
+        if complexity == QueryComplexity.COMPLEX
+        else settings.llm_fast_timeout_ms / 1000
+    )
+    timeout = timeout_s if timeout_s is not None else default_timeout
+
+    if provider == "openai":
+        model = settings.openai_model
+        client = _get_openai_http_client()
+        async with _get_groq_semaphore():
+            r = await client.post(
+                "/chat/completions",
+                json={
+                    "model": model,
+                    "messages": messages,
+                    "temperature": temperature,
+                    "max_tokens": max_tokens,
+                    "tools": tools,
+                    "tool_choice": "auto",
+                },
+                # Sin timeout_s explícito, mismo piso de 30s que complete(): es la
+                # llamada de respuesta. Con timeout_s (router 2a), corta agresivo.
+                timeout=timeout if timeout_s is not None else max(timeout, 30.0),
+            )
+            r.raise_for_status()
+            data = r.json()
+        msg = data["choices"][0]["message"]
+        content = msg.get("content") or ""
+        total_tokens = (data.get("usage") or {}).get("total_tokens", 0)
+    else:
+        model = _model_for_complexity(complexity)
+        client = get_groq_client()
+        async with _get_groq_semaphore():
+            response = await client.chat.completions.create(
+                model=model,
+                messages=messages,  # type: ignore[arg-type]
+                temperature=temperature,
+                max_tokens=max_tokens,
+                tools=tools,  # type: ignore[arg-type]
+                tool_choice="auto",
+                timeout=timeout,
+            )
+        # Normalizar a la misma forma dict que el path openai.
+        _m = response.choices[0].message
+        msg = {
+            "tool_calls": [
+                {"function": {"name": tc.function.name, "arguments": tc.function.arguments}}
+                for tc in (_m.tool_calls or [])
+            ]
+        }
+        content = _m.content or ""
+        total_tokens = response.usage.total_tokens if response.usage else 0
+
+    if tenant_id and total_tokens > 0:
+        try:
+            asyncio.create_task(_log_llm_tokens(tenant_id, total_tokens))
+        except RuntimeError:
+            pass
+
+    pick = _parse_tool_pick(msg)
+    if pick:
+        logger.info("tool_pick provider=%s tool=%s args=%s", provider, pick["name"], pick["arguments"])
+    return content, pick
+
+
+async def select_tool(
+    messages: list[dict[str, str]],
+    tools: list[dict],
+    *,
+    tenant_id: str | None = None,
+) -> dict | None:
+    """Solo la decisión de tool (modo 2a / hard-fallback): ofrece `tools` y devuelve
+    la elegida o None. Wrapper de complete_with_tools con timeout AJUSTADO: corre en
+    el hot path ANTES del RAG; si el proveedor se cuelga, mejor cortar a los pocos
+    segundos y caer al RAG (fail-open) que bloquear el turno 30s.
+    """
+    _, pick = await complete_with_tools(
+        messages, tools,
+        max_tokens=512,
+        tenant_id=tenant_id,
+        timeout_s=max(settings.llm_fast_timeout_ms / 1000, 6.0),
+    )
+    return pick
+
+
 async def _log_llm_tokens(tenant_id: str, tokens: int) -> None:
     """Fire-and-forget logger of LLM token usage to usage_events for billing."""
     try:
@@ -262,141 +391,6 @@ async def _log_llm_tokens(tenant_id: str, tokens: int) -> None:
             )
     except Exception as exc:
         logger.warning("llm_tokens_log_failed tenant=%s tokens=%d error=%s", tenant_id, tokens, exc)
-
-
-async def suggest_cluster_label(sample_queries: list[str], custom_prompt: str | None = None) -> str:
-    """Ask Groq to propose a short intent name for a cluster of similar queries.
-
-    Returns a 2-5 word label in snake_case, or empty string on failure.
-    """
-    queries_text = "\n".join(f"- {q}" for q in sample_queries[:8])
-    system_content = custom_prompt.strip() if custom_prompt else DEFAULT_PROMPT_CLUSTER_LABEL
-    try:
-        raw = await complete(
-            messages=[
-                {
-                    "role": "system",
-                    "content": system_content,
-                },
-                {
-                    "role": "user",
-                    "content": f"Consultas del grupo:\n{queries_text}\n\nNombre de la intención:",
-                },
-            ],
-            complexity=QueryComplexity.SIMPLE,
-            temperature=0.2,
-            max_tokens=20,
-        )
-        label = raw.strip().strip('"').strip("'").lower().replace(" ", "_")
-        # Sanitize to alphanumeric + underscore only
-        label = "".join(c for c in label if c.isalnum() or c == "_")
-        return label[:60] if label else ""
-    except Exception as exc:
-        logger.warning("suggest_cluster_label_failed error=%s", exc)
-        return ""
-
-
-DEFAULT_PROMPT_CLUSTER_COHERENCE = (
-    "Sos un validador de grupos de consultas para un chatbot institucional. "
-    "Recibís un grupo de consultas que un algoritmo agrupó por similitud. "
-    "Tu tarea: decidir si el grupo representa UNA sola intención de usuario coherente "
-    "(todas piden esencialmente lo mismo), o si mezcla temas distintos. "
-    "También proponé un nombre corto en snake_case (2-4 palabras, sin tildes) que describa "
-    "la necesidad específica. "
-    'Respondé ÚNICAMENTE con JSON válido: '
-    '{"coherent": true/false, "confidence": 0.0-1.0, "label": "snake_case", "reason": "una oración"}. '
-    "Marcá coherent=false si el grupo mezcla intenciones claramente distintas."
-)
-
-
-async def validate_cluster_coherence(
-    sample_queries: list[str],
-    custom_prompt: str | None = None,
-) -> dict[str, Any]:
-    """Valida si un cluster representa UNA intención coherente y propone un label.
-
-    Devuelve {'coherent': bool, 'confidence': float, 'label': str, 'reason': str}.
-    Fail-closed: ante cualquier fallo de Groq devuelve coherent=False para que la
-    auto-promoción NO cree intenciones basura — el cluster queda para revisión manual.
-    """
-    import json as _json
-
-    queries_text = "\n".join(f"- {q}" for q in sample_queries[:12])
-    system_content = custom_prompt.strip() if custom_prompt else DEFAULT_PROMPT_CLUSTER_COHERENCE
-    try:
-        raw = await complete(
-            messages=[
-                {"role": "system", "content": system_content},
-                {"role": "user", "content": f"Consultas del grupo:\n{queries_text}\n\nJSON:"},
-            ],
-            complexity=QueryComplexity.SIMPLE,
-            temperature=0.1,
-            max_tokens=120,
-        )
-        start = raw.find("{")
-        end = raw.rfind("}")
-        if start == -1 or end == -1:
-            raise ValueError(f"sin JSON en respuesta: {raw[:80]!r}")
-        data = _json.loads(raw[start : end + 1])
-
-        label = str(data.get("label", "")).strip().lower().replace(" ", "_")
-        label = "".join(c for c in label if c.isalnum() or c == "_")[:60]
-        return {
-            "coherent": bool(data.get("coherent", False)),
-            "confidence": float(data.get("confidence", 0.0) or 0.0),
-            "label": label,
-            "reason": str(data.get("reason", ""))[:200],
-        }
-    except Exception as exc:
-        logger.warning("validate_cluster_coherence_failed error=%s", exc)
-        return {"coherent": False, "confidence": 0.0, "label": "", "reason": "groq_error"}
-
-
-_PROMPT_MATCH_EXISTING = (
-    "Clasificás un grupo de consultas de usuarios de un chatbot institucional. "
-    "Te doy una lista de intenciones YA existentes. Decidí a cuál pertenece el grupo "
-    "(la misma NECESIDAD), o 'NUEVA' si no encaja claramente en ninguna. "
-    "Variar el médico, la especialidad o el día NO importa: lo que importa es la necesidad "
-    "(ej: '¿cuándo atiende el Dr X?' y '¿atiende pediatría el sábado?' son ambas horarios). "
-    'Respondé SOLO JSON: {"belongs_to": "<nombre_exacto_o_NUEVA>", "confidence": 0.0-1.0}.'
-)
-
-
-async def match_existing_intention(
-    sample_queries: list[str], existing_intentions: list[str],
-) -> dict[str, Any]:
-    """¿El grupo pertenece a una intención existente? Evita fragmentar el espacio de
-    intenciones (ej: crear consulta_dra_marin en vez de absorber en horarios_atencion),
-    algo que el embedding no separa bien pero el LLM sí.
-
-    Devuelve {'belongs_to': str|None, 'confidence': float}. belongs_to solo si el
-    nombre está EXACTO en existing_intentions. Fail-open (belongs_to=None) ante error:
-    peor caso, se crea una intención nueva (comportamiento previo), no rompe nada.
-    """
-    import json as _json
-    if not existing_intentions:
-        return {"belongs_to": None, "confidence": 0.0}
-    queries_text = "\n".join(f"- {q}" for q in sample_queries[:10])
-    listado = ", ".join(existing_intentions[:60])
-    try:
-        raw = await complete(
-            messages=[
-                {"role": "system", "content": _PROMPT_MATCH_EXISTING},
-                {"role": "user", "content": f"Intenciones existentes: {listado}\n\nGrupo:\n{queries_text}\n\nJSON:"},
-            ],
-            complexity=QueryComplexity.SIMPLE,
-            temperature=0.0,
-            max_tokens=40,
-        )
-        start, end = raw.find("{"), raw.rfind("}")
-        data = _json.loads(raw[start:end + 1])
-        cand = str(data.get("belongs_to", "")).strip()
-        conf = float(data.get("confidence", 0.0) or 0.0)
-        belongs_to = cand if cand in existing_intentions else None
-        return {"belongs_to": belongs_to, "confidence": conf}
-    except Exception as exc:
-        logger.warning("match_existing_intention_failed error=%s", exc)
-        return {"belongs_to": None, "confidence": 0.0}
 
 
 async def complete_quality_gate(chunk_text: str, tenant_id: str, custom_prompt: str | None = None) -> dict[str, Any]:

@@ -53,14 +53,9 @@ class Settings(BaseSettings):
 
     # ── TEI URLs (Text Embeddings Inference) ──────────────────────────────────
     tei_embedding_url: str = "http://tei-embeddings:80"
-    tei_reranker_url:  str = "http://tei-reranker:80"
     tei_timeout_ms:    int = 5000   # margen para batching server-side
-
-    # ── Reranker provider switch (local | tei) ────────────────────────────────
-    # local: bge-reranker-large via sentence-transformers CrossEncoder en el
-    #        proceso uvicorn (CPU, GIL bound, ~2GB RAM, OOM leak conocido).
-    # tei:   mismo modelo en TEI container con batching.
-    reranker_provider: str = "local"
+    # (settings del RERANKER eliminados 2026-07-23 — F3 plan de calidad; la
+    # función la cumple el trust gate. Ver services/retrieval.py.)
 
     # ── Concurrency tuning (production) ───────────────────────────────────────
     # Semaforos asyncio POR WORKER uvicorn para controlar hits concurrentes
@@ -142,16 +137,51 @@ class Settings(BaseSettings):
     # a nivel sistema — el bot sigue siendo solo-RAG). Se activa por tenant vía la
     # config de conectores, pero este flag lo apaga globalmente si hace falta.
     connectors_enabled: bool = False
-    # Stub in-process de NEXA para dev/tests (no llama a NEXA real). Solo en dev.
-    nexa_stub_enabled: bool = False
+    # Cómo decide el router QUÉ tool disparar:
+    #   "tool_calling" → llamada LLM SEPARADA pre-RAG elige la tool (2a). Ruteo correcto
+    #                    (eval 46/46) pero suma ~0.9-1.2s a CADA turno del widget.
+    #   "unified"      → la MISMA llamada LLM que genera la respuesta RAG recibe el
+    #                    catálogo (tool_choice=auto) y decide tool-vs-responder (2b).
+    #                    Cero latencia extra en turnos RAG; recomendado.
+    # El flujo posterior (FSM de login, roles, execute_tool) es idéntico en ambos.
+    # El modo "cosine" (clasificador de intenciones + binding) se eliminó 2026-07-22
+    # por ruteo poco fiable; un env legacy con ese valor se coerciona a "unified".
+    connector_routing_mode: str = "unified"
+
+    @field_validator("connector_routing_mode")
+    @classmethod
+    def _coerce_routing_mode(cls, v: str) -> str:
+        valid = {"unified", "tool_calling"}
+        if v not in valid:
+            import logging
+            logging.getLogger(__name__).warning(
+                "connector_routing_mode=%r no soportado (modo cosine eliminado) — usando 'unified'", v
+            )
+            return "unified"
+        return v
+    # Loop agéntico de conectores: tras ejecutar una tool, el resultado vuelve al
+    # LLM (con el catálogo) para que encadene la siguiente o redacte la respuesta.
+    # Presupuesto DURO: llamadas a tools por turno y tiempo total del loop. Las
+    # listas se resuelven en 1 llamada como siempre; solo las consultas de detalle
+    # (x-resource-id) usan saltos extra.
+    connector_loop_max_calls: int = 3
+    connector_loop_budget_ms: int = 12000
+    # Doble de pruebas in-process del framework de conectores (services/
+    # connector_stub.py) — no llama a ningún sistema real. Solo dev/tests.
+    connector_stub_enabled: bool = False
     # Sesión autenticada: TTL y throttle del segundo factor.
     session_ttl_seconds: int = 1800          # 30 min (renovable con actividad)
     connector_auth_max_attempts: int = 5     # intentos de código antes de bloquear
+    # SOLO DEV/QA: código OTP fijo (6 dígitos) para probar el login de conectores
+    # sin depender del email (Resend sandbox solo entrega a la casilla dueña de la
+    # cuenta hasta verificar dominio). Ignorado SIEMPRE en environment=production
+    # (doble gate en services/otp.py::_dev_fixed_code). Vacío = OTP real por email.
+    otp_dev_fixed_code: str = ""
     connector_auth_lockout_window_s: int = 900  # ventana de 15 min
     # Timeout y circuit breaker del executor HTTP hacia terceros.
     connector_http_timeout_ms: int = 4000
     # Hosts internos de confianza (CSV) exentos de la verificación de IP privada
-    # del egress_guard — SOLO para servicios mock en dev (ej. "mock_nexa"). Vacío
+    # del egress_guard — SOLO para servicios mock en dev (ej. "mock_pixs"). Vacío
     # en producción → protección SSRF intacta.
     connector_trusted_internal_hosts: str = ""
 
@@ -206,11 +236,6 @@ class Settings(BaseSettings):
     nlu_timeout_ms: int = 1000           # antes 200ms: GLiNER local CPU-bound bajo carga
     orchestrator_timeout_ms: int = 100   # antes 50ms
     db_timeout_ms: int = 1500            # antes 500ms
-    reranker_timeout_ms: int = 2500      # bge-reranker local CPU-bound: 800ms timeouteaba
-                                         # con 15-20 candidatos → caía a scores de embedding
-                                         # (escala baja, diluye atributos). El reranker es la
-                                         # autoridad de relevancia (entiende "cardiólogo"≈
-                                         # "Cardiologia"); vale la latencia para que SIEMPRE corra.
     llm_fast_timeout_ms: int = 3000      # antes 1500ms: bajo carga + retries
     llm_reasoning_timeout_ms: int = 10000  # antes 7000ms
     neo4j_timeout_ms: int = 1500         # antes 500ms
@@ -244,11 +269,6 @@ class Settings(BaseSettings):
     # ── Retrieval ─────────────────────────────────────────────────────────────
     retrieval_top_k: int = 100           # candidates fetched from Qdrant
     rerank_top_k: int = 15              # top-k after reranking
-    rerank_max_chars: int = 1200        # chars per chunk sent to the cross-encoder.
-                                        # 900 cortaba parents largos; 2000 hacía el reranker
-                                        # CPU demasiado lento → timeout → caía a embedding.
-                                        # 1200 es el balance: cubre el chunk de entidad (~400)
-                                        # y la mayoría de parents sin reventar el timeout.
     bm25_limit: int = 20                # BM25 candidates from PostgreSQL
     rrf_k: int = 60                     # RRF constant (standard value, rarely changed)
     skipped_chunk_score_penalty: float = 0.85  # score multiplier for quality_gate_status=skipped
@@ -263,6 +283,23 @@ class Settings(BaseSettings):
     hard_fallback_min_score: float = 0.0
     max_context_chunks: int = 15        # max chunks sent to LLM in a single query
 
+    # ── Trust gate (anti-alucinación por cobertura) ───────────────────────────
+    # ¿El contexto recuperado RESPONDE la pregunta o solo se parece al tema?
+    # Validado en staging 2026-07-23: 33/33 en batería dura (16 trampas de temas
+    # ausentes rechazadas, 15 controles intactos) sobre el corpus real de mutual.
+    # Capa 1 (léxica, gratis) resuelve ~75% de consultas sin latencia; la zona
+    # gris paga un juez LLM (~400ms, gpt-4o-mini). Fail-open ante cualquier error.
+    trust_gate_enabled: bool = True
+    trust_gate_judge: bool = True        # juez LLM en zona gris (si off: solo corta cobertura léxica 0)
+    # CALIBRADO POR LA SUITE (2026-07-23): 0.5. Se probó 0.7 (iter 4) para
+    # cazar inventos dentro de temas cubiertos y EMPEORÓ la guardián: factual
+    # 96%→64%, evasivas 6→14 (el juez rechaza de más en la banda media).
+    # Revertido por protocolo. Los inventos intra-tema (h_08/tg_06) quedan
+    # para la verificación de grounding post-generación (F2 del plan).
+    trust_gate_lex_strong: float = 0.5   # cobertura léxica para pasar directo sin juez
+    trust_gate_judge_max_chunks: int = 10  # fragmentos que ve el juez
+    trust_gate_judge_chunk_chars: int = 600  # chars por fragmento para el juez
+
     # ── Conversation history ───────────────────────────────────────────────────
     history_recent_turns: int = 6       # last N turns sent as full messages
     history_summary_chars: int = 120    # chars per turn in the compressed summary block
@@ -270,17 +307,6 @@ class Settings(BaseSettings):
 
     # ── ML models ─────────────────────────────────────────────────────────────
     embedding_model: str = "intfloat/multilingual-e5-large"
-    reranker_model: str = "BAAI/bge-reranker-large"
-    reranker_enabled: bool = True
-    # Umbral de documentos listos para activar el reranker automaticamente.
-    # Con < N docs la KB es chica: Qdrant similarity ya es precisa y el reranker
-    # no aporta calidad pero si latencia. Con >= N docs hay overlap tematico entre
-    # fuentes distintas y el reranker empieza a discriminar mejor que coseno puro.
-    # 5 docs ≈ 180 chunks — punto de inflexion validado empiricamente.
-    reranker_auto_min_docs: int = 1
-    # Minimo de candidatos de Qdrant para correr el reranker en esa query.
-    # Si Qdrant devuelve menos de este numero, skipear (sin calidad real a ganar).
-    reranker_min_candidates: int = 5
     nlu_model: str = "urchade/gliner_large-v2.1"
     nlu_enabled: bool = True
 
@@ -288,25 +314,6 @@ class Settings(BaseSettings):
     cache_ttl_seconds: int = 3600
     semantic_cache_threshold: float = 0.97   # cosine similarity to consider a semantic hit
     semantic_cache_enabled: bool = True
-
-    # ── Intent classifier ─────────────────────────────────────────────────────
-    intent_confidence_high: float = 0.95
-    intent_confidence_mid: float = 0.70
-    intent_auto_learn_cap: float = 0.30
-    intent_cluster_min_size: int = 15
-    intent_cluster_dismiss_days: int = 60
-
-    # ── Auto-promoción de clusters → intenciones ────────────────────────────────
-    # Modo sugerencia por defecto (False): el clustering nocturno solo genera
-    # candidatos y el admin los aprueba desde el panel. El botón manual del panel
-    # sigue funcionando (pasa force=True). Reactivar la promoción totalmente
-    # automática (beat nocturno + inline post-clustering) recién cuando el volumen
-    # de tenants haga inviable la revisión humana — y con tests de intent_promotion.
-    intent_auto_promote_enabled: bool = False
-    intent_auto_promote_min_size: int = 20   # ≥ intent_cluster_min_size
-    # A. Subdivisión: un cluster incoherente se re-clusteriza fino; cada sub-grupo
-    # con ≥ este tamaño y coherente se promueve (recupera cobertura perdida).
-    intent_subdivide_min_size: int = 6
 
     # ── Email ─────────────────────────────────────────────────────────────────
     smtp_host: str = ""

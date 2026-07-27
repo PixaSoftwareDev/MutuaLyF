@@ -66,46 +66,61 @@ async def _detect_all() -> dict:
 
 
 @app.task(
-    name="workers.maintenance_tasks.reconcile_intents_task",
-    max_retries=1,
-    default_retry_delay=300,
-    soft_time_limit=1200,
-)
-def reconcile_intents_task(tenant_id: str) -> dict:
-    """Repara la deriva PG↔Qdrant de ejemplos de intenciones de un tenant."""
-    from services.intent_reconcile import reconcile_intent_examples
-    return asyncio.run(reconcile_intent_examples(tenant_id))
-
-
-@app.task(
     name="workers.maintenance_tasks.data_consistency_all_tenants",
     soft_time_limit=3600,
 )
 def data_consistency_all_tenants() -> dict:
-    """Consistencia nocturna: reconcilia ejemplos de intenciones (PG↔Qdrant)
-    y purga puntos huérfanos del cache semántico. Corre después del ciclo de
-    aprendizaje (clustering/retrain) para reparar cualquier indexación que
-    haya fallado por rate limits de embeddings.
-    """
+    """Consistencia nocturna: purga puntos huérfanos del cache semántico
+    (el Redis pareado tiene TTL 1h; sin esta purga el punto en Qdrant queda
+    para siempre y el cache semántico devuelve entradas sin respaldo)."""
     return asyncio.run(_consistency_all())
+
+
+_QUERY_CACHE_MAX_AGE_S = 7 * 24 * 3600  # puntos del cache semántico > 7 días = huérfanos
+
+
+async def _purge_stale_query_cache(tenant_id: str) -> int:
+    """Borra puntos del cache semántico cuyo Redis (TTL 1h) expiró hace días."""
+    import time
+
+    from core.database import get_worker_qdrant_client
+    from qdrant_client.models import FieldCondition, Filter, FilterSelector, Range
+
+    collection = f"{tenant_id}_query_cache"
+    cutoff = int(time.time()) - _QUERY_CACHE_MAX_AGE_S
+    try:
+        async with get_worker_qdrant_client() as qdrant:
+            info = await qdrant.get_collection(collection)
+            before = info.points_count or 0
+            await qdrant.delete(
+                collection_name=collection,
+                points_selector=FilterSelector(filter=Filter(must=[
+                    FieldCondition(key="cached_at", range=Range(lt=cutoff)),
+                ])),
+            )
+            info = await qdrant.get_collection(collection)
+            purged = before - (info.points_count or 0)
+            if purged:
+                logger.info("query_cache_purged tenant=%s points=%d", tenant_id, purged)
+            return purged
+    except Exception as exc:
+        # Colección puede no existir todavía — no es un error.
+        logger.debug("query_cache_purge_skipped tenant=%s error=%s", tenant_id, exc)
+        return 0
 
 
 async def _consistency_all() -> dict:
     from core.database import get_worker_pg_session
-    from services.intent_reconcile import purge_stale_query_cache, reconcile_intent_examples
     from sqlalchemy import text
 
     async with get_worker_pg_session(None) as session:
         result = await session.execute(text("SELECT id FROM tenants WHERE status = 'active'"))
         tenant_ids = [row[0] for row in result.fetchall()]
 
-    summary = {"tenants": len(tenant_ids), "indexed": 0, "failed": 0, "cache_purged": 0}
+    summary = {"tenants": len(tenant_ids), "cache_purged": 0}
     for tid in tenant_ids:
         try:
-            r = await reconcile_intent_examples(tid)
-            summary["indexed"] += r.get("indexed", 0)
-            summary["failed"] += r.get("failed", 0)
-            summary["cache_purged"] += await purge_stale_query_cache(tid)
+            summary["cache_purged"] += await _purge_stale_query_cache(tid)
         except Exception as exc:
             logger.error("consistency_tenant_error tenant_id=%s error=%s", tid, exc)
     logger.info("consistency_all_done %s", summary)

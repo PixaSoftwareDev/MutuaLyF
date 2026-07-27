@@ -68,6 +68,9 @@ _REGISTRY = {"30111222": {"id": "u1", "documento": "30111222",
 def wired(monkeypatch):
     from core.config import settings
     monkeypatch.setattr(settings, "connectors_enabled", True)
+    # Modo tool_calling explícito: sin esto heredan CONNECTOR_ROUTING_MODE del
+    # ambiente (p.ej. unified en dev local) y maybe_handle ni selecciona.
+    monkeypatch.setattr(settings, "connector_routing_mode", "tool_calling")
 
     fake_session = FakeRedis()
     fake_rl = FakeRedis()
@@ -79,15 +82,16 @@ def wired(monkeypatch):
         return None
     monkeypatch.setattr("services.connector_router._phrase_with_llm", _no_llm)
 
-    from services.classifier import IntentResult
+    # Selección de tool por LLM mockeada (sin red): las preguntas de oportunidades
+    # eligen la tool del CRM, el resto va al RAG.
+    async def _resolve(tenant_id, text):
+        return (_registry_binding(), {}) if "oportunidades" in text.lower() else None
+    monkeypatch.setattr("services.connector_router._resolve_tool_via_llm", _resolve)
 
-    async def _classify(q, tenant_id):
-        return IntentResult(label="consulta_crm", confidence=0.9, band="mid")
-    monkeypatch.setattr("services.classifier.classify_intent", _classify)
-
-    async def _get_tool(tenant_id, label):
-        return _registry_binding() if label == "consulta_crm" else None
-    monkeypatch.setattr("services.connector_router.get_tool_for_intent", _get_tool)
+    # Rehidratación del binding a mitad del FSM (pending_intent guarda el slug).
+    async def _by_slug(tenant_id, slug):
+        return _registry_binding() if slug == "oportunidades_abiertas" else None
+    monkeypatch.setattr("services.connector_router.get_tool_by_slug", _by_slug)
 
     async def _noop_audit(*a, **k):
         return None
@@ -159,18 +163,21 @@ async def test_registry_login_ok(wired):
 
 
 @pytest.mark.asyncio
-async def test_registry_documento_no_autorizado_es_neutro(wired):
+async def test_registry_documento_no_autorizado_avisa_claro(wired):
     await _turn("¿cuántas oportunidades abiertas tenemos?")
 
-    # Documento que NO está en la lista → mensaje neutro (anti-enumeración) y NO
-    # se envía ningún código.
+    # Documento que NO está en la lista blanca → aviso CLARO (es un equipo interno
+    # cargado por el admin, la enumeración no regala nada) y NO se envía código.
+    # Decisión 2026-07-21: antes el mensaje era neutro y dejaba al usuario
+    # esperando un código imposible. platform_otp/provider siguen neutros.
     r = await _turn("99999999")
     assert wired["sent"] == {}
-    assert "registrados" in r["answer"].lower()
+    assert "no figura" in r["answer"].lower()
 
-    # Sin código generado, ningún código autentica.
-    r = await _turn("654321")
-    assert r.get("connector_outcome") != "ok"
+    # El FSM volvió a pedir el identificador: un documento VÁLIDO ahora sí avanza.
+    r = await _turn("30111222")
+    assert "código" in r["answer"].lower()
+    assert wired["sent"]["email"] == "guille@intellix.com"
 
 
 @pytest.mark.asyncio

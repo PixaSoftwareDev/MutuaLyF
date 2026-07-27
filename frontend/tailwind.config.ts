@@ -19,6 +19,7 @@ const config: Config = {
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
         background: "hsl(var(--background))",
+        canvas: "hsl(var(--canvas))",
         foreground: "hsl(var(--foreground))",
         primary: {
           DEFAULT: "hsl(var(--primary))",
@@ -129,6 +130,15 @@ const config: Config = {
           from: { opacity: "0", transform: "translateY(8px)" },
           to:   { opacity: "1", transform: "translateY(0)" },
         },
+        // Transiciones direccionales del wizard de onboarding (paso a paso).
+        "slide-in-right": {
+          from: { opacity: "0", transform: "translateX(24px)" },
+          to:   { opacity: "1", transform: "translateX(0)" },
+        },
+        "slide-in-left": {
+          from: { opacity: "0", transform: "translateX(-24px)" },
+          to:   { opacity: "1", transform: "translateX(0)" },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
@@ -139,6 +149,8 @@ const config: Config = {
         // los hover:-translate-y de las cards siguen funcionando.
         "fade-in": "fade-in 0.24s ease-out backwards",
         "fade-in-up": "fade-in-up 0.3s cubic-bezier(0.16, 1, 0.3, 1) backwards",
+        "slide-in-right": "slide-in-right 0.35s cubic-bezier(0.16, 1, 0.3, 1) backwards",
+        "slide-in-left": "slide-in-left 0.35s cubic-bezier(0.16, 1, 0.3, 1) backwards",
       },
     },
   },

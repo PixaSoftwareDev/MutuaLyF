@@ -5,33 +5,31 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  FileText, Trash2, Loader2, ArrowLeft, Download, XCircle, AlertTriangle, Search, Layers,
+  FileText, Trash2, Loader2, ChevronLeft, ChevronDown, Download, XCircle, Search, Layers,
 } from "lucide-react";
 import { api, type DocumentResponse, type ChunkResponse } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Pagination } from "@/components/ui/pagination";
-import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
-} from "@/components/ui/dialog";
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { toast } from "@/components/ui/toast";
-import { PageShell } from "@/components/layout/page-shell";
 import { cn } from "@/lib/utils";
+import { HighlightedText, normSearch } from "@/lib/highlight";
+import { ListDetailShell } from "@/components/admin/list-detail-shell";
+import { DetailShell as Shell } from "@/components/admin/detail-shell";
 import {
-  DOC_STATUS_CONFIG, QG_DOC_CONFIG, fileExt, ChunkCard,
+  DOC_STATUS_CONFIG, QG_DOC_CONFIG, fileExt, partStatus, PartDetailPanel, DocumentDeleteDialog,
 } from "@/components/documents/document-shared";
-
-const PAGE_SIZE = 10;
 
 type StatusKey = "all" | ChunkResponse["quality_gate_status"];
 
 const STATUS_FILTERS: Array<{ key: StatusKey; label: string; dot?: string }> = [
-  { key: "all",     label: "Todos" },
-  { key: "passed",  label: "Verificados", dot: "bg-success" },
+  { key: "all",     label: "Todas" },
+  { key: "passed",  label: "En uso",      dot: "bg-success" },
   { key: "pending", label: "Por revisar", dot: "bg-warning" },
-  { key: "skipped", label: "Excluidos",   dot: "bg-muted-foreground/50" },
+  { key: "skipped", label: "Sin usar",    dot: "bg-muted-foreground/50" },
 ];
 
 export default function DocumentDetailPage() {
@@ -39,12 +37,20 @@ export default function DocumentDetailPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const id = String(params.id);
-  const [showDelete, setShowDelete] = useState(false);
 
-  // Filtros + paginación de fragmentos
+  const [showDelete, setShowDelete] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [panelOpen, setPanelOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState<StatusKey>("all");
   const [search, setSearch] = useState("");
-  const [page, setPage] = useState(1);
+
+  // El buscador general de la tabla propaga su término via ?q= — el detalle
+  // abre ya filtrado. Se lee en effect (no useSearchParams) para no requerir
+  // Suspense en el prerender y evitar hydration mismatch en el Input.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get("q");
+    if (q) setSearch(q);
+  }, []);
 
   // El doc sale de la lista cacheada; si se entra directo por URL, la query la trae.
   const { data: documents, isLoading: listLoading } = useQuery({
@@ -73,8 +79,14 @@ export default function DocumentDetailPage() {
   });
 
   const { mutate: downloadDoc, isPending: downloading } = useMutation({
-    mutationFn: () => api.documents.download(id),
-    onError: () => toast({ title: "No se pudo descargar", description: "El archivo original no está disponible.", variant: "destructive" }),
+    mutationFn: (variant: "original" | "edited") => api.documents.download(id, variant),
+    onError: (_err, variant) => toast({
+      title: "No se pudo descargar",
+      description: variant === "edited"
+        ? "El documento no tiene partes en uso para exportar."
+        : "El archivo original no está disponible.",
+      variant: "destructive",
+    }),
   });
 
   const counts = useMemo(() => {
@@ -84,210 +96,277 @@ export default function DocumentDetailPage() {
   }, [chunks]);
 
   const filteredChunks = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    // Sin tildes ni mayúsculas: coherente con el full-text del buscador general
+    // ("autorizacion" encuentra "Autorización").
+    const q = normSearch(search.trim());
     return (chunks ?? []).filter((c) =>
       (statusFilter === "all" || c.quality_gate_status === statusFilter) &&
-      (!q || c.text.toLowerCase().includes(q)),
+      (!q || normSearch(c.text).includes(q)),
     );
   }, [chunks, statusFilter, search]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredChunks.length / PAGE_SIZE));
-  const pageChunks = filteredChunks.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  // Selección desde la lista completa (no la filtrada): así el panel sobrevive
+  // aunque la parte deje de matchear el filtro tras revisarla.
+  const selectedChunk = chunks?.find((c) => c.id === selectedId) ?? null;
 
-  // Reset de página al cambiar filtros; clamp si la página quedó fuera de rango.
-  useEffect(() => { setPage(1); }, [statusFilter, search]);
-  useEffect(() => { if (page > totalPages) setPage(totalPages); }, [page, totalPages]);
+  useEffect(() => { setSelectedId(null); setPanelOpen(false); }, [id]);
+
+  const backLink = (
+    <Link
+      // Preserva la búsqueda activa: la lista la restaura desde ?q=
+      href={search.trim() ? `/admin/documents?q=${encodeURIComponent(search.trim())}` : "/admin/documents"}
+      aria-label="Volver a Documentos"
+      title="Volver a Documentos"
+      className="-ml-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+    >
+      <ChevronLeft className="h-4 w-4" />
+    </Link>
+  );
 
   // ── Loading / not found ──────────────────────────────────────────────────────
   if (listLoading && !doc) {
     return (
-      <PageShell>
-        <BackLink />
-        <Skeleton className="h-24 w-full rounded-2xl" />
-        <div className="space-y-2.5">{[1, 2, 3].map((i) => <Skeleton key={i} className="h-24 w-full rounded-xl" />)}</div>
-      </PageShell>
+      <Shell leading={backLink} title="Documento">
+        <Skeleton className="h-20 w-full rounded-2xl" />
+        <div className="mt-4 space-y-2"><Skeleton className="h-10 w-full rounded-lg" /><Skeleton className="h-10 w-full rounded-lg" /></div>
+      </Shell>
     );
   }
   if (!doc) {
     return (
-      <PageShell>
-        <BackLink />
+      <Shell leading={backLink} title="Documento">
         <div className="rounded-2xl border bg-card p-12 text-center">
-          <FileText className="h-10 w-10 mx-auto text-muted-foreground/30 mb-3" />
+          <FileText className="mx-auto mb-3 h-10 w-10 text-muted-foreground/30" />
           <p className="text-sm font-medium text-foreground">No encontramos este documento</p>
-          <p className="text-sm text-muted-foreground mt-1">Puede que haya sido eliminado.</p>
+          <p className="mt-1 text-sm text-muted-foreground">Puede que haya sido eliminado.</p>
           <Button asChild variant="outline" size="sm" className="mt-4">
             <Link href="/admin/documents">Volver a Documentos</Link>
           </Button>
         </div>
-      </PageShell>
+      </Shell>
     );
   }
 
   const st = DOC_STATUS_CONFIG[doc.status];
   const qgBadge = QG_DOC_CONFIG[doc.quality_gate_status];
 
-  return (
-    <PageShell>
-      <BackLink />
-
-      {/* Cabecera del documento */}
-      <div className="rounded-2xl border bg-card shadow-xs p-5">
-        <div className="flex items-start gap-4">
-          <div className="h-12 w-12 rounded-xl bg-muted flex flex-col items-center justify-center shrink-0 text-muted-foreground">
-            <FileText className="h-5 w-5" />
-            {fileExt(doc.title) && <span className="text-[7px] font-bold leading-none mt-0.5">{fileExt(doc.title)}</span>}
-          </div>
-          <div className="min-w-0 flex-1">
-            <h1 className="text-lg font-semibold tracking-tight text-foreground break-words leading-snug">{doc.title}</h1>
-            <div className="flex items-center gap-2 mt-2 flex-wrap">
-              <Badge variant={st.variant} className="gap-1.5">
-                <span className={cn("h-1.5 w-1.5 rounded-full", doc.status === "processing" && "animate-pulse", st.dot)} />
-                {st.label}
-              </Badge>
-              {qgBadge && <Badge variant={qgBadge.variant}>{qgBadge.label}</Badge>}
-              {doc.chunk_count > 0 && (
-                <span className="inline-flex items-center gap-1 text-sm text-muted-foreground tabular-nums">
-                  <Layers className="h-3.5 w-3.5" />{doc.chunk_count} fragmento{doc.chunk_count !== 1 ? "s" : ""}
-                </span>
-              )}
-            </div>
-          </div>
-
-          {/* Acciones del documento */}
-          <div className="flex items-center gap-2 shrink-0">
-            {doc.storage_key && (
-              <Button variant="outline" size="sm" className="gap-1.5" onClick={() => downloadDoc()} disabled={downloading}>
-                {downloading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
-                <span className="hidden sm:inline">Descargar</span>
-              </Button>
-            )}
-            <Button
-              variant="outline" size="sm"
-              className="gap-1.5 text-destructive border-destructive/30 hover:bg-destructive/10 hover:text-destructive"
-              onClick={() => setShowDelete(true)}
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Eliminar</span>
+  const docActions = (
+    <div className="flex shrink-0 items-center gap-2">
+      {(doc.storage_key || doc.chunk_count > 0) && (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="sm" className="gap-1.5" disabled={downloading}>
+              {downloading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+              <span className="hidden sm:inline">Descargar</span>
+              <ChevronDown className="h-3.5 w-3.5 opacity-60" />
             </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-64">
+            <DropdownMenuItem disabled={!doc.storage_key} onClick={() => downloadDoc("original")}>
+              <div className="flex flex-col gap-0.5">
+                <span>Archivo original</span>
+                <span className="text-xs text-muted-foreground">Tal como se subió, sin cambios.</span>
+              </div>
+            </DropdownMenuItem>
+            <DropdownMenuItem disabled={doc.status !== "ready" || doc.chunk_count === 0} onClick={() => downloadDoc("edited")}>
+              <div className="flex flex-col gap-0.5">
+                <span>Versión actual (.txt)</span>
+                <span className="text-xs text-muted-foreground">Las partes en uso, con tus ediciones.</span>
+              </div>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
+      <Button
+        variant="outline" size="sm"
+        className="gap-1.5 border-destructive/30 text-destructive hover:bg-destructive/10 hover:text-destructive"
+        onClick={() => setShowDelete(true)}
+      >
+        <Trash2 className="h-3.5 w-3.5" />
+        <span className="hidden sm:inline">Eliminar</span>
+      </Button>
+    </div>
+  );
+
+  // Barra de metadatos del documento (estado + verificación + nº de partes).
+  const metaBar = (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="flex h-8 w-8 shrink-0 flex-col items-center justify-center rounded-lg bg-muted text-muted-foreground">
+        <FileText className="h-4 w-4" />
+      </span>
+      <Badge variant={st.variant} className="gap-1.5">
+        <span className={cn("h-1.5 w-1.5 rounded-full", doc.status === "processing" && "animate-pulse", st.dot)} />
+        {st.label}
+      </Badge>
+      {qgBadge && <Badge variant={qgBadge.variant}>{qgBadge.label}</Badge>}
+      {fileExt(doc.title) && <span className="text-xs font-medium text-muted-foreground">{fileExt(doc.title)}</span>}
+      {doc.chunk_count > 0 && (
+        <span className="inline-flex items-center gap-1 text-sm tabular-nums text-muted-foreground">
+          <Layers className="h-3.5 w-3.5" />{doc.chunk_count} parte{doc.chunk_count !== 1 ? "s" : ""}
+        </span>
+      )}
+    </div>
+  );
+
+  // ── Documento aún no procesado ───────────────────────────────────────────────
+  if (doc.status !== "ready") {
+    return (
+      <>
+        <Shell leading={backLink} title={doc.title} actions={docActions}>
+          {metaBar}
+          <div className="mt-4 rounded-2xl border bg-card p-12 text-center text-muted-foreground">
+            {doc.status === "failed" ? (
+              <><XCircle className="mx-auto mb-2 h-8 w-8 text-destructive/50" /><p className="text-sm">El procesamiento falló. Probá volver a subir el documento.</p></>
+            ) : (
+              <><Loader2 className="mx-auto mb-2 h-8 w-8 animate-spin opacity-50" /><p className="text-sm">El documento se está procesando…</p></>
+            )}
           </div>
-        </div>
-      </div>
+        </Shell>
+        <DocumentDeleteDialog open={showDelete} onOpenChange={setShowDelete} title={doc.title} onConfirm={() => deleteDoc()} deleting={deleting} />
+      </>
+    );
+  }
 
-      {/* Fragmentos */}
-      {doc.status !== "ready" ? (
-        <div className="rounded-2xl border bg-card p-12 text-center text-muted-foreground">
-          {doc.status === "failed" ? (
-            <><XCircle className="h-8 w-8 mx-auto text-destructive/50 mb-2" /><p className="text-sm">El procesamiento falló. Probá volver a subir el documento.</p></>
-          ) : (
-            <><Loader2 className="h-8 w-8 mx-auto animate-spin opacity-50 mb-2" /><p className="text-sm">El documento se está procesando…</p></>
-          )}
-        </div>
-      ) : chunksLoading ? (
-        <div className="space-y-2.5">{[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-24 w-full rounded-xl" />)}</div>
-      ) : !chunks?.length ? (
-        <div className="rounded-2xl border bg-card p-10 text-center text-sm text-muted-foreground">Sin fragmentos disponibles</div>
-      ) : (
-        <div className="space-y-3">
-          {/* Toolbar: filtro por estado + búsqueda */}
-          <div className="flex flex-col sm:flex-row sm:items-center gap-3 justify-between">
-            <div role="tablist" aria-label="Filtrar fragmentos" className="inline-flex items-center gap-1 p-1 bg-muted rounded-lg overflow-x-auto">
-              {STATUS_FILTERS.map((f) => {
-                const n = counts[f.key];
-                const active = statusFilter === f.key;
-                if (f.key !== "all" && n === 0) return null;
-                return (
-                  <button
-                    key={f.key}
-                    role="tab"
-                    aria-selected={active}
-                    onClick={() => setStatusFilter(f.key)}
-                    className={cn(
-                      "inline-flex items-center gap-1.5 h-8 px-3 rounded-md text-sm font-medium whitespace-nowrap transition-colors",
-                      active ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
-                    )}
-                  >
-                    {f.dot && <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", f.dot)} />}
-                    {f.label}
-                    <span className="tabular-nums text-xs text-muted-foreground">{n}</span>
-                  </button>
-                );
-              })}
-            </div>
+  // ── Listo: master-detalle de partes ──────────────────────────────────────────
+  return (
+    <>
+      <ListDetailShell
+        title={doc.title}
+        leading={backLink}
+        actions={docActions}
+        panelTitle="parte"
+        open={panelOpen}
+        hasSelection={!!selectedChunk}
+        onExpand={() => setPanelOpen(true)}
+        panelWidth={520}
+        panel={selectedChunk ? (
+          <PartDetailPanel
+            key={selectedChunk.id}
+            chunk={selectedChunk}
+            documentId={doc.id}
+            highlight={search}
+            onCollapse={() => setPanelOpen(false)}
+          />
+        ) : null}
+      >
+        <div className="space-y-4">
+          <p className="text-sm leading-relaxed text-muted-foreground">
+            El asistente dividió este documento en partes para leerlo mejor. Elegí cuáles usa para responder: las que están{" "}
+            <span className="font-medium text-foreground">en uso</span> las tiene en cuenta, las{" "}
+            <span className="font-medium text-foreground">sin usar</span> las ignora.
+          </p>
 
-            <div className="relative w-full sm:max-w-[420px] sm:flex-1">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-              <Input
-                placeholder="Buscar en los fragmentos…"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-8 h-9 text-sm"
-              />
-            </div>
-          </div>
-
-          {/* Lista paginada */}
-          {filteredChunks.length === 0 ? (
-            <div className="rounded-2xl border bg-card p-10 text-center text-muted-foreground">
-              <Search className="h-7 w-7 mx-auto opacity-30 mb-2" />
-              <p className="text-sm">Ningún fragmento coincide con el filtro.</p>
-            </div>
+          {chunksLoading ? (
+            <div className="space-y-2">{[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-11 w-full rounded-lg" />)}</div>
+          ) : !chunks?.length ? (
+            <div className="rounded-2xl border bg-card p-10 text-center text-sm text-muted-foreground">Sin partes disponibles</div>
           ) : (
             <>
-              <div className="space-y-2.5">
-                {pageChunks.map((chunk) => <ChunkCard key={chunk.id} chunk={chunk} documentId={doc.id} />)}
+              {/* Filtro por estado + búsqueda. Apilan hasta pantallas grandes
+                  para no compartir línea y comprimirse en notebooks. */}
+              <div className="flex flex-col justify-between gap-3 lg:flex-row lg:items-center">
+                <div role="tablist" aria-label="Filtrar partes" className="inline-flex shrink-0 items-center gap-1 overflow-x-auto rounded-lg bg-muted p-1">
+                  {STATUS_FILTERS.map((f) => {
+                    const n = counts[f.key];
+                    const active = statusFilter === f.key;
+                    if (f.key !== "all" && n === 0) return null;
+                    return (
+                      <button
+                        key={f.key}
+                        role="tab"
+                        aria-selected={active}
+                        onClick={() => setStatusFilter(f.key)}
+                        className={cn(
+                          "inline-flex h-8 items-center gap-1.5 whitespace-nowrap rounded-md px-3 text-sm font-medium transition-colors",
+                          active ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+                        )}
+                      >
+                        {f.dot && <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", f.dot)} />}
+                        {f.label}
+                        <span className="text-xs tabular-nums text-muted-foreground">{n}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="relative w-full min-w-0 lg:max-w-[300px]">
+                  <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input placeholder="Buscar en el texto…" value={search} onChange={(e) => setSearch(e.target.value)} className="h-9 pl-8 text-sm" />
+                </div>
               </div>
 
-              {/* Footer: rango + paginación */}
-              <div className="flex items-center justify-between gap-3 pt-1 flex-wrap">
-                <span className="text-xs text-muted-foreground tabular-nums">
-                  {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filteredChunks.length)} de {filteredChunks.length}
-                  {statusFilter !== "all" || search ? ` (filtrado de ${counts.all})` : ""}
-                </span>
-                <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
-              </div>
+              {/* Con búsqueda activa, el resultado del filtro en palabras: acá
+                  se cuenta PARTES que contienen el término (la tabla general
+                  cuenta menciones — son medidas distintas y ambas visibles). */}
+              {search.trim() && filteredChunks.length > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  {filteredChunks.length} de {counts.all} {filteredChunks.length === 1 ? "parte contiene" : "partes contienen"} «{search.trim()}»
+                </p>
+              )}
+
+              {/* Tabla de partes */}
+              {filteredChunks.length === 0 ? (
+                <div className="rounded-2xl border bg-card p-10 text-center text-muted-foreground">
+                  <Search className="mx-auto mb-2 h-7 w-7 opacity-30" />
+                  <p className="text-sm">Ninguna parte coincide con el filtro.</p>
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow className="hover:bg-transparent">
+                      <TableHead className="w-10 text-center">#</TableHead>
+                      <TableHead>Contenido</TableHead>
+                      <TableHead className="w-[130px] text-right">Estado</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredChunks.map((chunk) => (
+                      <PartRow
+                        key={chunk.id}
+                        chunk={chunk}
+                        highlight={search}
+                        selected={chunk.id === selectedId}
+                        onSelect={() => { setSelectedId(chunk.id); setPanelOpen(true); }}
+                      />
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
             </>
           )}
         </div>
-      )}
+      </ListDetailShell>
 
-      {/* Confirmación de eliminación */}
-      <Dialog open={showDelete} onOpenChange={setShowDelete}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <div className="flex items-start gap-3 text-left">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-destructive/10">
-                <AlertTriangle className="h-5 w-5 text-destructive" />
-              </div>
-              <div className="min-w-0 space-y-1.5 pt-0.5">
-                <DialogTitle>Eliminar documento</DialogTitle>
-                <DialogDescription>
-                  Vas a eliminar <span className="font-medium text-foreground">{doc.title}</span> y todos sus fragmentos. Esta acción no se puede deshacer.
-                </DialogDescription>
-              </div>
-            </div>
-          </DialogHeader>
-          <DialogFooter className="mt-2">
-            <Button variant="outline" onClick={() => setShowDelete(false)} disabled={deleting}>Cancelar</Button>
-            <Button variant="destructive" onClick={() => deleteDoc()} disabled={deleting}>
-              {deleting && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
-              Eliminar
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </PageShell>
+      <DocumentDeleteDialog open={showDelete} onOpenChange={setShowDelete} title={doc.title} onConfirm={() => deleteDoc()} deleting={deleting} />
+    </>
   );
 }
 
-function BackLink() {
+// ── Fila de una parte ─────────────────────────────────────────────────────────
+
+function PartRow({ chunk, highlight, selected, onSelect }: { chunk: ChunkResponse; highlight?: string; selected: boolean; onSelect: () => void }) {
+  const st = partStatus(chunk.quality_gate_status);
+  const isSkipped = chunk.quality_gate_status === "skipped";
   return (
-    <Link
-      href="/admin/documents"
-      className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors w-fit"
-    >
-      <ArrowLeft className="h-4 w-4" />
-      Volver a Documentos
-    </Link>
+    <TableRow onClick={onSelect} aria-selected={selected} className={cn("cursor-pointer", selected && "bg-muted/60")}>
+      <TableCell className="py-4 text-center align-middle text-xs tabular-nums text-muted-foreground/60">
+        {chunk.chunk_index + 1}
+      </TableCell>
+      <TableCell className="py-4 align-middle">
+        <p className={cn("line-clamp-1 text-sm", isSkipped ? "text-muted-foreground" : "text-foreground/80")}>
+          {/* Con búsqueda activa, snippet centrado en la coincidencia: el match
+              puede estar más allá del recorte de una línea. */}
+          {highlight?.trim()
+            ? <HighlightedText text={chunk.text} term={highlight} snippet />
+            : chunk.text}
+        </p>
+      </TableCell>
+      <TableCell className="whitespace-nowrap py-4 text-right align-middle">
+        <span className={cn("inline-flex items-center gap-1.5 text-xs font-medium", st.text)}>
+          <span className={cn("h-1.5 w-1.5 rounded-full", st.dot)} /> {st.label}
+        </span>
+      </TableCell>
+    </TableRow>
   );
 }
+

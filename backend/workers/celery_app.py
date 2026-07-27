@@ -11,8 +11,6 @@ app = Celery(
     backend=settings.redis_url_broker,
     include=[
         "workers.ingest_tasks",
-        "workers.clustering_tasks",
-        "workers.training_tasks",
         "workers.handoff_tasks",
         "workers.cleanup_tasks",
         "workers.maintenance_tasks",
@@ -52,6 +50,35 @@ def on_worker_process_init(**kwargs):
     #     pass
 
 
+# ── Beat schedule ───────────────────────────────────────────────────────────────
+# Base: tareas siempre activas (calidad de datos, handoff de operadores, limpieza).
+_beat_schedule = {
+    # Calidad de datos: detecta direcciones/teléfonos en conflicto y cachea los
+    # hechos canónicos por sujeto.
+    "nightly-contradiction-scan": {
+        "task": "workers.maintenance_tasks.detect_contradictions_all_tenants",
+        "schedule": crontab(hour=3, minute=30),
+    },
+    # Consistencia de datos: purga puntos huérfanos del cache semántico
+    # (Redis con TTL 1h ya expiró; el punto en Qdrant quedaría para siempre).
+    "nightly-data-consistency": {
+        "task": "workers.maintenance_tasks.data_consistency_all_tenants",
+        "schedule": crontab(hour=4, minute=0),
+    },
+    "operator-inactivity-check": {
+        "task": "workers.handoff_tasks.check_operator_inactivity",
+        "schedule": 60,
+    },
+    "close-stale-conversations": {
+        "task": "workers.handoff_tasks.close_stale_conversations",
+        "schedule": 300,  # every 5 min — close bot_active idle > 30 min
+    },
+    "cleanup-expired-attachments": {
+        "task": "workers.cleanup_tasks.delete_expired_attachments",
+        "schedule": crontab(hour=1, minute=30),  # diario, antes del ciclo nocturno
+    },
+}
+
 app.conf.update(
     task_serializer="json",
     accept_content=["json"],
@@ -63,51 +90,7 @@ app.conf.update(
     worker_prefetch_multiplier=1,  # Fair dispatch — don't prefetch more than one task per worker
     task_routes={
         "workers.ingest_tasks.*": {"queue": "ingest"},
-        "workers.clustering_tasks.*": {"queue": "clustering"},
-        "workers.training_tasks.*": {"queue": "training"},
         "workers.maintenance_tasks.*": {"queue": "clustering"},
     },
-    beat_schedule={
-        "nightly-clustering": {
-            "task": "workers.clustering_tasks.run_hdbscan_clustering",
-            "schedule": crontab(hour=2, minute=0),
-        },
-        # Respaldo del promote inline del clustering. NO-OP salvo que
-        # INTENT_AUTO_PROMOTE_ENABLED=true (default false = modo sugerencia:
-        # el admin aprueba candidatos desde el panel). Se deja agendado para
-        # poder reactivar por env sin tocar código.
-        "nightly-auto-promote": {
-            "task": "workers.clustering_tasks.promote_all_tenants",
-            "schedule": crontab(hour=2, minute=30),
-        },
-        "nightly-retraining": {
-            "task": "workers.training_tasks.retrain_all_tenants",
-            "schedule": crontab(hour=3, minute=0),
-        },
-        # Calidad de datos: detecta direcciones/teléfonos en conflicto y cachea los
-        # hechos canónicos por sujeto. Después del retraining.
-        "nightly-contradiction-scan": {
-            "task": "workers.maintenance_tasks.detect_contradictions_all_tenants",
-            "schedule": crontab(hour=3, minute=30),
-        },
-        # Consistencia de datos: repara deriva PG↔Qdrant de ejemplos de
-        # intenciones (si embeddings falló durante el ciclo) y purga puntos
-        # huérfanos del cache semántico. Al final del ciclo nocturno.
-        "nightly-data-consistency": {
-            "task": "workers.maintenance_tasks.data_consistency_all_tenants",
-            "schedule": crontab(hour=4, minute=0),
-        },
-        "operator-inactivity-check": {
-            "task": "workers.handoff_tasks.check_operator_inactivity",
-            "schedule": 60,
-        },
-        "close-stale-conversations": {
-            "task": "workers.handoff_tasks.close_stale_conversations",
-            "schedule": 300,  # every 5 min — close bot_active idle > 30 min
-        },
-        "cleanup-expired-attachments": {
-            "task": "workers.cleanup_tasks.delete_expired_attachments",
-            "schedule": crontab(hour=1, minute=30),  # diario, antes del clustering de las 02:00
-        },
-    },
+    beat_schedule=_beat_schedule,
 )
