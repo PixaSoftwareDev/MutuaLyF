@@ -131,6 +131,19 @@ async def start_conversation(
                 "resumed": True,
             }
 
+        # Reapertura: si la conversación anterior de esta sesión quedó cerrada
+        # SIN calificar (y es reciente), el frontend ofrece las caritas una vez
+        # antes de arrancar la nueva. Ventana 48h: calificar una charla de hace
+        # una semana ya no aporta señal y molesta.
+        prev_fb = (await session.execute(text("""
+            SELECT id FROM conversaciones
+            WHERE widget_session_id = :sid
+              AND status = 'closed'
+              AND feedback_rating IS NULL
+              AND closed_at >= NOW() - INTERVAL '48 hours'
+            ORDER BY created_at DESC LIMIT 1
+        """), {"sid": body.widget_session_id})).scalar()
+
         # Resolve sector. body.sector_id lo controla el cliente: validar que sea
         # un UUID real, exista en ESTE tenant y esté activo. Si no, caer al sector
         # por defecto en vez de insertar un sector_id basura (que rompería la FK
@@ -201,7 +214,13 @@ async def start_conversation(
         """), {"cid": conv_id, "msg": greeting})
 
     logger.info("conversation_started id=%s tenant=%s", conv_id, tenant_id)
-    return {"conversation_id": conv_id, "status": ConvStatus.BOT_ACTIVE, "resumed": False, "greeting": greeting}
+    return {
+        "conversation_id": conv_id, "status": ConvStatus.BOT_ACTIVE,
+        "resumed": False, "greeting": greeting,
+        # id de la conversación anterior cerrada sin calificar (o None) — el
+        # frontend muestra las caritas para ESA conversación, una sola vez.
+        "prev_feedback_pending": str(prev_fb) if prev_fb else None,
+    }
 
 
 # ── Send message ──────────────────────────────────────────────────────────────
@@ -497,7 +516,7 @@ async def _read_conversation_snapshot(tenant_id: str, conversation_id: str, widg
         conv_row = (await session.execute(
             text("""
                 SELECT c.status, c.assigned_operator_id, c.afiliado_nombre, c.afiliado_dni,
-                       u.name AS operator_name
+                       c.feedback_rating, u.name AS operator_name
                 FROM conversaciones c
                 LEFT JOIN usuarios u ON u.id = c.assigned_operator_id
                 WHERE c.id = :id AND c.widget_session_id = :sid
@@ -558,6 +577,8 @@ async def _read_conversation_snapshot(tenant_id: str, conversation_id: str, widg
         # handoff previo), el frontend NO vuelve a pedirlos: deriva directo. Genérico
         # y por-conversación — no depende del tenant ni de hardcodeos.
         "afiliado_identified": bool(conv_row["afiliado_nombre"] and conv_row["afiliado_dni"]),
+        # El frontend muestra las caritas cuando status=closed y esto es False.
+        "feedback_given": conv_row["feedback_rating"] is not None,
         "messages": messages,
     }
 
@@ -703,6 +724,76 @@ async def confirm_handoff(
            or "Listo, tu solicitud fue recibida. Un operador te atenderá en breve.")
     await request_handoff(conversation_id, tenant_id, msg)
     return {"status": ConvStatus.HANDOFF_REQUESTED, "message": msg}
+
+
+# ── Feedback al cierre (caritas 1-3) ─────────────────────────────────────────
+
+# Chips de causa que ofrece el frontend con 😞/😐. Un reason desconocido se
+# descarta en silencio (no debe romper el voto). Constante de módulo — dentro
+# del BaseModel, pydantic v2 lo convertiría en private attr inaccesible.
+VALID_FEEDBACK_REASONS = {"not_found", "wrong_info", "slow_service"}
+
+
+class FeedbackRequest(BaseModel):
+    """Calificación del afiliado al cierre. rating: 1=😞 2=😐 3=😊.
+    reason: chip opcional, solo tiene sentido con rating 1-2."""
+    rating: int = Field(..., ge=1, le=3)
+    reason: str | None = Field(None, max_length=40)
+
+
+@router.post("/widget/conversation/{conversation_id}/feedback")
+async def submit_feedback(
+    conversation_id: str,
+    widget_session_id: str,
+    body: FeedbackRequest,
+    tenant_id: str = Depends(get_tenant_id),
+    widget_user: CurrentUser = Depends(get_widget_or_chat_user),
+):
+    """Registra la calificación del afiliado. Reglas:
+    - Anti-IDOR: la conversación debe pertenecer al widget_session_id.
+    - Solo conversaciones CERRADAS (el feedback es "al cierre" por diseño).
+    - Una sola vez (el primer voto queda; no se pisa).
+    - rating 1-2 → entra a la cola de revisión del admin (pending).
+    Fuera del camino de la consulta: no toca el pipeline del bot.
+    """
+    reason = body.reason if body.reason in VALID_FEEDBACK_REASONS else None
+    review_status = "pending" if body.rating <= 2 else None
+
+    async with get_pg_session(tenant_id) as session:
+        result = await session.execute(text("""
+            UPDATE conversaciones
+            SET feedback_rating = :rating,
+                feedback_reason = :reason,
+                feedback_at = NOW(),
+                feedback_review_status = :review_status
+            WHERE id = :cid
+              AND widget_session_id = :sid
+              AND status = 'closed'
+              AND feedback_rating IS NULL
+            RETURNING id
+        """), {
+            "rating": body.rating, "reason": reason,
+            "review_status": review_status,
+            "cid": conversation_id, "sid": widget_session_id,
+        })
+        if result.fetchone() is None:
+            # Diagnóstico fino para el 4xx correcto (sin filtrar existencia ajena)
+            check = await session.execute(text("""
+                SELECT status, feedback_rating FROM conversaciones
+                WHERE id = :cid AND widget_session_id = :sid
+            """), {"cid": conversation_id, "sid": widget_session_id})
+            row = check.mappings().fetchone()
+            if row is None:
+                raise HTTPException(status_code=404, detail="No encontramos la conversación.")
+            if row["feedback_rating"] is not None:
+                raise HTTPException(status_code=409, detail="Esta conversación ya fue calificada.")
+            raise HTTPException(status_code=409, detail="La conversación todavía no está cerrada.")
+
+    logger.info(
+        "feedback_submitted conversation_id=%s tenant=%s rating=%d reason=%s",
+        conversation_id, tenant_id, body.rating, reason,
+    )
+    return {"status": "ok", "rating": body.rating}
 
 
 # ── Operators online count ────────────────────────────────────────────────────

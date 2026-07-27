@@ -6,7 +6,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   Inbox, FileText, Settings, LogOut,
   Home, Building2, GitMerge, Users, MessageSquareShare, ClipboardList, Bot, Cpu, Network, X, Layers, BarChart3,
-  MessageSquare, Clock, UserCheck, Archive, UserRound, ChevronDown, Globe, Database, Grid3x3, Pin, PinOff, ShieldCheck,
+  MessageSquare, Clock, UserCheck, Archive, UserRound, ChevronDown, Globe, Database, Grid3x3, Pin, PinOff, ShieldCheck, Smile,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CONNECTORS_UI_ENABLED } from "@/lib/features";
@@ -204,7 +204,7 @@ export const searchExtras: Array<NavItem & { group: string }> = [
 
 // Sección activa: qué rutas pertenecen a cada sección del rail, y su título.
 const SECTIONS: Array<{ id: string; title: string; prefixes: string[] }> = [
-  { id: "conversations", title: "Bandeja de entrada", prefixes: ["/admin/conversations"] },
+  { id: "conversations", title: "Bandeja de entrada", prefixes: ["/admin/conversations", "/admin/feedback"] },
   { id: "knowledge",     title: "Conocimiento",       prefixes: ["/admin/documents", "/admin/duplicates"] },
   { id: "team",          title: "Equipo",             prefixes: ["/admin/sectors", "/admin/operators"] },
   { id: "metrics",       title: "Informes",           prefixes: ["/admin/metrics"] },
@@ -362,7 +362,7 @@ export function Sidebar() {
   // Nav completa (mobile drawer): todos los grupos visibles, con sus labels.
   const allGroups = navGroups.filter(g => g.items.some(isVisible));
 
-  const isConversations = isAdmin && pathname.startsWith("/admin/conversations");
+  const isConversations = isAdmin && (pathname.startsWith("/admin/conversations") || pathname.startsWith("/admin/feedback"));
 
   return (
     <>
@@ -581,6 +581,8 @@ function InboxViews({ focusRing }: { focusRing: string }) {
             )}
           </Link>
         ))}
+        {/* Feedback del afiliado — badge de pendientes de revisión */}
+        <FeedbackNavItem itemCls={itemCls} />
       </CollapsibleGroup>
 
       {(sectors as any[]).length > 0 && (
@@ -596,6 +598,29 @@ function InboxViews({ focusRing }: { focusRing: string }) {
         </CollapsibleGroup>
       )}
     </>
+  );
+}
+
+// Ítem "Feedback" del submenú de Conversaciones — con contador de pendientes.
+// Query liviana (page_size=1: solo trae los contadores) cada 60s.
+function FeedbackNavItem({ itemCls }: { itemCls: (a: boolean) => string }) {
+  const pathname = usePathname();
+  const { data } = useQuery({
+    queryKey: ["admin-feedback-badge"],
+    queryFn: () => api.adminFeedback.list({ page_size: 1 }),
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  });
+  const pending = data?.pending ?? 0;
+  const active = pathname.startsWith("/admin/feedback");
+  return (
+    <Link href="/admin/feedback" className={itemCls(active)} aria-current={active ? "page" : undefined}>
+      <Smile className="h-4 w-4 shrink-0" />
+      <span className="flex-1">Feedback</span>
+      {pending > 0 && (
+        <span className="text-xs font-semibold tabular-nums text-warning">{pending}</span>
+      )}
+    </Link>
   );
 }
 

@@ -165,6 +165,9 @@ async def get_metrics(
         "avg_resolution_seconds": None,
         "prev_total": 0, "avg_wait_seconds": None,
         "daily": [], "by_sector": [],
+        "feedback": {"rated": 0, "happy": 0, "neutral": 0, "sad": 0,
+                     "satisfaction_pct": None, "satisfaction_bot_pct": None,
+                     "response_rate_pct": None, "pending_review": 0},
     }
     try:
         async with get_pg_session(tenant_id) as session:
@@ -241,6 +244,38 @@ async def get_metrics(
                     GROUP BY 1 ORDER BY 2 DESC LIMIT 8
                 """))).mappings().all()
             ]
+
+            # Satisfacción (caritas al cierre). is_test EXCLUIDO — el feedback de
+            # Probar chat entra a la cola etiquetado pero no ensucia los números.
+            # Se separa bot vs operador: la carita califica a quien resolvió.
+            fb = (await session.execute(text(f"""
+                SELECT COUNT(*)::int AS rated,
+                       COUNT(*) FILTER (WHERE feedback_rating = 3)::int AS happy,
+                       COUNT(*) FILTER (WHERE feedback_rating = 2)::int AS neutral,
+                       COUNT(*) FILTER (WHERE feedback_rating = 1)::int AS sad,
+                       COUNT(*) FILTER (WHERE feedback_rating = 3 AND assigned_operator_id IS NULL)::int  AS happy_bot,
+                       COUNT(*) FILTER (WHERE feedback_rating IS NOT NULL AND assigned_operator_id IS NULL)::int AS rated_bot,
+                       COUNT(*) FILTER (WHERE feedback_review_status = 'pending')::int AS pending_review,
+                       (SELECT COUNT(*)::int FROM conversaciones
+                        WHERE status = 'closed' AND is_test IS NOT TRUE
+                          AND created_at >= NOW() - INTERVAL '{days} days') AS closed_total
+                FROM conversaciones
+                WHERE feedback_rating IS NOT NULL AND is_test IS NOT TRUE
+                  AND feedback_at >= NOW() - INTERVAL '{days} days'
+            """))).mappings().fetchone()
+            rated = int(fb["rated"] or 0)
+            rated_bot = int(fb["rated_bot"] or 0)
+            closed_total = int(fb["closed_total"] or 0)
+            conversations["feedback"] = {
+                "rated": rated,
+                "happy": int(fb["happy"] or 0),
+                "neutral": int(fb["neutral"] or 0),
+                "sad": int(fb["sad"] or 0),
+                "satisfaction_pct": round(int(fb["happy"] or 0) / rated * 100, 1) if rated else None,
+                "satisfaction_bot_pct": round(int(fb["happy_bot"] or 0) / rated_bot * 100, 1) if rated_bot else None,
+                "response_rate_pct": round(rated / closed_total * 100, 1) if closed_total else None,
+                "pending_review": int(fb["pending_review"] or 0),
+            }
     except Exception as exc:
         logger.warning("metrics_conversations_failed tenant=%s err=%s", tenant_id, exc)
 

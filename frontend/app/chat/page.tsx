@@ -184,6 +184,80 @@ function OperatorBubble({ content, operatorName }: { content: string; operatorNa
   );
 }
 
+// ── Feedback al cierre (caritas 1-3 + chips de causa) ────────────────────────
+// 😊 envía directo; 😞/😐 abren chips opcionales de causa (un tap) con la
+// opción de omitir. Descartable con la X — no perseguimos al que no quiere
+// opinar. Sin campos de texto: en el celular nadie tipea encuestas.
+function FeedbackCard({ onSubmit, onDismiss, title = "¿Cómo estuvo tu consulta?" }: {
+  onSubmit: (rating: number, reason: string | null) => void;
+  onDismiss: () => void;
+  title?: string;
+}) {
+  const [pendingRating, setPendingRating] = useState<number | null>(null);
+  const FACES = [
+    { v: 1, emoji: "😞", label: "Mal" },
+    { v: 2, emoji: "😐", label: "Más o menos" },
+    { v: 3, emoji: "😊", label: "Bien" },
+  ];
+  const CHIPS = [
+    { key: "not_found",    label: "No encontré lo que buscaba" },
+    { key: "wrong_info",   label: "La información era incorrecta" },
+    { key: "slow_service", label: "Tardaron en atenderme" },
+  ];
+  const pick = (v: number) => (v === 3 ? onSubmit(3, null) : setPendingRating(v));
+
+  return (
+    <div className="flex justify-center animate-fade-in-up">
+      <div className="relative w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-4 text-center shadow-sm">
+        <button
+          type="button" onClick={onDismiss} aria-label="Cerrar encuesta"
+          className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full text-slate-300 transition-colors hover:bg-slate-100 hover:text-slate-500"
+        >
+          ✕
+        </button>
+
+        {pendingRating === null ? (
+          <>
+            <p className="text-sm font-medium text-slate-700">{title}</p>
+            <div className="mt-3 flex items-center justify-center gap-3">
+              {FACES.map(f => (
+                <button
+                  key={f.v} type="button" onClick={() => pick(f.v)}
+                  aria-label={f.label} title={f.label}
+                  className="flex h-12 w-12 items-center justify-center rounded-full text-2xl transition-transform hover:scale-110 hover:bg-slate-50 active:scale-95"
+                >
+                  {f.emoji}
+                </button>
+              ))}
+            </div>
+          </>
+        ) : (
+          <>
+            <p className="text-sm font-medium text-slate-700">¿Qué fue lo que falló?</p>
+            <div className="mt-3 flex flex-col gap-1.5">
+              {CHIPS.map(c => (
+                <button
+                  key={c.key} type="button"
+                  onClick={() => onSubmit(pendingRating, c.key)}
+                  className="rounded-xl border border-slate-200 px-3 py-2 text-[13px] text-slate-600 transition-colors hover:border-brand/40 hover:bg-brand/5 hover:text-slate-900"
+                >
+                  {c.label}
+                </button>
+              ))}
+              <button
+                type="button" onClick={() => onSubmit(pendingRating, null)}
+                className="mt-0.5 text-xs text-slate-400 underline underline-offset-2 hover:text-slate-600"
+              >
+                Enviar sin detalle
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function SystemBubble({ content }: { content: string }) {
   return (
     <div className="flex justify-center py-1 animate-fade-in-up">
@@ -447,6 +521,13 @@ function ChatInner() {
   const [operatorsOnline, setOperatorsOnline] = useState<{ count: number; names: string[] } | null>(null);
   const [handoffConfirmed, setHandoffConfirmed] = useState(false);
   const [afiliadoIdentified, setAfiliadoIdentified] = useState(false);
+  // Feedback al cierre (caritas 1-3). feedbackGiven viene del poll; dismissed
+  // es local (si lo cierra sin votar, no lo perseguimos en esta sesión).
+  const [feedbackGiven, setFeedbackGiven] = useState(false);
+  const [feedbackDismissed, setFeedbackDismissed] = useState(false);
+  const [feedbackThanks, setFeedbackThanks] = useState(false);
+  // Conversación ANTERIOR cerrada sin calificar (viene de /start) — reapertura
+  const [prevFeedbackConvId, setPrevFeedbackConvId] = useState<string | null>(null);
   const [uploadingFile, setUploadingFile]   = useState(false);
   const bottomRef                           = useRef<HTMLDivElement>(null);
   const inputRef                            = useRef<HTMLInputElement>(null);
@@ -569,6 +650,7 @@ function ChatInner() {
       setStatus(data.status);
       setOperatorName(data.operator_name ?? null);
       setAfiliadoIdentified(Boolean(data.afiliado_identified));
+      setFeedbackGiven(Boolean(data.feedback_given));
       // Resetear handoffConfirmed cuando la conversacion vuelve a bot_active
       // (operador la cerro / la devolvio al bot / acepto el handoff y termino).
       // Sin esto, un cartel nuevo en un ciclo posterior aparece ya en modo
@@ -637,6 +719,9 @@ function ChatInner() {
       const data = await r.json();
       setConversationId(data.conversation_id);
       setStatus(data.status);
+      // Reapertura: la conversación anterior quedó cerrada sin calificar →
+      // ofrecer las caritas UNA vez para esa conversación previa.
+      setPrevFeedbackConvId(data.prev_feedback_pending ?? null);
       // Always poll: greeting is persisted in DB so it survives subsequent polls
       await pollMessages(data.conversation_id);
       startPolling(data.conversation_id);
@@ -686,6 +771,30 @@ function ChatInner() {
     if (!text || !conversationId || sending) return;
     setInput("");
     await sendMessageTo(conversationId, text);
+  }
+
+  // Feedback al cierre — un solo voto por conversación (el backend lo garantiza).
+  // Silencioso ante error: nunca molestar al afiliado por un voto que no entró.
+  // targetConvId permite calificar la conversación ANTERIOR (caso reapertura).
+  async function submitFeedback(rating: number, reason: string | null, targetConvId?: string) {
+    const cid = targetConvId ?? conversationId;
+    if (!cid) return;
+    try {
+      const r = await fetch(
+        `${API_BASE}/api/v1/widget/conversation/${cid}/feedback?widget_session_id=${encodeURIComponent(sessionId.current)}`,
+        {
+          method: "POST",
+          headers: getHeaders(),
+          body: JSON.stringify({ rating, ...(reason ? { reason } : {}) }),
+        },
+      );
+      if (r.ok || r.status === 409) {
+        if (targetConvId) setPrevFeedbackConvId(null);
+        else setFeedbackGiven(true);
+        setFeedbackThanks(true);
+        setTimeout(() => setFeedbackThanks(false), 4000);
+      }
+    } catch { /* silencioso */ }
   }
 
   // Mismos límites que el backend (attachments.py): imágenes/PDF, 10 MB.
@@ -901,6 +1010,14 @@ function ChatInner() {
               </div>
             )}
             <div className="space-y-4">
+              {/* Reapertura: la charla anterior quedó sin calificar — una vez */}
+              {prevFeedbackConvId && (
+                <FeedbackCard
+                  title="¿Cómo estuvo tu consulta anterior?"
+                  onSubmit={(rating, reason) => submitFeedback(rating, reason, prevFeedbackConvId)}
+                  onDismiss={() => setPrevFeedbackConvId(null)}
+                />
+              )}
               {messages.map(m => {
                 if (m.attachment && conversationId)
                   return (
@@ -929,6 +1046,21 @@ function ChatInner() {
                 />
               )}
               {sending && status === "bot_active" && <TypingIndicator />}
+              {/* Feedback al cierre: caritas 1-3 (+ chips de causa si 😞/😐).
+                  Aparece con la conversación cerrada y sin voto; descartable. */}
+              {conversationId && status === "closed" && !feedbackGiven && !feedbackDismissed && (
+                <FeedbackCard
+                  onSubmit={submitFeedback}
+                  onDismiss={() => setFeedbackDismissed(true)}
+                />
+              )}
+              {feedbackThanks && (
+                <div className="flex justify-center animate-fade-in-up">
+                  <span className="rounded-full bg-slate-100 px-4 py-1.5 text-xs text-slate-500">
+                    ¡Gracias por tu opinión! Nos ayuda a mejorar.
+                  </span>
+                </div>
+              )}
             </div>
             <div ref={bottomRef} />
           </div>

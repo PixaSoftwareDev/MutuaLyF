@@ -1621,3 +1621,134 @@ async def update_handoff_config(
 
     invalidate_config_cache(tenant_id)
     return {"status": "updated"}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ADMIN — Feedback del afiliado (caritas al cierre): cola de revisión + resolución
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Acciones de resolución de un 😞/😐 — cada una nombra la causa raíz:
+#   missing_content   → faltaba información (hueco de conocimiento del tenant)
+#   wrong_content     → la info está mal/vieja (corregir documento)
+#   bot_misunderstood → el bot entendió mal (caso para la suite de calidad de Pixs)
+#   dismissed         → injusto/prueba/troll
+_FEEDBACK_ACTIONS = {"missing_content", "wrong_content", "bot_misunderstood", "dismissed"}
+
+
+class FeedbackResolveRequest(BaseModel):
+    action: str = Field(..., min_length=1, max_length=40)
+
+
+@router.get("/admin/feedback")
+async def list_feedback(
+    status_filter: str | None = None,   # pending | resolved | dismissed | (None = todas las calificadas)
+    rating: int | None = None,          # 1 | 2 | 3
+    page: int = 1,
+    page_size: int = 20,
+    tenant_id: str = Depends(get_tenant_id),
+    current_user: CurrentUser = Depends(require_admin),
+):
+    """Cola de feedback: conversaciones calificadas por el afiliado.
+
+    Las de Probar chat (is_test) se incluyen ETIQUETADAS (sirven para ensayar
+    el circuito) pero quedan fuera de las métricas de /metrics.
+    """
+    page = max(1, page)
+    page_size = max(1, min(100, page_size))
+    where = ["c.feedback_rating IS NOT NULL"]
+    params: dict = {}
+    if status_filter:
+        where.append("c.feedback_review_status = :st")
+        params["st"] = status_filter
+    if rating:
+        where.append("c.feedback_rating = :rt")
+        params["rt"] = rating
+    where_sql = " AND ".join(where)
+
+    async with get_pg_session(tenant_id) as session:
+        total = (await session.execute(
+            text(f"SELECT COUNT(*) FROM conversaciones c WHERE {where_sql}"), params
+        )).scalar() or 0
+        pending = (await session.execute(text(
+            "SELECT COUNT(*) FROM conversaciones c "
+            "WHERE c.feedback_review_status = 'pending'"
+        ))).scalar() or 0
+
+        params.update({"limit": page_size, "offset": (page - 1) * page_size})
+        rows = (await session.execute(text(f"""
+            SELECT c.id, c.feedback_rating, c.feedback_reason, c.feedback_at,
+                   c.feedback_review_status, c.feedback_review_action,
+                   c.afiliado_nombre, c.afiliado_ip, c.channel, c.is_test,
+                   c.assigned_operator_id IS NOT NULL AS atendida_por_humano,
+                   s.nombre AS sector_nombre,
+                   (SELECT content FROM mensajes m
+                    WHERE m.conversation_id = c.id AND m.sender_type = 'user'
+                    ORDER BY m.created_at DESC LIMIT 1) AS ultima_pregunta
+            FROM conversaciones c
+            LEFT JOIN sectores s ON s.id = c.sector_id
+            WHERE {where_sql}
+            ORDER BY (c.feedback_review_status = 'pending') DESC, c.feedback_at DESC
+            LIMIT :limit OFFSET :offset
+        """), params)).mappings().all()
+
+    return {
+        "total": int(total),
+        "pending": int(pending),
+        "page": page,
+        "page_size": page_size,
+        "items": [
+            {
+                "conversation_id": str(r["id"]),
+                "rating": r["feedback_rating"],
+                "reason": r["feedback_reason"],
+                "feedback_at": r["feedback_at"].isoformat() if r["feedback_at"] else None,
+                "review_status": r["feedback_review_status"],
+                "review_action": r["feedback_review_action"],
+                "afiliado_nombre": r["afiliado_nombre"],
+                "afiliado_ip": r["afiliado_ip"],
+                "channel": r["channel"],
+                "is_test": bool(r["is_test"]),
+                "atendida_por_humano": bool(r["atendida_por_humano"]),
+                "sector_nombre": r["sector_nombre"],
+                "ultima_pregunta": r["ultima_pregunta"],
+            }
+            for r in rows
+        ],
+    }
+
+
+@router.post("/admin/feedback/{conversation_id}/resolve")
+async def resolve_feedback(
+    conversation_id: str,
+    body: FeedbackResolveRequest,
+    request: Request,
+    tenant_id: str = Depends(get_tenant_id),
+    current_user: CurrentUser = Depends(require_admin),
+):
+    """Resuelve un ítem de la cola con una acción de causa raíz. El ítem nunca
+    desaparece en silencio: queda resolved/dismissed con quién y cuándo."""
+    if body.action not in _FEEDBACK_ACTIONS:
+        raise HTTPException(status_code=400, detail=f"Acción inválida. Válidas: {sorted(_FEEDBACK_ACTIONS)}")
+    new_status = "dismissed" if body.action == "dismissed" else "resolved"
+
+    async with get_pg_session(tenant_id) as session:
+        result = await session.execute(text("""
+            UPDATE conversaciones
+            SET feedback_review_status = :st,
+                feedback_review_action = :action,
+                feedback_reviewed_by = :uid,
+                feedback_reviewed_at = NOW()
+            WHERE id = :cid AND feedback_review_status = 'pending'
+            RETURNING id
+        """), {"st": new_status, "action": body.action,
+               "uid": current_user.user_id, "cid": conversation_id})
+        if result.fetchone() is None:
+            raise HTTPException(status_code=404, detail="No hay feedback pendiente en esa conversación.")
+
+    from core.audit import record as audit, fire_and_log
+    fire_and_log(audit(
+        tenant_id=tenant_id, actor_id=current_user.user_id, actor_email=current_user.email,
+        actor_role=current_user.role.value, action="feedback.resolved",
+        resource=conversation_id, detail={"action": body.action}, request=request,
+    ))
+    return {"status": new_status, "action": body.action}
