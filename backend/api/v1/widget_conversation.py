@@ -287,10 +287,60 @@ async def send_message(
                 """), {"cid": conversation_id, "msg": queue_msg})
         return {"message_id": msg_id, "status": conv_status, "bot_response": None}
 
-    # El bot siempre corre el RAG. La unica regla de derivacion mira el
-    # resultado: si responde "no encontre la info" N veces seguidas, ofrece
-    # cartel. No hay shortcuts por palabras del usuario — esa logica se
-    # elimino para simplificar (ver handoff.py).
+    # ── Pedido de humano por texto — determinístico, ANTES del LLM ────────────
+    # Incidente 2026-07-27: "si" tras la invitación a derivar iba al RAG y el
+    # LLM prometía "voy a derivar tu consulta" sin ejecutar nada. Formas
+    # explícitas ("quiero hablar con un operador") disparan siempre; el "sí" a
+    # secas solo si lo último del bot/sistema invitaba a derivar. Respuesta
+    # determinística + cartel con botón — el LLM jamás gestiona derivaciones.
+    from services.handoff import (
+        is_explicit_human_request, is_bare_affirmation,
+        has_online_operators as _has_ops_fn, offer_expectation_suffix as _exp_suffix,
+        _get_handoff_config as _get_cfg, _mark_offer_pending as _mark_pending,
+    )
+    _explicit = is_explicit_human_request(body.content)
+    _affirm = not _explicit and is_bare_affirmation(body.content)
+    if _explicit or _affirm:
+        proceed = _explicit
+        if _affirm:
+            async with get_pg_session(tenant_id) as session:
+                last_bot = (await session.execute(text("""
+                    SELECT content, is_handoff_offer FROM mensajes
+                    WHERE conversation_id = :cid AND sender_type != 'user'
+                    ORDER BY created_at DESC LIMIT 1
+                """), {"cid": conversation_id})).mappings().fetchone()
+            proceed = bool(last_bot and (
+                last_bot["is_handoff_offer"]
+                or "operador" in (last_bot["content"] or "").lower()
+                or "derivar" in (last_bot["content"] or "").lower()
+            ))
+        if proceed:
+            _cfg = await _get_cfg(tenant_id)
+            offer_text = (
+                "¡Perfecto! Tocá el botón y dejá tu nombre y DNI para conectarte con un operador."
+            )
+            if not await _has_ops_fn(tenant_id, conv_sector_id):
+                offer_text = f"{offer_text}{_exp_suffix(_cfg)}"
+            async with get_pg_session(tenant_id) as session:
+                await session.execute(text("""
+                    INSERT INTO mensajes (conversation_id, sender_type, content, is_handoff_offer)
+                    VALUES (:cid, 'system', :msg, TRUE)
+                """), {"cid": conversation_id, "msg": offer_text})
+            await _publish_event(tenant_id, "new_message", {"conversation_id": conversation_id})
+            await _mark_pending(conversation_id)
+            logger.info("handoff_text_request conversation_id=%s explicit=%s", conversation_id, _explicit)
+            return {
+                "message_id": msg_id,
+                "status": conv_status,
+                "bot_response": None,
+                "sources_count": 0,
+                "handoff_offered": True,
+                "handoff_activated": False,
+                "handoff_message": offer_text,
+            }
+
+    # El bot corre el RAG para el resto. Las reglas de derivación miran el
+    # resultado (insuficiente xN, frustración, keywords del tenant).
     from services.orchestrator import handle_query
     async with get_pg_session(tenant_id) as session:
         hist_result = await session.execute(text("""
