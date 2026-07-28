@@ -467,7 +467,8 @@ async def handle_query(
         context_block = (
             "ADVERTENCIA: La información disponible tiene baja relevancia para esta consulta. "
             "Usala solo si es claramente pertinente; si no, indicá que no encontraste información suficiente.\n\n"
-            "Contexto disponible (baja confianza):\n" + "\n\n---\n\n".join(context_parts[:2])
+            "Contexto disponible (baja confianza):\n"
+            + "\n\n---\n\n".join(context_parts[:settings.low_confidence_fallback_chunks])
         )
     elif context_parts:
         context_block = "Contexto disponible:\n" + "\n\n---\n\n".join(context_parts[:settings.max_context_chunks])

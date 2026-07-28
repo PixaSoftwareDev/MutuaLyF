@@ -254,7 +254,12 @@ class Settings(BaseSettings):
     bm25_limit: int = 20                # BM25 candidates from PostgreSQL
     rrf_k: int = 60                     # RRF constant (standard value, rarely changed)
     skipped_chunk_score_penalty: float = 0.85  # score multiplier for quality_gate_status=skipped
-    low_confidence_fallback_chunks: int = 2    # chunks to include when all below min_score
+    # Chunks a incluir cuando todo quedó bajo min_score. Con 2, en consultas
+    # multi-sujeto el dato del sujeto correcto quedaba FUERA del contexto ("el
+    # mail de ventas NUESTRO": el contacto del producto entraba en el top-2 y
+    # el de la organización quedaba 4º — el modelo no puede desambiguar lo que
+    # no ve; visto 2026-07-28). 4 mantiene la cautela con cobertura razonable.
+    low_confidence_fallback_chunks: int = 4
     # Piso de confianza para el corte duro anti-alucinación. DESACTIVADO (0.0) por
     # ahora: el score final tiene escala INCONSISTENTE — RRF (fusión con BM25) lo
     # comprime a ~0.03, y el reranker (que lo devolvería a ~0.4) no siempre corre.
