@@ -1,8 +1,8 @@
 {
   "version": "1.9",
-  "last_updated": "2026-07-22",
+  "last_updated": "2026-07-27",
   "current_stage": "etapa_3",
-  "current_step": "completed",
+  "current_step": "Post-deploy a prod (2026-07-26/27): paquete completo en produccion; desarrollo continua en dev-local",
   "overall_status": "etapa_3_complete",
   "etapa_1": {
     "status": "completed",
@@ -214,6 +214,14 @@
       "reason": "Continuacion de Fase 1: dejar solo codigo vivo. Queda Fase 2b (drop de tablas intenciones/intencion_ejemplos/connector_intent_bindings + colecciones Qdrant) para despues de validar en prod — staging comparte PG/Qdrant con prod.",
       "date": "2026-07-22",
       "verification": "pytest 184/184 (incluye fix mock timeout_s preexistente), tsc --noEmit limpio, smoke RAG+FSM ok, chat_suite 62 turnos con fallas identicas a baseline HEAD (0 regresiones)"
+    },
+    {
+      "date": "2026-07-26",
+      "decision": "Features no validadas se ocultan por FLAGS por ambiente (backend .env + build-arg frontend), NUNCA comentando codigo. Caso: conectores oculto en prod."
+    },
+    {
+      "date": "2026-07-27",
+      "decision": "Documentacion normalizada: CLAUDE.md reescrito al stack real (OpenAI, sin reranker, trust gate, ambientes/flags), README como punto de entrada, PROMPT.md marcado historico, ALERTAS_TELEGRAM.md eliminado (alertas van por email Resend), runbooks corregidos."
     }
   ],
   "blockers": [],
@@ -299,7 +307,7 @@
       "Alertas Prometheus: p95 latencia > 5s, error_rate > 1%, queue_depth > 10"
     ]
   },
-  "next_step": "Etapa 2: Observabilidad (Prometheus + Grafana + Loki), panel de intenciones en frontend, HDBSCAN clustering nocturno, SSO OAuth 2.0.",
+  "next_step": "F2b condensacion de repreguntas (casos conv_02_t2/t3 en rojo) / validar conectores para habilitarlos en prod",
   "session_2026_05_15_quality": {
     "objective": "Validar calidad de respuestas del bot (no performance). Dejar listo para demo en VPS.",
     "deliverables": [
@@ -391,5 +399,20 @@
         "NEXA real: Swagger + credenciales + entorno test :4003 → cambiar conector de auth_type=stub a config real. Cero codigo nuevo, solo filas de config."
       ]
     }
+  },
+  "session_2026_07_26_27_deploy_prod": {
+    "resumen": "Pasaje validado a staging y prod. Ramas main=dev=dev-local IDENTICAS; base compartida en rev 044 (cadena convergida, doble 033 renumerado a 036). Conectores OCULTOS en prod por flags (CONNECTORS_ENABLED=false + NEXT_PUBLIC_CONNECTORS_UI=false) hasta validarse.",
+    "features_a_prod": [
+      "Regla 5 handoff: derivacion proactiva por palabras clave por tenant (responder-y-ofrecer, widget+WhatsApp)",
+      "Panel Derivacion renovado: temas con chips, ayudas en foco, preview por escenas de alto fijo",
+      "Conocimiento: menciones reales, resaltado, filtro tabla->detalle, tildes, busqueda persistente en URL",
+      "Personalidades: cupo por tenant editable en superadmin, habilitar/quitar sin activar, orden estable",
+      "Vista previa de adjuntos (modal operador/admin, visor nativo en chat/widget)",
+      "Operador responsive: drawer vertical patron admin, cuenta al pie, barras limpias",
+      "Fix informes: grafico de Atencion respeta selector 7/30/90",
+      "AuthShell nuevo (bienvenida/reset) + login mobile sin superposicion + Probar chat compatible iOS"
+    ],
+    "validacion": "237/237 tests local, 66/66 staging, 70/70 prod en contenedor; smoke E2E en los 3 ambientes; mutual sin downtime de backend (solo restarts breves)",
+    "regla_flujo": "Desarrollo SIEMPRE en dev-local; pasajes a staging/prod SOLO a pedido de Alejo (prod con OK explicito)"
   }
 }

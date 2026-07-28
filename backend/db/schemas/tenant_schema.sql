@@ -133,8 +133,20 @@ CREATE TABLE IF NOT EXISTS conversaciones (
     created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     handoff_requested_at    TIMESTAMPTZ,
-    closed_at               TIMESTAMPTZ
+    closed_at               TIMESTAMPTZ,
+    -- Feedback del afiliado al cierre (caritas 1-3). rating: 1=😞 2=😐 3=😊.
+    -- reason: chip opcional (not_found | wrong_info | slow_service).
+    -- review_*: cola de revisión del admin para ratings 1-2 (pending →
+    -- resolved/dismissed con acción). Sin auto-aprendizaje: el lazo es humano.
+    feedback_rating         SMALLINT,
+    feedback_reason         TEXT,
+    feedback_at             TIMESTAMPTZ,
+    feedback_review_status  TEXT,
+    feedback_review_action  TEXT,
+    feedback_reviewed_by    UUID,
+    feedback_reviewed_at    TIMESTAMPTZ
 );
+CREATE INDEX IF NOT EXISTS ix_conversaciones_feedback_pending ON conversaciones (feedback_at DESC) WHERE feedback_review_status = 'pending';
 CREATE INDEX IF NOT EXISTS ix_conversaciones_session ON conversaciones (widget_session_id);
 CREATE INDEX IF NOT EXISTS ix_conversaciones_status  ON conversaciones (status, created_at DESC);
 CREATE INDEX IF NOT EXISTS ix_conversaciones_sector  ON conversaciones (sector_id, status);
@@ -176,6 +188,9 @@ CREATE TABLE IF NOT EXISTS handoff_config (
     attention_hours                 TEXT,
     contact_info                    TEXT,
     transition_messages             JSONB NOT NULL DEFAULT '{"handoff_offer":"Veo que tengo dificultades para resolver tu consulta. ¿Querés que te conecte con un operador?","handoff_confirmed":"Listo, tu solicitud fue recibida. Un operador te atenderá en breve.","operator_inactive_alert":"Todavía estás en cola. Un operador te atenderá a la brevedad."}',
+    -- Regla 5: grupos de palabras que ofrecen derivación proactiva (el bot
+    -- responde igual y ADEMÁS ofrece operador). [{"words": [...], "message": "..."}]
+    keyword_triggers                JSONB NOT NULL DEFAULT '[]',
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 INSERT INTO handoff_config DEFAULT VALUES ON CONFLICT DO NOTHING;

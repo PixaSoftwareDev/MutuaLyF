@@ -490,6 +490,38 @@ export interface PublicSector {
   is_default: boolean;
 }
 
+// ── Feedback del afiliado (caritas al cierre) ────────────────────────────────
+export type FeedbackAction = "missing_content" | "wrong_content" | "bot_misunderstood" | "dismissed";
+
+export interface FeedbackItem {
+  conversation_id: string;
+  rating: 1 | 2 | 3;
+  reason: "not_found" | "wrong_info" | "slow_service" | null;
+  feedback_at: string | null;
+  review_status: "pending" | "resolved" | "dismissed" | null;
+  review_action: FeedbackAction | null;
+  afiliado_nombre: string | null;
+  afiliado_ip: string | null;
+  channel: string;
+  is_test: boolean;
+  atendida_por_humano: boolean;
+  sector_nombre: string | null;
+  ultima_pregunta: string | null;
+}
+
+export interface FeedbackListResponse {
+  total: number;
+  pending: number;
+  page: number;
+  page_size: number;
+  items: FeedbackItem[];
+}
+
+export interface KeywordTriggerGroup {
+  words: string[];
+  message: string;
+}
+
 export interface HandoffConfig {
   id: string;
   inactivity_timeout_minutes: number;
@@ -497,6 +529,8 @@ export interface HandoffConfig {
   attention_hours: string | null;
   contact_info: string | null;
   transition_messages: Record<string, string>;
+  /** Regla 5: temas que ofrecen derivación proactiva (el bot responde igual). */
+  keyword_triggers: KeywordTriggerGroup[];
   updated_at: string;
 }
 
@@ -593,6 +627,11 @@ export interface TenantMetrics {
     prev_total: number; avg_wait_seconds: number | null;
     daily: Array<{ day: string; total: number; handoffs: number }>;
     by_sector: Array<{ nombre: string; total: number }>;
+    feedback: {
+      rated: number; happy: number; neutral: number; sad: number;
+      satisfaction_pct: number | null; satisfaction_bot_pct: number | null;
+      response_rate_pct: number | null; pending_review: number;
+    };
   };
   recent_queries: Array<{
     question_text: string | null;
@@ -1254,6 +1293,18 @@ export const api = {
     update: async (payload: Partial<HandoffConfig>) => { await apiClient.patch("/admin/handoff-config", payload); },
   },
 
+  // Feedback del afiliado (caritas al cierre) — cola de revisión del admin
+  adminFeedback: {
+    list: async (params?: { status_filter?: string; rating?: number; page?: number; page_size?: number }) => {
+      const { data } = await apiClient.get("/admin/feedback", { params });
+      return data as FeedbackListResponse;
+    },
+    resolve: async (conversationId: string, action: FeedbackAction) => {
+      const { data } = await apiClient.post(`/admin/feedback/${conversationId}/resolve`, { action });
+      return data as { status: string; action: string };
+    },
+  },
+
   duplicates: {
     list: async () => { const { data } = await apiClient.get<DuplicatesResponse>("/duplicates?page_size=100"); return data; },
     resolve: async (pairId: string, action: "keep_a" | "keep_b" | "keep_both") => {
@@ -1349,7 +1400,7 @@ export const api = {
   tenantBots: {
     list: async (tenantId: string) => {
       const { data } = await apiClient.get(`/superadmin/tenants/${tenantId}/bots`);
-      return data as { bots: TenantBot[] };
+      return data as { max_prompt_templates: number; bots: TenantBot[] };
     },
     activate: async (tenantId: string, templateId: string) => {
       const { data } = await apiClient.post(`/superadmin/tenants/${tenantId}/bots/${templateId}/activate`);

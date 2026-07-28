@@ -1,7 +1,8 @@
 "use client";
 
-import { useRef, useState } from "react";
-import { useParams } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
+import { useParams, useRouter } from "next/navigation";
+import { CONNECTORS_UI_ENABLED } from "@/lib/features";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Loader2, Trash2, FlaskConical, ChevronDown, CheckCircle2, XCircle,
@@ -239,7 +240,20 @@ function ConnectorUsersManager({ connectorId, idLabel = "documento" }: { connect
   );
 }
 
+// Flag de build por ambiente (ver lib/features.ts): sin conectores validados,
+// ni por URL directa. Wrapper para respetar las reglas de hooks.
 export default function ConnectorDetailPage() {
+  if (!CONNECTORS_UI_ENABLED) return <ConnectorDetailDisabledRedirect />;
+  return <ConnectorDetailInner />;
+}
+
+function ConnectorDetailDisabledRedirect() {
+  const router = useRouter();
+  useEffect(() => { router.replace("/admin/documents"); }, [router]);
+  return null;
+}
+
+function ConnectorDetailInner() {
   const { id } = useParams<{ id: string }>();
   const qc = useQueryClient();
   const inv = () => qc.invalidateQueries({ queryKey: ["connector", id] });

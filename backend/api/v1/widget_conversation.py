@@ -131,6 +131,19 @@ async def start_conversation(
                 "resumed": True,
             }
 
+        # Reapertura: si la conversación anterior de esta sesión quedó cerrada
+        # SIN calificar (y es reciente), el frontend ofrece las caritas una vez
+        # antes de arrancar la nueva. Ventana 48h: calificar una charla de hace
+        # una semana ya no aporta señal y molesta.
+        prev_fb = (await session.execute(text("""
+            SELECT id FROM conversaciones
+            WHERE widget_session_id = :sid
+              AND status = 'closed'
+              AND feedback_rating IS NULL
+              AND closed_at >= NOW() - INTERVAL '48 hours'
+            ORDER BY created_at DESC LIMIT 1
+        """), {"sid": body.widget_session_id})).scalar()
+
         # Resolve sector. body.sector_id lo controla el cliente: validar que sea
         # un UUID real, exista en ESTE tenant y esté activo. Si no, caer al sector
         # por defecto en vez de insertar un sector_id basura (que rompería la FK
@@ -201,7 +214,13 @@ async def start_conversation(
         """), {"cid": conv_id, "msg": greeting})
 
     logger.info("conversation_started id=%s tenant=%s", conv_id, tenant_id)
-    return {"conversation_id": conv_id, "status": ConvStatus.BOT_ACTIVE, "resumed": False, "greeting": greeting}
+    return {
+        "conversation_id": conv_id, "status": ConvStatus.BOT_ACTIVE,
+        "resumed": False, "greeting": greeting,
+        # id de la conversación anterior cerrada sin calificar (o None) — el
+        # frontend muestra las caritas para ESA conversación, una sola vez.
+        "prev_feedback_pending": str(prev_fb) if prev_fb else None,
+    }
 
 
 # ── Send message ──────────────────────────────────────────────────────────────
@@ -268,10 +287,60 @@ async def send_message(
                 """), {"cid": conversation_id, "msg": queue_msg})
         return {"message_id": msg_id, "status": conv_status, "bot_response": None}
 
-    # El bot siempre corre el RAG. La unica regla de derivacion mira el
-    # resultado: si responde "no encontre la info" N veces seguidas, ofrece
-    # cartel. No hay shortcuts por palabras del usuario — esa logica se
-    # elimino para simplificar (ver handoff.py).
+    # ── Pedido de humano por texto — determinístico, ANTES del LLM ────────────
+    # Incidente 2026-07-27: "si" tras la invitación a derivar iba al RAG y el
+    # LLM prometía "voy a derivar tu consulta" sin ejecutar nada. Formas
+    # explícitas ("quiero hablar con un operador") disparan siempre; el "sí" a
+    # secas solo si lo último del bot/sistema invitaba a derivar. Respuesta
+    # determinística + cartel con botón — el LLM jamás gestiona derivaciones.
+    from services.handoff import (
+        is_explicit_human_request, is_bare_affirmation,
+        has_online_operators as _has_ops_fn, offer_expectation_suffix as _exp_suffix,
+        _get_handoff_config as _get_cfg, _mark_offer_pending as _mark_pending,
+    )
+    _explicit = is_explicit_human_request(body.content)
+    _affirm = not _explicit and is_bare_affirmation(body.content)
+    if _explicit or _affirm:
+        proceed = _explicit
+        if _affirm:
+            async with get_pg_session(tenant_id) as session:
+                last_bot = (await session.execute(text("""
+                    SELECT content, is_handoff_offer FROM mensajes
+                    WHERE conversation_id = :cid AND sender_type != 'user'
+                    ORDER BY created_at DESC LIMIT 1
+                """), {"cid": conversation_id})).mappings().fetchone()
+            proceed = bool(last_bot and (
+                last_bot["is_handoff_offer"]
+                or "operador" in (last_bot["content"] or "").lower()
+                or "derivar" in (last_bot["content"] or "").lower()
+            ))
+        if proceed:
+            _cfg = await _get_cfg(tenant_id)
+            offer_text = (
+                "¡Perfecto! Tocá el botón y dejá tu nombre y DNI para conectarte con un operador."
+            )
+            if not await _has_ops_fn(tenant_id, conv_sector_id):
+                offer_text = f"{offer_text}{_exp_suffix(_cfg)}"
+            async with get_pg_session(tenant_id) as session:
+                await session.execute(text("""
+                    INSERT INTO mensajes (conversation_id, sender_type, content, is_handoff_offer)
+                    VALUES (:cid, 'system', :msg, TRUE)
+                """), {"cid": conversation_id, "msg": offer_text})
+            await _publish_event(tenant_id, "new_message", {"conversation_id": conversation_id})
+            await _mark_pending(conversation_id)
+            logger.info("handoff_text_request conversation_id=%s explicit=%s", conversation_id, _explicit)
+            return {
+                "message_id": msg_id,
+                "status": conv_status,
+                "bot_response": None,
+                "sources_count": 0,
+                "handoff_offered": True,
+                "handoff_activated": False,
+                "handoff_message": offer_text,
+            }
+
+    # El bot corre el RAG para el resto. Las reglas de derivación miran el
+    # resultado (insuficiente xN, frustración, keywords del tenant).
     from services.orchestrator import handle_query
     async with get_pg_session(tenant_id) as session:
         hist_result = await session.execute(text("""
@@ -420,28 +489,45 @@ async def send_message(
     suppress_bot = False  # se suprime el genérico SOLO cuando se muestra la oferta
 
     from services.handoff import (
-        has_online_operators, build_no_operators_message, _get_handoff_config, _mark_offer_pending,
-    )
-    offer_with_operators = (
-        signal.trigger != HandoffTrigger.NONE
-        and await has_online_operators(tenant_id, conv_sector_id)
+        has_online_operators, offer_expectation_suffix, _get_handoff_config, _mark_offer_pending,
     )
 
-    if offer_with_operators:
-        # Hay operadores conectados → cartel con botón. El bot_answer no se persiste.
+    # POLÍTICA FAIL-SOFT (incidente 2026-07-27: "no hay operadores" con el
+    # operador conectado, por presencia vencida): la disponibilidad NUNCA
+    # bloquea la oferta de derivación — solo MODULA el mensaje de expectativa.
+    # El pedido siempre puede entrar a la fila; si la presencia mintió, el
+    # costo es una espera, nunca una puerta cerrada falsa.
+    if signal.trigger != HandoffTrigger.NONE:
+        has_ops = await has_online_operators(tenant_id, conv_sector_id)
+        # keep_answer (Regla 5 por keyword): la respuesta del bot SÍ se persiste
+        # y el cartel va debajo — el afiliado pudo pedir info que el bot tiene.
+        # Reglas por fallo: el bot_answer genérico es redundante y no se persiste.
+        if signal.keep_answer:
+            bot_msg_id = str(uuid.uuid4())
+            async with get_pg_session(tenant_id) as session:
+                await session.execute(text("""
+                    INSERT INTO mensajes (id, conversation_id, sender_type, content)
+                    VALUES (:id, :cid, 'bot', :content)
+                """), {"id": bot_msg_id, "cid": conversation_id, "content": bot_answer})
+        offer_text = signal.offer_message
+        if not has_ops:
+            cfg = await _get_handoff_config(tenant_id)
+            offer_text = f"{offer_text}{offer_expectation_suffix(cfg)}"
         async with get_pg_session(tenant_id) as session:
             await session.execute(text("""
                 INSERT INTO mensajes (conversation_id, sender_type, content, is_handoff_offer)
                 VALUES (:cid, 'system', :msg, TRUE)
-            """), {"cid": conversation_id, "msg": signal.offer_message})
+            """), {"cid": conversation_id, "msg": offer_text})
         await _publish_event(tenant_id, "new_message", {"conversation_id": conversation_id})
         await _mark_offer_pending(conversation_id)  # cooldown 90s SOLO al mostrar el cartel
-        handoff_message = signal.offer_message
+        if signal.trigger == HandoffTrigger.KEYWORD:
+            from services.handoff import mark_keyword_offered
+            await mark_keyword_offered(conversation_id)  # supresión 1h por conversación
+        handoff_message = offer_text
         handoff_offered = True
-        suppress_bot = True
+        suppress_bot = not signal.keep_answer
     else:
-        # Respuesta normal del bot. Incluye el caso "deriva pero sin operadores":
-        # ahí el genérico sí aporta contexto al aviso de no-disponibilidad.
+        # Respuesta normal del bot, sin señal de derivación.
         bot_msg_id = str(uuid.uuid4())
         async with get_pg_session(tenant_id) as session:
             await session.execute(text("""
@@ -449,18 +535,6 @@ async def send_message(
                 VALUES (:id, :cid, 'bot', :content)
             """), {"id": bot_msg_id, "cid": conversation_id, "content": bot_answer})
         await _publish_event(tenant_id, "new_message", {"conversation_id": conversation_id})
-
-        if signal.trigger != HandoffTrigger.NONE:
-            # Sin operadores online → no derivar a una cola vacía. Avisar y, si está
-            # configurado, indicar el horario de atención del tenant.
-            cfg = await _get_handoff_config(tenant_id)
-            msg = build_no_operators_message(cfg)
-            async with get_pg_session(tenant_id) as session:
-                await session.execute(text("""
-                    INSERT INTO mensajes (conversation_id, sender_type, content)
-                    VALUES (:cid, 'system', :msg)
-                """), {"cid": conversation_id, "msg": msg})
-            await _publish_event(tenant_id, "new_message", {"conversation_id": conversation_id})
 
     return {
         "message_id": bot_msg_id,
@@ -488,7 +562,7 @@ async def _read_conversation_snapshot(tenant_id: str, conversation_id: str, widg
         conv_row = (await session.execute(
             text("""
                 SELECT c.status, c.assigned_operator_id, c.afiliado_nombre, c.afiliado_dni,
-                       u.name AS operator_name
+                       c.feedback_rating, u.name AS operator_name
                 FROM conversaciones c
                 LEFT JOIN usuarios u ON u.id = c.assigned_operator_id
                 WHERE c.id = :id AND c.widget_session_id = :sid
@@ -549,6 +623,8 @@ async def _read_conversation_snapshot(tenant_id: str, conversation_id: str, widg
         # handoff previo), el frontend NO vuelve a pedirlos: deriva directo. Genérico
         # y por-conversación — no depende del tenant ni de hardcodeos.
         "afiliado_identified": bool(conv_row["afiliado_nombre"] and conv_row["afiliado_dni"]),
+        # El frontend muestra las caritas cuando status=closed y esto es False.
+        "feedback_given": conv_row["feedback_rating"] is not None,
         "messages": messages,
     }
 
@@ -694,6 +770,76 @@ async def confirm_handoff(
            or "Listo, tu solicitud fue recibida. Un operador te atenderá en breve.")
     await request_handoff(conversation_id, tenant_id, msg)
     return {"status": ConvStatus.HANDOFF_REQUESTED, "message": msg}
+
+
+# ── Feedback al cierre (caritas 1-3) ─────────────────────────────────────────
+
+# Chips de causa que ofrece el frontend con 😞/😐. Un reason desconocido se
+# descarta en silencio (no debe romper el voto). Constante de módulo — dentro
+# del BaseModel, pydantic v2 lo convertiría en private attr inaccesible.
+VALID_FEEDBACK_REASONS = {"not_found", "wrong_info", "slow_service"}
+
+
+class FeedbackRequest(BaseModel):
+    """Calificación del afiliado al cierre. rating: 1=😞 2=😐 3=😊.
+    reason: chip opcional, solo tiene sentido con rating 1-2."""
+    rating: int = Field(..., ge=1, le=3)
+    reason: str | None = Field(None, max_length=40)
+
+
+@router.post("/widget/conversation/{conversation_id}/feedback")
+async def submit_feedback(
+    conversation_id: str,
+    widget_session_id: str,
+    body: FeedbackRequest,
+    tenant_id: str = Depends(get_tenant_id),
+    widget_user: CurrentUser = Depends(get_widget_or_chat_user),
+):
+    """Registra la calificación del afiliado. Reglas:
+    - Anti-IDOR: la conversación debe pertenecer al widget_session_id.
+    - Solo conversaciones CERRADAS (el feedback es "al cierre" por diseño).
+    - Una sola vez (el primer voto queda; no se pisa).
+    - rating 1-2 → entra a la cola de revisión del admin (pending).
+    Fuera del camino de la consulta: no toca el pipeline del bot.
+    """
+    reason = body.reason if body.reason in VALID_FEEDBACK_REASONS else None
+    review_status = "pending" if body.rating <= 2 else None
+
+    async with get_pg_session(tenant_id) as session:
+        result = await session.execute(text("""
+            UPDATE conversaciones
+            SET feedback_rating = :rating,
+                feedback_reason = :reason,
+                feedback_at = NOW(),
+                feedback_review_status = :review_status
+            WHERE id = :cid
+              AND widget_session_id = :sid
+              AND status = 'closed'
+              AND feedback_rating IS NULL
+            RETURNING id
+        """), {
+            "rating": body.rating, "reason": reason,
+            "review_status": review_status,
+            "cid": conversation_id, "sid": widget_session_id,
+        })
+        if result.fetchone() is None:
+            # Diagnóstico fino para el 4xx correcto (sin filtrar existencia ajena)
+            check = await session.execute(text("""
+                SELECT status, feedback_rating FROM conversaciones
+                WHERE id = :cid AND widget_session_id = :sid
+            """), {"cid": conversation_id, "sid": widget_session_id})
+            row = check.mappings().fetchone()
+            if row is None:
+                raise HTTPException(status_code=404, detail="No encontramos la conversación.")
+            if row["feedback_rating"] is not None:
+                raise HTTPException(status_code=409, detail="Esta conversación ya fue calificada.")
+            raise HTTPException(status_code=409, detail="La conversación todavía no está cerrada.")
+
+    logger.info(
+        "feedback_submitted conversation_id=%s tenant=%s rating=%d reason=%s",
+        conversation_id, tenant_id, body.rating, reason,
+    )
+    return {"status": "ok", "rating": body.rating}
 
 
 # ── Operators online count ────────────────────────────────────────────────────

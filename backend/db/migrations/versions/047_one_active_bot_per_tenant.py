@@ -10,15 +10,15 @@ más reciente (la elegida en el wizard — se insertó después de la estándar)
 desactiva el resto. Después, índice único parcial para que el motor no permita
 volver a este estado.
 
-Revision ID: 044
-Revises: 043
+Revision ID: 047
+Revises: 046
 """
 
 from alembic import op
 from sqlalchemy import text
 
-revision = "044"
-down_revision = "043"
+revision = "047"
+down_revision = "046"
 branch_labels = None
 depends_on = None
 

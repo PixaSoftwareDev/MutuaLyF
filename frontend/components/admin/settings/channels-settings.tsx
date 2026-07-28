@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { WhatsAppIcon } from "@/components/layout/sidebar";
+import { CONNECTORS_UI_ENABLED } from "@/lib/features";
 import { AppearanceSettings } from "@/components/admin/settings/appearance-settings";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -263,13 +264,15 @@ function ChannelsOverview({ channels }: { channels: ChannelsState }) {
           state={waState}
           href="/admin/settings/canales?canal=whatsapp"
         />
-        <ChannelMiniCard
-          icon={<span className="flex h-10 w-10 items-center justify-center rounded-xl bg-muted text-muted-foreground"><Database className="h-5 w-5" /></span>}
-          title="Fuentes de datos"
-          desc="APIs y bases externas que el asistente puede consultar."
-          state={connState}
-          href="/admin/connectors"
-        />
+        {CONNECTORS_UI_ENABLED && (
+          <ChannelMiniCard
+            icon={<span className="flex h-10 w-10 items-center justify-center rounded-xl bg-muted text-muted-foreground"><Database className="h-5 w-5" /></span>}
+            title="Fuentes de datos"
+            desc="APIs y bases externas que el asistente puede consultar."
+            state={connState}
+            href="/admin/connectors"
+          />
+        )}
       </div>
     </div>
   );

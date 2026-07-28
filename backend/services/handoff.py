@@ -45,6 +45,7 @@ class HandoffTrigger(str, Enum):
     NONE         = "none"
     INSUFFICIENT = "insufficient"  # bot no encontro respuesta N veces
     MANUAL       = "manual"        # afiliado clickeo "Pedir humano"
+    KEYWORD      = "keyword"       # Regla 5: el mensaje menciona un tema derivable (config del tenant)
 
 
 @dataclass
@@ -52,6 +53,11 @@ class HandoffSignal:
     trigger:      HandoffTrigger
     auto_activate: bool   # siempre False — el afiliado decide via cartel + DNI
     offer_message: str    # texto del cartel amarillo
+    # Regla 5 (responder-y-ofrecer): la respuesta del bot SE MUESTRA igual y el
+    # cartel va debajo. En las reglas por fallo (insuficiente) la respuesta
+    # genérica es redundante con la oferta y se suprime — acá NO: el afiliado
+    # pudo preguntar info que el bot sí tiene ("¿qué llevo al turno?").
+    keep_answer:  bool = False
 
 
 # Clasificador de charla ÚNICO en prompt_builder.is_chitchat (antes había un
@@ -155,6 +161,59 @@ async def _get_insufficient(conversation_id: str) -> int:
         return 0
 
 
+# ── Regla 5: derivación proactiva por palabras clave ──────────────────────────
+
+# Una vez mostrada la oferta por keyword, no re-ofrecer por la misma vía durante
+# esta ventana aunque el afiliado siga mencionando el tema en cada mensaje.
+# (El cooldown corto de 90s es para el ritmo conversacional de las reglas por
+# fallo; acá el tema no desaparece de la charla y 90s spamearía.)
+_KEYWORD_OFFERED_KEY = "handoff_kw_offered:"
+_KEYWORD_OFFERED_TTL = 3600  # 1h por conversación
+
+
+def _norm_kw(s: str) -> str:
+    """lower + sin tildes + solo alfanuméricos separados por espacios simples.
+    Da bordes de palabra reales: 'turno' NO matchea dentro de 'saturno'."""
+    import unicodedata
+    s = unicodedata.normalize("NFD", s.lower())
+    s = "".join(c for c in s if unicodedata.category(c) != "Mn")
+    s = re.sub(r"[^a-z0-9ñ]+", " ", s)
+    return f" {s.strip()} "
+
+
+def match_keyword_trigger(user_message: str, groups: list) -> dict | None:
+    """Primer grupo cuyo words matchea el mensaje como palabra/frase completa,
+    insensible a tildes y mayúsculas. None si ninguno."""
+    if not groups or not user_message:
+        return None
+    haystack = _norm_kw(user_message)
+    for group in groups:
+        for word in (group.get("words") or []):
+            needle = _norm_kw(str(word))
+            if needle.strip() and needle in haystack:
+                return group
+    return None
+
+
+async def _is_keyword_offered(conversation_id: str) -> bool:
+    from core.database import get_redis_cache
+    try:
+        redis = await get_redis_cache()
+        return await redis.exists(f"{_KEYWORD_OFFERED_KEY}{conversation_id}") > 0
+    except Exception:
+        return False
+
+
+async def mark_keyword_offered(conversation_id: str) -> None:
+    """La marca el CALLER y solo si el cartel efectivamente se mostró."""
+    from core.database import get_redis_cache
+    try:
+        redis = await get_redis_cache()
+        await redis.set(f"{_KEYWORD_OFFERED_KEY}{conversation_id}", "1", ex=_KEYWORD_OFFERED_TTL)
+    except Exception as exc:
+        logger.warning("handoff_kw_mark_failed conversation_id=%s error=%s", conversation_id, exc)
+
+
 async def _is_offer_pending(conversation_id: str) -> bool:
     """True si ya hay una oferta de handoff vigente para esta conversacion."""
     try:
@@ -235,6 +294,29 @@ async def evaluate_handoff(
     config = await _get_handoff_config(tenant_id)
     offer_pending = await _is_offer_pending(conversation_id)
 
+    # ── Regla 5 (primera): tema derivable por palabras clave del tenant ───────
+    # Responder-y-ofrecer: keep_answer=True → el caller muestra la respuesta del
+    # bot Y el cartel. No toca el contador de insuficientes (son señales
+    # independientes) y tiene su propia supresión de 1h por conversación.
+    group = match_keyword_trigger(user_message, config.get("keyword_triggers") or [])
+    if group is not None and not offer_pending and not await _is_keyword_offered(conversation_id):
+        logger.info(
+            "handoff_keyword conversation_id=%s words=%s",
+            conversation_id, (group.get("words") or [])[:5],
+        )
+        # keep_answer solo si el bot tiene algo que decir: cuando la respuesta
+        # es "no encontré esa información", mostrarla arriba del cartel es puro
+        # ruido ("no sé" + "¿querés un operador?") — va el cartel solo.
+        return HandoffSignal(
+            trigger=HandoffTrigger.KEYWORD,
+            auto_activate=False,
+            offer_message=(group.get("message") or "").strip()
+                or config["transition_messages"].get(
+                    "handoff_offer", "¿Querés que te conecte con un operador?"
+                ),
+            keep_answer=not any(p in (bot_answer or "") for p in _NO_INFO_PATTERNS),
+        )
+
     if _is_response_insufficient(sources, user_message, bot_answer):
         count = await _incr_insufficient(conversation_id)
         threshold = config["consecutive_insufficient_count"]
@@ -266,13 +348,14 @@ async def evaluate_handoff(
         # Solo borrar si esta presente (evita round-trip innecesario).
         if await _get_insufficient(conversation_id) > 0:
             await _reset_insufficient(conversation_id)
-        # Si el bot respondió DE VERDAD (al menos una source de alta confianza),
-        # consumir cualquier oferta pendiente: el cartel amarillo de un turno anterior
-        # no debe quedar colgado debajo de una respuesta buena. Si el afiliado vuelve
-        # a tener problemas, el contador sube y se ofrece de nuevo.
+        # Respuesta buena → solo levantar el cooldown de 90s. NO consumir las
+        # ofertas (incidente 2026-07-27): apagar is_handoff_offer de carteles ya
+        # mostrados les quitaba el botón RETROACTIVAMENTE — el afiliado veía la
+        # oferta, preguntaba otra cosa, y al volver el cartel era texto muerto
+        # (y confirm-handoff daba 409). Política fail-soft: la puerta de la
+        # derivación queda SIEMPRE abierta; un cartel viejo clickeable no daña.
         if any(not s.get("low_confidence") for s in sources):
             await clear_offer_pending(conversation_id)
-            await _consume_pending_offers(conversation_id, tenant_id)
 
     return HandoffSignal(trigger=HandoffTrigger.NONE, auto_activate=False, offer_message="")
 
@@ -372,7 +455,8 @@ async def _get_handoff_config(tenant_id: str) -> dict:
 
         async with get_pg_session(tenant_id) as session:
             result = await session.execute(text("""
-                SELECT consecutive_insufficient_count, attention_hours, contact_info, transition_messages
+                SELECT consecutive_insufficient_count, attention_hours, contact_info,
+                       transition_messages, keyword_triggers
                 FROM handoff_config LIMIT 1
             """))
             row = result.mappings().fetchone()
@@ -382,6 +466,7 @@ async def _get_handoff_config(tenant_id: str) -> dict:
             "attention_hours":                row["attention_hours"] if row else None,
             "contact_info":                   row["contact_info"] if row else None,
             "transition_messages":            dict(row["transition_messages"]) if row else {},
+            "keyword_triggers":               list(row["keyword_triggers"] or []) if row else [],
             "_ts": time.monotonic(),
         }
     except Exception as exc:
@@ -395,6 +480,7 @@ async def _get_handoff_config(tenant_id: str) -> dict:
                 "handoff_confirmed": "Listo, tu solicitud fue recibida. Un operador te atenderá en breve.",
                 "operator_inactive_alert": "Seguís en cola. Lamentamos la demora.",
             },
+            "keyword_triggers": [],
             "_ts": time.monotonic(),
         }
 
@@ -446,6 +532,59 @@ def build_no_operators_message(config: dict) -> str:
     if contact:
         parts.append(f"También podés comunicarte: {contact}.")
     return " ".join(parts)
+
+
+# ── Pedido de humano por TEXTO (widget) — determinístico, sin LLM ────────────
+# Incidente 2026-07-27: tras la invitación de la regla 13 ("¿querés que te
+# derive?"), el afiliado escribió "si" y el LLM PROMETIÓ derivar sin hacerlo.
+# El pedido de humano y la afirmación post-invitación se capturan ANTES del
+# LLM: respuesta determinística + cartel fresco. El LLM jamás gestiona.
+
+_HUMAN_REQUEST_RE = re.compile(
+    r"(quiero|necesito|puedo|dame|pasame|comunicame|conectame)?\s*"
+    r"(hablar|chatear|comunicarme|que me atienda|atenderme)?\s*"
+    r"(con\s+)?(un[ao]?\s+)?(operador[a]?|humano|persona\s+real|una\s+persona|asesor[a]?|agente)\b"
+    r"|^\s*operador[a]?\s*[.!]*\s*$",
+    re.IGNORECASE,
+)
+_BARE_AFFIRM_RE = re.compile(r"^\s*(si|sí|dale|ok|okey|bueno|obvio|claro|quiero)\s*[.!]*\s*$", re.IGNORECASE)
+
+
+def is_explicit_human_request(message: str) -> bool:
+    """El mensaje pide hablar con una persona (formas explícitas)."""
+    if not message:
+        return False
+    m = message.strip()
+    # Evitar falsos positivos de preguntas informativas ("¿el operador atiende
+    # los sábados?"): exigir intención en primera persona o la palabra sola.
+    if re.match(r"^\s*operador[a]?\s*[.!?]*\s*$", m, re.IGNORECASE):
+        return True
+    return bool(re.search(
+        r"(quiero|necesito|me\s+gustar[ií]a|pod[ée]s|puedo|prefiero)\b[^.?!]{0,40}"
+        r"\b(operador[a]?|humano|persona|asesor[a]?|agente)\b",
+        m, re.IGNORECASE,
+    ))
+
+
+def is_bare_affirmation(message: str) -> bool:
+    """'sí' / 'dale' / 'ok' a secas — solo cuenta como pedido de derivación si
+    lo último que dijo el sistema/bot invitaba a derivar (lo decide el caller)."""
+    return bool(message and _BARE_AFFIRM_RE.match(message.strip()))
+
+
+def offer_expectation_suffix(config: dict) -> str:
+    """Sufijo para la OFERTA de derivación cuando no se detectan operadores
+    conectados. Política fail-soft (2026-07-27): la presencia no bloquea la
+    derivación — solo ajusta la expectativa. Si la presencia mintió (pestaña
+    en background, socket caído), el afiliado igual entra a la fila."""
+    parts = [
+        "\n\nEn este momento no vemos operadores conectados — tu consulta "
+        "queda en la fila y te responden a la brevedad."
+    ]
+    hours = (config.get("attention_hours") or "").strip()
+    if hours:
+        parts.append(f" Horario de atención: {hours}.")
+    return "".join(parts)
 
 
 def build_no_info_message(config: dict) -> str:

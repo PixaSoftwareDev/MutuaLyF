@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { CONNECTORS_UI_ENABLED } from "@/lib/features";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus, Plug, Loader2, KeyRound, Database, ArrowRight, SearchX, Trash2 } from "lucide-react";
 import { api, type ConnectorRow } from "@/lib/api";
@@ -87,7 +88,21 @@ function StatePill({ active, pending }: { active: boolean; pending?: boolean }) 
 
 type SortKey = "nombre" | "operaciones";
 
+// Flag de build por ambiente: sin conectores validados, ni por URL directa.
+// Wrapper (no early-return dentro del componente con hooks) para respetar
+// las reglas de hooks aunque el flag sea constante de build.
 export default function ConnectorsPage() {
+  if (!CONNECTORS_UI_ENABLED) return <ConnectorsDisabledRedirect />;
+  return <ConnectorsPageInner />;
+}
+
+function ConnectorsDisabledRedirect() {
+  const router = useRouter();
+  useEffect(() => { router.replace("/admin/documents"); }, [router]);
+  return null;
+}
+
+function ConnectorsPageInner() {
   const router = useRouter();
   const qc = useQueryClient();
   const inv = () => qc.invalidateQueries({ queryKey: ["connectors"] });

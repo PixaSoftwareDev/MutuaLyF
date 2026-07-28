@@ -63,8 +63,17 @@ _GROUNDING = (
     "\"No encontré esa información en las fuentes disponibles. Te recomiendo "
     "consultar directamente con el área correspondiente.\"\n"
     "7. NUNCA INVENTES: inventar un dato concreto, aunque parezca razonable, es el "
-    "error más grave que podés cometer."
+    "error más grave que podés cometer.\n"
+    "8. ESTADO DEL SISTEMA Y OPERADORES: nunca afirmes por tu cuenta si hay o no "
+    "operadores/personas disponibles, ni el estado de la fila de atención, ni si un "
+    "aviso anterior del sistema sigue vigente — esa información cambia en tiempo real "
+    "y vos no la conocés; los avisos de sistema del historial describen un momento "
+    "pasado. Si piden hablar con una persona, respondé que podés derivar la consulta "
+    "y el sistema la pondrá en la fila — la disponibilidad la resuelve el sistema, no vos."
 )
+# La regla 8 porta la "Regla 13" de la migración 046_no_afirmar_estado_sistema
+# (rama dev): esa migración apendea al blob "Reglas anti-alucinación" que la 049
+# elimina — sin este port, la feature moría en la limpieza del registro.
 # Nota: la política de CITADO de fuentes no vive acá — es una decisión de tono
 # y la define cada personalidad (la profesional exige cita siempre; la estándar
 # solo ante posible confusión). Tenerla en ambos lados generaba instrucciones

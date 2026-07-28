@@ -340,6 +340,34 @@ function Dashboard({ m, view, range, setRange }: { m: TenantMetrics; view: ViewK
         <Kpi label="Resolución promedio" value={fmtDuration(m.conversations.avg_resolution_seconds)} foot={<span className="text-muted-foreground">de inicio a cierre</span>} />
       </div>
 
+      {/* Satisfacción (caritas al cierre) — aparece cuando hay calificaciones */}
+      {m.conversations.feedback && m.conversations.feedback.rated > 0 && (
+        <div className="grid grid-cols-2 gap-4 stagger-children xl:grid-cols-4">
+          <Kpi
+            label="Satisfacción"
+            tone={m.conversations.feedback.satisfaction_pct != null && m.conversations.feedback.satisfaction_pct >= 70 ? "good" : "warn"}
+            value={m.conversations.feedback.satisfaction_pct != null ? `${m.conversations.feedback.satisfaction_pct}%` : "—"}
+            foot={<span className="text-muted-foreground">😞 {m.conversations.feedback.sad} · 😐 {m.conversations.feedback.neutral} · 😊 {m.conversations.feedback.happy}</span>}
+          />
+          <Kpi
+            label="Satisfacción del bot"
+            value={m.conversations.feedback.satisfaction_bot_pct != null ? `${m.conversations.feedback.satisfaction_bot_pct}%` : "—"}
+            foot={<span className="text-muted-foreground">solo conversaciones sin operador</span>}
+          />
+          <Kpi
+            label="Responden la encuesta"
+            value={m.conversations.feedback.response_rate_pct != null ? `${m.conversations.feedback.response_rate_pct}%` : "—"}
+            foot={<span className="text-muted-foreground">de las conversaciones cerradas</span>}
+          />
+          <Kpi
+            label="Feedback por revisar"
+            tone={m.conversations.feedback.pending_review > 0 ? "warn" : undefined}
+            value={nf(m.conversations.feedback.pending_review)}
+            foot={<span className="text-muted-foreground">en la cola de Feedback</span>}
+          />
+        </div>
+      )}
+
       <Card className="p-6">
         <div className="mb-4 flex items-baseline justify-between">
           <h3 className="text-sm font-semibold text-foreground">Conversaciones por día</h3>
@@ -350,6 +378,7 @@ function Dashboard({ m, view, range, setRange }: { m: TenantMetrics; view: ViewK
         </div>
         <DailyBars
           data={m.conversations.daily.map(d => ({ day: d.day, total: d.total, secondary: d.handoffs }))}
+          days={range}
           titleFmt={s => `${s.date.toLocaleDateString("es-AR", { day: "2-digit", month: "short" })}: ${nf(s.total)} conversaciones · ${nf(s.secondary)} derivadas`}
         />
       </Card>

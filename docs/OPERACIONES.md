@@ -259,25 +259,26 @@ git push origin main
 # En VPS
 ssh ... 'cd /opt/mutualyf && git pull --rebase'
 
-# Si tocaste código backend/frontend
-docker compose -f docker-compose.yml -f docker-compose.prod.yml build backend frontend
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --force-recreate backend frontend celery_worker
+# Si tocaste código BACKEND: el código está BIND-MONTEADO → basta un restart
+# (rebuild solo si cambiaron dependencias). Frontend SÍ requiere rebuild (horneado).
+docker compose -f docker-compose.yml -f docker-compose.prod.yml restart backend celery_worker celery_beat
+docker compose -f docker-compose.yml -f docker-compose.prod.yml build frontend
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --no-deps frontend
 
-# Asegurar servicios de inferencia (TEI reranker) — idempotente, los deja arriba si
-# no lo están. NECESARIO porque RERANKER_PROVIDER=tei; si el reranker no corre, el
-# scoring degrada. tei-model-init descarga el modelo la primera vez y exitea.
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d tei-model-init tei-reranker
-
-# Si tocaste migración
+# Si tocaste migración — OJO: la base es COMPARTIDA con staging y la versión de
+# alembic es global. Regla de oro: ambas ramas (main y dev) deben tener el
+# archivo de la revisión ANTES de correr el upgrade (ver CLAUDE.md).
 docker exec -w /app ia_backend alembic -c db/alembic.ini upgrade head
 ```
 
-> **Reranker (TEI):** el backend usa `RERANKER_PROVIDER=tei` (en el `.env`) → rerankea
-> contra el container `tei-reranker` (rápido y consistente, no satura el backend). Ese
-> servicio NO se recrea al desplegar código (no cambia), pero tiene `restart:
-> unless-stopped` → sobrevive reinicios. Si alguna vez hacés `docker compose down`,
-> volvelo a levantar con el comando de "servicios de inferencia" de arriba. Verificar:
-> `docker exec ia_backend curl -s -o /dev/null -w "%{http_code}" http://tei-reranker:80/health` → 200.
+> **Reranker: ELIMINADO (2026-07-23).** El TEI reranker ya no existe en el
+> pipeline ni en el compose — su función la cumple el trust gate
+> (`services/trust_gate.py`). Si ves referencias a `tei-reranker` o
+> `RERANKER_PROVIDER`, son restos históricos: no hay nada que levantar.
+>
+> **Deploy con red**: existe `scripts/deploy.sh` (pre-flight de drift, deploy
+> selectivo según diff, health checks). Los pasajes se coordinan con Alejo —
+> no deployar por iniciativa propia.
 
 ## 13. Tabla rápida — "qué hago si..."
 

@@ -37,21 +37,26 @@ SSH directo al VPS: `ssh -i ~/.ssh/mutualyf_vps -p 2251 root@200.58.109.110` →
 
 ---
 
-## Groq — GroqDownOrNoCredit / GroqDegraded
+## LLM — GroqDownOrNoCredit / GroqDegraded
+
+> Las alertas conservan el nombre "Groq" por herencia, pero **el proveedor
+> real del LLM es OpenAI** (`gpt-4o-mini`) — el cliente `groq_client.py` y las
+> env `GROQ_*` apuntan a OpenAI. No renombrar las alertas sin migrar las
+> reglas de Prometheus a la vez.
 
 **Síntoma:** el bot responde "tuve un problema" o no contesta consultas.
-**Causa #1 en prod: la cuenta de Groq se quedó sin saldo** (devuelve 401/403 → status="error").
+**Causa #1 en prod: la cuenta de OpenAI se quedó sin saldo** (401/403/429 → status="error").
 
-1. Verificar saldo y estado de la key en https://console.groq.com (Settings → Billing / API Keys).
+1. Verificar saldo y estado de la key en https://platform.openai.com (Billing / API Keys). Detalle del procedimiento: `docs/OPERACION_OPENAI_KEYS_Y_SALDO.md`.
 2. Si está **sin saldo**: recargar. El bot se recupera solo en cuanto haya crédito (no hace falta reiniciar nada).
-3. Si la key fue revocada/rota: generar una nueva, actualizar `GROQ_API_KEY` en `/opt/mutualyf/.env` y recrear el backend:
+3. Si la key fue revocada/rota: generar una nueva, actualizar la key en `/opt/mutualyf/.env` y recrear el backend:
    ```bash
    cd /opt/mutualyf && docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --force-recreate backend
    ```
 4. Mientras tanto el RAG sigue recuperando contexto; solo falla la generación final.
 5. **GroqDegraded** (warning, >20% fallan) suele ser rate-limit del plan o saldo bajándose: es el aviso temprano antes del corte total. Revisar billing antes de que escale a crítico.
 
-**Recaudo:** activar alerta de saldo bajo dentro de console.groq.com (billing alerts) como segunda red, además de esta.
+**Recaudo:** activar alerta de saldo bajo dentro de platform.openai.com (billing alerts) como segunda red, además de esta.
 
 ---
 

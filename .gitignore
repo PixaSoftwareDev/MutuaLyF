@@ -135,3 +135,7 @@ frontend/public/demo-embed.html
 # Artefactos de pruebas locales (contienen datos reales del CRM — NO commitear)
 backend/*_results.json
 backend/ground_truth.json
+
+# Capturas y artefactos de sesiones de browser automatizado (Playwright MCP)
+.playwright-mcp/
+/*.png

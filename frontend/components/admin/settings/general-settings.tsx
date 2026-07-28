@@ -91,7 +91,11 @@ export function GeneralSettings() {
     onError: (e: any) => toast({ title: "Error al activar", description: extractErrorMessage(e, "Intentá de nuevo."), variant: "destructive" }),
   });
 
-  const templates = botsData?.templates ?? [];
+  // Orden ESTABLE (alfabético): el backend manda la activa primero, pero
+  // reordenar al activar mueve las tarjetas debajo del cursor y un segundo
+  // click cae en otra tarjeta — re-activando la anterior. La activa se
+  // distingue por el tilde, no por la posición.
+  const templates = [...(botsData?.templates ?? [])].sort((a, b) => a.nombre.localeCompare(b.nombre));
   const activePersonality = templates.find(t => t.is_active) ?? null;
 
   return (

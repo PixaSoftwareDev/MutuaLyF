@@ -6,9 +6,10 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   Inbox, FileText, Settings, LogOut,
   Home, Building2, GitMerge, Users, MessageSquareShare, ClipboardList, Bot, Cpu, Network, X, Layers, BarChart3,
-  MessageSquare, Clock, UserCheck, Archive, UserRound, ChevronDown, Globe, Database, Grid3x3, Pin, PinOff, ShieldCheck,
+  MessageSquare, Clock, UserCheck, Archive, UserRound, ChevronDown, Globe, Database, Grid3x3, Pin, PinOff, ShieldCheck, Smile,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { CONNECTORS_UI_ENABLED, FEEDBACK_UI_ENABLED } from "@/lib/features";
 import { useAuthStore, useUIStore } from "@/lib/store";
 import { api, apiClient } from "@/lib/api";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -83,8 +84,11 @@ export const navGroups: NavGroup[] = [
     items: [
       { href: "/admin/settings", label: "Configuración", icon: Settings, adminOnly: true,
         tooltip: "Identidad, apariencia y comportamiento del asistente, y reglas de derivación." },
-      { href: "/admin/connectors", label: "Fuentes de datos", icon: Database, adminOnly: true,
-        tooltip: "APIs y bases externas que el asistente puede consultar (datos personales o públicos)." },
+      // Oculto por flag de build cuando el ambiente aún no valida conectores
+      ...(CONNECTORS_UI_ENABLED ? [
+        { href: "/admin/connectors", label: "Fuentes de datos", icon: Database, adminOnly: true,
+          tooltip: "APIs y bases externas que el asistente puede consultar (datos personales o públicos)." },
+      ] : []),
       { href: "/admin/cuenta", label: "Mi cuenta", icon: UserRound, adminOnly: true },
     ],
   },
@@ -172,7 +176,10 @@ export const CANAL_LINKS = [
   { href: "/admin/settings/canales?canal=all",      label: "Todos",           icon: Grid3x3 },
   { href: "/admin/settings/canales?canal=widget",   label: "Widget web",      icon: Globe },
   { href: "/admin/settings/canales?canal=whatsapp", label: "WhatsApp",        icon: WhatsAppIcon },
-  { href: "/admin/connectors",                      label: "Fuentes de datos", icon: Database },
+  // Oculto por flag de build cuando el ambiente aún no valida conectores
+  ...(CONNECTORS_UI_ENABLED ? [
+    { href: "/admin/connectors",                    label: "Fuentes de datos", icon: Database },
+  ] : []),
 ] as const;
 
 // Ruta de cada tab de Configuración (asistente es la base).
@@ -197,7 +204,7 @@ export const searchExtras: Array<NavItem & { group: string }> = [
 
 // Sección activa: qué rutas pertenecen a cada sección del rail, y su título.
 const SECTIONS: Array<{ id: string; title: string; prefixes: string[] }> = [
-  { id: "conversations", title: "Bandeja de entrada", prefixes: ["/admin/conversations"] },
+  { id: "conversations", title: "Bandeja de entrada", prefixes: ["/admin/conversations", "/admin/feedback"] },
   { id: "knowledge",     title: "Conocimiento",       prefixes: ["/admin/documents", "/admin/duplicates"] },
   { id: "team",          title: "Equipo",             prefixes: ["/admin/sectors", "/admin/operators"] },
   { id: "metrics",       title: "Informes",           prefixes: ["/admin/metrics"] },
@@ -277,6 +284,12 @@ export function Sidebar() {
 
   const handleOpenChatTester = async () => {
     if (!tenantId) return;
+    // iOS/Safari bloquea window.open que no sea SINCRÓNICO con el gesto del
+    // usuario — con los await de abajo, el popup moría silenciosamente en
+    // celular. Abrimos la pestaña YA (en blanco) y la navegamos cuando el
+    // token está listo. Si igual la bloquean (win null), misma pestaña.
+    const win = window.open("", "_blank");
+    if (win) { try { win.opener = null; } catch { /* cross-origin guard */ } }
     try {
       const data = await api.tenants.generateWidgetToken(tenantId);
       // Chequeo de completitud (best-effort, no bloquea la apertura): el tester
@@ -291,8 +304,10 @@ export function Sidebar() {
         (sectors !== null && sectors.length === 0 ? "&sectors=0" : "");
       const brand = branding.primary_color ? `&brand=${encodeURIComponent(branding.primary_color)}` : "";
       const url = `/chat?token=${encodeURIComponent(data.widget_token)}&tenant=${encodeURIComponent(tenantId)}&test=1${flags}${brand}`;
-      window.open(url, "_blank", "noopener");
+      if (win && !win.closed) win.location.href = url;
+      else window.location.href = url;
     } catch {
+      if (win && !win.closed) win.close();
       toast({ title: "No se pudo generar el link de prueba", variant: "destructive" });
     }
   };
@@ -347,7 +362,7 @@ export function Sidebar() {
   // Nav completa (mobile drawer): todos los grupos visibles, con sus labels.
   const allGroups = navGroups.filter(g => g.items.some(isVisible));
 
-  const isConversations = isAdmin && pathname.startsWith("/admin/conversations");
+  const isConversations = isAdmin && (pathname.startsWith("/admin/conversations") || pathname.startsWith("/admin/feedback"));
 
   return (
     <>
@@ -566,6 +581,8 @@ function InboxViews({ focusRing }: { focusRing: string }) {
             )}
           </Link>
         ))}
+        {/* Feedback del afiliado — badge de pendientes de revisión */}
+        {FEEDBACK_UI_ENABLED && <FeedbackNavItem itemCls={itemCls} />}
       </CollapsibleGroup>
 
       {(sectors as any[]).length > 0 && (
@@ -581,6 +598,29 @@ function InboxViews({ focusRing }: { focusRing: string }) {
         </CollapsibleGroup>
       )}
     </>
+  );
+}
+
+// Ítem "Feedback" del submenú de Conversaciones — con contador de pendientes.
+// Query liviana (page_size=1: solo trae los contadores) cada 60s.
+function FeedbackNavItem({ itemCls }: { itemCls: (a: boolean) => string }) {
+  const pathname = usePathname();
+  const { data } = useQuery({
+    queryKey: ["admin-feedback-badge"],
+    queryFn: () => api.adminFeedback.list({ page_size: 1 }),
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  });
+  const pending = data?.pending ?? 0;
+  const active = pathname.startsWith("/admin/feedback");
+  return (
+    <Link href="/admin/feedback" className={itemCls(active)} aria-current={active ? "page" : undefined}>
+      <Smile className="h-4 w-4 shrink-0" />
+      <span className="flex-1">Feedback</span>
+      {pending > 0 && (
+        <span className="text-xs font-semibold tabular-nums text-warning">{pending}</span>
+      )}
+    </Link>
   );
 }
 

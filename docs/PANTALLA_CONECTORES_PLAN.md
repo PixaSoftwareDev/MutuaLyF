@@ -1,6 +1,10 @@
 # Plan — Pantalla de Conectores (autogestión de APIs de terceros)
 
-> Estado: **decisiones fijadas, Fase 1 en construcción.**
+> Estado (2026-07-27): **CONSTRUIDA** — `/admin/connectors` operativa con alta,
+> detección de operaciones, prueba en vivo, estados y flywheel de ejemplos.
+> Visible en dev/staging; **oculta en prod por flag** (`NEXT_PUBLIC_CONNECTORS_UI`
+> + `CONNECTORS_ENABLED`, ver CLAUDE.md) hasta validar la feature.
+> Este doc queda como registro de diseño de lo implementado.
 > Convierte lo que hoy es un script SQL (`scripts/seed_mock_nexa.py`) en una pantalla
 > `/admin/connectors` donde un admin da de alta un conector, sus operaciones, quién las
 > usa y qué intención las dispara — y lo **prueba en vivo** antes de activarlo.

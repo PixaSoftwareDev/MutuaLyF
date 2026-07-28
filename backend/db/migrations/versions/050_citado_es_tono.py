@@ -9,15 +9,15 @@ la suya. La profesional ya la tiene; esta migración se la devuelve a la
 estándar (la 045 se la había quitado creyéndola duplicada del grounding).
 La cordial no cita por diseño (tono llano).
 
-Revision ID: 047
-Revises: 046
+Revision ID: 050
+Revises: 049
 """
 
 from alembic import op
 from sqlalchemy import text
 
-revision = "047"
-down_revision = "046"
+revision = "050"
+down_revision = "049"
 branch_labels = None
 depends_on = None
 

@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/toast";
 import { extractErrorMessage } from "@/lib/errors";
 import { DetailPanelHeader, PanelIconButton } from "@/components/admin/list-detail-shell";
+import { HighlightedText } from "@/lib/highlight";
 import { cn } from "@/lib/utils";
 
 // ── Config maps ───────────────────────────────────────────────────────────────
@@ -109,10 +110,12 @@ export function DocumentDeleteDialog({ open, onOpenChange, title, onConfirm, del
 // Muestra el texto completo y deja accionar: usar/no usar y editar. Sin tarjetas
 // anidadas — todo vive en el panel, legible de un vistazo.
 
-export function PartDetailPanel({ chunk, documentId, onCollapse }: {
+export function PartDetailPanel({ chunk, documentId, onCollapse, highlight }: {
   chunk: ChunkResponse;
   documentId: string;
   onCollapse: () => void;
+  /** Término de búsqueda activo — pinta las coincidencias en el texto. */
+  highlight?: string;
 }) {
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState(false);
@@ -232,7 +235,7 @@ export function PartDetailPanel({ chunk, documentId, onCollapse }: {
           </>
         ) : (
           <p className={cn("whitespace-pre-wrap break-words text-sm leading-relaxed", isSkipped ? "text-muted-foreground" : "text-foreground")}>
-            {chunk.text}
+            {highlight?.trim() ? <HighlightedText text={chunk.text} term={highlight} /> : chunk.text}
           </p>
         )}
       </div>

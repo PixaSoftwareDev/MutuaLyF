@@ -7,7 +7,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   MessageSquare, Loader2, Send, UserCheck, UserMinus, XCircle, User, Bot,
   Info, ChevronLeft, Search, ArrowRightLeft, Eye,
-  RotateCcw, MoreVertical, Paperclip, X, Globe, PanelRight,
+  RotateCcw, MoreVertical, Paperclip, X, Globe, PanelRight, Download,
 } from "lucide-react";
 import { api, type ConversationRow } from "@/lib/api";
 import { ConversationContextPanel } from "@/components/conversations/conversation-context-panel";
@@ -152,6 +152,11 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
     queryKey: ["operator-presence"],
     queryFn:  api.operator.presence,
     refetchInterval: 20_000,
+    // El GET /operator/presence ES el heartbeat de respaldo del operador (el
+    // primario es la conexión SSE, renovada por el servidor). Debe seguir
+    // latiendo con la pestaña en segundo plano — pausarlo fue parte del
+    // incidente "no hay operadores con Josué conectado" (2026-07-27).
+    refetchIntervalInBackground: true,
     enabled: !readOnly,
   });
 
@@ -1220,6 +1225,7 @@ function AttachmentView({ conversationId, messageId, name, mime }:
   { conversationId: string; messageId: string; name: string; mime: string }) {
   const [url, setUrl] = useState<string | null>(null);
   const [err, setErr] = useState<"expired" | "failed" | null>(null);
+  const [preview, setPreview] = useState(false);
   useEffect(() => {
     let active = true;
     let created: string | null = null;
@@ -1242,15 +1248,49 @@ function AttachmentView({ conversationId, messageId, name, mime }:
       <Loader2 className="h-3 w-3 animate-spin" />{name}
     </span>
   );
-  if (mime.startsWith("image/")) return (
-    <img src={url} alt={name} title={name} onClick={() => window.open(url, "_blank")}
-         className="mt-1 max-w-[220px] max-h-[220px] rounded-lg border cursor-pointer" />
-  );
+  const isImage = mime.startsWith("image/");
+  const isPdf = mime === "application/pdf";
   return (
-    <a href={url} download={name}
-       className="mt-1 inline-flex items-center gap-1.5 px-3 py-2 bg-black/5 rounded-lg text-xs hover:bg-black/10 break-all">
-      <Paperclip className="h-3.5 w-3.5 shrink-0" />{name}
-    </a>
+    <>
+      {isImage ? (
+        <img src={url} alt={name} title={name} onClick={() => setPreview(true)}
+             className="mt-1 max-w-[220px] max-h-[220px] rounded-lg border cursor-pointer" />
+      ) : (
+        <button type="button" onClick={() => (isPdf ? setPreview(true) : undefined)}
+                title={isPdf ? "Ver documento" : name}
+                className={cn("mt-1 inline-flex items-center gap-1.5 px-3 py-2 bg-black/5 rounded-lg text-xs hover:bg-black/10 break-all text-left",
+                              !isPdf && "cursor-default")}>
+          <Paperclip className="h-3.5 w-3.5 shrink-0" />{name}
+          {!isPdf && (
+            <a href={url} download={name} onClick={e => e.stopPropagation()} title="Descargar"
+               className="ml-1 opacity-60 hover:opacity-100">
+              <Download className="h-3.5 w-3.5" />
+            </a>
+          )}
+        </button>
+      )}
+
+      {preview && (
+        <Dialog open onOpenChange={v => !v && setPreview(false)}>
+          <DialogContent className="max-w-4xl w-[calc(100vw-2rem)] h-[85vh] flex flex-col gap-0 p-0 overflow-hidden">
+            <DialogHeader className="flex-row items-center gap-2 space-y-0 border-b px-4 py-2.5">
+              <DialogTitle className="text-sm font-medium truncate min-w-0 flex-1 text-left">{name}</DialogTitle>
+              <a href={url} download={name}
+                 className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs hover:bg-muted shrink-0 mr-6">
+                <Download className="h-3.5 w-3.5" /> Descargar
+              </a>
+            </DialogHeader>
+            {isImage ? (
+              <div className="flex-1 min-h-0 flex items-center justify-center bg-muted/40 p-4 overflow-auto">
+                <img src={url} alt={name} className="max-w-full max-h-full object-contain rounded" />
+              </div>
+            ) : (
+              <iframe src={url} title={name} className="flex-1 min-h-0 w-full border-0" />
+            )}
+          </DialogContent>
+        </Dialog>
+      )}
+    </>
   );
 }
 

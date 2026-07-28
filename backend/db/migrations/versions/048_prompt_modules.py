@@ -21,15 +21,15 @@ auditoría) pero el orquestador ya no lo lee.
 
 Textos sincronizados con los fallbacks de services/prompt_builder.py.
 
-Revision ID: 045
-Revises: 044
+Revision ID: 048
+Revises: 047
 """
 
 from alembic import op
 from sqlalchemy import text
 
-revision = "045"
-down_revision = "044"
+revision = "048"
+down_revision = "047"
 branch_labels = None
 depends_on = None
 

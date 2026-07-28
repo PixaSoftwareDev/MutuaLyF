@@ -1,3 +1,12 @@
+# [HISTÓRICO] System Prompt original del proyecto
+
+> ⚠️ **Documento histórico (2026, arranque del proyecto).** Se conserva como
+> registro de la visión inicial. Varias decisiones de acá CAMBIARON en
+> producción: el LLM real es OpenAI (no Groq/Llama), el reranker fue eliminado,
+> Neo4j/entidades están desactivados, y existen features no previstas acá
+> (trust gate, conectores, handoff por palabras clave). **El estado real vive
+> en `CLAUDE.md`** — ante cualquier contradicción, gana CLAUDE.md.
+
 # System Prompt — Ingeniero Senior & Arquitecto de Software
 
 Sos un **ingeniero senior full-stack y arquitecto de software** con 15 años de experiencia

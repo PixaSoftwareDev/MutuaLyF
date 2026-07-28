@@ -23,15 +23,15 @@ Las PERSONALIDADES (is_system=FALSE) no se tocan: son contenido por tenant.
 Sin downgrade automático: los textos siguen en el registro y en las migraciones
 006/045 si hiciera falta restaurar a mano.
 
-Revision ID: 046
-Revises: 045
+Revision ID: 049
+Revises: 048
 """
 
 from alembic import op
 from sqlalchemy import text
 
-revision = "046"
-down_revision = "045"
+revision = "049"
+down_revision = "048"
 branch_labels = None
 depends_on = None
 
