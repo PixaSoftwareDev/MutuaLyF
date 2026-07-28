@@ -270,6 +270,11 @@ Redactá la respuesta final:
   nombre NO aparece en el JSON, decí explícitamente que no figura. NUNCA le atribuyas
   el estado o los datos de otro elemento parecido; podés listar los que sí existen,
   dejando claro que lo pedido no está.
+- CORREFERENCIA: si la pregunta refiere a algo por pronombre o referencia («le», «ese»,
+  «el segundo», «esa empresa») y vienen entidades recientes de la conversación, la
+  pregunta habla de ESA entidad — respondé sobre ella. Si el resultado no la incluye,
+  decilo explícitamente («para X no encontré ...») antes de ofrecer el resto; no
+  respondas el listado completo como si fuera lo pedido.
 - Listas → viñetas (•) con lo esencial de cada ítem. Montos → separador de miles y moneda
   si viene (ej: $3.800.000 ARS). Fechas → formato legible (25/07/2026).
 - Si viene el nombre del usuario, usalo natural una vez ("Guillermo, ...").
@@ -282,15 +287,30 @@ Redactá la respuesta final:
 _MAX_DATA_CHARS_LLM = 4000
 
 
-async def _phrase_with_llm(tenant_id: str, question: str, data, nombre: str | None) -> str | None:
+async def _phrase_with_llm(
+    tenant_id: str, question: str, data, nombre: str | None,
+    mem_note: str | None = None,
+) -> str | None:
     payload = json.dumps(data, ensure_ascii=False)
     if len(payload) > _MAX_DATA_CHARS_LLM:
         return None
     try:
         from services.groq_client import complete
+        # mem_note: entidades recientes de la conversación (connector_memory).
+        # Sin esto, "¿tenemos algo por cobrarle?" tras hablar de una empresa
+        # respondía el listado COMPLETO de cobros como si fuera lo pedido —
+        # la síntesis no tenía forma de resolver el «le» (visto 2026-07-28).
+        # El referente va PEGADO a la pregunta e imperativo: los modelos chicos
+        # ignoraban la nota si quedaba como bloque aparte entre reglas.
+        ref_line = ""
+        logger.debug("phrase_synthesis mem_note_len=%d", len(mem_note or ""))
+        if mem_note:
+            ref_line = (f"IMPORTANTE — si la pregunta usa un pronombre o referencia "
+                        f"(«le», «ese», «esa empresa»), habla de esto:\n<<<{mem_note.strip()[:500]}>>>\n")
         user_block = (
             f"Nombre del usuario: {nombre or '(desconocido)'}\n"
             f"Pregunta del usuario:\n<<<{(question or '').strip()[:300]}>>>\n"
+            + ref_line +
             f"Resultado del sistema (JSON):\n<<<{payload}>>>"
         )
         out = await complete(
@@ -385,6 +405,11 @@ Reglas para los parámetros:
 Reglas de redacción de la respuesta final:
 - Español rioplatense, cordial y directo. Máximo ~6 líneas.
 - Usá ÚNICAMENTE los datos de los resultados. No inventes ni completes con conocimiento propio.
+- CORREFERENCIA: si la pregunta usa un pronombre o referencia («le», «ese», «esa
+  empresa», «el segundo»), refiere a la entidad de la conversación que resolviste
+  arriba — la respuesta es SOBRE ESA entidad. Si los resultados no la incluyen,
+  decilo primero y explícito («para X no encontré ...») y recién después ofrecé el
+  resto; NUNCA respondas el listado completo como si fuera lo pedido.
 - Si preguntan por un elemento con nombre propio (un proyecto, cliente, trámite) y ese
   nombre NO aparece en los resultados, decí explícitamente que no figura. NUNCA le
   atribuyas el estado o los datos de otro elemento parecido; podés listar los que sí
@@ -503,6 +528,7 @@ async def _run_tool_and_format(binding, *, tenant_id: str, conv_id: str, questio
     mem_entries = await connmem.recall(tenant_id, conv_id)
     known_ids = connmem.seen_ids(mem_entries)
     mem_note = connmem.render_note(mem_entries)
+    referents_note = connmem.render_referents(mem_entries)
 
     session_ok = identity is not None
     try:
@@ -599,7 +625,8 @@ async def _run_tool_and_format(binding, *, tenant_id: str, conv_id: str, questio
     _last_slug, _last_params, last_result = steps[-1]
     answer = None
     if last_result.outcome == OK:
-        answer = await _phrase_with_llm(tenant_id, question, last_result.data, nombre)
+        answer = await _phrase_with_llm(tenant_id, question, last_result.data, nombre,
+                                        mem_note=referents_note)
     if answer is None:
         answer = _format_tool_answer(last_result, nombre)
     return _resp(answer, outcome=last_result.outcome)

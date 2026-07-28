@@ -69,7 +69,7 @@ def wired(monkeypatch):
 
     # Redacción con LLM anulada: estos tests validan el fallback determinista
     # (y no deben depender de un LLM vivo — costo, flakiness, CI offline).
-    async def _no_llm(tenant_id, question, data, nombre):
+    async def _no_llm(tenant_id, question, data, nombre, **kwargs):
         return None
     monkeypatch.setattr("services.connector_router._phrase_with_llm", _no_llm)
 

@@ -75,7 +75,7 @@ def wired(monkeypatch):
     monkeypatch.setattr("services.connector_router.get_redis_session", lambda: fake_session)
     monkeypatch.setattr("services.connector_router.get_redis_ratelimit", lambda: fake_rl)
 
-    async def _no_llm(tenant_id, question, data, nombre):
+    async def _no_llm(tenant_id, question, data, nombre, **kwargs):
         return None
     monkeypatch.setattr("services.connector_router._phrase_with_llm", _no_llm)
 

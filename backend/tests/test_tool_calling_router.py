@@ -78,7 +78,7 @@ async def test_handle_tool_signal_despacha_y_filtra(wired_tc, monkeypatch):
     async def _noop_audit(*a, **k):
         return None
     monkeypatch.setattr(connector_router, "record_tool_call", _noop_audit, raising=False)
-    async def _phrase(tenant_id, question, data, nombre):
+    async def _phrase(tenant_id, question, data, nombre, **kwargs):
         return "Proyecto: Beta"
     monkeypatch.setattr(connector_router, "_phrase_with_llm", _phrase)
 
@@ -115,7 +115,7 @@ async def test_dispatch_merge_params_lexico_llm(wired_tc, monkeypatch):
     async def _noop_audit(*a, **k):
         return None
     monkeypatch.setattr(connector_router, "record_tool_call", _noop_audit, raising=False)
-    async def _phrase(tenant_id, question, data, nombre):
+    async def _phrase(tenant_id, question, data, nombre, **kwargs):
         return "ok"
     monkeypatch.setattr(connector_router, "_phrase_with_llm", _phrase)
 
@@ -141,7 +141,7 @@ async def test_tool_signal_ejecuta_tool_publica(wired_tc, monkeypatch):
     async def _noop_audit(*a, **k):
         return None
     monkeypatch.setattr(connector_router, "record_tool_call", _noop_audit, raising=False)
-    async def _phrase(tenant_id, question, data, nombre):
+    async def _phrase(tenant_id, question, data, nombre, **kwargs):
         return "Proyecto activo: Alpha"
     monkeypatch.setattr(connector_router, "_phrase_with_llm", _phrase)
 
