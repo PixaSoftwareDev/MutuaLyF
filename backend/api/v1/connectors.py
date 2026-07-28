@@ -976,6 +976,16 @@ async def apply_proposal(
         new_cfg = {**(conn.get("auth_config") or {}), **cfg_updates}
         await dao.update_connector(tenant_id, connector_id, {"auth_config": new_cfg})
 
+    # Ejemplos de consulta autogenerados para las tools nuevas — cierra el
+    # cold-start del ruteo (fraseos indirectos sin ejemplos rebotaban). No pisa
+    # ejemplos existentes; best-effort: si el LLM falla, el apply sale igual.
+    if created:
+        try:
+            from services.tool_example_gen import autofill_missing_examples
+            await autofill_missing_examples(tenant_id, connector_id)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("apply_example_gen_failed connector=%s error=%s", connector_id, exc)
+
     _audit(request, current_user, "connector_proposal_applied", connector_id,
            {"tools": created, "kept": kept, "lookup": lookup_path})
     return {"created": created, "kept": kept, "identity_lookup_path": lookup_path}
