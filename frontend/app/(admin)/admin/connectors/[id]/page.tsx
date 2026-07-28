@@ -22,25 +22,18 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { toast } from "@/components/ui/toast";
 import { DetailShell, BackLink } from "@/components/admin/detail-shell";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
-
-const AUTH_TYPES = [
-  { value: "none",    label: "Sin autenticación" },
-  { value: "api_key", label: "API key" },
-  { value: "bearer",  label: "Bearer token" },
-  { value: "basic",   label: "Basic (usuario + contraseña)" },
-];
+import {
+  AUTH_TYPES, CredentialFields, credentialIncomplete,
+  credentialValuesFromConfig, emptyCredentialValues, buildAuthConfigPatch,
+  type CredentialValues,
+} from "@/components/admin/connector-credential-fields";
 
 function errDetail(e: unknown): string {
-  const anyE = e as { response?: { data?: { detail?: string } } };
-  return anyE?.response?.data?.detail || "Ocurrió un error";
-}
-
-function parseJson(s: string): Record<string, unknown> | null {
-  if (!s.trim()) return {};
-  try {
-    const v = JSON.parse(s);
-    return typeof v === "object" && v !== null && !Array.isArray(v) ? v : null;
-  } catch { return null; }
+  // Sin respuesta HTTP (timeout del cliente, red caída) el detail no existe:
+  // el message de axios ("timeout of 300000ms exceeded") al menos dice qué pasó
+  // y humanizeConnectorError sabe traducirlo.
+  const anyE = e as { response?: { data?: { detail?: string } }; message?: string };
+  return anyE?.response?.data?.detail || anyE?.message || "Ocurrió un error";
 }
 
 // Pastilla de estado con punto (mismo lenguaje que los canales). El tercer
@@ -281,22 +274,35 @@ export default function ConnectorDetailPage() {
   // ── credencial (write-only) ────────────────────────────────────────────────
   // Basic auth: el USUARIO va en auth_config (no es secreto) y la CONTRASEÑA es
   // el secreto cifrado. Por eso el guardado hace dos cosas cuando es basic.
+  // Campos y armado de auth_config viven en connector-credential-fields
+  // (compartidos con el alta).
   const [showCred, setShowCred] = useState(false);
-  const [secret, setSecret] = useState("");
-  const [basicUser, setBasicUser] = useState<string | null>(null);
+  const [cred, setCred] = useState<CredentialValues>(emptyCredentialValues);
+  const openCred = () => {
+    setCred(credentialValuesFromConfig(conn?.auth_config as Record<string, unknown>));
+    setShowCred(true);
+  };
+  const closeCred = () => { setShowCred(false); setCred(emptyCredentialValues); };
   const saveCredM = useMutation({
     mutationFn: async () => {
-      if (conn?.auth_type === "basic") {
-        const username = (basicUser ?? String((conn?.auth_config as Record<string, unknown>)?.username ?? "")).trim();
-        await api.connectors.update(id, { auth_config: { ...(conn?.auth_config ?? {}), username } } as never);
-      }
-      if (secret.trim()) await api.connectors.setSecret(id, secret.trim());
+      const patch = buildAuthConfigPatch(conn?.auth_type ?? "none", cred, conn?.auth_config as Record<string, unknown>);
+      if (patch) await api.connectors.update(id, { auth_config: patch } as never);
+      if (cred.secret.trim()) await api.connectors.setSecret(id, cred.secret.trim());
     },
     onSuccess: () => {
-      invAll(); setSecret(""); setBasicUser(null); setShowCred(false);
+      invAll(); closeCred();
       toast({ title: "Credencial guardada (cifrada)", variant: "success" });
     },
     onError: (e) => toast({ title: "No se pudo guardar", description: humanizeConnectorError(errDetail(e)), variant: "destructive" }),
+  });
+
+  // Prueba de credencial sin tocar operaciones (oauth2: emisión real de token).
+  const testAuthM = useMutation({
+    mutationFn: () => api.connectors.testAuth(id),
+    onSuccess: (r) => toast(r.ok
+      ? { title: "Credencial válida", description: r.note ?? (r.latency_ms != null ? `Token emitido por el proveedor · ${r.latency_ms}ms` : undefined), variant: "success" }
+      : { title: "La credencial no funciona", description: humanizeConnectorError(r.detail), variant: "destructive" }),
+    onError: (e) => toast({ title: "No se pudo probar", description: humanizeConnectorError(errDetail(e)), variant: "destructive" }),
   });
 
   // ── validación de identidad (quién valida el 2º factor) ───────────────────
@@ -467,16 +473,17 @@ export default function ConnectorDetailPage() {
 
   const needsAuth = conn.auth_type !== "none";
   const isBasic   = conn.auth_type === "basic";
+  const isOauth   = conn.auth_type === "oauth2";
   const authLabel =
     conn.auth_type === "api_key" ? "API key" :
     conn.auth_type === "bearer"  ? "Bearer token" :
+    isOauth                      ? "OAuth2 (token renovable)" :
     isBasic                      ? "Usuario + contraseña" : "Sin autenticación";
   // Basic: el usuario vive en auth_config; la contraseña es el secreto.
   const currentUser = String((conn.auth_config as Record<string, unknown>)?.username ?? "");
-  const userVal     = basicUser ?? currentUser;
-  const credLabel   = isBasic ? "Contraseña" : conn.auth_type === "bearer" ? "Bearer token" : "API key";
-  const credDisabled = saveCredM.isPending ||
-    (isBasic ? (!userVal.trim() || (!conn.has_secret && !secret.trim())) : !secret.trim());
+  // Con secreto ya cargado se puede guardar solo la config (ubicación de la api
+  // key, o token_url/client_id de oauth2) sin re-tipear la clave.
+  const credDisabled = saveCredM.isPending || credentialIncomplete(conn.auth_type, cred, conn.has_secret);
   const hosts = conn.egress_allow?.join(", ") || "—";
 
   return (
@@ -529,7 +536,7 @@ export default function ConnectorDetailPage() {
                       ? <span className="inline-flex items-center gap-1 text-success"><CheckCircle2 className="h-3.5 w-3.5" /> {isBasic ? "contraseña ok" : "Cargada"}</span>
                       : <span className="text-muted-foreground">{isBasic ? "sin contraseña" : "Sin cargar"}</span>}
                     <button
-                      onClick={() => setShowCred(v => !v)}
+                      onClick={() => (showCred ? closeCred() : openCred())}
                       className="text-xs font-medium text-action transition-colors hover:underline"
                     >
                       {showCred ? "Cancelar" : conn.has_secret ? "Cambiar" : "Cargar"}
@@ -543,33 +550,25 @@ export default function ConnectorDetailPage() {
             </div>
 
             {/* Editor de credencial — aparece inline al tocar Cargar/Cambiar.
-                Basic pide Usuario (auth_config) + Contraseña (secreto). */}
+                Los campos son el mismo componente que usa el alta. */}
             {needsAuth && showCred && (
               <div className="mt-3 space-y-3 rounded-xl bg-muted/40 p-3.5 animate-fade-in">
-                {isBasic && (
-                  <div className="max-w-sm space-y-1.5">
-                    <Label className="text-xs">Usuario</Label>
-                    <Input
-                      autoFocus
-                      placeholder="usuario del proveedor"
-                      value={userVal}
-                      onChange={e => setBasicUser(e.target.value)}
-                    />
-                  </div>
-                )}
-                <div className="max-w-sm space-y-1.5">
-                  <Label className="text-xs">{credLabel}</Label>
-                  <Input
-                    type="password"
-                    autoFocus={!isBasic}
-                    placeholder={conn.has_secret ? "•••••••• (reemplazar)" : credLabel.toLowerCase()}
-                    value={secret}
-                    onChange={e => setSecret(e.target.value)}
-                  />
-                  <p className="text-[11px] text-muted-foreground">Se guarda cifrada y nunca se vuelve a mostrar.</p>
-                </div>
+                <CredentialFields
+                  authType={conn.auth_type}
+                  values={cred}
+                  onChange={patch => setCred(c => ({ ...c, ...patch }))}
+                  hasSecret={conn.has_secret}
+                  autoFocus
+                />
                 <div className="flex justify-end gap-2">
-                  <Button variant="outline" size="sm" onClick={() => { setShowCred(false); setSecret(""); setBasicUser(null); }}>Cancelar</Button>
+                  {isOauth && conn.has_secret && (
+                    <Button variant="outline" size="sm" className="mr-auto" disabled={testAuthM.isPending}
+                            onClick={() => testAuthM.mutate()}>
+                      {testAuthM.isPending && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
+                      Probar conexión
+                    </Button>
+                  )}
+                  <Button variant="outline" size="sm" onClick={closeCred}>Cancelar</Button>
                   <Button size="sm" disabled={credDisabled} onClick={() => saveCredM.mutate()}>
                     {saveCredM.isPending && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
                     Guardar
@@ -1153,10 +1152,9 @@ function ToolCard({ connectorId, tool, onDelete, onChanged }: {
   const [open, setOpen]           = useState(false);
   const [showTest, setShowTest]   = useState(false);
   const [identity, setIdentity]   = useState("");
-  const [paramsStr, setParamsStr] = useState("");
   // Un campo por parámetro declarado en el schema — el admin escribe el valor
-  // pelado y el objeto JSON lo armamos nosotros. El JSON crudo queda solo como
-  // fallback para operaciones sin parámetros declarados.
+  // pelado y el objeto JSON lo armamos nosotros. Una operación sin parámetros
+  // declarados no pide nada: en runtime el LLM tampoco puede mandarle nada.
   const [paramVals, setParamVals] = useState<Record<string, string>>({});
   const [result, setResult]       = useState<ConnectorTestResult | null>(null);
 
@@ -1167,8 +1165,7 @@ function ToolCard({ connectorId, tool, onDelete, onChanged }: {
   const hasDeclaredParams = Object.keys(schemaProps).length > 0;
 
   // Valores tipados según el schema: "3" en un param integer viaja como 3.
-  const buildParams = (): Record<string, unknown> | null => {
-    if (!hasDeclaredParams) return parseJson(paramsStr);
+  const buildParams = (): Record<string, unknown> => {
     const out: Record<string, unknown> = {};
     for (const [name, spec] of Object.entries(schemaProps)) {
       const raw = (paramVals[name] ?? "").trim();
@@ -1187,17 +1184,13 @@ function ToolCard({ connectorId, tool, onDelete, onChanged }: {
     : [];
 
   const testM = useMutation({
-    mutationFn: () => {
-      const params = buildParams();
-      if (params === null) throw new Error("json");
-      return api.connectors.testTool(connectorId, tool.id, { identity: identity.trim(), params });
-    },
+    mutationFn: () => api.connectors.testTool(connectorId, tool.id, { identity: identity.trim(), params: buildParams() }),
     // onChanged: el backend persistió el resultado → refrescar para que el
     // pill del acordeón (Probada/Falló) cambie sin recargar.
     onSuccess: (r) => { setResult(r); onChanged(); },
     onError: (e) => toast({
       title: "No se pudo probar",
-      description: (e as Error).message === "json" ? "Los params no son JSON válido" : errDetail(e),
+      description: errDetail(e),
       variant: "destructive",
     }),
   });
@@ -1301,6 +1294,13 @@ function ToolCard({ connectorId, tool, onDelete, onChanged }: {
 
       {open && (
       <div className="animate-fade-in pb-4 pl-6">
+      {/* Falló → el detalle completo acá (apretar la pastilla despliega y lo muestra). */}
+      {tool.last_test_ok === false && tool.last_test_detail && (
+        <div className="mb-3 flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-2.5 text-xs text-destructive">
+          <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span className="min-w-0 break-words">{tool.last_test_detail}</span>
+        </div>
+      )}
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
@@ -1376,8 +1376,9 @@ function ToolCard({ connectorId, tool, onDelete, onChanged }: {
                 <Input className="h-8 font-mono text-sm" placeholder="30111222" value={identity} onChange={e => setIdentity(e.target.value)} />
               </div>
             )}
-            {hasDeclaredParams ? (
-              /* Un campo por parámetro del schema — sin JSON a mano. */
+            {/* Un campo por parámetro del schema — sin JSON a mano. Sin
+                parámetros declarados no se pide nada. */}
+            {hasDeclaredParams &&
               Object.entries(schemaProps).map(([name, spec]) => (
                 <div key={name} className="w-44 space-y-1.5">
                   <Label className="text-xs">
@@ -1403,13 +1404,7 @@ function ToolCard({ connectorId, tool, onDelete, onChanged }: {
                     />
                   )}
                 </div>
-              ))
-            ) : (
-              <div className="min-w-[200px] flex-1 space-y-1.5">
-                <Label className="text-xs">Parámetros (JSON, opcional)</Label>
-                <Input className="h-8 font-mono text-sm" placeholder='{"campo": "valor"}' value={paramsStr} onChange={e => setParamsStr(e.target.value)} />
-              </div>
-            )}
+              ))}
             <Button
               size="sm"
               disabled={testM.isPending || (needsIdentity && !identity.trim()) || missingRequired.length > 0}

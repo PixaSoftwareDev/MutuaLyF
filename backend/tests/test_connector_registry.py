@@ -68,9 +68,6 @@ _REGISTRY = {"30111222": {"id": "u1", "documento": "30111222",
 def wired(monkeypatch):
     from core.config import settings
     monkeypatch.setattr(settings, "connectors_enabled", True)
-    # Modo tool_calling explícito: sin esto heredan CONNECTOR_ROUTING_MODE del
-    # ambiente (p.ej. unified en dev local) y maybe_handle ni selecciona.
-    monkeypatch.setattr(settings, "connector_routing_mode", "tool_calling")
 
     fake_session = FakeRedis()
     fake_rl = FakeRedis()
@@ -81,12 +78,6 @@ def wired(monkeypatch):
     async def _no_llm(tenant_id, question, data, nombre):
         return None
     monkeypatch.setattr("services.connector_router._phrase_with_llm", _no_llm)
-
-    # Selección de tool por LLM mockeada (sin red): las preguntas de oportunidades
-    # eligen la tool del CRM, el resto va al RAG.
-    async def _resolve(tenant_id, text):
-        return (_registry_binding(), {}) if "oportunidades" in text.lower() else None
-    monkeypatch.setattr("services.connector_router._resolve_tool_via_llm", _resolve)
 
     # Rehidratación del binding a mitad del FSM (pending_intent guarda el slug).
     async def _by_slug(tenant_id, slug):
@@ -142,8 +133,23 @@ def wired(monkeypatch):
     return {"sent": sent}
 
 
+# El "LLM" del ruteo unificado, mockeado: las preguntas de oportunidades eligen la
+# tool del CRM; el resto va al RAG.
+def _fake_router_pick(msg: str):
+    return {"name": "oportunidades_abiertas", "arguments": {}} if "oportunidades" in msg.lower() else None
+
+
 async def _turn(msg):
-    return await connector_router.maybe_handle("t1", "conv1", msg)
+    """Flujo real del widget en ruteo unificado: maybe_handle atiende el FSM en
+    curso; sin FSM, la decisión de tool se despacha por handle_tool_signal."""
+    r = await connector_router.maybe_handle("t1", "conv1", msg)
+    if r is not None:
+        return r
+    pick = _fake_router_pick(msg)
+    if pick is None:
+        return None
+    return await connector_router.handle_tool_signal(
+        "t1", "conv1", msg, pick["name"], pick["arguments"])
 
 
 @pytest.mark.asyncio

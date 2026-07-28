@@ -222,6 +222,40 @@ async def test_vacio_sin_alternativa_responde_honesto(loop_wired):
 
 
 @pytest.mark.asyncio
+async def test_no_filtra_eco_del_andamiaje(loop_wired):
+    """Regresión del leak: si el LLM devuelve como texto el eco del andamiaje
+    ('[Llamé a lista_proyectos con {}]') en vez de una tool call o respuesta real,
+    NO se le muestra al usuario — se cae al fallback determinista con el dato."""
+    loop_wired["llm"].extend([
+        ("[Llamé a lista_proyectos con {}]", None),  # eco del scaffolding, no respuesta
+    ])
+    r = await _run(LISTA, {}, question="mostrame los proyectos")
+    assert not r["answer"].strip().startswith("[Llamé a")
+    assert "Alfa" in r["answer"]  # fallback determinista con el resultado real
+
+
+def test_logout_reconoce_voseo_y_variantes():
+    """El logout matcheaba solo 'cerrar sesión'; 'cerrá mi sesión' (voseo, como lo
+    escribe un argentino) caía al RAG que respondía 'no puedo cerrar sesiones'."""
+    r = connector_router._LOGOUT_RE
+    assert r.search("cerrá mi sesión")
+    assert r.search("cerra mi sesion")
+    assert r.search("cerrar sesión")
+    assert r.search("quiero desconectarme")
+    assert not r.search("cuánto tengo en mi cuenta")
+
+
+def test_looks_like_scaffold_detecta_variantes():
+    f = connector_router._looks_like_scaffold
+    assert f("[Llamé a lista_proyectos con {}]")
+    assert f("  [Llamé a detalle_proyecto con {'id': '7'}]")
+    assert f("[llame a lista_tareas con {}]")  # sin tilde, minúscula
+    assert not f("Tenés 2 proyectos: Alfa y Beta.")
+    assert not f("")
+    assert not f(None)
+
+
+@pytest.mark.asyncio
 async def test_flywheel_captura_binding_inicial_en_caso_comun(loop_wired):
     """Regresión del bug del return temprano: en el caso común (1 llamada, el LLM
     redacta en el loop) la captura del candidato IGUAL ocurre, y con el binding

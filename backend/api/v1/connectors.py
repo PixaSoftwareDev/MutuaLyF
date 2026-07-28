@@ -22,6 +22,7 @@ import asyncio
 import logging
 import re
 import time
+from urllib.parse import urlparse
 
 import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
@@ -472,8 +473,26 @@ async def update_connector(
         final_egress = data.get("egress_allow", current["egress_allow"])
         if not final_egress:
             data["egress_allow"] = _default_egress(data.get("base_url", current["base_url"]))
+    # oauth2: el token endpoint suele vivir en OTRO host que la API
+    # (auth.proveedor.com vs api.proveedor.com). Se suma solo a la allowlist —
+    # sigue pasando por el mismo circuito de aprobación de hosts al activar.
+    token_url = (data.get("auth_config") or {}).get("token_url") \
+        if isinstance(data.get("auth_config"), dict) else None
+    if token_url:
+        host = (urlparse(str(token_url)).hostname or "").strip().lower()
+        if host:
+            current = await dao.get_connector(tenant_id, connector_id)
+            if current is None:
+                raise HTTPException(status_code=404, detail="Conector no encontrado")
+            final_egress = [h.lower() for h in data.get("egress_allow", current["egress_allow"])]
+            if host not in final_egress:
+                data["egress_allow"] = final_egress + [host]
     if not await dao.update_connector(tenant_id, connector_id, data):
         raise HTTPException(status_code=404, detail="Conector no encontrado")
+    if "auth_config" in data or "auth_type" in data:
+        # La credencial cambió: el token oauth2 cacheado (si lo hay) ya no vale.
+        from services.connector_oauth import invalidate
+        await invalidate(connector_id)
     # Cambiar la config de un conector activo lo desactiva: hay que re-probar y
     # re-activar (fail-closed — la config nueva no está validada).
     await dao.set_connector_active(tenant_id, connector_id, False)
@@ -503,8 +522,43 @@ async def put_secret(
     if await dao.get_connector(tenant_id, connector_id) is None:
         raise HTTPException(status_code=404, detail="Conector no encontrado")
     await dao.set_connector_secret(tenant_id, connector_id, seal_secret(body.secret))
+    # Secreto nuevo → el token oauth2 cacheado con el anterior ya no vale.
+    from services.connector_oauth import invalidate
+    await invalidate(connector_id)
     _audit(request, current_user, "connector_secret_set", connector_id)
     return {"ok": True, "has_secret": True}
+
+
+@router.post("/admin/connectors/{connector_id}/test-auth")
+async def test_auth(
+    connector_id: str, request: Request,
+    current_user: CurrentUser = Depends(require_admin_or_super),
+):
+    """Valida la credencial sin tocar las operaciones. oauth2: fuerza una emisión
+    REAL de token contra el proveedor (invalida el cache primero). Tipos
+    estáticos: valida que la config esté completa — la validez real de una api
+    key solo se comprueba probando una operación."""
+    tenant_id = _own_tenant(current_user)
+    conn = await dao.get_connector(tenant_id, connector_id)
+    if conn is None:
+        raise HTTPException(status_code=404, detail="Conector no encontrado")
+    secret = open_secret(await dao.get_connector_secret_enc(tenant_id, connector_id))
+    start = time.monotonic()
+    try:
+        if conn["auth_type"] == "oauth2":
+            from services.connector_discovery import _conn_oauth_ctx
+            from services.connector_oauth import get_access_token, invalidate
+            await invalidate(str(conn["id"]))
+            await get_access_token(_conn_oauth_ctx(conn), conn.get("auth_config") or {}, secret)
+            note = None
+        else:
+            build_auth(conn["auth_type"], conn.get("auth_config") or {}, secret)
+            note = "Config completa. La validez real de la clave se comprueba al probar una operación."
+    except (ValueError, EgressBlocked) as exc:
+        _audit(request, current_user, "connector_auth_tested", connector_id, {"ok": False})
+        return {"ok": False, "detail": str(exc)[:300]}
+    _audit(request, current_user, "connector_auth_tested", connector_id, {"ok": True})
+    return {"ok": True, "latency_ms": int((time.monotonic() - start) * 1000), "note": note}
 
 
 @router.patch("/admin/connectors/{connector_id}/active")
@@ -934,10 +988,24 @@ async def _dry_run_tool(conn: dict, tool: dict, tenant_id: str, connector_id: st
     """Núcleo del dry-run: arma la URL final, valida egress, llama al tercero y
     devuelve crudo + mapeado + sugerencia de response_map. Compartido por la
     prueba individual y la masiva."""
-    from services.connector_executor import _apply_response_map, _build_path
+    from services.connector_executor import _apply_response_map, _build_path, join_url
+
+    # Requeridos sin valor (el autofill ya completó enums e ids de recurso): mejor
+    # un mensaje claro en castellano que el 400 del proveedor. En "Probar todas"
+    # no hay campos para completar, así el admin sabe que debe probarla individual.
+    props = ((tool.get("params_schema") or {}).get("properties") or {})
+    faltan = [n for n in (tool.get("params_schema") or {}).get("required", [])
+              if not str(params.get(n) or "").strip()]
+    if faltan:
+        desc = ((props.get(faltan[0]) or {}).get("description") or "").rstrip(".")
+        hint = f" ({desc})" if desc else ""
+        return {"url": None, "method": tool["http_method"], "ok": False,
+                "error": "params_missing",
+                "detail": f"Necesita el parámetro «{faltan[0]}»{hint}. "
+                          f"Probala individualmente completando un valor."}
 
     path, query = _build_path(tool["path_template"], identity, dict(params))
-    url = conn["base_url"].rstrip("/") + "/" + path.lstrip("/")
+    url = join_url(conn["base_url"], path)
     result: dict = {"url": url, "method": tool["http_method"]}
 
     try:
@@ -950,9 +1018,12 @@ async def _dry_run_tool(conn: dict, tool: dict, tenant_id: str, connector_id: st
         result.update(ok=False, error="egress_blocked", detail=str(exc))
         return result
 
+    from services.connector_discovery import _conn_oauth_ctx
+    from services.connector_secrets import resolve_auth
     try:
         secret = open_secret(await dao.get_connector_secret_enc(tenant_id, connector_id))
-        auth_kwargs = build_auth(conn["auth_type"], conn.get("auth_config") or {}, secret)
+        auth_kwargs = await resolve_auth(conn["auth_type"], conn.get("auth_config") or {},
+                                         secret, oauth_ctx=_conn_oauth_ctx(conn))
     except ValueError as exc:
         result.update(ok=False, error="auth_config_invalid", detail=str(exc))
         return result
@@ -960,10 +1031,22 @@ async def _dry_run_tool(conn: dict, tool: dict, tenant_id: str, connector_id: st
     start = time.monotonic()
     try:
         async with httpx.AsyncClient(timeout=conn["timeout_ms"] / 1000) as client:
-            resp = await client.request(
-                tool["http_method"].upper(), url, params=query or None,
-                headers=auth_kwargs["headers"] or None, auth=auth_kwargs["auth"],
-            )
+            for intento in (1, 2):
+                resp = await client.request(
+                    tool["http_method"].upper(), url,
+                    # La clave por query va como params, nunca en la URL: result["url"]
+                    # se muestra al admin y se persiste — no debe contener el secreto.
+                    params={**(query or {}), **auth_kwargs["params"]} or None,
+                    headers=auth_kwargs["headers"] or None, auth=auth_kwargs["auth"],
+                )
+                # Retry-once oauth2: token revocado antes de vencer → re-emitir una vez.
+                if resp.status_code == 401 and conn["auth_type"] == "oauth2" and intento == 1:
+                    from services.connector_oauth import invalidate
+                    await invalidate(str(conn["id"]))
+                    auth_kwargs = await resolve_auth(conn["auth_type"], conn.get("auth_config") or {},
+                                                     secret, oauth_ctx=_conn_oauth_ctx(conn))
+                    continue
+                break
         latency = int((time.monotonic() - start) * 1000)
         raw = resp.json() if "json" in (resp.headers.get("content-type") or "") else resp.text[:2000]
         result.update(ok=resp.status_code < 400, status=resp.status_code, latency_ms=latency, raw=raw)
@@ -975,6 +1058,9 @@ async def _dry_run_tool(conn: dict, tool: dict, tenant_id: str, connector_id: st
     except httpx.HTTPError as exc:
         result.update(ok=False, error="upstream", detail=str(exc)[:300],
                       latency_ms=int((time.monotonic() - start) * 1000))
+    except ValueError as exc:
+        # Re-emisión oauth2 fallida durante el retry-once → error de credencial claro.
+        result.update(ok=False, error="auth_config_invalid", detail=str(exc)[:300])
     return result
 
 
@@ -1037,7 +1123,21 @@ async def _autofill_resource_ids(conn: dict, tool: dict, tools: list[dict],
             parent_path = tool["path_template"].split("/{" + name + "}")[0]
             list_tool = next((t for t in tools
                               if t["path_template"] == parent_path and t["id"] != tool["id"]), None)
-            faltante_hint = f"la operación de listado ({parent_path})"
+            if list_tool is None:
+                # Muchas APIs no exponen la colección pelada sino variantes:
+                # /movie/{id} sin /movie pero con /movie/popular o /movie/top_rated.
+                # Cualquier GET sin parámetros de path bajo el mismo prefijo lista
+                # recursos de esa colección — sus ids sirven. La más corta primero
+                # (la más cercana a "la lista canónica").
+                candidatos = sorted(
+                    (t for t in tools
+                     if t["id"] != tool["id"] and "{" not in t["path_template"]
+                     and t["http_method"].upper() == "GET"
+                     and t["path_template"].startswith(parent_path + "/")),
+                    key=lambda t: len(t["path_template"]),
+                )
+                list_tool = candidatos[0] if candidatos else None
+            faltante_hint = f"una operación de listado bajo {parent_path}"
 
         if list_tool is None:
             return None, [], (f"Esta operación necesita un «{name}» y no encontré "
@@ -1091,15 +1191,45 @@ async def _maybe_apply_suggested_map(tenant_id: str, tool: dict, result: dict) -
         logger.warning("auto_response_map_failed tool=%s error=%s", tool["id"], exc)
 
 
+# Claves que suelen llevar el mensaje humano en cuerpos de error. No es una lista
+# de proveedores: es el patrón de nombre — cubre message, status_message, msg,
+# error, errors[], error_description, detail, reason... de cualquier API.
+_MSG_KEY_RE = re.compile(r"message|msg|error|detail|reason|description", re.IGNORECASE)
+
+
+def _upstream_message(raw, _depth: int = 0) -> str | None:
+    """Mensaje humano del cuerpo de error del proveedor, sin asumir su formato:
+    busca recursivamente (profundidad ≤ 2) el primer string no vacío bajo una
+    clave que suene a mensaje. Es exactamente lo que el admin necesita ver para
+    corregir la operación."""
+    if isinstance(raw, str):
+        return raw.strip()[:200] or None
+    if _depth > 2:
+        return None
+    if isinstance(raw, list):
+        for item in raw[:5]:
+            if (m := _upstream_message(item, _depth + 1)):
+                return m
+        return None
+    if not isinstance(raw, dict):
+        return None
+    for key, value in raw.items():
+        if _MSG_KEY_RE.search(str(key)) and (m := _upstream_message(value, _depth + 1)):
+            return m
+    return None
+
+
 def _test_detail(result: dict) -> str | None:
     """Resumen corto del fallo para persistir junto al estado (rojo en la UI)."""
     if result.get("ok"):
         return None
-    if result.get("error") == "resource_id_unavailable":
+    if result.get("error") in ("resource_id_unavailable", "params_missing"):
         return (result.get("detail") or "")[:300]  # ya es descriptivo, sin código interno
     if result.get("error"):
         return f"{result['error']}: {result.get('detail', '')}"[:300]
-    return f"HTTP {result.get('status')}"
+    msg = _upstream_message(result.get("raw"))
+    status = f"HTTP {result.get('status')}"
+    return f"{status} — {msg}"[:300] if msg else status
 
 
 async def _persist_test(tenant_id: str, tool_id: str, result: dict) -> None:

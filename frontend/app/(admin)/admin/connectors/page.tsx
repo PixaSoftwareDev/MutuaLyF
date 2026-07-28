@@ -55,13 +55,10 @@ import { toast } from "@/components/ui/toast";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ListToolbar } from "@/components/admin/list-toolbar";
 import { useTableSort, applySort, SortHeader } from "@/components/admin/sortable";
-
-const AUTH_TYPES = [
-  { value: "none",    label: "Sin autenticación" },
-  { value: "api_key", label: "API key" },
-  { value: "bearer",  label: "Bearer token" },
-  { value: "basic",   label: "Basic (usuario + contraseña)" },
-];
+import {
+  AUTH_TYPES, CredentialFields, credentialIncomplete, credentialEmpty,
+  emptyCredentialValues, buildAuthConfigPatch, type CredentialValues,
+} from "@/components/admin/connector-credential-fields";
 
 function errDetail(e: unknown): string {
   const anyE = e as { response?: { data?: { detail?: string } } };
@@ -99,6 +96,10 @@ export default function ConnectorsPage() {
   const [name, setName]             = useState("");
   const [baseUrl, setBaseUrl]       = useState("");
   const [authType, setAuthType]     = useState("none");
+  // Credencial inline en el alta: se carga acá mismo (opcional — si queda
+  // vacía se puede cargar después desde el detalle). Campos compartidos con
+  // el editor del detalle.
+  const [cred, setCred]             = useState<CredentialValues>(emptyCredentialValues);
   const [search, setSearch]         = useState("");
   const [deleting, setDeleting]     = useState<ConnectorRow | null>(null);
   const { sort, toggle } = useTableSort<SortKey>({ nombre: "asc" });
@@ -135,12 +136,30 @@ export default function ConnectorsPage() {
         slug, display_name: name.trim(), base_url: baseUrl.trim(),
         egress_allow: inferredHost ? [inferredHost] : [], auth_type: authType,
       });
-      return id;
+      // La credencial va aparte (el secreto tiene su propio endpoint). Si esta
+      // parte falla el conector ya existe — no es un error del alta: se avisa
+      // y se lleva al detalle para reintentar desde ahí.
+      let credError: string | null = null;
+      if (authType !== "none" && !credentialEmpty(authType, cred)) {
+        try {
+          const patch = buildAuthConfigPatch(authType, cred, {});
+          if (patch) await api.connectors.update(id, { auth_config: patch } as never);
+          if (cred.secret.trim()) await api.connectors.setSecret(id, cred.secret.trim());
+        } catch (e) {
+          credError = humanizeConnectorError(errDetail(e));
+        }
+      }
+      return { id, credError };
     },
-    onSuccess: () => {
+    onSuccess: ({ id, credError }) => {
       inv();
       setShowCreate(false);
-      setName(""); setBaseUrl(""); setAuthType("none");
+      setName(""); setBaseUrl(""); setAuthType("none"); setCred(emptyCredentialValues);
+      if (credError) {
+        toast({ title: "Conector creado, pero la credencial no se guardó", description: credError, variant: "destructive" });
+        router.push(`/admin/connectors/${id}`);
+        return;
+      }
       toast({ title: "Conector creado", description: "Configurá sus operaciones y probalo antes de activar.", variant: "success" });
     },
     onError: (e) => toast({ title: "No se pudo crear", description: humanizeConnectorError(errDetail(e)), variant: "destructive" }),
@@ -259,7 +278,7 @@ export default function ConnectorsPage() {
       </div>
 
       {/* Crear conector — modal centrado */}
-      <Dialog open={showCreate} onOpenChange={setShowCreate}>
+      <Dialog open={showCreate} onOpenChange={o => { setShowCreate(o); if (!o) setCred(emptyCredentialValues); }}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <div className="flex items-start gap-3 text-left">
@@ -299,17 +318,28 @@ export default function ConnectorsPage() {
               </Select>
             </div>
             {authType !== "none" && (
-              <p className="rounded-lg border bg-muted/30 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
-                La credencial ({authType === "basic" ? "usuario + contraseña" : authType === "bearer" ? "token" : "API key"}) se carga en el paso siguiente, al Configurar el conector.
-              </p>
+              <div className="space-y-3 rounded-xl bg-muted/40 p-3.5">
+                <CredentialFields
+                  authType={authType}
+                  values={cred}
+                  onChange={patch => setCred(c => ({ ...c, ...patch }))}
+                />
+                <p className="text-[11px] leading-snug text-muted-foreground">
+                  Si no la tenés a mano, podés dejarla vacía y cargarla después desde el conector.
+                </p>
+              </div>
             )}
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowCreate(false)}>Cancelar</Button>
+            <Button variant="outline" onClick={() => { setShowCreate(false); setCred(emptyCredentialValues); }}>Cancelar</Button>
             <Button
               onClick={() => createM.mutate()}
-              disabled={!slug || !/^https?:\/\//i.test(baseUrl.trim()) || createM.isPending}
+              disabled={
+                !slug || !/^https?:\/\//i.test(baseUrl.trim()) || createM.isPending ||
+                // Credencial a medias: o vacía del todo (se carga después) o completa.
+                (authType !== "none" && !credentialEmpty(authType, cred) && credentialIncomplete(authType, cred, false))
+              }
             >
               {createM.isPending && <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />}
               Crear conector

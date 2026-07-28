@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from dataclasses import dataclass, field
 
 from sqlalchemy import text
@@ -65,6 +66,20 @@ def _as_dict(value) -> dict:
 
 
 # ── Tool calling: catálogo + resolución por slug (sin pasar por intenciones) ─────
+
+# Cache in-process del catálogo: se lee 2-4 veces por turno de chat (armar
+# schemas + resolver la tool elegida + el loop agéntico) y cambia solo cuando
+# un admin edita conectores. TTL corto: un cambio de catálogo tarda ≤10s en
+# verse en el chat — aceptable, y ahorra una sesión PG completa por lectura.
+_CATALOG_TTL_S = 10.0
+_catalog_cache: dict[str, tuple[float, list[dict]]] = {}
+
+
+def invalidate_tool_catalog(tenant_id: str) -> None:
+    """Para el worker local; los demás expiran por TTL (≤10s)."""
+    _catalog_cache.pop(tenant_id, None)
+
+
 async def list_tools_for_tool_calling(tenant_id: str) -> list[dict]:
     """Todas las tools ACTIVAS de conectores activos del tenant, para armar el
     catálogo de function-calling que se le ofrece al LLM. Sin JOIN a intenciones:
@@ -72,10 +87,14 @@ async def list_tools_for_tool_calling(tenant_id: str) -> list[dict]:
 
     Devuelve por tool: slug, display_name, params_schema, identity_kind, is_read_only.
     """
+    cached = _catalog_cache.get(tenant_id)
+    if cached and (time.monotonic() - cached[0]) < _CATALOG_TTL_S:
+        return cached[1]
     async with get_pg_session(tenant_id) as session:
         rows = (await session.execute(text("""
             SELECT t.slug, t.display_name, t.description, t.examples, t.params_schema,
-                   t.identity_kind, t.is_read_only
+                   t.identity_kind, t.is_read_only,
+                   c.display_name AS connector_name
             FROM connector_tools t
             JOIN tenant_connectors c ON c.id = t.connector_id
             WHERE t.is_active AND c.is_active
@@ -88,6 +107,7 @@ async def list_tools_for_tool_calling(tenant_id: str) -> list[dict]:
         d["is_read_only"] = bool(d["is_read_only"])
         d["examples"] = list(d.get("examples") or [])
         out.append(d)
+    _catalog_cache[tenant_id] = (time.monotonic(), out)
     return out
 
 
@@ -304,6 +324,7 @@ async def get_connector_secret_enc(tenant_id: str, connector_id: str) -> str | N
 
 
 async def set_connector_active(tenant_id: str, connector_id: str, active: bool) -> bool:
+    invalidate_tool_catalog(tenant_id)
     async with get_pg_session(tenant_id) as session:
         res = await session.execute(text(
             "UPDATE tenant_connectors SET is_active = :a, updated_at = NOW() WHERE id = CAST(:id AS uuid)"
@@ -346,6 +367,7 @@ async def list_tools(tenant_id: str, connector_id: str) -> list[dict]:
 
 
 async def create_tool(tenant_id: str, connector_id: str, data: dict) -> str:
+    invalidate_tool_catalog(tenant_id)
     cols = [c for c in _TOOL_COLS if c in data]
     params = {c: _bind_value(c, data[c]) for c in cols}
     params["cid"] = connector_id
@@ -360,6 +382,7 @@ async def create_tool(tenant_id: str, connector_id: str, data: dict) -> str:
 
 
 async def update_tool(tenant_id: str, tool_id: str, data: dict) -> bool:
+    invalidate_tool_catalog(tenant_id)
     cols = [c for c in (*_TOOL_COLS, "is_active") if c in data]
     if not cols:
         return False
@@ -461,6 +484,7 @@ async def record_tool_test(tenant_id: str, tool_id: str, ok: bool, detail: str |
 
 
 async def delete_tool(tenant_id: str, tool_id: str) -> bool:
+    invalidate_tool_catalog(tenant_id)
     async with get_pg_session(tenant_id) as session:
         res = await session.execute(text(
             "DELETE FROM connector_tools WHERE id = CAST(:id AS uuid)"
@@ -471,6 +495,7 @@ async def delete_tool(tenant_id: str, tool_id: str) -> bool:
 
 async def set_tool_roles(tenant_id: str, tool_id: str, roles: list[str]) -> None:
     """Reemplaza el conjunto de roles de una tool (delete + insert)."""
+    invalidate_tool_catalog(tenant_id)
     async with get_pg_session(tenant_id) as session:
         await session.execute(text(
             "DELETE FROM connector_roles WHERE tool_id = CAST(:tid AS uuid)"

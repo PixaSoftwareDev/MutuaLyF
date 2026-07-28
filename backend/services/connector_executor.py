@@ -63,7 +63,7 @@ class ParamValidationError(Exception):
     """Los params provistos no cumplen params_schema."""
 
 
-# ── Circuit breaker por-proceso (patrón replicado de services/neo4j_client.py) ──
+# ── Circuit breaker por-proceso ───────────────────────────────────────────────
 class ConnectorCircuitOpen(Exception):
     """El circuit breaker del executor está abierto (fallos recientes)."""
 
@@ -153,6 +153,23 @@ def _build_path(path_template: str, identity: str, params: dict) -> tuple[str, d
     return path, query
 
 
+def join_url(base_url: str, path: str) -> str:
+    """Une base + ruta tolerando el prefijo duplicado (base ...tld/3 + ruta
+    /3/movie → un solo /3). Pasa con cualquier proveedor versionado: la doc trae
+    las rutas con el prefijo de versión (/3, /v2, /api) que el admin ya puso en
+    la URL base. Solo se dedupe el ÚLTIMO segmento del path de la base contra el
+    PRIMERO de la ruta — nunca el host."""
+    base = base_url.rstrip("/")
+    path = "/" + path.lstrip("/")
+    base_path = urlparse(base).path.rstrip("/")
+    if base_path:
+        tail = base_path.rsplit("/", 1)[-1]
+        first = path.lstrip("/").split("/", 1)[0]
+        if tail and tail == first:
+            path = path[len(first) + 1:] or "/"
+    return base + path
+
+
 def _apply_response_map(raw: dict | list, response_map: dict) -> ExecResult:
     """Normaliza la respuesta cruda al contrato canónico según response_map.
 
@@ -192,8 +209,30 @@ async def _invoke_stub(binding, identity: str, query: dict) -> dict | list:
     return result
 
 
+def _oauth_ctx(binding) -> dict:
+    """Contexto mínimo que necesita connector_oauth para emitir/cachear tokens."""
+    return {
+        "connector_id": getattr(binding, "connector_id", "") or binding.connector_slug,
+        "slug": binding.connector_slug,
+        "egress_allow": binding.egress_allow,
+        "timeout_ms": binding.timeout_ms,
+    }
+
+
+async def _binding_auth(binding) -> dict:
+    # El secreto se descifra acá, nunca vive en claro fuera de este borde.
+    # oauth2 → resolve_auth emite/renueva el token; resto → estático como siempre.
+    from services.connector_secrets import open_secret, resolve_auth
+    return await resolve_auth(
+        binding.auth_type,
+        getattr(binding, "auth_config", {}) or {},
+        open_secret(getattr(binding, "auth_secret_enc", None)),
+        oauth_ctx=_oauth_ctx(binding),
+    )
+
+
 async def _invoke_http(binding, path: str, query: dict) -> dict | list:
-    url = binding.base_url.rstrip("/") + "/" + path.lstrip("/")
+    url = join_url(binding.base_url, path)
     # Anti-SSRF: el host debe estar en la allowlist del conector y no resolver a
     # una IP interna. En prod exigimos https (salvo host en la allowlist HTTP
     # interina). En dev, hosts mock de confianza quedan exentos de la verif. de IP.
@@ -203,25 +242,30 @@ async def _invoke_http(binding, path: str, query: dict) -> dict | list:
         trusted_internal_hosts=settings.trusted_internal_hosts_set,
     )
 
-    # Auth real (Fase 1): none/api_key/bearer/basic. El secreto se descifra acá,
-    # nunca vive en claro fuera de este borde. auth_type='none'/'stub' → sin cambios.
-    from services.connector_secrets import build_auth, open_secret
-    auth_kwargs = build_auth(
-        binding.auth_type,
-        getattr(binding, "auth_config", {}) or {},
-        open_secret(getattr(binding, "auth_secret_enc", None)),
-    )
+    auth_kwargs = await _binding_auth(binding)
 
     timeout = binding.timeout_ms / 1000
     async with httpx.AsyncClient(timeout=timeout) as client:
-        resp = await client.request(
-            binding.http_method.upper(), url,
-            params=query or None,
-            headers=auth_kwargs["headers"] or None,
-            auth=auth_kwargs["auth"],
-        )
-        resp.raise_for_status()
-        return resp.json()
+        for intento in (1, 2):
+            # La clave por query (auth_kwargs['params']) se mergea acá y no en la
+            # URL: así nunca aparece en logs, auditoría ni mensajes de error.
+            send_params = {**(query or {}), **auth_kwargs["params"]} or None
+            resp = await client.request(
+                binding.http_method.upper(), url,
+                params=send_params,
+                headers=auth_kwargs["headers"] or None,
+                auth=auth_kwargs["auth"],
+            )
+            # Retry-once: el proveedor puede revocar un token oauth2 antes de su
+            # vencimiento. UNA re-emisión y reintento; si el 401 persiste es un
+            # problema de permisos/credencial, no de frescura.
+            if resp.status_code == 401 and binding.auth_type == "oauth2" and intento == 1:
+                from services.connector_oauth import invalidate
+                await invalidate(_oauth_ctx(binding)["connector_id"])
+                auth_kwargs = await _binding_auth(binding)
+                continue
+            resp.raise_for_status()
+            return resp.json()
 
 
 async def validate_second_factor(binding, identity: str, code: str) -> dict:
@@ -241,20 +285,16 @@ async def validate_second_factor(binding, identity: str, code: str) -> dict:
     tmpl = (getattr(binding, "auth_validate_path", None) or "/afiliados/{identity}/validar")
     if not tmpl.startswith("/"):
         tmpl = "/" + tmpl
-    url = binding.base_url.rstrip("/") + tmpl.replace("{identity}", identity)
+    url = join_url(binding.base_url, tmpl.replace("{identity}", identity))
     allow_http = _allow_http_for(url)
     try:
         assert_egress_allowed(
             url, binding.egress_allow, allow_http=allow_http,
             trusted_internal_hosts=settings.trusted_internal_hosts_set,
         )
-        from services.connector_secrets import build_auth, open_secret
-        auth_kwargs = build_auth(
-            binding.auth_type, getattr(binding, "auth_config", {}) or {},
-            open_secret(getattr(binding, "auth_secret_enc", None)),
-        )
+        auth_kwargs = await _binding_auth(binding)
         async with httpx.AsyncClient(timeout=binding.timeout_ms / 1000) as client:
-            resp = await client.get(url, params={"codigo": code},
+            resp = await client.get(url, params={"codigo": code, **auth_kwargs["params"]},
                                     headers=auth_kwargs["headers"] or None, auth=auth_kwargs["auth"])
             resp.raise_for_status()
             return resp.json()
@@ -281,20 +321,17 @@ async def lookup_identity(binding, identity: str, cfg: dict | None = None) -> tu
     """
     cfg = cfg or {}
     path = (cfg.get("identity_lookup_path") or "/afiliados/{identity}").replace("{identity}", identity)
-    url = binding.base_url.rstrip("/") + path
+    url = join_url(binding.base_url, path)
     allow_http = _allow_http_for(url)
     try:
         assert_egress_allowed(
             url, binding.egress_allow, allow_http=allow_http,
             trusted_internal_hosts=settings.trusted_internal_hosts_set,
         )
-        from services.connector_secrets import build_auth, open_secret
-        auth_kwargs = build_auth(
-            binding.auth_type, getattr(binding, "auth_config", {}) or {},
-            open_secret(getattr(binding, "auth_secret_enc", None)),
-        )
+        auth_kwargs = await _binding_auth(binding)
         async with httpx.AsyncClient(timeout=binding.timeout_ms / 1000) as client:
-            resp = await client.get(url, headers=auth_kwargs["headers"] or None, auth=auth_kwargs["auth"])
+            resp = await client.get(url, params=auth_kwargs["params"] or None,
+                                    headers=auth_kwargs["headers"] or None, auth=auth_kwargs["auth"])
             if resp.status_code == 404:
                 return None, "not_found"
             resp.raise_for_status()
