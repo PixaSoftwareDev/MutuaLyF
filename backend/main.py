@@ -19,7 +19,6 @@ from core.tenant import TenantMiddleware
 from core.metrics import setup_metrics
 from core.tracing import setup_tracing
 from api.v1 import auth, query, ingest, tenants, widget_conversation, operator_panel, duplicates, audit_log, system_prompts, branding, export, attachments, channels, connectors, metrics
-# ENTITIES_DISABLED: from api.v1 import entities
 
 # ── Logging — must be first, before any other import that logs ─────────────────
 configure_logging(settings.log_level, settings.is_production)
@@ -43,7 +42,7 @@ async def lifespan(app: FastAPI):
 
     # Default ThreadPoolExecutor en Python es min(32, cpu+4)=10 threads.
     # Bajo carga concurrente el RAG necesita threads para: embed(local o
-    # HTTP-sync OpenAI), NLU GLiNER (CPU), reranker (CPU), Redis cache.
+    # HTTP-sync OpenAI), reranker (CPU), Redis cache.
     # 10 threads se saturan con ~3-4 queries paralelas, encolando todo lo demás.
     # Subir a 64 destraba el cuello sin costo significativo (threads idle son
     # baratos en Python).
@@ -55,12 +54,10 @@ async def lifespan(app: FastAPI):
     try:
         from services.embeddings import _load_model as _warm_embed
         from services.retrieval import _load_reranker
-        # ENTITIES_DISABLED: from services.nlu import _load_model as _warm_nlu
         logger.info("model_warmup_start")
         await asyncio.gather(
             loop.run_in_executor(None, _warm_embed),
             loop.run_in_executor(None, _load_reranker),
-            # ENTITIES_DISABLED: loop.run_in_executor(None, _warm_nlu),
         )
         logger.info("model_warmup_complete")
     except Exception as exc:
@@ -218,7 +215,6 @@ app.include_router(attachments.router, prefix="/api/v1", tags=["attachments"])
 app.include_router(duplicates.router, prefix="/api/v1", tags=["duplicates"])
 app.include_router(audit_log.router, prefix="/api/v1", tags=["audit"])
 app.include_router(system_prompts.router, prefix="/api/v1", tags=["system-prompts"])
-# ENTITIES_DISABLED: app.include_router(entities.router, prefix="/api/v1", tags=["entities"])
 app.include_router(branding.router, prefix="/api/v1", tags=["branding"])
 app.include_router(export.router, prefix="/api/v1", tags=["export"])
 app.include_router(channels.router, prefix="/api/v1", tags=["channels"])
@@ -294,7 +290,6 @@ async def health_ready(response: Response) -> dict:
     """
     import asyncio
     from core.database import get_pg_session, get_redis_cache, get_qdrant_client
-    # ENTITIES_DISABLED: from core.database import get_neo4j_driver
 
     checks: dict[str, str] = {}
 
@@ -321,9 +316,6 @@ async def health_ready(response: Response) -> dict:
             return "ok"
         except Exception as exc:
             return f"fail: {type(exc).__name__}: {str(exc)[:80]}"
-
-    # ENTITIES_DISABLED: Neo4j health check desactivado
-    # async def _check_neo4j() -> str: ...
 
     pg_res, redis_res, qdrant_res = await asyncio.gather(
         _check_pg(), _check_redis(), _check_qdrant(),

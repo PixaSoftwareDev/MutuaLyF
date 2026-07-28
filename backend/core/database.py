@@ -1,4 +1,4 @@
-"""Async database connections: PostgreSQL, Neo4j, Qdrant, Redis, MinIO."""
+"""Async database connections: PostgreSQL, Qdrant, Redis, MinIO."""
 
 import logging
 from contextlib import asynccontextmanager
@@ -6,7 +6,6 @@ from typing import AsyncGenerator
 
 import redis.asyncio as aioredis
 from minio import Minio
-from neo4j import AsyncGraphDatabase, AsyncDriver
 from qdrant_client import AsyncQdrantClient
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -180,32 +179,6 @@ async def close_pg_engine() -> None:
         logger.info("PostgreSQL engine closed")
 
 
-# ── Neo4j ─────────────────────────────────────────────────────────────────────
-
-_neo4j_driver: AsyncDriver | None = None
-
-
-def get_neo4j_driver() -> AsyncDriver:
-    global _neo4j_driver
-    if _neo4j_driver is None:
-        _neo4j_driver = AsyncGraphDatabase.driver(
-            settings.neo4j_uri,
-            auth=(settings.neo4j_user, settings.neo4j_password),
-            max_connection_lifetime=3600,
-            max_connection_pool_size=50,
-            connection_acquisition_timeout=settings.neo4j_timeout_ms / 1000,
-        )
-    return _neo4j_driver
-
-
-async def close_neo4j_driver() -> None:
-    global _neo4j_driver
-    if _neo4j_driver:
-        await _neo4j_driver.close()
-        _neo4j_driver = None
-        logger.info("Neo4j driver closed")
-
-
 # ── Qdrant ────────────────────────────────────────────────────────────────────
 
 _qdrant_client: AsyncQdrantClient | None = None
@@ -318,7 +291,6 @@ async def close_redis_connections() -> None:
 async def connect_all() -> None:
     """Initialize all database connections at application startup."""
     get_pg_engine()
-    get_neo4j_driver()
     get_qdrant_client()
     get_redis_cache()
     get_redis_ratelimit()
@@ -329,7 +301,6 @@ async def connect_all() -> None:
 async def disconnect_all() -> None:
     """Close all database connections at application shutdown."""
     await close_pg_engine()
-    await close_neo4j_driver()
     await close_qdrant_client()
     await close_redis_connections()
     logger.info("All database connections closed")
@@ -357,19 +328,6 @@ async def get_worker_qdrant_client() -> AsyncGenerator[AsyncQdrantClient, None]:
         yield client
     finally:
         await client.close()
-
-
-@asynccontextmanager
-async def get_worker_neo4j_driver() -> AsyncGenerator[AsyncDriver, None]:
-    driver = AsyncGraphDatabase.driver(
-        settings.neo4j_uri,
-        auth=(settings.neo4j_user, settings.neo4j_password),
-        connection_acquisition_timeout=settings.neo4j_timeout_ms / 1000,
-    )
-    try:
-        yield driver
-    finally:
-        await driver.close()
 
 
 # ── MinIO ─────────────────────────────────────────────────────────────────────

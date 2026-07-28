@@ -42,31 +42,6 @@ services:
       retries: 5
     logging: *default-logging
 
-  neo4j:
-    image: neo4j:5.18-community
-    container_name: ia_neo4j
-    restart: unless-stopped
-    environment:
-      NEO4J_AUTH: ${NEO4J_USER}/${NEO4J_PASSWORD}
-      NEO4J_PLUGINS: '["apoc"]'
-      NEO4J_dbms_security_procedures_unrestricted: apoc.*
-      NEO4J_server_memory_heap_initial__size: 512m
-      NEO4J_server_memory_heap_max__size: 1G
-    volumes:
-      - neo4j_data:/data
-      - neo4j_logs:/logs
-    ports:
-      - "127.0.0.1:7474:7474"
-      - "127.0.0.1:7687:7687"
-    networks:
-      - internal
-    healthcheck:
-      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/7474' 2>/dev/null"]
-      interval: 15s
-      timeout: 10s
-      retries: 5
-    logging: *default-logging
-
   qdrant:
     image: qdrant/qdrant:v1.9.2
     container_name: ia_qdrant
@@ -164,8 +139,6 @@ services:
       - pgbackrest_data:/backups:ro
     depends_on:
       postgres:
-        condition: service_healthy
-      neo4j:
         condition: service_healthy
       qdrant:
         condition: service_healthy
@@ -584,8 +557,6 @@ services:
 volumes:
   postgres_data:
   pgbackrest_data:
-  neo4j_data:
-  neo4j_logs:
   qdrant_data:
   redis_data:
   minio_data:

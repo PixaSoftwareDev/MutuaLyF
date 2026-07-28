@@ -139,7 +139,6 @@ class TestConfigValidation:
                 groq_model_reasoning="meta-llama/llama-4-maverick-17b-128e-instruct",
                 postgres_user="u",
                 postgres_password="p",
-                neo4j_password="p",
                 jwt_secret_key="s" * 32,
             )
 
@@ -148,7 +147,7 @@ class TestConfigValidation:
     def _base_kwargs(**over):
         kw = dict(
             postgres_user="u", postgres_password="p",
-            neo4j_password="p", jwt_secret_key="s" * 32,
+            jwt_secret_key="s" * 32,
             _env_file=None,  # aislar del .env real
         )
         kw.update(over)

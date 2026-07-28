@@ -10,12 +10,12 @@ COMPOSE=(docker compose -f docker-compose.local.yml --env-file .env.local)
 
 case "${1:-help}" in
   up)
-    "${COMPOSE[@]}" up -d --build postgres neo4j qdrant redis minio backend frontend
+    "${COMPOSE[@]}" up -d --build postgres qdrant redis minio backend frontend
     echo
     echo "✅ Ambiente local levantado:"
     echo "   Frontend  → http://localhost:3010"
     echo "   Backend   → http://localhost:8010  (docs: /docs · health: /health)"
-    echo "   Postgres  → localhost:5440   Neo4j → http://localhost:7475"
+    echo "   Postgres  → localhost:5440"
     echo "   Qdrant    → http://localhost:6340   MinIO → http://localhost:9011"
     echo
     echo "   Ver arranque del backend (migraciones + uvicorn):"

@@ -1,13 +1,11 @@
-"""Chunk-level near-duplicate detection.
+"""Chunk-level near-duplicate detection (contra chunks EXISTENTES en Qdrant).
 
-Two strategies:
-  1. Within-batch Jaccard: compare new chunks against each other using 5-gram fingerprints.
-  2. Against-existing cosine+Jaccard: embed → Qdrant search → Jaccard confirmation.
-
-These functions are called from the ingest pipeline after embedding and before Qdrant upsert.
-They NEVER block ingestion — all errors are caught and logged.
+Estrategia: embed → Qdrant search (coseno) → confirmación por Jaccard de 5-gramas.
+Se llama desde el pipeline de ingesta después del embedding y antes del upsert.
+NUNCA bloquea la ingesta — todos los errores se capturan y loguean.
 """
 
+import asyncio
 import logging
 import re
 import unicodedata
@@ -21,6 +19,9 @@ logger = logging.getLogger(__name__)
 _MIN_WORDS_FOR_COMPARISON = 15
 _DEFAULT_JACCARD_THRESHOLD = 0.85
 _COSINE_PREFILTER_THRESHOLD = 0.88
+# Búsquedas Qdrant concurrentes por documento. Antes eran secuenciales: un doc
+# de 200 children pagaba 200 round-trips en serie dentro de la ingesta.
+_SEARCH_CONCURRENCY = 8
 
 
 # ── Text fingerprinting ────────────────────────────────────────────────────────
@@ -48,46 +49,6 @@ def jaccard_similarity(set_a: frozenset[str], set_b: frozenset[str]) -> float:
     intersection = len(set_a & set_b)
     union = len(set_a | set_b)
     return intersection / union if union > 0 else 0.0
-
-
-# ── Within-batch comparison ────────────────────────────────────────────────────
-
-async def find_chunk_duplicates_in_batch(
-    new_chunks: "list[Chunk]",
-    tenant_id: str,
-    threshold: float = _DEFAULT_JACCARD_THRESHOLD,
-) -> list[tuple[int, int, float]]:
-    """Compare new chunks against each other within the same ingest batch.
-
-    Returns list of (idx_a, idx_b, jaccard_score) for pairs above threshold.
-    Only compares pairs where both chunks have >= 15 words (skip tiny chunks).
-    """
-    # Build fingerprints only for chunks with enough words
-    fingerprints: list[frozenset[str] | None] = []
-    for chunk in new_chunks:
-        words = chunk.text.split()
-        if len(words) >= _MIN_WORDS_FOR_COMPARISON:
-            fingerprints.append(compute_text_fingerprint(chunk.text))
-        else:
-            fingerprints.append(None)
-
-    pairs: list[tuple[int, int, float]] = []
-    n = len(new_chunks)
-    for i in range(n):
-        if fingerprints[i] is None:
-            continue
-        for j in range(i + 1, n):
-            if fingerprints[j] is None:
-                continue
-            score = jaccard_similarity(fingerprints[i], fingerprints[j])
-            if score >= threshold:
-                pairs.append((i, j, score))
-                logger.debug(
-                    "batch_duplicate_found idx_a=%d idx_b=%d jaccard=%.3f tenant_id=%s",
-                    i, j, score, tenant_id,
-                )
-
-    return pairs
 
 
 # ── Against-existing comparison ───────────────────────────────────────────────
@@ -126,50 +87,53 @@ async def find_duplicates_against_existing(
         qdrant_client = get_qdrant_client()
 
     collection = f"{tenant_id}_docs"
-    qdrant = qdrant_client
+    candidates = [
+        (chunk, vector)
+        for chunk, vector in zip(new_chunks, vectors)
+        if vector is not None and len(chunk.text.split()) >= _MIN_WORDS_FOR_COMPARISON
+    ]
+    if not candidates:
+        return []
+
+    sem = asyncio.Semaphore(_SEARCH_CONCURRENCY)
+
+    async def _search(chunk, vector):
+        async with sem:
+            try:
+                return await qdrant_client.search(
+                    collection_name=collection,
+                    query_vector=vector,
+                    limit=3,
+                    with_payload=True,
+                    score_threshold=_COSINE_PREFILTER_THRESHOLD,
+                )
+            except Exception as exc:  # noqa: BLE001 — la dedup nunca bloquea la ingesta
+                logger.warning(
+                    "dup_qdrant_search_failed chunk_id=%s tenant_id=%s error=%s",
+                    chunk.id, tenant_id, exc,
+                )
+                return []
+
+    all_hits = await asyncio.gather(*[_search(c, v) for c, v in candidates])
+
     results: list[dict] = []
-
-    for chunk, vector in zip(new_chunks, vectors):
-        if vector is None:
+    for (chunk, _vector), hits in zip(candidates, all_hits):
+        if not hits:
             continue
-        words = chunk.text.split()
-        if len(words) < _MIN_WORDS_FOR_COMPARISON:
-            continue
-
-        try:
-            hits = await qdrant.search(
-                collection_name=collection,
-                query_vector=vector,
-                limit=3,
-                with_payload=True,
-                score_threshold=_COSINE_PREFILTER_THRESHOLD,
-            )
-        except Exception as exc:
-            logger.warning(
-                "dup_qdrant_search_failed chunk_id=%s tenant_id=%s error=%s",
-                chunk.id, tenant_id, exc,
-            )
-            continue
-
         fp_new = compute_text_fingerprint(chunk.text)
 
         for hit in hits:
             existing_text = hit.payload.get("text", "") if hit.payload else ""
-            if not existing_text:
-                continue
-            existing_words = existing_text.split()
-            if len(existing_words) < _MIN_WORDS_FOR_COMPARISON:
+            if not existing_text or len(existing_text.split()) < _MIN_WORDS_FOR_COMPARISON:
                 continue
 
-            fp_existing = compute_text_fingerprint(existing_text)
-            jaccard = jaccard_similarity(fp_new, fp_existing)
-            cosine = float(hit.score)
             existing_doc_id = hit.payload.get("document_id", "") if hit.payload else ""
-
             # Skip chunks from the same document (not cross-document duplicates)
             if existing_doc_id == chunk.document_id:
                 continue
 
+            jaccard = jaccard_similarity(fp_new, compute_text_fingerprint(existing_text))
+            cosine = float(hit.score)
             # Report if high Jaccard (near-identical text) OR high cosine (same meaning)
             # cosine > 0.88 already guaranteed by score_threshold above
             if jaccard >= threshold or cosine >= _COSINE_PREFILTER_THRESHOLD:

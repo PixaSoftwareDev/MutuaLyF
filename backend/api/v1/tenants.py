@@ -165,36 +165,20 @@ async def create_tenant(
     """Provision a new tenant. Transactional — rolls back all resources on failure."""
     logger.info("tenant_create_start id=%s by=%s", payload.id, current_user.user_id)
     try:
-        # Import the battle-tested provisioning script
-        import sys
-        from pathlib import Path
-        sys.path.insert(0, str(Path("/app")))
         from provision_tenant import provision_tenant
 
-        # Detección ESTRUCTURADA del conflicto (no por substring del error): ¿ya
-        # existe el tenant? Chequeo previo en la tabla global.
+        # TODA validación va ANTES de provisionar. Si algo de esto falla después
+        # de provision_tenant, queda un tenant completo y activo pero mal
+        # configurado, el usuario recibe 422 y el reintento rebota con 409 —
+        # exactamente el bug que hubo acá.
         async with get_pg_session(None) as _check:
+            # Detección ESTRUCTURADA del conflicto (no por substring del error).
             if (await _check.execute(
                 text("SELECT 1 FROM tenants WHERE id = :id"), {"id": payload.id}
             )).scalar() is not None:
                 raise HTTPException(status_code=409, detail=f"Tenant '{payload.id}' ya existe")
 
-        await provision_tenant(
-            tenant_id=payload.id,
-            name=payload.name,
-            plan=payload.plan.value,
-            admin_email=payload.admin_email,
-            admin_name=payload.admin_name,
-            admin_password=payload.admin_password,
-        )
-
-        # Auto-assign system infrastructure templates
-        from api.v1.system_prompts import auto_assign_system_templates, _invalidate_tenant_cache
-        await auto_assign_system_templates(payload.id)
-
-        # Assign and activate the chosen personality
-        async with get_pg_session(None) as session:
-            tpl = await session.execute(
+            tpl = await _check.execute(
                 text("SELECT id, plan_minimo FROM system_prompt_templates WHERE id = :id AND is_active = TRUE AND is_system = FALSE"),
                 {"id": payload.personality_id},
             )
@@ -210,6 +194,26 @@ async def create_tenant(
                     detail=f"El plan {tenant_plan} no permite la personalidad seleccionada (requiere {tpl_row['plan_minimo']})",
                 )
 
+        await provision_tenant(
+            tenant_id=payload.id,
+            name=payload.name,
+            plan=payload.plan.value,
+            admin_email=payload.admin_email,
+            admin_name=payload.admin_name,
+            admin_password=payload.admin_password,
+        )
+
+        # Auto-assign system infrastructure templates
+        from api.v1.system_prompts import auto_assign_system_templates, _invalidate_tenant_cache
+        await auto_assign_system_templates(payload.id)
+
+        # Assign and activate the chosen personality (ya validada arriba).
+        # Swap atómico: auto_assign pudo dejar "Asistente estándar" activa —
+        # apagar todo primero para que quede exactamente una personalidad activa.
+        async with get_pg_session(None) as session:
+            await session.execute(text("""
+                UPDATE tenant_prompt_assignments SET is_active = FALSE WHERE tenant_id = :tid
+            """), {"tid": payload.id})
             await session.execute(text("""
                 INSERT INTO tenant_prompt_assignments (tenant_id, template_id, assigned_by, is_active)
                 VALUES (:tid, :tmpl, 'system', TRUE)

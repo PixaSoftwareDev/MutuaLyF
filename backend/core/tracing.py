@@ -5,7 +5,7 @@ Auto-instruments FastAPI routes, SQLAlchemy queries and httpx calls.
 
 Spans added manually in critical paths:
   - orchestrator.handle_query  → span per step (cache, embed, qdrant, rerank, llm)
-  - ingest pipeline            → span per stage (extract, chunk, embed, quality, neo4j, qdrant)
+  - ingest pipeline            → span per stage (extract, chunk, embed, quality, qdrant)
 
 Disabled when OTEL_ENABLED=false (default in dev to avoid Jaeger dependency).
 """

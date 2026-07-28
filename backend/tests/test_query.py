@@ -9,16 +9,16 @@ from core.config import settings
 
 class TestComplexityClassifier:
     def test_short_question_is_simple(self):
-        result = classify_complexity("¿Qué es el proceso de aprobación?", entity_count=0)
+        result = classify_complexity("¿Qué es el proceso de aprobación?")
         assert result == QueryComplexity.SIMPLE
 
     def test_long_question_is_complex(self):
         long_q = "¿Podés explicarme detalladamente cómo funciona el proceso de aprobación de presupuestos en la empresa considerando los distintos departamentos y niveles jerárquicos que intervienen en la decisión final?"
-        result = classify_complexity(long_q, entity_count=0)
+        result = classify_complexity(long_q)
         assert result == QueryComplexity.COMPLEX
 
-    def test_many_entities_trigger_complex(self):
-        result = classify_complexity("test", entity_count=5)
+    def test_multi_question_is_complex(self):
+        result = classify_complexity("¿horarios? ¿y aranceles?")
         assert result == QueryComplexity.COMPLEX
 
     def test_model_for_simple_complexity(self):
