@@ -1,31 +1,27 @@
 "use client";
 
-import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import {
-  CheckCircle2, AlertTriangle, XCircle, ChevronRight, ArrowRight,
-  Building2, MessageSquare, Coins, Upload, Network,
-} from "lucide-react";
+import { ChevronRight, Building2, MessageSquare, Coins, Upload, ArrowRight } from "lucide-react";
 import { api } from "@/lib/api";
-import { useAuthStore } from "@/lib/store";
 import { PageShell } from "@/components/layout/page-shell";
 import { PageHeader } from "@/components/layout/page-header";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatePill } from "@/components/ui/state-pill";
-import { fmtNum, Kpi, ErrorSummary } from "@/components/superadmin/shared";
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
+import { fmtNum, Kpi } from "@/components/superadmin/shared";
 import { cn } from "@/lib/utils";
 
 /**
- * Inicio del super-admin — mirada de PLATAFORMA, no operativa. Responde dos
- * cosas: "¿está todo sano?" (hero de estado + lo que requiere acción) y "¿cómo
- * viene el negocio?" (números agregados + pulso de organizaciones). Lo operativo
- * de cada tenant (conversaciones, colas) vive en el panel de ese tenant.
+ * Inicio del super-admin — panel convencional y simple: fila de stats del
+ * período, la tabla de organizaciones como pieza principal y una tarjeta de
+ * estado del sistema al costado (cada servicio con su punto, sin veredictos
+ * crípticos). El detalle técnico vive en Monitoreo.
  */
 
-// "unknown" = sin monitoreo (Prometheus no está en este entorno). No es ni sano
-// ni caído: no tenemos con qué afirmar el estado → se muestra neutro, sin alarma.
+// "unknown" = sin monitoreo (Prometheus no está en este entorno): neutro,
+// nunca alarma. Solo up=false explícito cuenta como caído.
 type Tone = "ok" | "warn" | "down" | "unknown";
 
 const DOT: Record<Tone, string> = {
@@ -35,59 +31,32 @@ const DOT: Record<Tone, string> = {
   unknown: "bg-muted-foreground/40",
 };
 
-const HERO: Record<Tone, { Icon: typeof CheckCircle2; ring: string; grad: string; glow: string; iconBg: string }> = {
-  ok:      { Icon: CheckCircle2,  ring: "border-success/25",     grad: "from-success/[0.10] via-success/[0.03] to-transparent",         glow: "hsl(var(--success))",     iconBg: "bg-success/15 text-success" },
-  warn:    { Icon: AlertTriangle, ring: "border-warning/30",     grad: "from-warning/[0.12] via-warning/[0.04] to-transparent",         glow: "hsl(var(--warning))",     iconBg: "bg-warning/15 text-warning" },
-  down:    { Icon: XCircle,       ring: "border-destructive/30", grad: "from-destructive/[0.12] via-destructive/[0.04] to-transparent", glow: "hsl(var(--destructive))", iconBg: "bg-destructive/15 text-destructive" },
-  unknown: { Icon: CheckCircle2,  ring: "border-border",         grad: "from-muted/[0.10] via-muted/[0.03] to-transparent",             glow: "hsl(var(--muted-foreground))", iconBg: "bg-muted text-muted-foreground" },
+const TONE_TEXT: Record<Tone, string> = {
+  ok:      "Operativo",
+  warn:    "Atención",
+  down:    "Caído",
+  unknown: "Sin datos",
 };
 
-/** Chip de dimensión de salud — pulso resumido, el detalle vive en Monitoreo. */
-function DimChip({ label, tone }: { label: string; tone: Tone }) {
+function StatusRow({ label, tone, detail, loading }: { label: string; tone: Tone; detail?: string; loading?: boolean }) {
   return (
-    <Link
-      href="/superadmin/monitoring"
-      className="inline-flex items-center gap-1.5 rounded-full border bg-card/70 px-2.5 py-1 text-[11px] font-medium text-foreground/80 shadow-xs backdrop-blur transition-colors hover:bg-card hover:text-foreground"
-    >
-      <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", DOT[tone])} />
-      {label}
-    </Link>
+    <div className="flex items-center gap-2.5 px-4 py-2.5">
+      <span className={cn("h-2 w-2 shrink-0 rounded-full", loading ? "bg-muted-foreground/30" : DOT[tone])} />
+      <span className="min-w-0 flex-1 truncate text-[13px] text-foreground">{label}</span>
+      {loading
+        ? <Skeleton className="h-3.5 w-14" />
+        : <span className={cn(
+            "shrink-0 text-xs tabular-nums",
+            tone === "down" ? "font-medium text-destructive" :
+            tone === "warn" ? "font-medium text-warning" :
+            "text-muted-foreground",
+          )}>{detail ?? TONE_TEXT[tone]}</span>}
+    </div>
   );
 }
 
 export default function PlatformHomePage() {
   const router = useRouter();
-
-  // Saludo + fecha del día. Se calcula en el cliente (no en SSR) para usar la
-  // hora real del navegador y evitar el mismatch de hidratación. Se refresca por
-  // si la pestaña queda abierta y cruza una franja horaria o la medianoche.
-  const [now, setNow] = useState<Date | null>(null);
-  useEffect(() => {
-    setNow(new Date());
-    const t = setInterval(() => setNow(new Date()), 60_000);
-    return () => clearInterval(t);
-  }, []);
-  const hour = now?.getHours();
-  const greeting =
-    hour == null ? "Inicio" :
-    hour < 6     ? "Buenas noches" :
-    hour < 13    ? "Buenos días" :
-    hour < 20    ? "Buenas tardes" :
-                   "Buenas noches";
-  const fechaLabel = now
-    ? (() => {
-        const s = now.toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long" });
-        return s.charAt(0).toUpperCase() + s.slice(1);  // "Miércoles 18 de junio"
-      })()
-    : "Plataforma";
-
-  // Nombre para el saludo: parte local del email del usuario logueado,
-  // capitalizada (p. ej. pixs@… → "Pixs"). Sin hardcodear.
-  const { userEmail } = useAuthStore();
-  const niceName = (() => {
-    const local = (userEmail || "").split("@")[0].trim();
-    return local ? local.charAt(0).toUpperCase() + local.slice(1) : "";
-  })();
 
   const { data: health } = useQuery({
     queryKey: ["platform-health"], queryFn: api.tenants.platformHealth,
@@ -115,214 +84,168 @@ export default function PlatformHomePage() {
   });
 
   const healthLoading = !system || !alertsData || !errorsData;
-
-  const alerts = alertsData?.alerts ?? [];
-  const allErrors = errorsData?.errors ?? [];
-  const recentErrors = allErrors.filter(e => e.level === "ERROR");
-
-  // ── Chequeos de salud de PLATAFORMA (la infra es del super-admin; lo operativo
-  //    de cada tenant no entra acá). El detalle de cada uno vive en Monitoreo. ──
-  // ¿Hay stack de monitoreo (Prometheus) en este entorno? En dev local no lo hay,
-  // así que el backend no puede afirmar el estado de Postgres/Redis (up=null).
   const monitoringAvailable: boolean = system ? (system.monitoring_available ?? true) : true;
 
-  const services = system ? [
-    { label: "PostgreSQL", up: system.postgres.up },
-    { label: "Redis",      up: system.redis.up },
-    { label: "Backend",    up: system.backend.up },
-    { label: "Groq",       up: system.groq.total_calls === 0 ? true : (system.groq.by_model ?? []).every((m: any) => m.errors === 0 || m.errors < m.total) },
-  ] : [];
-  // Solo cuentan como caídos los que están explícitamente en false; up=null =
-  // "desconocido" (sin monitoreo), nunca dispara alarma.
-  const downServices = services.filter(s => s.up === false);
-  const svcTone: Tone = downServices.length > 0 ? "down" : monitoringAvailable ? "ok" : "unknown";
+  const alerts = alertsData?.alerts ?? [];
+  const recentErrors = (errorsData?.errors ?? []).filter(e => e.level === "ERROR");
 
-  const alertTone: Tone =
-    alerts.some(a => a.severity === "critical") ? "down" :
-    alerts.length > 0 ? "warn" : "ok";
+  // ── Estado por servicio (el detalle vive en Monitoreo) ──
+  const upTone = (up: boolean | null | undefined): Tone =>
+    up === false ? "down" : up === true ? "ok" : "unknown";
 
-  const errTone: Tone = recentErrors.length > 0 ? "warn" : "ok";
+  const iaOk = system
+    ? system.groq.total_calls === 0 ? true : (system.groq.by_model ?? []).every((m: any) => m.errors === 0 || m.errors < m.total)
+    : null;
 
   const daily   = system?.backups?.daily;
   const weekly  = system?.backups?.weekly;
   const diskPct = system?.storage?.used_pct ?? null;
-  // Sin monitoreo no podemos leer el estado de backups/disco (el volumen tampoco
-  // se monta en dev local) → neutro, no "warn". En prod (monitoringAvailable)
-  // un backups==null sí es un problema real y mantiene el warn.
   const backupTone: Tone =
     !monitoringAvailable && system?.backups == null ? "unknown" :
     (daily && !daily.healthy) || (diskPct != null && diskPct >= 85) ? "down" :
     (weekly && !weekly.healthy) || (diskPct != null && diskPct >= 70) || system?.backups == null ? "warn" :
     "ok";
+  const backupDetail =
+    backupTone === "unknown" ? undefined :
+    daily && !daily.healthy ? "Diario vencido" :
+    diskPct != null && diskPct >= 70 ? `Disco ${diskPct.toFixed(0)}%` :
+    weekly && !weekly.healthy ? "Semanal pendiente" :
+    undefined;
 
-  const tones: Tone[] = [svcTone, alertTone, errTone, backupTone];
-  const globalTone: Tone = tones.includes("down") ? "down" : tones.includes("warn") ? "warn" : "ok";
-  const globalLabel = globalTone === "ok" ? "Todo en orden" : globalTone === "down" ? "Hay un problema" : "Requiere atención";
+  const alertTone: Tone =
+    alerts.some(a => a.severity === "critical") ? "down" :
+    alerts.length > 0 ? "warn" : "ok";
+  const errTone: Tone = recentErrors.length > 0 ? "warn" : "ok";
 
-  // Solo down/warn generan un ítem de acción; "unknown" (sin monitoreo) no es
-  // accionable, no ensucia la lista.
-  const actionable = (t: Tone) => t === "down" || t === "warn";
-  type Issue = { tone: Tone; text: string };
-  const issues: Issue[] = [];
-  if (actionable(svcTone))    issues.push({ tone: svcTone,    text: `Servicio caído: ${downServices.map(s => s.label).join(", ")}` });
-  if (actionable(alertTone))  issues.push({ tone: alertTone,  text: `${alerts.length} ${alerts.length === 1 ? "alerta activa" : "alertas activas"}${alerts[0]?.name ? ` · ${alerts[0].name}` : ""}` });
-  if (actionable(errTone))    issues.push({ tone: errTone,    text: `${recentErrors.length} ${recentErrors.length === 1 ? "error" : "errores"} en el backend` });
-  if (actionable(backupTone)) issues.push({ tone: backupTone, text: system?.backups == null ? "Sin acceso al repositorio de backups" : (daily && !daily.healthy ? "Backup diario vencido" : diskPct != null && diskPct >= 70 ? `Disco al ${diskPct.toFixed(0)}%` : "Backup semanal pendiente") });
-
-  const heroSummary = healthLoading
-    ? "Consultando el estado de la plataforma…"
-    : globalTone === "ok"
-    ? (monitoringAvailable
-        ? "Servicios operativos, sin alertas y backups al día."
-        : "Todo operativo. El monitoreo detallado (Prometheus) no está activo en este entorno.")
-    : `${issues.length} ${issues.length === 1 ? "cosa requiere" : "cosas requieren"} tu atención ahora.`;
-
-  const dims: Array<{ label: string; tone: Tone }> = [
-    { label: "Servicios", tone: svcTone },
-    { label: "Alertas",   tone: alertTone },
-    { label: "Errores",   tone: errTone },
-    { label: "Backups",   tone: backupTone },
+  const statusRows: Array<{ label: string; tone: Tone; detail?: string }> = [
+    { label: "PostgreSQL", tone: upTone(system?.postgres.up) },
+    { label: "Redis",      tone: upTone(system?.redis.up) },
+    { label: "Backend",    tone: upTone(system?.backend.up) },
+    { label: "Servicio de IA", tone: iaOk == null ? "unknown" : iaOk ? "ok" : "down" },
+    { label: "Backups y disco", tone: backupTone, detail: backupDetail },
+    { label: "Alertas", tone: alertTone, detail: alerts.length > 0 ? `${alerts.length} activa${alerts.length === 1 ? "" : "s"}` : "Ninguna" },
+    { label: "Errores recientes", tone: errTone, detail: recentErrors.length > 0 ? String(recentErrors.length) : "Ninguno" },
   ];
+  const allOk = !healthLoading && statusRows.every(r => r.tone === "ok" || r.tone === "unknown");
 
-  const hero = HERO[globalTone];
-  const HeroIcon = hero.Icon;
-
-  // ── Negocio: agregados de plataforma + pulso por organización ──
+  // ── Negocio (30 días) ──
   const orgs = (traffic?.per_tenant ?? []).slice().sort((a, b) => b.tokens_30d - a.tokens_30d);
-  const maxTokens = Math.max(1, ...orgs.map(o => o.tokens_30d));
   const totalQueries = orgs.reduce((s, o) => s + o.queries_30d, 0);
   const totalIngests = orgs.reduce((s, o) => s + o.ingests_30d, 0);
 
   return (
     <PageShell>
       <PageHeader
-        title={`${greeting}${now && niceName ? `, ${niceName}` : ""}`}
-        badge={<span className="text-xs text-muted-foreground first-letter:uppercase">{fechaLabel}</span>}
+        title="Inicio"
+        badge={<span className="text-xs text-muted-foreground">Últimos 30 días</span>}
       />
 
-      {/* ── Estado de plataforma — barra compacta: veredicto + dimensiones en una
-           línea; el detalle accionable se despliega debajo solo si hay algo. ── */}
-      <div className={cn("relative overflow-hidden rounded-xl border bg-gradient-to-br", hero.ring, hero.grad)}>
-        <div aria-hidden className="pointer-events-none absolute -right-10 -top-12 h-32 w-32 rounded-full opacity-[0.12] blur-3xl" style={{ background: hero.glow }} />
-
-        <div className="relative flex flex-col gap-3 p-3.5 sm:flex-row sm:items-center sm:gap-4">
-          <div className="flex min-w-0 flex-1 items-center gap-3">
-            <div className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-lg", hero.iconBg)}>
-              {healthLoading ? <Skeleton className="h-4 w-4 rounded-full" /> : <HeroIcon className="h-[18px] w-[18px]" />}
-            </div>
-            <div className="min-w-0">
-              {healthLoading
-                ? <Skeleton className="h-4 w-36" />
-                : <p className="truncate text-[15px] font-semibold leading-tight text-foreground">{globalLabel}</p>}
-              <p className="mt-0.5 truncate text-xs text-muted-foreground">{heroSummary}</p>
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-1.5 sm:shrink-0 sm:justify-end">
-            {dims.map(d => <DimChip key={d.label} label={d.label} tone={healthLoading ? "ok" : d.tone} />)}
-          </div>
-        </div>
-
-        {/* Detalle accionable — dentro del mismo bloque, solo si hay algo */}
-        {!healthLoading && issues.length > 0 && (
-          <div className="relative border-t border-warning/20 bg-warning/[0.04]">
-            <div className="divide-y divide-border/40">
-              {issues.map((it, i) => (
-                <Link key={i} href="/superadmin/monitoring" className="flex items-center gap-2.5 px-3.5 py-2 transition-colors hover:bg-warning/[0.06]">
-                  <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", DOT[it.tone])} />
-                  <span className={cn("flex-1 min-w-0 truncate text-[13px]", it.tone === "down" ? "text-destructive font-medium" : "text-foreground")}>{it.text}</span>
-                  <span className="inline-flex shrink-0 items-center gap-1 text-[11px] font-medium text-muted-foreground/70">Monitoreo <ChevronRight className="h-3.5 w-3.5" /></span>
-                </Link>
-              ))}
-            </div>
-            {/* Qué está fallando, en palabras — resumen por dominio de los errores */}
-            {allErrors.length > 0 && (
-              <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 border-t border-warning/20 px-3.5 py-2.5">
-                <span className="text-[11px] font-medium text-muted-foreground/70">Qué está fallando:</span>
-                <ErrorSummary errors={allErrors} inline />
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* ── Números del negocio (últimos 30 días) ── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
+      {/* ── Stats del período ── */}
+      <div className="grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-4">
         <Kpi icon={Building2}     label="Organizaciones activas" value={(health?.active_tenants ?? 0).toLocaleString("es-AR")} loading={!health} />
-        <Kpi icon={MessageSquare} label="Consultas · 30 días"    value={fmtNum(totalQueries)} loading={!traffic} />
+        <Kpi icon={MessageSquare} label="Consultas"              value={fmtNum(totalQueries)} loading={!traffic} />
         <Kpi
           icon={Coins}
-          label="Gasto IA · 30 días"
+          label="Gasto en IA"
           value={costs?.available
             ? `US$ ${costs.total_usd.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
             : "—"}
           accentBrand
           loading={costs === undefined}
         />
-        <Kpi icon={Upload}        label="Ingestas · 30 días"     value={fmtNum(totalIngests)} loading={!traffic} />
+        <Kpi icon={Upload}        label="Ingestas"               value={fmtNum(totalIngests)} loading={!traffic} />
       </div>
 
-      {/* ── Pulso de organizaciones ── */}
-      <div className="overflow-hidden rounded-2xl border bg-card shadow-sm">
-        <div className="flex items-center gap-2.5 border-b bg-muted/30 px-4 py-3">
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-            <Network className="h-4 w-4" />
-          </span>
-          <span className="text-sm font-semibold">Pulso de organizaciones</span>
-          <span className="text-xs text-muted-foreground">consumo y actividad, últimos 30 días</span>
-          <Link href="/superadmin/orgs" className="ml-auto inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground">
-            Ver todas <ArrowRight className="h-3.5 w-3.5" />
-          </Link>
+      {/* ── Organizaciones (principal) + Estado del sistema (lateral) ── */}
+      <div className="grid gap-4 lg:grid-cols-3">
+        <div className="lg:col-span-2">
+          <div className="overflow-hidden rounded-xl border bg-card">
+            <div className="flex items-center justify-between border-b px-4 py-3">
+              <h2 className="text-sm font-semibold">Organizaciones</h2>
+              <Link href="/superadmin/orgs" className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground">
+                Gestionar <ArrowRight className="h-3.5 w-3.5" />
+              </Link>
+            </div>
+
+            {!traffic ? (
+              <div className="space-y-2 p-4">
+                {[1, 2, 3].map(i => <Skeleton key={i} className="h-11 rounded-lg" />)}
+              </div>
+            ) : orgs.length === 0 ? (
+              <p className="px-4 py-10 text-center text-sm text-muted-foreground">
+                Todavía no hay organizaciones con actividad registrada.
+              </p>
+            ) : (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="hover:bg-transparent">
+                      <TableHead>Organización</TableHead>
+                      <TableHead className="hidden sm:table-cell">Plan</TableHead>
+                      <TableHead className="text-right">Consultas</TableHead>
+                      <TableHead className="hidden text-right sm:table-cell">Tokens</TableHead>
+                      <TableHead className="w-8" />
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {orgs.map(o => {
+                      const idle = o.tokens_30d === 0 && o.queries_30d === 0;
+                      return (
+                        <TableRow
+                          key={o.id}
+                          className="cursor-pointer"
+                          onClick={() => router.push(`/superadmin/tenants/${o.id}`)}
+                          onMouseEnter={() => router.prefetch(`/superadmin/tenants/${o.id}`)}
+                        >
+                          <TableCell>
+                            <span className="flex items-center gap-2">
+                              <span className="font-medium">{o.name}</span>
+                              {idle && <StatePill tone="muted">sin uso</StatePill>}
+                            </span>
+                          </TableCell>
+                          <TableCell className="hidden text-muted-foreground sm:table-cell">{o.plan || "—"}</TableCell>
+                          <TableCell className="text-right tabular-nums">{fmtNum(o.queries_30d)}</TableCell>
+                          <TableCell className="hidden text-right tabular-nums text-muted-foreground sm:table-cell">{fmtNum(o.tokens_30d)}</TableCell>
+                          <TableCell><ChevronRight className="h-4 w-4 text-muted-foreground/50" /></TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </div>
         </div>
 
-        {!traffic ? (
-          <div className="divide-y divide-border/50">
-            {[1, 2, 3].map(i => (
-              <div key={i} className="px-4 py-3.5"><Skeleton className="h-10 rounded-lg" /></div>
-            ))}
+        <div>
+          <div className="overflow-hidden rounded-xl border bg-card">
+            <div className="flex items-center justify-between border-b px-4 py-3">
+              <h2 className="text-sm font-semibold">Estado del sistema</h2>
+              {!healthLoading && (
+                <span className={cn("inline-flex items-center gap-1.5 text-xs font-medium", allOk ? "text-success" : "text-muted-foreground")}>
+                  <span className={cn("h-1.5 w-1.5 rounded-full", allOk ? "bg-success" : "bg-warning")} />
+                  {allOk ? "Todo en orden" : "Revisar"}
+                </span>
+              )}
+            </div>
+            <div className="divide-y divide-border/50">
+              {statusRows.map(r => (
+                <StatusRow key={r.label} label={r.label} tone={r.tone} detail={r.detail} loading={healthLoading} />
+              ))}
+            </div>
+            <Link
+              href="/superadmin/monitoring"
+              className="flex items-center justify-center gap-1 border-t px-4 py-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
+            >
+              Ver monitoreo <ChevronRight className="h-3.5 w-3.5" />
+            </Link>
           </div>
-        ) : orgs.length === 0 ? (
-          <p className="px-4 py-8 text-center text-sm text-muted-foreground">Todavía no hay organizaciones con actividad registrada.</p>
-        ) : (
-          <div className="divide-y divide-border/50">
-            {orgs.map(o => {
-              const idle = o.tokens_30d === 0 && o.queries_30d === 0;
-              const pct = Math.round((o.tokens_30d / maxTokens) * 100);
-              return (
-                <button
-                  key={o.id}
-                  onClick={() => router.push(`/superadmin/tenants/${o.id}`)}
-                  onMouseEnter={() => router.prefetch(`/superadmin/tenants/${o.id}`)}
-                  className="group flex w-full cursor-pointer items-center gap-3.5 px-4 py-3.5 text-left transition-colors hover:bg-muted/50"
-                >
-                  <span className={cn(
-                    "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-sm font-semibold",
-                    idle ? "bg-muted text-muted-foreground" : "bg-action-gradient-soft text-action",
-                  )}>
-                    {o.name.charAt(0).toUpperCase()}
-                  </span>
-
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="truncate text-sm font-semibold">{o.name}</p>
-                      {idle
-                        ? <StatePill tone="muted">sin uso</StatePill>
-                        : <p className="shrink-0 text-sm font-semibold tabular-nums">{fmtNum(o.tokens_30d)} <span className="text-xs font-normal text-muted-foreground">tokens</span></p>}
-                    </div>
-                    {/* barra de consumo relativa al máximo */}
-                    <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                      <div className={cn("h-full rounded-full", idle ? "bg-transparent" : "bg-action-gradient")} style={{ width: `${pct}%` }} />
-                    </div>
-                    <p className="mt-1 text-[11px] text-muted-foreground tabular-nums">
-                      {fmtNum(o.queries_30d)} consultas · {fmtNum(o.ingests_30d)} ingestas
-                    </p>
-                  </div>
-
-                  <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/50 transition-transform group-hover:translate-x-0.5" />
-                </button>
-              );
-            })}
-          </div>
-        )}
+          {!monitoringAvailable && !healthLoading && (
+            <p className="mt-2 px-1 text-[11px] leading-snug text-muted-foreground/70">
+              El monitoreo detallado (Prometheus) no está activo en este entorno — los servicios sin datos se muestran en gris.
+            </p>
+          )}
+        </div>
       </div>
     </PageShell>
   );
