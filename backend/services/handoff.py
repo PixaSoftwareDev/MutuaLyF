@@ -54,12 +54,10 @@ class HandoffSignal:
     offer_message: str    # texto del cartel amarillo
 
 
-_CHITCHAT_RE = re.compile(
-    r"^\s*(hola|hi|hello|buenos?\s+d[ií]as?|buenas?\s+tardes?|buenas?\s+noches?|"
-    r"todo\s+bien|ok|okay|gracias?|de\s+nada|si|sí|no|claro|dale|genial|"
-    r"perfecto|entendido|listo|bueno|bien|excelente|muy\s+bien)\s*[!.?]?\s*$",
-    re.IGNORECASE,
-)
+# Clasificador de charla ÚNICO en prompt_builder.is_chitchat (antes había un
+# regex duplicado acá que divergía del de la poda). include_acks=True: para el
+# handoff, un "sí"/"ok" suelto tampoco cuenta como consulta sin responder.
+from services.prompt_builder import is_chitchat
 
 _MIN_WORDS_FOR_INSUFFICIENT = 1  # Solo descarta mensajes vacíos. Una consulta de
 # 1 palabra es legítima ("cardiología", "amparo", "autorizaciones") y debe contar
@@ -92,7 +90,7 @@ def _is_response_insufficient(
 
     if len(msg.split()) < _MIN_WORDS_FOR_INSUFFICIENT:
         return False
-    if _CHITCHAT_RE.match(msg):
+    if _is_chitchat(msg):
         return False
 
     # Señal 1: el bot explícitamente dijo que no puede responder.
@@ -111,7 +109,7 @@ def _is_chitchat(user_message: str) -> bool:
     entre dos fallos no debe resetear el contador de insuficiencia ni cancelar una
     derivación ya ofrecida.
     """
-    return bool(_CHITCHAT_RE.match(user_message.strip()))
+    return is_chitchat(user_message, include_acks=True)
 
 
 # ── Signal accumulation in Redis ──────────────────────────────────────────────

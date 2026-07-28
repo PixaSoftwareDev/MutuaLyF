@@ -536,6 +536,16 @@ async def handle_query(
 
     messages.append({"role": "user", "content": sanitized_q})
 
+    # El corte duro asume que toda consulta de score bajo PIDE información —
+    # un saludo no pide nada y no tiene qué alucinar. "hola, que tal?" caía
+    # acá (vía judge_refuse del trust gate) y respondía "No encontré esa
+    # información" en vez de saludar (visto 2026-07-28). Chitchat → LLM con
+    # el prompt podado de small talk (~2k tokens): responde como persona.
+    from services.prompt_builder import is_chitchat
+    if hard_fallback and is_chitchat(normalized_question):
+        logger.info("hard_fallback_bypass_chitchat tenant_id=%s", tenant_id)
+        hard_fallback = False
+
     if hard_fallback:
         # Corte duro: respuesta determinística con el contacto del tenant, sin LLM.
         # Imposible alucinar porque no hay generación. Reusa el contact_info del

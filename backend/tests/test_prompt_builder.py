@@ -26,9 +26,29 @@ def test_saludo_puro_es_small_talk():
         assert is_small_talk(q), q
 
 
+def test_saludo_con_coletilla_social_es_small_talk():
+    # El caso real del 2026-07-28: "hola, que tal?" caía al corte duro y
+    # respondía "No encontré esa información".
+    for q in ["hola, que tal?", "hola qué tal", "buenas! como estas?", "hola, como va?", "todo bien?"]:
+        assert is_small_talk(q), q
+
+
 def test_consulta_no_es_small_talk():
-    for q in ["hola, ¿atienden hoy?", "gracias, y el horario?", "horarios", "¿hola?"]:
+    for q in ["hola, ¿atienden hoy?", "gracias, y el horario?", "horarios", "¿hola?",
+              "hola, necesito ayuda con una factura"]:
         assert not is_small_talk(q), q
+
+
+def test_acks_solo_para_handoff():
+    # "sí"/"no"/"ok" sueltos: para el handoff no cuentan como consulta sin
+    # responder (include_acks=True), pero para la poda/bypass son consulta —
+    # suelen ser respuesta a una aclaración y necesitan el contexto entero.
+    from services.prompt_builder import is_chitchat
+    # "ok"/"dale"/"listo" son cierres podables desde el diseño original; los
+    # dependientes de contexto son las afirmaciones/negaciones peladas.
+    for q in ["si", "sí", "no", "claro"]:
+        assert is_chitchat(q, include_acks=True), q
+        assert not is_chitchat(q, include_acks=False), q
 
 
 def test_small_talk_poda_reglas_pesadas():

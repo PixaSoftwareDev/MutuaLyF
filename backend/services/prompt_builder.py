@@ -56,16 +56,48 @@ def _refusal_script(has_tools: bool) -> str:
     )
 
 
-# ── Señales baratas del turno ─────────────────────────────────────────────────
-# Poda cobarde: solo matchea saludos/cierres inequívocos, cortos y sin pregunta.
-# En la duda, el turno se trata como consulta y recibe todos los módulos.
-_SMALL_TALK_RE = re.compile(
-    r"^(hola+|buenas+(\s+(d[ií]as|tardes|noches))?|buen\s+d[ií]a|buenos\s+d[ií]as"
-    r"|gracias|muchas\s+gracias|mil\s+gracias|genial|perfecto|b[áa]rbaro|excelente"
-    r"|dale|listo|ok(ey)?|de\s+nada|chau+|adi[oó]s|hasta\s+luego|nos\s+vemos)"
-    r"[\s!.,;:)]*$",
+# ── Clasificador de tipo de turno (ÚNICO dueño) ──────────────────────────────
+# Lo consumen tres lugares con dos semánticas explícitas:
+#   - builder (poda de módulos) y orquestador (bypass del corte duro):
+#     include_acks=False — solo charla social inequívoca. Un "sí"/"no" suelto
+#     NO califica: suele ser respuesta a una aclaración y necesita contexto.
+#   - handoff (filtro de "no cuenta como consulta sin responder"):
+#     include_acks=True — ahí un "ok"/"sí" tampoco debe disparar la oferta
+#     de operador.
+# Antes había DOS regex duplicados (acá y en handoff) y ninguno cubría el
+# saludo con coletilla social ("hola, que tal?") — que caía al corte duro y
+# respondía "No encontré esa información" (visto 2026-07-28 en navegador).
+# Cobarde: ante la duda es consulta — el costo de equivocarse hacia consulta
+# es un saludo seco; hacia chitchat, una consulta sin responder.
+_SALUDOS = (
+    r"(hola+|hi|hello|buenas+(\s+(d[ií]as|tardes|noches))?|buen\s+d[ií]a"
+    r"|buenos\s+d[ií]as|buenas\s+tardes|buenas\s+noches"
+    r"|gracias+|muchas\s+gracias|mil\s+gracias|genial|perfecto|b[áa]rbaro"
+    r"|excelente|dale|listo|ok(ay|ey)?|de\s+nada|todo\s+bien"
+    r"|chau+|adi[oó]s|hasta\s+luego|nos\s+vemos)"
+)
+_COLETILLA_SOCIAL = (
+    r"(qu[eé]\s+tal|c[oó]mo\s+est[aá]s?|c[oó]mo\s+anda[ns]?|c[oó]mo\s+va[ns]?"
+    r"|todo\s+bien|c[oó]mo\s+les\s+va)"
+)
+_ACKS = r"(s[ií]|no|claro|entendido|bueno|bien|muy\s+bien)"
+
+_CHITCHAT_RE = re.compile(
+    rf"^\s*{_SALUDOS}([\s,!.]+{_COLETILLA_SOCIAL})?\s*[!.,;:)?¿¡]*\s*$",
     re.IGNORECASE,
 )
+_CHITCHAT_ACKS_RE = re.compile(
+    rf"^\s*({_SALUDOS}|{_ACKS})([\s,!.]+{_COLETILLA_SOCIAL})?\s*[!.,;:)?¿¡]*\s*$",
+    re.IGNORECASE,
+)
+
+
+def is_chitchat(text: str, include_acks: bool = False) -> bool:
+    t = (text or "").strip()
+    if len(t) > 60:
+        return False
+    rx = _CHITCHAT_ACKS_RE if include_acks else _CHITCHAT_RE
+    return bool(rx.match(t))
 
 _HORARIOS_RE = re.compile(
     r"\b(lunes|martes|mi[ée]rcoles|jueves|viernes|s[áa]bados?|domingos?"
@@ -82,8 +114,8 @@ _URL_QUERY_RE = re.compile(
 
 
 def is_small_talk(question: str) -> bool:
-    q = (question or "").strip()
-    return len(q) <= 40 and "?" not in q and bool(_SMALL_TALK_RE.match(q))
+    """Compat: la poda del builder usa el clasificador sin acks."""
+    return is_chitchat(question, include_acks=False)
 
 
 # ── Resumen de dominios de tools (para el módulo alcance) ─────────────────────
