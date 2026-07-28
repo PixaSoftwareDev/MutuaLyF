@@ -305,6 +305,9 @@ async def evaluate_handoff(
             "handoff_keyword conversation_id=%s words=%s",
             conversation_id, (group.get("words") or [])[:5],
         )
+        # keep_answer solo si el bot tiene algo que decir: cuando la respuesta
+        # es "no encontré esa información", mostrarla arriba del cartel es puro
+        # ruido ("no sé" + "¿querés un operador?") — va el cartel solo.
         return HandoffSignal(
             trigger=HandoffTrigger.KEYWORD,
             auto_activate=False,
@@ -312,7 +315,7 @@ async def evaluate_handoff(
                 or config["transition_messages"].get(
                     "handoff_offer", "¿Querés que te conecte con un operador?"
                 ),
-            keep_answer=True,
+            keep_answer=not any(p in (bot_answer or "") for p in _NO_INFO_PATTERNS),
         )
 
     if _is_response_insufficient(sources, user_message, bot_answer):
@@ -346,13 +349,14 @@ async def evaluate_handoff(
         # Solo borrar si esta presente (evita round-trip innecesario).
         if await _get_insufficient(conversation_id) > 0:
             await _reset_insufficient(conversation_id)
-        # Si el bot respondió DE VERDAD (al menos una source de alta confianza),
-        # consumir cualquier oferta pendiente: el cartel amarillo de un turno anterior
-        # no debe quedar colgado debajo de una respuesta buena. Si el afiliado vuelve
-        # a tener problemas, el contador sube y se ofrece de nuevo.
+        # Respuesta buena → solo levantar el cooldown de 90s. NO consumir las
+        # ofertas (incidente 2026-07-27): apagar is_handoff_offer de carteles ya
+        # mostrados les quitaba el botón RETROACTIVAMENTE — el afiliado veía la
+        # oferta, preguntaba otra cosa, y al volver el cartel era texto muerto
+        # (y confirm-handoff daba 409). Política fail-soft: la puerta de la
+        # derivación queda SIEMPRE abierta; un cartel viejo clickeable no daña.
         if any(not s.get("low_confidence") for s in sources):
             await clear_offer_pending(conversation_id)
-            await _consume_pending_offers(conversation_id, tenant_id)
 
     return HandoffSignal(trigger=HandoffTrigger.NONE, auto_activate=False, offer_message="")
 
@@ -529,6 +533,59 @@ def build_no_operators_message(config: dict) -> str:
     if contact:
         parts.append(f"También podés comunicarte: {contact}.")
     return " ".join(parts)
+
+
+# ── Pedido de humano por TEXTO (widget) — determinístico, sin LLM ────────────
+# Incidente 2026-07-27: tras la invitación de la regla 13 ("¿querés que te
+# derive?"), el afiliado escribió "si" y el LLM PROMETIÓ derivar sin hacerlo.
+# El pedido de humano y la afirmación post-invitación se capturan ANTES del
+# LLM: respuesta determinística + cartel fresco. El LLM jamás gestiona.
+
+_HUMAN_REQUEST_RE = re.compile(
+    r"(quiero|necesito|puedo|dame|pasame|comunicame|conectame)?\s*"
+    r"(hablar|chatear|comunicarme|que me atienda|atenderme)?\s*"
+    r"(con\s+)?(un[ao]?\s+)?(operador[a]?|humano|persona\s+real|una\s+persona|asesor[a]?|agente)\b"
+    r"|^\s*operador[a]?\s*[.!]*\s*$",
+    re.IGNORECASE,
+)
+_BARE_AFFIRM_RE = re.compile(r"^\s*(si|sí|dale|ok|okey|bueno|obvio|claro|quiero)\s*[.!]*\s*$", re.IGNORECASE)
+
+
+def is_explicit_human_request(message: str) -> bool:
+    """El mensaje pide hablar con una persona (formas explícitas)."""
+    if not message:
+        return False
+    m = message.strip()
+    # Evitar falsos positivos de preguntas informativas ("¿el operador atiende
+    # los sábados?"): exigir intención en primera persona o la palabra sola.
+    if re.match(r"^\s*operador[a]?\s*[.!?]*\s*$", m, re.IGNORECASE):
+        return True
+    return bool(re.search(
+        r"(quiero|necesito|me\s+gustar[ií]a|pod[ée]s|puedo|prefiero)\b[^.?!]{0,40}"
+        r"\b(operador[a]?|humano|persona|asesor[a]?|agente)\b",
+        m, re.IGNORECASE,
+    ))
+
+
+def is_bare_affirmation(message: str) -> bool:
+    """'sí' / 'dale' / 'ok' a secas — solo cuenta como pedido de derivación si
+    lo último que dijo el sistema/bot invitaba a derivar (lo decide el caller)."""
+    return bool(message and _BARE_AFFIRM_RE.match(message.strip()))
+
+
+def offer_expectation_suffix(config: dict) -> str:
+    """Sufijo para la OFERTA de derivación cuando no se detectan operadores
+    conectados. Política fail-soft (2026-07-27): la presencia no bloquea la
+    derivación — solo ajusta la expectativa. Si la presencia mintió (pestaña
+    en background, socket caído), el afiliado igual entra a la fila."""
+    parts = [
+        "\n\nEn este momento no vemos operadores conectados — tu consulta "
+        "queda en la fila y te responden a la brevedad."
+    ]
+    hours = (config.get("attention_hours") or "").strip()
+    if hours:
+        parts.append(f" Horario de atención: {hours}.")
+    return "".join(parts)
 
 
 def build_no_info_message(config: dict) -> str:

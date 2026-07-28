@@ -22,14 +22,16 @@ sin ningún riesgo para el cliente.
   | Qdrant   | http://localhost:6340 | 6333 |
   | MinIO    | http://localhost:9011 (API 9010) | 9001/9000 |
 
-- **Único dato traído de prod:** las API keys de Groq y OpenAI (para que el bot
-  responda). Los passwords de las bases son nuevos y locales.
+- **Único dato traído de prod:** la API key de OpenAI (para que el bot
+  responda; las env `GROQ_*` son naming histórico — el proveedor real es
+  OpenAI). Los passwords de las bases son nuevos y locales.
 
 ## Qué NO corre en local (a propósito, para no fundir la PC)
 
-Observability (Prometheus/Grafana/Loki/Jaeger/exporters/cadvisor), TEI reranker,
-pgbackrest y nginx. El reranker va desactivado (`RERANKER_ENABLED=false`);
-embeddings y LLM salen por API externa (OpenAI/Groq), así que no pesan local.
+Observability (Prometheus/Grafana/Loki/Jaeger/exporters/cadvisor), pgbackrest
+y nginx. El LLM sale por API externa (OpenAI) y los embeddings corren locales
+en CPU. (El reranker fue ELIMINADO del pipeline el 2026-07-23 — no existe en
+ningún ambiente.)
 
 ## Uso
 

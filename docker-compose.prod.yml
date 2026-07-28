@@ -17,6 +17,8 @@ services:
         # Conectores ocultos en prod hasta validar la feature (lib/features.ts).
         # Para habilitarlos: "true" + rebuild del frontend.
         - NEXT_PUBLIC_CONNECTORS_UI=false
+        # Feedback oculto en prod hasta validar la feature (lib/features.ts).
+        - NEXT_PUBLIC_FEEDBACK_UI=false
     environment:
       - NODE_ENV=production
       - NEXT_PUBLIC_API_URL=

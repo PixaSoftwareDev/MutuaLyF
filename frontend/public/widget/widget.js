@@ -127,7 +127,6 @@
   var pollTimeout    = null;
   var convStatus     = "bot_active";
   var operatorName   = null;
-  var operatorsOnline = null;  // { count, names }
   var sectors        = [];
   var selectedSector = null;
   var handoffBubble  = null;   // referencia al bubble de oferta de handoff activo
@@ -300,6 +299,8 @@
     "#ia-w-panel.ia-dark .ia-w-hf-keep:hover{color:#aab2bc;}",
 
     ".ia-w-hf-loader{display:inline-flex;align-items:center;gap:9px;font-size:13px;color:" + SLATE_600 + ";justify-content:center;}",
+    ".ia-w-hf-done{font-size:12px;color:#94a3b8;}",
+    "#ia-w-panel.ia-dark .ia-w-hf-done{color:#6b7280;}",
     ".ia-w-hf-loader svg{width:16px;height:16px;color:var(--ia-brand);}",
     ".ia-w-hf-form{text-align:left;display:flex;flex-direction:column;gap:9px;}",
     ".ia-w-hf-form .t{font-size:13px;font-weight:600;color:#1e293b;}",
@@ -581,7 +582,6 @@
     sectorListEl = null;
     inputEl.placeholder = PLACEHOLDER;
     if (!sectors.length) _loadSectors();
-    _fetchOperatorsOnline(null);
     _startConversation(pendingMessage);
   }
 
@@ -614,7 +614,6 @@
         selectedSector = s;
         list.remove(); sectorListEl = null;
         _appendAreaNote(s.nombre);
-        _fetchOperatorsOnline(s.id);
       });
       list.appendChild(b);
     });
@@ -661,14 +660,6 @@
     _scrollBottom();
   }
 
-  function _fetchOperatorsOnline(sectorId) {
-    var url = API_BASE + "/api/v1/widget/operators-online" + (sectorId ? "?sector_id=" + encodeURIComponent(sectorId) : "");
-    fetch(url, { headers: _headers() })
-      .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (d) { if (d) { operatorsOnline = { count: d.online || 0, names: d.operators || [] }; _updateHeader(); } })
-      .catch(function () {});
-  }
-
   function _startConversation(pendingMessage) {
     fetch(API_BASE + "/api/v1/widget/conversation/start", {
       method: "POST", headers: _headers(),
@@ -703,8 +694,17 @@
       .then(function (data) {
         bodyInner.innerHTML = "";
         seenIds = {};
-        (data.messages || []).forEach(function (m) {
-          if (m.is_handoff_offer && data.status === "bot_active") { _showHandoffOffer(m.content); }
+        // Ofertas en el historial: la ÚLTIMA es la tarjeta viva (con botón si la
+        // conv sigue en bot_active; resuelta si no). Las anteriores se pintan
+        // resueltas — nunca como texto plano ni se pierden.
+        var msgs = data.messages || [];
+        var lastOfferId = null;
+        for (var i = msgs.length - 1; i >= 0; i--) {
+          if (msgs[i].is_handoff_offer) { lastOfferId = msgs[i].id; break; }
+        }
+        msgs.forEach(function (m) {
+          if (m.is_handoff_offer && m.id === lastOfferId && data.status === "bot_active") { _showHandoffOffer(m.content); }
+          else if (m.is_handoff_offer) { _appendResolvedOffer(m.content); }
           else { _appendMessage(m.sender_type, m.content, m.attachment_name ? { id: m.id, name: m.attachment_name, mime: m.attachment_mime } : null); }
           seenIds[m.id] = true;
           lastMessageId = m.id;
@@ -868,19 +868,53 @@
         // Anchor del long-poll = último mensaje del snapshot (una sola vez, fuera del bucle).
         if (data.messages && data.messages.length) lastMessageId = data.messages[data.messages.length - 1].id;
         if (pendingOffer && convStatus === "bot_active") _showHandoffOffer(pendingOffer);
-        else if (convStatus !== "bot_active" && handoffBubble && !handoffConfirmed) { /* la oferta sigue visible hasta confirmar */ }
+        else if (convStatus !== "bot_active" && handoffBubble && !handoffConfirmed) {
+          // La conv salió de bot_active con la tarjeta abierta (p.ej. se
+          // confirmó en otra pestaña): pasa a "✓ Solicitud enviada".
+          var doneRow = _appendResolvedOffer(lastHandoffMessage || pendingOffer || "");
+          handoffBubble.replaceWith(doneRow);
+          handoffBubble = null;
+        }
       })
       .catch(function () {});
   }
 
   // ── Handoff inline (igual que /chat HandoffOfferBubble: offer → form → loader) ─
   function _showHandoffOffer(message) {
-    if (handoffBubble) return;  // ya mostrada
+    if (handoffBubble) {
+      // Ya hay tarjeta viva. Solo si llega una oferta NUEVA (texto distinto) y
+      // no está en medio del form ni confirmando, re-ofrecemos — cubre la
+      // oferta generada por un "sí" del afiliado y revive la tarjeta descartada
+      // con "Seguir con el asistente" (antes quedaba sin botón). El poll repite
+      // la misma oferta en cada ciclo: con texto igual no se toca nada.
+      if (message !== lastHandoffMessage
+          && !handoffBubble.querySelector("input")
+          && !handoffBubble.querySelector(".ia-w-hf-loader")) {
+        _renderHandoffOffer(message);
+        _scrollBottom();
+      }
+      return;
+    }
     handoffBubble = document.createElement("div");
     handoffBubble.className = "ia-w-row";
     _renderHandoffOffer(message);
     bodyInner.appendChild(handoffBubble);
     _scrollBottom();
+  }
+
+  // Oferta ya resuelta (la conversación salió de bot_active): la tarjeta queda
+  // como registro con "✓ Solicitud enviada" — igual que /chat. Nunca se degrada
+  // a texto plano (la pregunta quedaba suelta y parecía un mensaje duplicado).
+  function _appendResolvedOffer(message) {
+    var row = document.createElement("div");
+    row.className = "ia-w-row";
+    row.innerHTML =
+      '<div class="ia-w-bavatar bot">' + _handoffAvatarHTML() + '</div>' +
+      '<div class="ia-w-bubble bot ia-w-hf"><span class="ia-w-hf-txt"></span>' +
+      '<span class="ia-w-hf-done">✓ Solicitud enviada</span></div>';
+    _renderTextWithLinks(message, row.querySelector(".ia-w-hf-txt"));
+    bodyInner.appendChild(row);
+    return row;
   }
 
   // Avatar del bot para las burbujas de derivación (logo del tenant o ícono).
@@ -995,10 +1029,14 @@
       })
       .then(function (data) {
         convStatus = data.status; _updateHeader();
-        // Quitar el loader (la solicitud ya está encolada; el estado lo refleja la
-        // tarjeta). El mensaje de confirmación lo entrega el poll, con dedup por id
-        // → así no queda el loader pegado ni el "Listo…" duplicado.
-        if (handoffBubble) { handoffBubble.remove(); handoffBubble = null; }
+        // La tarjeta queda como registro con "✓ Solicitud enviada" (igual que
+        // /chat) — antes se borraba entera y la pregunta desaparecía del
+        // historial. El "Listo…" lo entrega el poll, con dedup por id.
+        if (handoffBubble) {
+          var done = _appendResolvedOffer(lastHandoffMessage);
+          handoffBubble.replaceWith(done);
+          handoffBubble = null;
+        }
       })
       .catch(function (err) {
         werr("[IA Widget] confirm handoff:", err);
@@ -1047,13 +1085,8 @@
       _renderTextWithLinks(text, ec.querySelector(".ia-w-errtxt"));
       row.appendChild(ec);
 
-    } else if (senderType === "system") {
-      row.className = "ia-w-row center";
-      var sb = document.createElement("div"); sb.className = "ia-w-sysnote";
-      _renderTextWithLinks(text, sb);
-      row.appendChild(sb);
-
-    } else { // bot
+    } else { // bot y system: misma burbuja típica — como WhatsApp, todo
+      // sale como un mensaje de quien escribe, sin piezas especiales.
       row.className = "ia-w-row";
       var bav = document.createElement("div"); bav.className = "ia-w-bavatar bot";
       bav.innerHTML = LOGO_URL ? '<img src="' + LOGO_URL + '" alt="" />' : ICON_BOT;
@@ -1102,11 +1135,10 @@
     } else if (convStatus === "closed") {
       headerEl.classList.add("closed"); dotEl.className = "gray"; label = "Conversación cerrada";
     } else {
+      // Sin contador de operadores en el header: es un dato interno que no le
+      // aporta al afiliado (pedido 2026-07-27; la expectativa de espera va en
+      // el cartel de derivación, no acá).
       dotEl.className = "pulse"; label = "En línea";
-      // Operadores disponibles (solo en bot_active, igual que /chat)
-      if (conversationId && operatorsOnline) {
-        if (operatorsOnline.count > 0) label += operatorsOnline.count === 1 ? " · 1 operador disponible" : (" · " + operatorsOnline.count + " operadores disponibles");
-      }
     }
     _setSubstatus(label);
 

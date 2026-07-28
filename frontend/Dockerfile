@@ -22,6 +22,10 @@ ENV NEXT_PUBLIC_DEV_QUICK_PASSWORD=$NEXT_PUBLIC_DEV_QUICK_PASSWORD
 # prod se buildea con "false" hasta validar la feature.
 ARG NEXT_PUBLIC_CONNECTORS_UI=true
 ENV NEXT_PUBLIC_CONNECTORS_UI=$NEXT_PUBLIC_CONNECTORS_UI
+# Feedback del afiliado (caritas + cola admin, lib/features.ts). Default
+# habilitado; staging/prod se buildean con "false" hasta validar la feature.
+ARG NEXT_PUBLIC_FEEDBACK_UI=true
+ENV NEXT_PUBLIC_FEEDBACK_UI=$NEXT_PUBLIC_FEEDBACK_UI
 RUN pnpm build
 
 FROM node:20-alpine AS runner
