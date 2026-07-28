@@ -868,6 +868,11 @@ export const api = {
     setSecret: async (id: string, secret: string) => {
       await apiClient.put(`/admin/connectors/${id}/secret`, { secret });
     },
+    /** Valida la credencial sin tocar las operaciones. oauth2 → emisión real de token. */
+    testAuth: async (id: string) => {
+      const { data } = await apiClient.post(`/admin/connectors/${id}/test-auth`, {}, { timeout: 30_000 });
+      return data as { ok: boolean; detail?: string; latency_ms?: number; note?: string | null };
+    },
     setActive: async (id: string, isActive: boolean) => {
       const { data } = await apiClient.patch(`/admin/connectors/${id}/active`, { is_active: isActive });
       // pending_approval: la activación no falló — quedó esperando que el
@@ -944,9 +949,13 @@ export const api = {
         { identity }, { timeout: 120_000 });
       return data as ToolTestAllResult;
     },
+    // Detección: la clasificación LLM del backend puede colgarse y reintentar
+    // (hasta ~60s por intento) + dry-runs contra el proveedor. El cliente tiene
+    // que esperar más que el peor caso del backend — cortar antes deja al admin
+    // con un error genérico mientras el backend sigue trabajando.
     discover: async (connectorId: string, testIdentity: string) => {
       const { data } = await apiClient.post(`/admin/connectors/${connectorId}/discover`,
-        { test_identity: testIdentity }, { timeout: 90_000 });
+        { test_identity: testIdentity }, { timeout: 300_000 });
       return data as DiscoveryProposal;
     },
     /** Mismo wizard pero desde la documentación subida (PDF/Word/TXT/MD/JSON). */
@@ -956,7 +965,7 @@ export const api = {
       fd.append("test_identity", testIdentity);
       // multipart explícito: el default "application/json" pisa el boundary del FormData.
       const { data } = await apiClient.post(`/admin/connectors/${connectorId}/discover-file`, fd, {
-        headers: { "Content-Type": "multipart/form-data" }, timeout: 120_000,
+        headers: { "Content-Type": "multipart/form-data" }, timeout: 300_000,
       });
       return data as DiscoveryProposal;
     },
@@ -1310,7 +1319,17 @@ export const api = {
     },
     listSystemComponents: async () => {
       const { data } = await apiClient.get("/superadmin/system-components");
-      return data as { id: string; nombre: string; descripcion: string | null; categoria: string; contenido: string; updated_at: string | null }[];
+      return data as SystemComponent[];
+    },
+    // Override de un módulo del registro (pisa el default del código).
+    saveComponentOverride: async (slug: string, contenido: string) => {
+      const { data } = await apiClient.put(`/superadmin/system-components/${slug}/override`, { contenido });
+      return data as { slug: string; has_override: boolean };
+    },
+    // Borra el override → el módulo vuelve al default versionado en código.
+    deleteComponentOverride: async (slug: string) => {
+      const { data } = await apiClient.delete(`/superadmin/system-components/${slug}/override`);
+      return data as { slug: string; has_override: boolean };
     },
     // Admin
     listAssigned: async () => {
@@ -1436,6 +1455,14 @@ interface PromptTemplateDetail extends Omit<PromptTemplate, "assigned_count" | "
 interface AssignedTemplate {
   id: string; assignment_id: string; nombre: string; descripcion: string | null;
   categoria: string; is_active: boolean; assigned_at: string;
+}
+// Prompt del motor servido desde el registro en código (prompt_registry.py).
+// contenido = texto efectivo (override si hay, default si no); null en los
+// internos que viven junto a su consumidor (solo se lista su ubicación).
+export interface SystemComponent {
+  slug: string; nombre: string; descripcion: string | null; consumer: string;
+  editable: boolean; has_override: boolean;
+  default_text: string | null; contenido: string | null;
 }
 
 interface TenantBot {

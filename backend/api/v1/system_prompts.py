@@ -92,8 +92,13 @@ async def auto_assign_system_templates(tenant_id: str) -> None:
             await session.execute(text("""
                 INSERT INTO tenant_prompt_assignments (tenant_id, template_id, assigned_by, is_active)
                 VALUES (:tid, :tmpl, 'system',
-                    -- Activate Asistente estándar by default
+                    -- Activate Asistente estándar by default, salvo que el tenant
+                    -- ya tenga un bot activo (solo puede haber uno por tenant)
                     (SELECT nombre = 'Asistente estándar' FROM system_prompt_templates WHERE id = :tmpl)
+                    AND NOT EXISTS (
+                        SELECT 1 FROM tenant_prompt_assignments
+                        WHERE tenant_id = :tid AND is_active = TRUE
+                    )
                 )
                 ON CONFLICT (tenant_id, template_id) DO NOTHING
             """), {"tid": tenant_id, "tmpl": tmpl_id})
@@ -169,16 +174,24 @@ async def test_personality(
     import time
 
     from services.groq_client import QueryComplexity, complete
-    from services.orchestrator import _get_system_template, _sanitize_input
+    from services.orchestrator import _sanitize_input
+    from services.prompt_builder import PromptInputs, build_system_prompt
+    from services.prompt_registry import BUILDER_SLUGS, get_texts
 
-    anti_hallucination = await _get_system_template("Reglas anti-alucinación")
+    # Mismo ensamblado modular que el orquestador real (tono + alcance +
+    # grounding + contexto), con el contexto demo. Sin tools en el sandbox.
+    templates = await get_texts(BUILDER_SLUGS)
+    last_user_msg = next((m.content for m in reversed(body.messages) if m.role == "user"), "")
+    system_prompt, _modules = build_system_prompt(PromptInputs(
+        personality=body.contenido,
+        question=last_user_msg,
+        context_block="Contexto disponible:\n" + _DEMO_CONTEXT,
+        context_text=_DEMO_CONTEXT,
+        has_context=True,
+        templates=templates,
+    ))
 
-    system_parts = [body.contenido.strip()]
-    if anti_hallucination:
-        system_parts.append(anti_hallucination.strip())
-    system_parts.append("Contexto disponible:\n" + _DEMO_CONTEXT)
-
-    messages: list[dict[str, str]] = [{"role": "system", "content": "\n\n".join(system_parts)}]
+    messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
     role_map = {"user": "user", "bot": "assistant"}
     for m in body.messages:
         messages.append({"role": role_map[m.role], "content": _sanitize_input(m.content)})
@@ -217,26 +230,104 @@ async def list_categories(
 async def list_system_components(
     current_user: CurrentUser = Depends(require_super_admin),
 ):
-    """Return the 3 system templates (read-only, always active)."""
+    """Prompts del motor desde el REGISTRO (código = fuente de verdad).
+
+    Cada entrada trae el default versionado (inline o resuelto por ref desde su
+    módulo consumidor) y, si existe, el override activo en DB. TODOS son
+    editables: el override pisa al default hasta que se restaura.
+    """
+    from services.prompt_registry import REGISTRY, default as registry_default
+
+    overrides: dict[str, str] = {}
+    db_names = [p.db_name for p in REGISTRY.values() if p.db_name]
+    if db_names:
+        async with get_pg_session(None) as session:
+            result = await session.execute(text("""
+                SELECT nombre, contenido FROM system_prompt_templates
+                WHERE nombre = ANY(:nombres) AND is_active = TRUE
+            """), {"nombres": db_names})
+            overrides = {r[0]: r[1] for r in result.fetchall()}
+
+    items = []
+    for p in REGISTRY.values():
+        default_text = registry_default(p.slug)
+        override = overrides.get(p.db_name) if p.db_name else None
+        items.append({
+            "slug":         p.slug,
+            "nombre":       p.db_name or p.slug,
+            "descripcion":  p.descripcion,
+            "consumer":     p.consumer,
+            "editable":     bool(p.db_name),
+            "has_override": bool(override),
+            "default_text": default_text,
+            "contenido":    override or default_text,   # texto efectivo
+        })
+    return items
+
+
+class OverrideRequest(BaseModel):
+    contenido: str = Field(..., min_length=10, max_length=20000)
+
+
+async def _invalidate_override_cache(db_name: str) -> None:
+    try:
+        await get_redis_cache().delete(f"platform:prompt_override:{db_name}")
+    except Exception as exc:
+        logger.warning("override_cache_invalidate_failed nombre=%s error=%s", db_name, exc)
+
+
+@router.put("/superadmin/system-components/{slug}/override")
+async def upsert_component_override(
+    slug: str,
+    body: OverrideRequest,
+    current_user: CurrentUser = Depends(require_super_admin),
+):
+    """Crea o actualiza el override de un módulo del registro (pisa el default)."""
+    from services.prompt_registry import REGISTRY
+
+    p = REGISTRY.get(slug)
+    if p is None:
+        raise HTTPException(status_code=404, detail="Ese prompt no existe en el registro.")
+    if not p.db_name:
+        raise HTTPException(status_code=400, detail="Ese prompt no admite override: se cambia con deploy.")
+
     async with get_pg_session(None) as session:
-        result = await session.execute(text("""
-            SELECT id, nombre, descripcion, categoria, contenido, updated_at
-            FROM system_prompt_templates
-            WHERE is_system = TRUE
-            ORDER BY nombre ASC
-        """))
-        rows = result.mappings().all()
-    return [
-        {
-            "id":          str(r["id"]),
-            "nombre":      r["nombre"],
-            "descripcion": r["descripcion"],
-            "categoria":   r["categoria"],
-            "contenido":   r["contenido"],
-            "updated_at":  r["updated_at"].isoformat() if r["updated_at"] else None,
-        }
-        for r in rows
-    ]
+        updated = (await session.execute(text("""
+            UPDATE system_prompt_templates
+            SET contenido = :contenido, is_active = TRUE, updated_at = NOW()
+            WHERE nombre = :nombre
+            RETURNING id
+        """), {"contenido": body.contenido, "nombre": p.db_name})).fetchone()
+        if not updated:
+            await session.execute(text("""
+                INSERT INTO system_prompt_templates
+                    (nombre, descripcion, contenido, categoria, is_active, is_system, created_by)
+                VALUES (:nombre, :descripcion, :contenido, 'anti_alucinacion', TRUE, TRUE, :by)
+            """), {"nombre": p.db_name, "descripcion": f"Override de {slug} (default en prompt_registry.py)",
+                   "contenido": body.contenido, "by": str(current_user.user_id)})
+    await _invalidate_override_cache(p.db_name)
+    logger.info("prompt_override_saved slug=%s by=%s", slug, current_user.user_id)
+    return {"slug": slug, "has_override": True}
+
+
+@router.delete("/superadmin/system-components/{slug}/override")
+async def delete_component_override(
+    slug: str,
+    current_user: CurrentUser = Depends(require_super_admin),
+):
+    """Elimina el override: el módulo vuelve al default del código."""
+    from services.prompt_registry import REGISTRY
+
+    p = REGISTRY.get(slug)
+    if p is None or not p.db_name:
+        raise HTTPException(status_code=404, detail="Ese prompt no existe o no admite override.")
+    async with get_pg_session(None) as session:
+        await session.execute(text(
+            "DELETE FROM system_prompt_templates WHERE nombre = :nombre"
+        ), {"nombre": p.db_name})
+    await _invalidate_override_cache(p.db_name)
+    logger.info("prompt_override_deleted slug=%s by=%s", slug, current_user.user_id)
+    return {"slug": slug, "has_override": False}
 
 
 @router.get("/superadmin/prompt-templates")
@@ -522,24 +613,34 @@ async def superadmin_activate_tenant_bot(
     """Activate a specific bot for a tenant (atomic swap). Super admin can do this directly."""
     async with get_pg_session(None) as session:
         check = await session.execute(text("""
-            SELECT a.id FROM tenant_prompt_assignments a
+            SELECT t.nombre FROM tenant_prompt_assignments a
             JOIN system_prompt_templates t ON t.id = a.template_id
             WHERE a.tenant_id = :tid AND a.template_id = :tmpl AND t.is_active = TRUE
         """), {"tid": tenant_id, "tmpl": template_id})
-        if not check.fetchone():
+        check_row = check.fetchone()
+        if not check_row:
             raise HTTPException(status_code=404, detail="Template no asignado a este tenant")
+        activated_name = check_row[0]
 
-        await session.execute(text("""
-            UPDATE tenant_prompt_assignments SET is_active = FALSE WHERE tenant_id = :tid
-        """), {"tid": tenant_id})
+        prev = await session.execute(text("""
+            UPDATE tenant_prompt_assignments a SET is_active = FALSE
+            FROM system_prompt_templates t
+            WHERE t.id = a.template_id AND a.tenant_id = :tid
+              AND a.is_active = TRUE AND a.template_id <> :tmpl
+            RETURNING t.nombre
+        """), {"tid": tenant_id, "tmpl": template_id})
+        prev_row = prev.fetchone()
+        previous_name = prev_row[0] if prev_row else None
         await session.execute(text("""
             UPDATE tenant_prompt_assignments
             SET is_active = TRUE WHERE tenant_id = :tid AND template_id = :tmpl
         """), {"tid": tenant_id, "tmpl": template_id})
 
     await _invalidate_tenant_cache(tenant_id)
-    logger.info("superadmin_bot_activated template=%s tenant=%s by=%s", template_id, tenant_id, current_user.user_id)
-    return {"template_id": template_id, "is_active": True}
+    logger.info("superadmin_bot_activated template=%s tenant=%s previous=%s by=%s",
+                template_id, tenant_id, previous_name, current_user.user_id)
+    return {"template_id": template_id, "is_active": True,
+            "activated": activated_name, "previous": previous_name}
 
 
 @router.delete("/superadmin/tenants/{tenant_id}/bots/active", status_code=200)
@@ -636,17 +737,25 @@ async def activate_template(
     async with get_pg_session(None) as session:
         # Verify this template is assigned to this tenant
         check = await session.execute(text("""
-            SELECT a.id FROM tenant_prompt_assignments a
+            SELECT t.nombre FROM tenant_prompt_assignments a
             JOIN system_prompt_templates t ON t.id = a.template_id
             WHERE a.tenant_id = :tid AND a.template_id = :tmpl AND t.is_active = TRUE
         """), {"tid": tenant_id, "tmpl": template_id})
-        if not check.fetchone():
+        check_row = check.fetchone()
+        if not check_row:
             raise HTTPException(status_code=404, detail="Template no asignado a este tenant")
+        activated_name = check_row[0]
 
-        # Atomic swap: deactivate all → activate the chosen one
-        await session.execute(text("""
-            UPDATE tenant_prompt_assignments SET is_active = FALSE WHERE tenant_id = :tid
-        """), {"tid": tenant_id})
+        # Atomic swap: deactivate the previous one → activate the chosen one
+        prev = await session.execute(text("""
+            UPDATE tenant_prompt_assignments a SET is_active = FALSE
+            FROM system_prompt_templates t
+            WHERE t.id = a.template_id AND a.tenant_id = :tid
+              AND a.is_active = TRUE AND a.template_id <> :tmpl
+            RETURNING t.nombre
+        """), {"tid": tenant_id, "tmpl": template_id})
+        prev_row = prev.fetchone()
+        previous_name = prev_row[0] if prev_row else None
         await session.execute(text("""
             UPDATE tenant_prompt_assignments
             SET is_active = TRUE
@@ -662,8 +771,10 @@ async def activate_template(
         resource=template_id, request=request,
     ))
 
-    logger.info("template_activated template=%s tenant=%s by=%s", template_id, tenant_id, current_user.user_id)
-    return {"template_id": template_id, "is_active": True}
+    logger.info("template_activated template=%s tenant=%s previous=%s by=%s",
+                template_id, tenant_id, previous_name, current_user.user_id)
+    return {"template_id": template_id, "is_active": True,
+            "activated": activated_name, "previous": previous_name}
 
 
 @router.post("/admin/prompt-templates/deactivate", status_code=200)

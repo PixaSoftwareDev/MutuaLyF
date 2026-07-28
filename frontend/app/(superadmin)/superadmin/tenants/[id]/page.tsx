@@ -134,7 +134,14 @@ export default function TenantDetailPage() {
 
   const activateBotM = useMutation({
     mutationFn: (templateId: string) => api.tenantBots.activate(tenantId, templateId),
-    onSuccess: () => { invBots(); toast({ title: "Bot activado", variant: "success" }); },
+    onSuccess: (data: any) => {
+      invBots();
+      toast({
+        title: data?.activated ? `«${data.activated}» activada` : "Bot activado",
+        description: data?.previous ? `Se desactivó «${data.previous}».` : undefined,
+        variant: "success",
+      });
+    },
     onError: () => toast({ title: "Error al activar bot", variant: "destructive" }),
   });
   const deactivateBotM = useMutation({
@@ -145,9 +152,16 @@ export default function TenantDetailPage() {
   const assignAndActivateM = useMutation({
     mutationFn: async (templateId: string) => {
       await api.promptTemplates.assignToTenants(templateId, [tenantId]);
-      await api.tenantBots.activate(tenantId, templateId);
+      return api.tenantBots.activate(tenantId, templateId);
     },
-    onSuccess: () => { invBots(); toast({ title: "Bot asignado y activado", variant: "success" }); },
+    onSuccess: (data: any) => {
+      invBots();
+      toast({
+        title: data?.activated ? `«${data.activated}» asignada y activada` : "Bot asignado y activado",
+        description: data?.previous ? `Se desactivó «${data.previous}».` : undefined,
+        variant: "success",
+      });
+    },
     onError: (e: any) => toast({ title: e?.response?.data?.detail ?? "Error al asignar", variant: "destructive" }),
   });
 

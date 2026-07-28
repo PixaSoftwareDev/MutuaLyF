@@ -80,9 +80,13 @@ export function GeneralSettings() {
 
   const activateM = useMutation({
     mutationFn: (id: string) => api.promptTemplates.activate(id),
-    onSuccess: () => {
+    onSuccess: (data: any) => {
       qc.invalidateQueries({ queryKey: ["assigned-templates"] });
-      toast({ title: "Personalidad activada", variant: "success" });
+      toast({
+        title: data?.activated ? `«${data.activated}» activada` : "Personalidad activada",
+        description: data?.previous ? `Se desactivó «${data.previous}».` : undefined,
+        variant: "success",
+      });
     },
     onError: (e: any) => toast({ title: "Error al activar", description: extractErrorMessage(e, "Intentá de nuevo."), variant: "destructive" }),
   });

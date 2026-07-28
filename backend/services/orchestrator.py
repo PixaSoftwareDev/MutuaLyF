@@ -58,10 +58,10 @@ async def _try_tool_pick(question: str, tool_schemas: list[dict], tenant_id: str
     a None ante cualquier error: el fallback determinístico sigue su curso.
     """
     try:
-        from services.connector_router import TOOL_ROUTER_SYSTEM  # lazy: sin ciclo de import
         from services.groq_client import select_tool
+        from services.prompt_registry import get_text
         msgs = [
-            {"role": "system", "content": TOOL_ROUTER_SYSTEM},
+            {"role": "system", "content": await get_text("tool_router")},
             {"role": "user", "content": (question or "")[:1000]},
         ]
         return await select_tool(msgs, tool_schemas, tenant_id=tenant_id)
@@ -77,6 +77,7 @@ async def handle_query(
     language: str = "es",
     conversation_history: list[tuple[str, str]] | None = None,
     tool_schemas: list[dict] | None = None,
+    tool_domains: list[str] | None = None,
 ) -> dict[str, Any]:
     """Main entry point for a user query.
 
@@ -189,9 +190,6 @@ async def handle_query(
 
     # ── Step 3: Retrieve from Qdrant ──────────────────────────────────────────
     from services.retrieval import retrieve, retrieve_multi_query
-    # ENTITIES_DISABLED: from services.neo4j_client import query_entities
-
-    entity_names = []  # ENTITIES_DISABLED: [e.text for e in (entities or [])]
 
     # Load tenant config early — needed by rewriter (bot_description) and context builder.
     # Redis-cached: <5ms, safe to load here before retrieval.
@@ -250,25 +248,24 @@ async def handle_query(
         rewriter_expanded = False
         retrieval_task = retrieve(retrieval_question, tenant_id)
 
-    # ENTITIES_DISABLED: neo4j_task desactivado
-    (qdrant_chunks,) = await asyncio.gather(retrieval_task, return_exceptions=True)
-    neo4j_records = []  # ENTITIES_DISABLED
-
-    if isinstance(qdrant_chunks, Exception):
-        logger.error("retrieval_failed tenant_id=%s error=%s", tenant_id, qdrant_chunks)
+    try:
+        qdrant_chunks = await retrieval_task
+    except Exception as exc:  # noqa: BLE001 — sin retrieval igual respondemos (degradado)
+        logger.error("retrieval_failed tenant_id=%s error=%s", tenant_id, exc)
         qdrant_chunks = []
-
-    # ENTITIES_DISABLED: Neo4j entity boost desactivado
-    # if neo4j_records: ...
 
     # ── Step 4: Load remaining configs + personality template ────────────────────
     # tenant_config already loaded above (before rewriter). Extract remaining fields.
     min_score: float = tenant_config.get("min_retrieval_score", 0.55)
     bot_scope: str   = tenant_config.get("bot_scope") or ""
 
-    personality, anti_hallucination = await asyncio.gather(
+    # Módulos de prompt por tema: el texto default vive en prompt_registry
+    # (código); la DB solo aporta overrides del super-admin si existen.
+    from services.prompt_registry import BUILDER_SLUGS, get_texts
+
+    personality, module_templates = await asyncio.gather(
         _get_active_template(tenant_id),
-        _get_system_template("Reglas anti-alucinación"),
+        get_texts(BUILDER_SLUGS),
     )
 
     if not personality:
@@ -280,11 +277,6 @@ async def handle_query(
             "from_cache": False,
             "latency_ms": 0,
         }
-
-    # Emergency fallback if anti-hallucination template missing from DB
-    if not anti_hallucination:
-        logger.error("anti_hallucination_template_missing tenant_id=%s — using emergency fallback", tenant_id)
-        anti_hallucination = _FALLBACK_ANTI_HALLUCINATION
 
     # ── Step 5: Build context — drop chunks below relevance threshold ──────────
     context_parts: list[str] = []
@@ -361,14 +353,9 @@ async def handle_query(
             c for c in all_chunks
             if any(s["chunk_id"] == c.chunk_id for s in sources)
         ]
-        # Sort by pre-Neo4j relevance score (TEI reranker / Qdrant cosine) so the
-        # most semantically relevant chunk leads context, regardless of its position
-        # in the document. chunk_index is a tiebreaker for chunks with equal scores.
-        # We use _pre_neo4j_score instead of c.score because Neo4j boosted many chunks
-        # to 1.0, erasing the fine-grained relevance signal from the reranker.
-        # Primary: keyword overlap (surfaces exact-term matches when reranker off).
-        # Secondary: raw semantic score before Neo4j 1.0 boost.
-        # Tiebreaker: document order.
+        # Orden: primero solapamiento de keywords (rescata matches exactos cuando
+        # el reranker está apagado), después score semántico (reranker/coseno),
+        # y orden del documento como desempate.
         kw_scores = {
             c.chunk_id: _keyword_overlap(normalized_question, c.text)
             for c in passed_chunks
@@ -376,7 +363,7 @@ async def handle_query(
         passed_chunks.sort(
             key=lambda c: (
                 -kw_scores.get(c.chunk_id, 0.0),
-                -c.metadata.get("_pre_neo4j_score", c.score),
+                -c.score,
                 c.metadata.get("chunk_index", 0),
             )
         )
@@ -396,13 +383,9 @@ async def handle_query(
             })
             included_ids.add(chunk.chunk_id)
 
-        # Semantic safety net: always include top-3 chunks by raw semantic score
-        # not already in context. Prevents min_score from silently filtering the
-        # most relevant chunk when it has no Neo4j entity link.
-        by_semantic = sorted(
-            all_chunks,
-            key=lambda c: -c.metadata.get("_pre_neo4j_score", c.score),
-        )
+        # Red de seguridad semántica: sumar siempre los top-3 por score crudo que
+        # no hayan entrado, para que min_score no filtre el chunk más relevante.
+        by_semantic = sorted(all_chunks, key=lambda c: -c.score)
         extras_added = 0
         for chunk in by_semantic:
             if chunk.chunk_id in included_ids or extras_added >= 3:
@@ -470,14 +453,15 @@ async def handle_query(
     # ── Step 6: Choose model based on complexity ───────────────────────────────
     from services.groq_client import classify_complexity, complete
 
-    complexity = classify_complexity(normalized_question, len(entity_names))
+    complexity = classify_complexity(normalized_question)
 
-    # ── Step 7: Assemble system prompt and user message ───────────────────────
-    # Architecture: system = personality + org context + anti-hallucination rules + retrieved context
-    #               user   = bare question (isolated from instructions)
-    #
-    # Putting everything in system gives the LLM a single coherent ground truth.
-    # The user turn is kept clean so conversation history stays readable.
+    # ── Step 7: Assemble system prompt por módulos temáticos ──────────────────
+    # prompt_builder compone el system con solo los módulos que el turno
+    # necesita (ver services/prompt_builder.py). La política de alcance y
+    # fuentes se genera ahí, consciente de las tools activas — un solo dueño,
+    # sin las contradicciones del ensamblado monolítico (la personalidad ya no
+    # opina de alcance; bot_scope entra como tema extra, no como tercer guion).
+    from services.prompt_builder import PromptInputs, build_system_prompt
 
     if context_parts and low_confidence_fallback:
         context_block = (
@@ -490,58 +474,31 @@ async def handle_query(
     else:
         context_block = "(No hay información documental disponible para esta consulta.)"
 
-    system_parts = [personality.strip()]
-    if bot_description:
-        system_parts.append(f"=== SOBRE ESTA ORGANIZACIÓN ===\n{bot_description}")
-    if bot_scope:
-        system_parts.append(
-            f"=== ALCANCE TEMÁTICO ===\n"
-            f"Solo respondés sobre: {bot_scope}\n\n"
-            f"Si la pregunta no tiene relación con estos temas, respondé exactamente:\n"
-            f"\"Ese tema está fuera de mi área de conocimiento. "
-            f"Solo puedo ayudarte con consultas sobre {bot_scope}. "
-            f"¿Hay algo de eso en lo que pueda ayudarte?\"\n"
-            f"No des información fuera del alcance aunque la conozcas."
-        )
-    system_parts.append(anti_hallucination.strip())
-    system_parts.append(context_block)
-
     # Datos verificados (resuelve contradicciones de campos: dirección/teléfono)
     facts_note = await _canonical_facts_note(tenant_id, question)
-    if facts_note:
-        system_parts.append(facts_note)
-    if tool_schemas:
-        # Modo unificado (2b): el modelo tiene herramientas de datos EN VIVO
-        # adjuntas a esta misma llamada. Guía explícita de cuándo usarlas — sin
-        # esto tiende a responder desde el contexto documental aunque la consulta
-        # pida datos vivos del sistema del cliente (CRM etc.).
-        system_parts.append(
-            "=== DATOS EN VIVO (HERRAMIENTAS) — TIENEN PRIORIDAD ===\n"
-            "Tenés herramientas que consultan datos EN VIVO y PRIVADOS del sistema de "
-            "la organización (CRM: proyectos, finanzas, clientes, oportunidades, tareas). "
-            "REGLA: el contexto documental de abajo describe a la organización en general, "
-            "pero NO contiene los datos personales de cada persona ni el estado actual del "
-            "sistema. Por eso:\n"
-            "• Si la consulta está en PRIMERA PERSONA o pide algo PROPIO del usuario "
-            "(«mi/mis/mío», «yo», «cuánto facturé», «cómo vengo», «qué tengo», «mis "
-            "números/plata/cuenta/proyectos/horas»), DEBÉS llamar la herramienta que "
-            "corresponda. NUNCA respondas eso desde el contexto documental ni digas que "
-            "no lo encontraste: esos datos SOLO están en la herramienta.\n"
-            "• Si pide el estado ACTUAL o la lista VIVA de algo del negocio (proyectos "
-            "en curso, clientes, cobros), llamá la herramienta aunque el contexto "
-            "mencione algo parecido: el contexto puede estar incompleto o desactualizado.\n"
-            "• Solo respondé sin herramienta cuando la consulta es claramente general "
-            "(qué es la empresa, quién es alguien del equipo, horarios, contacto)."
-        )
-    system_parts.append(
-        "FORMATO DE ENLACES: escribí las URLs completas en texto plano "
-        "(por ejemplo https://www.ejemplo.com/pagina). NUNCA uses formato Markdown "
-        "de enlaces como [texto](url): no se renderiza en WhatsApp ni en el chat y "
-        "queda con corchetes y paréntesis a la vista."
-    )
-    system_parts.append(f"Respondé en {language}.")
 
-    system_prompt = "\n\n".join(system_parts)
+    system_prompt, prompt_modules = build_system_prompt(PromptInputs(
+        personality=personality,
+        question=normalized_question,
+        bot_description=bot_description,
+        bot_scope=bot_scope,
+        context_block=context_block,
+        context_text="\n".join(context_parts),
+        has_context=bool(context_parts),
+        facts_note=facts_note,
+        has_tools=bool(tool_schemas),
+        tool_domains=tool_domains or [],
+        language=language,
+        templates=module_templates,
+    ))
+    # El hash identifica la VERSIÓN exacta del prompt que vio el modelo — con
+    # overrides editables en DB, "qué texto corría cuando respondió esto" deja
+    # de ser reconstruible sin esto.
+    _prompt_hash = hashlib.md5(system_prompt.encode()).hexdigest()[:10]
+    logger.info(
+        "prompt_composed tenant_id=%s modules=%s chars=%d hash=%s",
+        tenant_id, ",".join(prompt_modules), len(system_prompt), _prompt_hash,
+    )
     sanitized_q   = _sanitize_input(question)
 
     # Build message list with extractive history compression.
@@ -688,7 +645,8 @@ async def handle_query(
     # servían repetidas. Alineado con el texto real que emite el bot.
     _no_info_markers = [
         "No encontré esa información",
-        "fuera de mi área de conocimiento",  # respuesta de bot_scope cuando query es off-topic
+        "fuera de mi área de conocimiento",  # guion único de rechazo (prompt_builder)
+        "Eso se escapa de lo que puedo ayudarte",  # guion legacy del "Asistente cordial"
     ]
     is_no_info = any(m in (answer or "") for m in _no_info_markers)
     is_long_no_sources = not sources and len(answer or "") > 60
@@ -721,16 +679,11 @@ async def handle_query(
     QUERIES_TOTAL.labels(tenant_id=tenant_id, complexity=complexity, from_cache="false").inc()
     QUERY_DURATION.labels(tenant_id=tenant_id, complexity=complexity).observe(latency_ms)
 
-    # ── Feature value metrics ─────────────────────────────────────────────────
-    neo4j_contributed = bool(neo4j_records) and any(
-        c.score == 1.0 and c.metadata.get("_pre_neo4j_score", -1) != 1.0
-        for c in (qdrant_chunks or [])
-    )
     logger.info(
         "query_complete tenant_id=%s latency_ms=%d complexity=%s intent=%s "
-        "sources=%d neo4j_contributed=%s rewriter_expanded=%s low_confidence=%s",
+        "sources=%d rewriter_expanded=%s low_confidence=%s",
         tenant_id, latency_ms, complexity, response["intent_label"],
-        len(sources), neo4j_contributed, rewriter_expanded, low_confidence_fallback,
+        len(sources), rewriter_expanded, low_confidence_fallback,
     )
     return response
 
@@ -913,10 +866,6 @@ async def _log_usage_event_app(tenant_id: str, event_type: str, value: int) -> N
         logger.warning("usage_event_log_failed tenant_id=%s error=%s", tenant_id, exc)
 
 
-async def _empty_list() -> list:
-    return []
-
-
 async def _get_active_template(tenant_id: str) -> str | None:
     """Return the active personality prompt for this tenant, Redis-cached for 5 min.
 
@@ -937,20 +886,29 @@ async def _get_active_template(tenant_id: str) -> str | None:
         from core.database import get_pg_session
         from sqlalchemy import text
         async with get_pg_session(None) as session:
+            # ORDER BY determinístico: si hay más de una asignación activa (estado
+            # inconsistente), gana SIEMPRE la más reciente. Sin orden, Postgres
+            # devolvía cualquiera y el bot cambiaba de personalidad (y de guion
+            # de rechazo) al azar en cada expiración del cache.
             result = await session.execute(text("""
-                SELECT t.contenido
+                SELECT t.contenido, t.nombre
                 FROM tenant_prompt_assignments a
                 JOIN system_prompt_templates t ON t.id = a.template_id
                 WHERE a.tenant_id = :tid AND a.is_active = TRUE
                   AND t.is_active = TRUE AND t.is_system = FALSE
-                LIMIT 1
+                ORDER BY a.assigned_at DESC
             """), {"tid": tenant_id})
-            row = result.fetchone()
+            rows = result.fetchall()
     except Exception as exc:
         logger.warning("active_template_load_failed tenant_id=%s error=%s", tenant_id, exc)
         return None
 
-    contenido = row[0] if row else None
+    if len(rows) > 1:
+        logger.warning(
+            "multiple_active_personalities tenant_id=%s count=%d using=%s",
+            tenant_id, len(rows), rows[0][1],
+        )
+    contenido = rows[0][0] if rows else None
     try:
         await redis.setex(cache_key, 300, contenido or "")
     except Exception:
@@ -959,31 +917,8 @@ async def _get_active_template(tenant_id: str) -> str | None:
     return contenido
 
 
-# Emergency fallback — only used when "Reglas anti-alucinación" DB template is unreachable.
-# Kept in sync with migration 006_prompts_v2.py.
-_FALLBACK_ANTI_HALLUCINATION = (
-    "REGLAS DE RESPUESTA — se aplican sin excepción en cada mensaje:\n\n"
-    "1. CONTEXTO + HISTORIAL DE LA CONVERSACIÓN: Tus fuentes válidas son DOS y solo dos: "
-    "(a) el bloque 'Contexto disponible' del turno actual, y (b) los datos que VOS COMO ASISTENTE "
-    "ya mencionaste en turnos anteriores de ESTA conversación. La conversación es continua — "
-    "si en un turno anterior dijiste un dato concreto, podés volver a usarlo. "
-    "NUNCA uses tu conocimiento general / entrenamiento previo: si un dato no aparece en (a) ni (b), "
-    "no es una fuente válida.\n\n"
-    "2. COINCIDENCIA SEMÁNTICA: Aceptá sinónimos cuando el referente sea claramente el mismo "
-    "(ej: empleado/trabajador, sucursal/sede). No rechaces información válida por diferencia de palabras.\n\n"
-    "3. SIN INFERENCIAS: El dato debe estar explícitamente presente en el Contexto o en mensajes previos "
-    "tuyos de esta conversación. No lo construyas combinando fragmentos ni completando con lógica.\n\n"
-    "4. INFORMACIÓN PARCIAL: Si encontrás datos relevantes pero incompletos, respondé con lo que tenés "
-    "y aclará qué parte no encontraste. No inventes el resto.\n\n"
-    "5. DOCUMENTOS EN CONFLICTO: Si dos fuentes se contradicen, mencioná ambas versiones y "
-    "recomendá consultar con el área responsable.\n\n"
-    "6. SIN INFORMACIÓN: Si el dato no aparece NI en el Contexto NI en algún mensaje anterior tuyo "
-    "en esta conversación, respondé: "
-    "'No encontré esa información en los documentos disponibles. "
-    "Te recomiendo consultar directamente con el área correspondiente.'\n\n"
-    "7. NUNCA INVENTES: Nombres, fechas, números, montos, contactos, artículos o pasos de proceso "
-    "deben estar en el Contexto o en mensajes previos tuyos. Inventar un dato concreto es el error más grave."
-)
+# El fallback de reglas anti-alucinación vive ahora en services/prompt_builder
+# (GROUNDING_FALLBACK y los casos límite), módulo por módulo.
 
 
 _SYSTEM_TEMPLATE_CACHE_TTL = 300  # 5 min

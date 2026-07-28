@@ -68,7 +68,8 @@ _MIN_WORDS_FOR_INSUFFICIENT = 1  # Solo descarta mensajes vacíos. Una consulta 
 
 _NO_INFO_PATTERNS = [
     "No encontré esa información",
-    "fuera de mi área de conocimiento",  # respuesta de bot con bot_scope configurado
+    "fuera de mi área de conocimiento",  # guion único de rechazo (prompt_builder)
+    "Eso se escapa de lo que puedo ayudarte",  # guion legacy del "Asistente cordial"
 ]
 
 def _is_response_insufficient(

@@ -126,7 +126,8 @@ Reglas:
 - No inventes datos que no estén en la consulta ni en el historial.
 - No respondas la pregunta, solo reformulala.
 - Si la consulta ya es específica y autosuficiente (>20 palabras), la main = query original.
-- Para las variantes: usá sinónimos naturales del dominio de la organización descrita abajo.{org_context}
+- Para las variantes: usá sinónimos naturales del ámbito de la consulta; si abajo
+  hay contexto de la organización, aprovechalo para elegirlos.{org_context}
 
 Formato de salida: JSON exacto, sin texto adicional, sin markdown:
 {{"main": "...", "variants": ["...", "..."]}}
@@ -247,7 +248,16 @@ async def rewrite_query(
         if bot_description and bot_description.strip()
         else ""
     )
-    system_prompt = _REWRITE_SYSTEM_PROMPT.format(n=n_variants, org_context=org_context)
+    # Override-aware (prompt_registry "query_rewriter"). El template usa
+    # placeholders {n}/{org_context}: si un override editado a mano los rompe,
+    # el format falla y caemos al default del código — nunca al error.
+    from services.prompt_registry import get_text
+    _tpl = await get_text("query_rewriter")
+    try:
+        system_prompt = _tpl.format(n=n_variants, org_context=org_context)
+    except (KeyError, IndexError, ValueError):
+        logger.warning("query_rewriter_override_bad_placeholders — usando default del código")
+        system_prompt = _REWRITE_SYSTEM_PROMPT.format(n=n_variants, org_context=org_context)
     history_block = _build_history_block(history)
     user_msg = (
         f"Historial reciente:\n{history_block}\n\n"

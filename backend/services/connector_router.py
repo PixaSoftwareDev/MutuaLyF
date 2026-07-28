@@ -54,7 +54,9 @@ _CANCEL_RE = re.compile(
     r"\b(cancelar|salir|dej[aá](lo)?|dejalo|olvidalo|olvidate|no importa|gracias igual|nada)\b",
     re.I,
 )
-_LOGOUT_RE = re.compile(r"\b(cerrar sesi[oó]n|desconectarme|logout|salir de mi cuenta)\b", re.I)
+_LOGOUT_RE = re.compile(
+    r"\b(cerr[aá]r?\s+(mi\s+)?sesi[oó]n|desconectarme|logout|salir de mi cuenta)\b", re.I,
+)
 _RESEND_RE = re.compile(r"\b(reenviar|no me lleg[oó]|mand[aá] otro|otro c[oó]digo)\b", re.I)
 
 
@@ -237,7 +239,7 @@ async def _is_locked(tenant_id: str, conv_id: str) -> bool:
 # linda de cada resultado la hace _phrase_with_llm() (LLM sobre el JSON) para
 # CUALQUIER tool; acá solo se cubren los outcomes canónicos y un último fallback
 # de JSON crudo si el LLM no está disponible o el dato es demasiado grande.
-def _format_tool_answer(tool_slug: str, result, nombre: str | None) -> str:
+def _format_tool_answer(result, nombre: str | None) -> str:
     saludo = f"{nombre}, " if nombre else ""
     if result.outcome == EMPTY:
         return f"{saludo}no encontré resultados. ✅"
@@ -396,6 +398,17 @@ Reglas de redacción de la respuesta final:
 
 _MAX_STEP_PAYLOAD_CHARS = 3500
 
+# El loop arma los turnos ya ejecutados como texto "[Llamé a <slug> con {...}]"
+# (ver _loop_messages). A veces el modelo, en vez de devolver una tool call o una
+# respuesta real, CONTINÚA ese patrón como texto libre — y sin este guard se lo
+# mostrábamos crudo al usuario ("[Llamé a lista_oportunidades con {}]"). Detectar
+# el eco y descartarlo → caer al fallback determinista sobre el último resultado.
+_SCAFFOLD_ECHO_RE = re.compile(r"^\s*\[\s*llam[ée]\s+a\s+\w+", re.I)
+
+
+def _looks_like_scaffold(text: str | None) -> bool:
+    return bool(text) and bool(_SCAFFOLD_ECHO_RE.match(text or ""))
+
 
 def _resource_id_params(schema: dict | None) -> set[str]:
     return {k for k, v in ((schema or {}).get("properties") or {}).items()
@@ -520,7 +533,7 @@ async def _run_tool_and_format(binding, *, tenant_id: str, conv_id: str, questio
             answer, pick = await _loop_llm(tenant_id, question, nombre, mem_note, steps,
                                            tools, note=problem)
             if pick is None:
-                if answer:
+                if answer and not _looks_like_scaffold(answer):
                     return _resp(answer)
                 return _resp("Para darte ese detalle necesito ubicarlo primero: pedime la "
                              "lista (por ejemplo «mostrame la lista») y de ahí seguimos.")
@@ -572,9 +585,9 @@ async def _run_tool_and_format(binding, *, tenant_id: str, conv_id: str, questio
         llm_rounds += 1
         answer, pick = await _loop_llm(tenant_id, question, nombre, mem_note, steps, tools)
         if pick is None:
-            if answer:
+            if answer and not _looks_like_scaffold(answer):
                 return _resp(answer, outcome=OK)
-            break  # LLM caído → fallback determinista con el último resultado
+            break  # LLM caído o eco del andamiaje → fallback determinista abajo
         nb = await get_tool_by_slug(tenant_id, pick["name"])
         if nb is None or (nb.identity_kind != "publico" and not session_ok):
             break
@@ -583,18 +596,23 @@ async def _run_tool_and_format(binding, *, tenant_id: str, conv_id: str, questio
 
     if not steps:
         return _resp(_msg_upstream(), outcome=UPSTREAM_ERROR)
-    last_slug, _last_params, last_result = steps[-1]
+    _last_slug, _last_params, last_result = steps[-1]
     answer = None
     if last_result.outcome == OK:
         answer = await _phrase_with_llm(tenant_id, question, last_result.data, nombre)
     if answer is None:
-        answer = _format_tool_answer(last_slug, last_result, nombre)
+        answer = _format_tool_answer(last_result, nombre)
     return _resp(answer, outcome=last_result.outcome)
 
 
 # ── Selección de tool por LLM (modo tool_calling) ───────────────────────────────
 # Prompt del router. Constante de módulo: el harness de eval (eval_tool_routing.py)
 # evalúa EXACTAMENTE este texto — si se ajusta acá, el eval lo mide sin drift.
+# La frontera tools/docs es la MISMA redacción que usan las reglas de
+# herramientas del prompt de respuesta (prompt_registry.FRONTERA_TOOLS_DOCS):
+# una sola política, imposible que diverjan.
+from services.prompt_registry import FRONTERA_TOOLS_DOCS
+
 TOOL_ROUTER_SYSTEM = (
     "Sos el router de un asistente conversacional. Tenés herramientas que "
     "consultan datos EN VIVO y PRIVADOS del sistema del cliente, sea cual sea su "
@@ -604,11 +622,8 @@ TOOL_ROUTER_SYSTEM = (
     "correspondiente con los parámetros que puedas extraer — también cuando lo "
     "pide de forma coloquial ('contame sobre nuestros pedidos', 'tengo algún "
     "turno?'). "
-    "NO llames ninguna herramienta para: saludos, preguntas generales sobre la "
-    "empresa o sus servicios, o preguntas sobre las personas de la propia "
-    "organización — quién es alguien, su rol, su experiencia o sus datos de "
-    "contacto (el email o teléfono del equipo, del área comercial o de soporte "
-    "sale de los documentos institucionales, no de una herramienta)."
+    "NO llames ninguna herramienta para saludos, ni para lo que según esta "
+    "frontera sale de los documentos. " + FRONTERA_TOOLS_DOCS
 )
 
 
@@ -652,56 +667,21 @@ def _build_tool_schemas(catalog: list[dict]) -> list[dict]:
     return schemas
 
 
-async def _resolve_tool_via_llm(
-    tenant_id: str, text: str,
-) -> tuple["object", dict] | None:
-    """Deja que el LLM elija una tool del catálogo del tenant, o None → RAG.
-
-    Reemplaza al clasificador de coseno en la DECISIÓN de qué tool disparar. El
-    resto (login FSM, roles, execute_tool) es idéntico. Devuelve (binding, params).
-    """
-    catalog = await list_tools_for_tool_calling(tenant_id)
-    if not catalog:
-        return None
-
-    tools = _build_tool_schemas(catalog)
-    messages = [
-        {"role": "system", "content": TOOL_ROUTER_SYSTEM},
-        {"role": "user", "content": (text or "")[:1000]},
-    ]
-
-    from services.groq_client import select_tool
-    try:
-        picked = await select_tool(messages, tools, tenant_id=tenant_id)
-    except Exception as exc:
-        logger.warning("tool_calling_select_failed tenant_id=%s error=%s", tenant_id, exc)
-        return None  # fail-safe → RAG
-
-    if not picked:
-        return None
-
-    binding = await get_tool_by_slug(tenant_id, picked["name"])
-    if binding is None:
-        # El LLM inventó un slug fuera del catálogo → fail-closed a RAG.
-        logger.info("tool_calling_unknown_slug tenant_id=%s slug=%s", tenant_id, picked["name"])
-        return None
-
-    # Solo params declarados en el schema de la tool (descarta alucinaciones).
-    allowed = set((binding.params_schema or {}).get("properties", {}).keys())
-    params = {k: v for k, v in (picked.get("arguments") or {}).items() if k in allowed}
-    return binding, params
-
-
 # ── Entrada principal ──────────────────────────────────────────────────────────
 async def maybe_handle(
     tenant_id: str,
     conversation_id: str,
     message: str,
 ) -> dict | None:
-    """Decide si este turno es de datos personales y lo maneja. None → seguir RAG.
+    """Atiende SOLO el estado conversacional del conector antes del RAG: logout y
+    el FSM de login en curso. None → el turno sigue por el camino RAG normal.
 
-    Clasifica la intención internamente, pero SOLO cuando no hay un FSM de login en
-    curso (mientras el usuario tipea su DNI/código no tiene sentido clasificar).
+    La DECISIÓN de disparar una tool NO ocurre acá: va fusionada en la única
+    llamada RAG (handle_query con tool_schemas → handle_tool_signal), sin un hop
+    LLM extra. Los modos separados 'tool_calling' (llamada select_tool aparte) y
+    'cosine' (clasificador de intenciones) se eliminaron por costo y peor ruteo
+    — ver memoria del proyecto. Mientras el usuario tipea su DNI/código, este
+    handler intercepta el turno para que no vaya al LLM.
     """
     if not settings.connectors_enabled:
         return None
@@ -716,7 +696,7 @@ async def maybe_handle(
         await _clear_flow(tenant_id, conv_id)
         return _resp(_msg_sesion_cerrada())
 
-    # ── ¿Estamos en medio del FSM? (no clasificar) ────────────────────────────
+    # ── ¿Estamos en medio del FSM de login? ───────────────────────────────────
     if flow and flow.get("stage") in (_PIDIENDO_ID, _PIDIENDO_CODIGO):
         # El pedido de reenvío se atiende ANTES que cancelar/cambio de tema:
         # "no me llegó nada" matchea "nada" en _CANCEL_RE y tiraba el login
@@ -734,22 +714,8 @@ async def maybe_handle(
         if flow["stage"] == _PIDIENDO_CODIGO:
             return await _handle_code_input(tenant_id, conv_id, text, flow)
 
-    # ── No hay FSM activo: decidir si el turno dispara una tool ────────────────
-    # Dos modos (settings.connector_routing_mode):
-    #   unified      → la decisión ocurre DENTRO de la llamada RAG (handle_query con
-    #                  tool_schemas → handle_tool_signal). Acá solo se atendió el FSM.
-    #   tool_calling → llamada LLM separada elige la tool del catálogo (2a).
-    # (El modo "cosine" — clasificador de intenciones + binding — se eliminó
-    # 2026-07-22: ruteaba mal, ver decisión en memoria del proyecto.)
-    if settings.connector_routing_mode == "unified":
-        return None
-
-    resolved = await _resolve_tool_via_llm(tenant_id, text)
-    if resolved is None:
-        return None  # ninguna tool aplica → RAG
-    binding, llm_params = resolved
-
-    return await _dispatch_binding(binding, llm_params, tenant_id, conv_id, text)
+    # Sin FSM activo: la selección de tool la hace la llamada RAG (unified).
+    return None
 
 
 async def handle_tool_signal(

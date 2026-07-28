@@ -4,20 +4,11 @@ import asyncio
 import logging
 from typing import Any
 
-# Emergency fallbacks — only used when DB templates are unreachable.
-# Kept in sync with migration 006_prompts_v2.py.
+# Texto canónico en services/prompt_registry.py (es la versión curada que
+# vivía en la fila DB "Validador de documentos", eliminada en migración 046).
+from services.prompt_registry import default as _prompt_default
 
-DEFAULT_PROMPT_QUALITY_GATE = (
-    "Sos un filtro de ruido para fragmentos de documentos. Tu única tarea es detectar "
-    "si el fragmento tiene información que un lector humano pueda aprovechar. "
-    "No importa el tema — técnico, legal, institucional, operativo, lo que sea. "
-    "APROBÁ (true) si contiene texto coherente con información factual, descriptiva o instructiva, "
-    "nombres, fechas, cifras, contactos, roles, procesos, definiciones, normativas o procedimientos. "
-    "RECHAZÁ (false) SOLO si es ruido puro: solo números de página, solo encabezados/pies repetidos, "
-    "texto ilegible por OCR fallido, contenido vacío, o entradas de índice sin descripción. "
-    "EN CASO DE DUDA: aprobá. "
-    'Respondé ÚNICAMENTE con JSON válido: {"is_coherent": true/false, "confidence": 0.0-1.0, "reason": "una oración en español"}.'
-)
+DEFAULT_PROMPT_QUALITY_GATE = _prompt_default("quality_gate")
 
 import httpx
 from groq import AsyncGroq, APIError, APITimeoutError, RateLimitError
@@ -282,8 +273,9 @@ async def complete_with_tools(
 ) -> tuple[str, dict | None]:
     """Chat completion CON function-calling (`tool_choice="auto"`).
 
-    La primitiva del modo unificado (2b): una sola llamada donde el modelo decide
-    entre generar la respuesta o pedir una tool. También la usa select_tool (2a).
+    La primitiva del ruteo unificado: una sola llamada donde el modelo decide
+    entre generar la respuesta o pedir una tool. También la usa select_tool
+    (decisión de tool sola, para la rama hard-fallback del orquestador y el eval).
 
     Returns:
         (texto, tool_pick): si el modelo eligió tool, tool_pick={"name","arguments"}
@@ -399,7 +391,13 @@ async def complete_quality_gate(chunk_text: str, tenant_id: str, custom_prompt: 
     Returns a dict with keys: is_coherent (bool), reason (str).
     On API failure, returns a sentinel that triggers the pending/retry flow.
     """
-    system_prompt = custom_prompt.strip() if custom_prompt else DEFAULT_PROMPT_QUALITY_GATE
+    # Precedencia: override por tenant (config) > override global del panel
+    # (registro, fila "Validador de documentos") > default del código.
+    if custom_prompt:
+        system_prompt = custom_prompt.strip()
+    else:
+        from services.prompt_registry import get_text
+        system_prompt = await get_text("quality_gate")
     user_content = chunk_text[:2000]  # Truncate to avoid token overflow
 
     try:
