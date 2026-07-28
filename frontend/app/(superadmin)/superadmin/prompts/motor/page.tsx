@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { catColor } from "@/components/superadmin/prompt-meta";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -18,15 +19,6 @@ import { Cpu, Loader2, Pencil, PanelRight, SearchX } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // Etiqueta y color de los componentes del motor (categorías internas fijas).
-const CAT_PALETTE = [
-  "bg-muted text-muted-foreground", "bg-muted text-muted-foreground",
-  "bg-info/10 text-info", "bg-success/10 text-success", "bg-warning/10 text-warning",
-];
-function catColor(cat: string): string {
-  let hash = 0;
-  for (let i = 0; i < cat.length; i++) hash = (hash * 31 + cat.charCodeAt(i)) & 0xffffffff;
-  return CAT_PALETTE[Math.abs(hash) % CAT_PALETTE.length];
-}
 function sysLabel(k: string): string {
   return k === "anti_alucinacion" ? "Anti-alucinación"
     : k === "calidad" ? "Ingesta" : k === "intenciones" ? "Clustering"

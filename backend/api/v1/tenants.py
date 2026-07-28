@@ -370,6 +370,111 @@ async def activate_tenant(
     return {"id": tenant_id, "status": "active"}
 
 
+# ── Delete tenant (destructivo e irreversible) ───────────────────────────────
+
+@router.delete("/{tenant_id}")
+async def delete_tenant(
+    tenant_id: str,
+    confirm: str = "",
+    current_user: CurrentUser = Depends(require_super_admin),
+):
+    """Elimina una organización COMPLETA: schema PG, colecciones Qdrant,
+    archivos MinIO, filas globales y cache Redis.
+
+    Guardas: solo super admin, el tenant debe estar SUSPENDIDO primero (dos
+    pasos deliberados) y `confirm` debe traer el id exacto (typing-guard del
+    frontend replicado en el servidor). El drop del schema y de la fila global
+    son obligatorios; el resto (Qdrant/MinIO/Redis) es best-effort con log —
+    un residuo huérfano en un store secundario no debe dejar a medias el alta
+    de un futuro tenant con otro nombre.
+    """
+    if confirm != tenant_id:
+        raise HTTPException(status_code=400, detail="Confirmación inválida: repetí el ID exacto de la organización.")
+
+    async with get_pg_session(None) as session:
+        row = (await session.execute(
+            text("SELECT id, name, status FROM tenants WHERE id = :id"),
+            {"id": tenant_id},
+        )).mappings().fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+    if row["status"] != "suspended":
+        raise HTTPException(
+            status_code=409,
+            detail="La organización tiene que estar suspendida antes de eliminarla.",
+        )
+
+    safe_id = tenant_id.replace("-", "_")
+    schema_name = f"tenant_{safe_id}"
+
+    # 1. Schema del tenant + filas globales (obligatorio; una sola transacción).
+    async with get_pg_session(None) as session:
+        await session.execute(text(f'DROP SCHEMA IF EXISTS "{schema_name}" CASCADE'))
+        for table in (
+            "usage_events", "whatsapp_accounts", "tenant_prompt_assignments",
+            "connector_activation_requests", "tenant_email_domains", "password_reset_tokens",
+        ):
+            await session.execute(
+                text(f"DELETE FROM public.{table} WHERE tenant_id = :id"), {"id": tenant_id}
+            )
+        await session.execute(text("DELETE FROM public.tenants WHERE id = :id"), {"id": tenant_id})
+
+    # 2. Qdrant — las colecciones actuales y las legacy, si existen.
+    try:
+        from core.database import get_qdrant_client
+        qdrant = get_qdrant_client()
+        existing = {c.name for c in (await qdrant.get_collections()).collections}
+        for col in (f"{tenant_id}_docs", f"{tenant_id}_intenciones", f"{tenant_id}_query_cache"):
+            if col in existing:
+                await qdrant.delete_collection(col)
+    except Exception as exc:
+        logger.error("tenant_delete_qdrant_error id=%s error=%s", tenant_id, exc)
+
+    # 3. MinIO — todo lo que cuelga del prefijo del tenant.
+    try:
+        from core.database import get_minio_client
+        client = get_minio_client()
+        objects = client.list_objects(settings.minio_bucket, prefix=f"{tenant_id}/", recursive=True)
+        for obj in objects:
+            client.remove_object(settings.minio_bucket, obj.object_name)
+    except Exception as exc:
+        logger.error("tenant_delete_minio_error id=%s error=%s", tenant_id, exc)
+
+    # 4. Redis cache — claves con prefijo del tenant.
+    try:
+        from core.database import get_redis_cache
+        redis = get_redis_cache()
+        cursor = 0
+        while True:
+            cursor, keys = await redis.scan(cursor, match=f"{tenant_id}:*", count=500)
+            if keys:
+                await redis.delete(*keys)
+            if cursor == 0:
+                break
+    except Exception as exc:
+        logger.error("tenant_delete_redis_error id=%s error=%s", tenant_id, exc)
+
+    # 5. Artefactos de modelos en disco.
+    try:
+        import shutil
+        from pathlib import Path
+        models_dir = Path("/app/ml_artifacts") / tenant_id
+        if models_dir.is_dir():
+            shutil.rmtree(models_dir)
+    except Exception as exc:
+        logger.error("tenant_delete_models_error id=%s error=%s", tenant_id, exc)
+
+    from core.security import invalidate_tenant_status_cache_sync
+    invalidate_tenant_status_cache_sync(tenant_id)
+
+    # El audit_log del tenant se fue con su schema — el registro que sobrevive
+    # es este log estructurado del backend (con actor y nombre).
+    logger.warning(
+        "tenant_deleted id=%s name=%r by=%s", tenant_id, row["name"], current_user.user_id
+    )
+    return {"id": tenant_id, "deleted": True}
+
+
 # ── Email domains (email-first login) ─────────────────────────────────────────
 
 import re as _re_dom
@@ -1608,6 +1713,41 @@ def _disk_status() -> dict:
         return {"total_bytes": None, "used_bytes": None, "free_bytes": None, "used_pct": None}
 
 
+def _server_status() -> dict:
+    """Memoria y carga de CPU del host. Se leen de /proc, que dentro de un
+    contenedor refleja al HOST (meminfo/loadavg no están namespaced) — así no
+    dependemos de node-exporter y funciona igual en prod y en dev local."""
+    import os
+    out: dict = {
+        "mem_total_bytes": None, "mem_available_bytes": None, "mem_used_pct": None,
+        "load_1m": None, "cpus": None, "load_pct": None,
+    }
+    try:
+        info: dict[str, int] = {}
+        with open("/proc/meminfo") as f:
+            for line in f:
+                k, v = line.split(":", 1)
+                info[k.strip()] = int(v.strip().split()[0]) * 1024
+        total = info.get("MemTotal")
+        avail = info.get("MemAvailable")
+        if total:
+            out["mem_total_bytes"] = total
+            out["mem_available_bytes"] = avail
+            if avail is not None:
+                out["mem_used_pct"] = round((total - avail) / total * 100, 1)
+    except Exception:
+        pass
+    try:
+        load1 = os.getloadavg()[0]
+        cpus = os.cpu_count() or 1
+        out["load_1m"] = round(load1, 2)
+        out["cpus"] = cpus
+        out["load_pct"] = round(load1 / cpus * 100, 1)
+    except Exception:
+        pass
+    return out
+
+
 def _backups_status() -> dict | None:
     """Estado del último backup diario y semanal (pg_dump al volumen /backups).
 
@@ -1702,9 +1842,11 @@ async def get_platform_system(
     """Infrastructure health from Prometheus: PostgreSQL, Redis, HTTP, Groq, application counters."""
     now = int(time.time())
     data = await get_system_metrics(now)
-    # Backups y disco no salen de Prometheus: se leen del filesystem.
+    # Backups, disco y servidor no salen de Prometheus: se leen del filesystem
+    # y de /proc del host.
     data["storage"] = _disk_status()
     data["backups"] = _backups_status()
+    data["server"] = _server_status()
     return _json_safe(data)
 
 
@@ -1899,6 +2041,38 @@ async def create_plan(plan_id: str, body: PlanUpsert, current_user: CurrentUser 
     invalidate_cache()
     logger.info("plan_created id=%s by=%s", pid, current_user.user_id)
     return {"status": "ok", "id": pid}
+
+
+@router.delete("/platform/plans/{plan_id}")
+async def delete_plan(plan_id: str, current_user: CurrentUser = Depends(require_super_admin)):
+    """Eliminar un plan. Solo si NINGUNA organización lo usa — si está en uso,
+    la opción correcta es desactivarlo (deja de ofrecerse, los clientes lo
+    conservan). Los 3 planes por defecto (starter/professional/enterprise) no
+    se pueden eliminar: existen como fallback hardcodeado y reaparecerían, así
+    que borrarlos sería un no-op confuso — se desactivan, no se borran."""
+    from core.plans import invalidate_cache, _FALLBACK_LIMITS
+    if plan_id in _FALLBACK_LIMITS:
+        raise HTTPException(
+            status_code=409,
+            detail="Es un plan base de la plataforma — no se puede eliminar. Desactivalo si no querés ofrecerlo.",
+        )
+    async with get_pg_session(None) as session:
+        in_use = (await session.execute(
+            text("SELECT COUNT(*) FROM public.tenants WHERE plan = :id"), {"id": plan_id}
+        )).scalar() or 0
+        if in_use > 0:
+            raise HTTPException(
+                status_code=409,
+                detail=f"{in_use} organización(es) usan este plan — desactivalo en lugar de eliminarlo.",
+            )
+        result = await session.execute(
+            text("DELETE FROM public.plans WHERE id = :id RETURNING id"), {"id": plan_id}
+        )
+        if not result.fetchone():
+            raise HTTPException(status_code=404, detail="Plan no encontrado.")
+    invalidate_cache()
+    logger.info("plan_deleted id=%s by=%s", plan_id, current_user.user_id)
+    return {"status": "ok", "id": plan_id, "deleted": True}
 
 
 @router.get("/platform/costs")

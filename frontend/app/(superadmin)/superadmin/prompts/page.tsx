@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { PLANS, PLAN_COLORS, catColor, catLabel } from "@/components/superadmin/prompt-meta";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -22,34 +23,6 @@ import { Bot, Plus, Pencil, Trash2, Users, Loader2, X, FlaskConical, Send, Panel
 import { cn } from "@/lib/utils";
 
 // ── Constants ──────────────────────────────────────────────────────────────────
-
-const PLANS = [
-  { value: "starter",      label: "Starter" },
-  { value: "professional", label: "Professional" },
-  { value: "enterprise",   label: "Enterprise" },
-] as const;
-
-const PLAN_COLORS: Record<string, string> = {
-  starter:      "bg-muted text-muted-foreground",
-  professional: "bg-info/10 text-info",
-  enterprise:   "bg-muted text-muted-foreground",
-};
-
-const CAT_PALETTE = [
-  "bg-muted text-muted-foreground",
-  "bg-muted text-muted-foreground",
-  "bg-info/10 text-info",
-  "bg-success/10 text-success",
-  "bg-warning/10 text-warning",
-];
-function catColor(cat: string): string {
-  let hash = 0;
-  for (let i = 0; i < cat.length; i++) hash = (hash * 31 + cat.charCodeAt(i)) & 0xffffffff;
-  return CAT_PALETTE[Math.abs(hash) % CAT_PALETTE.length];
-}
-function catLabel(cat: string): string {
-  return cat.charAt(0).toUpperCase() + cat.slice(1).replace(/[_-]/g, " ");
-}
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 

@@ -12,8 +12,7 @@ import { StatePill, type StatePillTone } from "@/components/ui/state-pill";
 import { ListToolbar } from "@/components/admin/list-toolbar";
 import { ChevronLeft, ChevronRight, Loader2, AlertTriangle, FileSearch, ShieldCheck, Building2, Users, FileText, Settings2, Headphones, Activity } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { PageShell } from "@/components/layout/page-shell";
-import { PageHeader, CountChip } from "@/components/layout/page-header";
+import { SuperShell } from "@/components/superadmin/shell";
 
 // Categorías para escanear la actividad por tipo, cada una con ícono y color.
 type Cat = "seguridad" | "empresa" | "usuario" | "contenido" | "config" | "operacion" | "otro";
@@ -192,15 +191,13 @@ export default function GlobalAuditPage() {
   );
 
   return (
-    <PageShell>
-      <PageHeader
-        eyebrow="Plataforma"
-        title="Auditoría global"
-        badge={data && data.total > 0
-          ? <CountChip>{data.total.toLocaleString("es-AR")} eventos</CountChip>
-          : undefined}
-        description="Actividad de todas las organizaciones de la plataforma."
-      />
+    <SuperShell
+      title="Auditoría"
+      badge={data && data.total > 0
+        ? <span className="text-xs text-muted-foreground tabular-nums">{data.total.toLocaleString("es-AR")} eventos</span>
+        : undefined}
+    >
+      <div className="space-y-4">
 
       {/* Brute force banner */}
       {hasAlertsOnPage && (
@@ -224,7 +221,7 @@ export default function GlobalAuditPage() {
       </div>
 
       {/* Table */}
-      <div className="rounded-2xl border bg-card overflow-hidden">
+      <div className="rounded-lg border overflow-hidden">
         {isLoading && (
           <div className="py-12 text-center text-muted-foreground">
             <Loader2 className="w-5 h-5 animate-spin inline" />
@@ -322,7 +319,8 @@ export default function GlobalAuditPage() {
           </div>
         </div>
       )}
-    </PageShell>
+      </div>
+    </SuperShell>
   );
 }
 

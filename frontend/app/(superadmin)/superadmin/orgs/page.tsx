@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import {
   Plus, Loader2, Building2, AlertTriangle, ArrowRight, Bot,
 } from "lucide-react";
-import { api, apiClient } from "@/lib/api";
+import { api, type TenantListRow, type PlanRow } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,20 +17,14 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { StatePill, type StatePillTone } from "@/components/ui/state-pill";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ListToolbar } from "@/components/admin/list-toolbar";
+import { SuperShell } from "@/components/superadmin/shell";
 import { useTableSort, applySort, SortHeader } from "@/components/admin/sortable";
 import { fmtNum } from "@/components/superadmin/shared";
 import { toast } from "@/components/ui/toast";
 import { cn, toSlug } from "@/lib/utils";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
-interface TenantRow {
-  id: string; name: string; plan: string; status: string;
-  admin_email: string; created_at: string;
-  limits: { users: number; documents: number; queries_month: number };
-  usage_30d: { queries: number; ingests: number };
-  queries_this_month: number;
-  last_activity_at: string | null;
-}
+type TenantRow = TenantListRow;
 
 type SortKey = "nombre" | "plan" | "estado" | "consultas" | "actividad";
 
@@ -63,11 +57,6 @@ const STATUS_META: Record<string, { label: string; tone: StatePillTone }> = {
 
 const PLAN_ORDER: Record<string, number> = { starter: 0, professional: 1, enterprise: 2 };
 
-const tenantsApi = {
-  list:   () => apiClient.get("/tenants").then(r => r.data as TenantRow[]),
-  create: (p: any) => apiClient.post("/tenants", p).then(r => r.data),
-};
-
 // ── Page ──────────────────────────────────────────────────────────────────────
 export default function OrganizationsPage() {
   const router      = useRouter();
@@ -82,7 +71,7 @@ export default function OrganizationsPage() {
   };
 
   const { data: tenants = [], isLoading } = useQuery({
-    queryKey: ["tenants"], queryFn: tenantsApi.list, refetchInterval: 30_000,
+    queryKey: ["tenants"], queryFn: api.tenants.list, refetchInterval: 30_000,
   });
   const { data: health } = useQuery({
     queryKey: ["platform-health"], queryFn: api.tenants.platformHealth,
@@ -114,18 +103,15 @@ export default function OrganizationsPage() {
 
   return (
     <>
-      <div className="flex h-full min-h-0 flex-col">
-        {/* Header bar */}
-        <div className="flex h-12 shrink-0 items-center justify-between gap-2 border-b px-4 sm:px-6">
-          <h1 className="min-w-0 truncate text-[15px] font-semibold tracking-tight text-foreground">Organizaciones</h1>
-          <Button size="sm" className="shrink-0 group" onClick={() => setShowCreate(true)}>
+      <SuperShell
+        title="Organizaciones"
+        actions={
+          <Button size="sm" className="group" onClick={() => setShowCreate(true)}>
             <Plus className="h-4 w-4 transition-transform group-hover:rotate-90 sm:mr-1.5" />
             <span className="hidden sm:inline">Nueva organización</span>
           </Button>
-        </div>
-
-        {/* Contenido scrolleable */}
-        <div className="min-h-0 flex-1 overflow-y-auto scrollbar-slim p-4 sm:p-6">
+        }
+      >
           {isLoading ? (
             <Skeleton className="h-72 rounded-2xl" />
           ) : (
@@ -171,17 +157,20 @@ export default function OrganizationsPage() {
                 <Table>
                   <TableHeader>
                     <TableRow className="hover:bg-transparent">
-                      <TableHead><SortHeader label="Organización" sortKey="nombre" sort={sort} onToggle={toggle} /></TableHead>
-                      <TableHead className="hidden md:table-cell w-[140px]">
+                      {/* La col. del nombre NO se come el espacio libre (antes tenía
+                          w-full y las demás quedaban apiñadas a la derecha): el layout
+                          automático reparte el aire entre todas las columnas. */}
+                      <TableHead className="min-w-[240px]"><SortHeader label="Organización" sortKey="nombre" sort={sort} onToggle={toggle} /></TableHead>
+                      <TableHead className="hidden md:table-cell">
                         <SortHeader label="Plan" sortKey="plan" sort={sort} onToggle={toggle} />
                       </TableHead>
-                      <TableHead className="hidden sm:table-cell w-[140px]">
+                      <TableHead className="hidden sm:table-cell">
                         <SortHeader label="Estado" sortKey="estado" sort={sort} onToggle={toggle} />
                       </TableHead>
-                      <TableHead className="hidden lg:table-cell w-[200px]">
-                        <SortHeader label="Consultas 30d" sortKey="consultas" sort={sort} onToggle={toggle} />
+                      <TableHead className="hidden lg:table-cell">
+                        <SortHeader label="Consumo del mes" sortKey="consultas" sort={sort} onToggle={toggle} />
                       </TableHead>
-                      <TableHead className="hidden xl:table-cell w-[150px] whitespace-nowrap">
+                      <TableHead className="hidden xl:table-cell whitespace-nowrap">
                         <SortHeader label="Actividad" sortKey="actividad" sort={sort} onToggle={toggle} />
                       </TableHead>
                       <TableHead className="w-[40px]" />
@@ -202,8 +191,7 @@ export default function OrganizationsPage() {
               )}
             </div>
           )}
-        </div>
-      </div>
+      </SuperShell>
 
       <CreateTenantModal open={showCreate} onClose={() => setShowCreate(false)} onCreated={inv} />
     </>
@@ -237,9 +225,8 @@ function TenantTableRow({ tenant: t, anomaly, onSelect, onPrefetch }: {
       onClick={onSelect}
       onMouseEnter={onPrefetch}
     >
-      {/* w-full + max-w-0: la columna toma el espacio restante y el nombre trunca. */}
-      <TableCell className="w-full max-w-0 py-2.5">
-        <div className="flex items-center gap-3 min-w-0">
+      <TableCell className="py-2.5">
+        <div className="flex items-center gap-3 min-w-0 max-w-[360px]">
           <div className="shrink-0 w-9 h-9 rounded-lg bg-action-gradient-soft flex items-center justify-center">
             <span className="text-sm font-bold text-action uppercase">{t.name[0]}</span>
           </div>
@@ -274,11 +261,11 @@ function TenantTableRow({ tenant: t, anomaly, onSelect, onPrefetch }: {
       </TableCell>
 
       <TableCell className="hidden lg:table-cell">
-        <div className="flex flex-col gap-1">
+        <div className="flex w-[180px] flex-col gap-1">
           <span className="text-[11px] text-muted-foreground tabular-nums leading-none">
             {fmtNum(used)}{limit > 0 ? ` / ${fmtNum(limit)}` : ""} consultas
           </span>
-          <div className="h-1.5 w-full max-w-[160px] rounded-full bg-muted overflow-hidden">
+          <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
             <div
               className={cn("h-full rounded-full transition-all", quotaTone)}
               style={{ width: `${pct ?? (used > 0 ? 100 : 0)}%` }}
@@ -324,6 +311,13 @@ function CreateTenantModal({ open, onClose, onCreated }: { open: boolean; onClos
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setForm(f => ({ ...f, [k]: e.target.value }));
 
+  const { data: plansData } = useQuery({
+    queryKey: ["platform-plans"],
+    queryFn: api.tenants.listPlans,
+    enabled: open,
+    staleTime: 60_000,
+  });
+
   const { data: personalities = [], isLoading: loadingP } = useQuery({
     queryKey: ["prompt-templates"],
     queryFn: api.promptTemplates.list,
@@ -332,7 +326,7 @@ function CreateTenantModal({ open, onClose, onCreated }: { open: boolean; onClos
   });
 
   const createM = useMutation({
-    mutationFn: () => tenantsApi.create(form),
+    mutationFn: () => api.tenants.create(form),
     onSuccess: () => {
       onCreated(); handleClose();
       toast({ title: "Organización creada", description: `'${form.id}' provisionada correctamente.`, variant: "success" });
@@ -414,15 +408,15 @@ function CreateTenantModal({ open, onClose, onCreated }: { open: boolean; onClos
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="starter">Starter</SelectItem>
-                  <SelectItem value="professional">Professional</SelectItem>
-                  <SelectItem value="enterprise">Enterprise</SelectItem>
+                  {(plansData?.plans?.filter(pl => pl.is_active) ?? [
+                    { id: "starter", name: "Starter" }, { id: "professional", name: "Professional" }, { id: "enterprise", name: "Enterprise" },
+                  ]).map(pl => (
+                    <SelectItem key={pl.id} value={pl.id}>{pl.name}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
               <p className="text-[11px] text-muted-foreground leading-tight">
-                {form.plan === "starter" && "5 usuarios · 500 docs · 5K consultas/mes"}
-                {form.plan === "professional" && "50 usuarios · 10K docs · 100K consultas/mes"}
-                {form.plan === "enterprise" && "Sin límites"}
+                {planHint(plansData?.plans, form.plan)}
               </p>
             </div>
           </div>
@@ -470,4 +464,12 @@ function CreateTenantModal({ open, onClose, onCreated }: { open: boolean; onClos
 
     </FormSheet>
   );
+}
+
+// Límites reales del plan elegido (de la base, no hardcodeados).
+function planHint(plans: PlanRow[] | undefined, planId: string): string {
+  const p = plans?.find(x => x.id === planId);
+  if (!p) return "";
+  const lim = (n: number) => n === -1 ? "sin límite" : n >= 1000 ? `${(n / 1000).toFixed(n % 1000 === 0 ? 0 : 1)}K` : String(n);
+  return `${lim(p.users)} usuarios · ${lim(p.documents)} docs · ${lim(p.queries_month)} consultas/mes`;
 }

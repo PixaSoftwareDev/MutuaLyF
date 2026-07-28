@@ -2,22 +2,19 @@
 
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import {
-  Layers, Plus, Loader2, Pencil, Users, FileText, MessageSquare, HardDrive, Coins,
-} from "lucide-react";
+import { Layers, Plus, Loader2, Pencil, Trash2, ArrowUp, ArrowDown } from "lucide-react";
 import { api, type PlanRow, type PlanBody } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FormSheet } from "@/components/layout/form-sheet";
-import { PageShell } from "@/components/layout/page-shell";
-import { PageHeader, CountChip } from "@/components/layout/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
 import { StatePill } from "@/components/ui/state-pill";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { toast } from "@/components/ui/toast";
 import { cn, toSlug } from "@/lib/utils";
+import { SuperShell } from "@/components/superadmin/shell";
 
 function fmtLimit(n: number): string {
   if (n === -1)        return "Ilimitado";
@@ -28,8 +25,8 @@ function fmtLimit(n: number): string {
 
 export default function PlansPage() {
   const qc = useQueryClient();
-  const [editing, setEditing]   = useState<PlanRow | null>(null);
   const [creating, setCreating] = useState(false);
+  const [editing, setEditing]   = useState<PlanRow | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ["platform-plans"],
@@ -38,104 +35,119 @@ export default function PlansPage() {
   });
   const plans = data?.plans ?? [];
 
-  const close = () => { setEditing(null); setCreating(false); };
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ["platform-plans"] });
+    qc.invalidateQueries({ queryKey: ["tenants"] });
+  };
+  const close = () => { setCreating(false); setEditing(null); };
 
   return (
     <>
-      <PageShell>
-        <PageHeader
-          eyebrow="Plataforma"
-          title="Planes"
-          badge={!isLoading ? <CountChip>{plans.length} {plans.length === 1 ? "plan" : "planes"}</CountChip> : undefined}
-          description="Los planes de la plataforma: límites de uso y precio. Editá los actuales o creá uno nuevo."
-          actions={
-            <Button size="sm" onClick={() => setCreating(true)} className="h-9 gap-1.5">
-              <Plus className="h-4 w-4" /> Nuevo plan
-            </Button>
-          }
-        />
+      <SuperShell
+        title="Planes"
+        actions={
+          <Button size="sm" className="group" onClick={() => setCreating(true)}>
+            <Plus className="h-4 w-4 transition-transform group-hover:rotate-90 sm:mr-1.5" />
+            <span className="hidden sm:inline">Nuevo plan</span>
+          </Button>
+        }
+      >
+          {isLoading ? (
+            <Skeleton className="h-64 rounded-2xl" />
+          ) : plans.length === 0 ? (
+            <EmptyState icon={Layers} title="Sin planes" description="Creá el primer plan de la plataforma." />
+          ) : (
+            <PlansComparison plans={plans} onEdit={setEditing} onReordered={invalidate} />
+          )}
+      </SuperShell>
 
-        {isLoading ? (
-          <Skeleton className="h-64 rounded-2xl" />
-        ) : plans.length === 0 ? (
-          <EmptyState icon={Layers} title="Sin planes" description="Creá el primer plan de la plataforma." className="rounded-2xl border bg-card" />
-        ) : (
-          <PlansComparison plans={plans} onEdit={setEditing} />
-        )}
-      </PageShell>
-
-      {(editing || creating) && (
+      {(creating || editing) && (
         <PlanModal
           plan={editing}
           onClose={close}
-          onSaved={() => { close(); qc.invalidateQueries({ queryKey: ["platform-plans"] }); qc.invalidateQueries({ queryKey: ["tenants"] }); }}
+          onSaved={() => { close(); invalidate(); }}
         />
       )}
     </>
   );
 }
 
-// ── Tabla comparativa de planes ───────────────────────────────────────────────
-// Planes en columnas, límites en filas: la forma más simple de comparar y leer.
-function PlansComparison({ plans, onEdit }: { plans: PlanRow[]; onEdit: (p: PlanRow) => void }) {
+// ── Tabla de planes — un plan por fila; click abre el panel de edición ──────
+function PlansComparison({ plans, onEdit, onReordered }: {
+  plans: PlanRow[]; onEdit: (p: PlanRow) => void; onReordered: () => void;
+}) {
+  // Reordenar = intercambiar sort_order entre vecinos. Si dos planes viejos
+  // comparten el mismo sort_order, usamos el índice como desempate.
+  const swapM = useMutation({
+    mutationFn: async ({ a, b }: { a: PlanRow; b: PlanRow }) => {
+      const soA = a.sort_order === b.sort_order ? a.sort_order + 1 : a.sort_order;
+      await api.tenants.updatePlan(a.id, { name: a.name, users: a.users, documents: a.documents, queries_month: a.queries_month, max_mb: a.max_mb, price_usd: a.price_usd, is_active: a.is_active, sort_order: b.sort_order });
+      await api.tenants.updatePlan(b.id, { name: b.name, users: b.users, documents: b.documents, queries_month: b.queries_month, max_mb: b.max_mb, price_usd: b.price_usd, is_active: b.is_active, sort_order: soA });
+    },
+    onSuccess: onReordered,
+    onError: () => toast({ title: "No se pudo reordenar", variant: "destructive" }),
+  });
   const price = (p: PlanRow) => p.price_usd != null
     ? `US$ ${p.price_usd.toLocaleString("en-US", { minimumFractionDigits: p.price_usd % 1 === 0 ? 0 : 2, maximumFractionDigits: 2 })}`
     : "—";
-  const features: Array<{ icon: typeof Users; label: string; get: (p: PlanRow) => string; strong?: boolean }> = [
-    { icon: Coins,         label: "Precio / mes",    get: price,                             strong: true },
-    { icon: Users,         label: "Usuarios",        get: p => fmtLimit(p.users) },
-    { icon: FileText,      label: "Documentos",      get: p => fmtLimit(p.documents) },
-    { icon: MessageSquare, label: "Consultas / mes", get: p => fmtLimit(p.queries_month) },
-    { icon: HardDrive,     label: "Tamaño máx. / archivo", get: p => `${p.max_mb} MB` },
-  ];
+  const lim = (n: number) => {
+    const v = fmtLimit(n);
+    return <span className={cn("tabular-nums", v === "Ilimitado" ? "text-muted-foreground" : "text-foreground")}>{v}</span>;
+  };
   return (
-    <div className="overflow-x-auto rounded-2xl border bg-card scrollbar-slim">
-      <Table className="min-w-[520px]">
+    <div className="overflow-x-auto scrollbar-slim">
+      <Table className="min-w-[640px]">
         <TableHeader>
-          <TableRow className="bg-muted/30 hover:bg-muted/30">
-            <TableHead className="w-44 px-4">Plan</TableHead>
-            {plans.map(p => (
-              <TableHead key={p.id} className={cn("min-w-[150px] px-4 py-3 align-top normal-case tracking-normal", !p.is_active && "opacity-55")}>
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-semibold text-foreground">{p.name}</span>
-                  <StatePill tone={p.is_active ? "success" : "muted"}>{p.is_active ? "Activo" : "Inactivo"}</StatePill>
-                </div>
-                <div className="mt-0.5 font-mono text-[10px] font-normal text-muted-foreground/60">{p.id}</div>
-                <button
-                  onClick={() => onEdit(p)}
-                  className="mt-2 inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs font-medium text-action transition-colors hover:bg-action/10"
-                >
-                  <Pencil className="h-3.5 w-3.5" /> Editar
-                </button>
-              </TableHead>
-            ))}
+          <TableRow className="hover:bg-transparent">
+            <TableHead className="min-w-[160px]">Plan</TableHead>
+            <TableHead className="text-right">Precio / mes</TableHead>
+            <TableHead className="text-right">Usuarios</TableHead>
+            <TableHead className="text-right">Documentos</TableHead>
+            <TableHead className="text-right">Consultas / mes</TableHead>
+            <TableHead className="text-right whitespace-nowrap">Máx. archivo</TableHead>
+            <TableHead>Estado</TableHead>
+            <TableHead className="w-[40px]" />
+            <TableHead className="w-[64px]" />
           </TableRow>
         </TableHeader>
         <TableBody>
-          {features.map(f => {
-            const Icon = f.icon;
-            return (
-              <TableRow key={f.label}>
-                <TableCell className="whitespace-nowrap px-4 py-3 text-muted-foreground">
-                  <span className="inline-flex items-center gap-2">
-                    <Icon className="h-4 w-4 shrink-0 text-muted-foreground/60" /> {f.label}
-                  </span>
-                </TableCell>
-                {plans.map(p => {
-                  const v = f.get(p);
-                  const unlimited = v === "Ilimitado";
-                  return (
-                    <TableCell key={p.id} className={cn("px-4 py-3 tabular-nums", !p.is_active && "opacity-55")}>
-                      <span className={cn(
-                        f.strong ? "text-base font-bold text-foreground" : "font-semibold text-foreground",
-                        unlimited && "text-action",
-                      )}>{v}</span>
-                    </TableCell>
-                  );
-                })}
-              </TableRow>
-            );
-          })}
+          {plans.map((p, i) => (
+            <TableRow key={p.id} className={cn("group cursor-pointer", !p.is_active && "opacity-55")} onClick={() => onEdit(p)}>
+              <TableCell>
+                <p className="text-sm font-medium text-foreground transition-colors group-hover:text-action">{p.name}</p>
+                <p className="mt-0.5 font-mono text-[10px] text-muted-foreground/60">{p.id}</p>
+              </TableCell>
+              <TableCell className="text-right font-medium tabular-nums">{price(p)}</TableCell>
+              <TableCell className="text-right">{lim(p.users)}</TableCell>
+              <TableCell className="text-right">{lim(p.documents)}</TableCell>
+              <TableCell className="text-right">{lim(p.queries_month)}</TableCell>
+              <TableCell className="text-right tabular-nums text-muted-foreground">{p.max_mb} MB</TableCell>
+              <TableCell>
+                <StatePill tone={p.is_active ? "success" : "muted"}>{p.is_active ? "Activo" : "Inactivo"}</StatePill>
+              </TableCell>
+              <TableCell className="text-right">
+                <Pencil className="inline-block h-3.5 w-3.5 text-muted-foreground/40 transition-colors group-hover:text-action" />
+              </TableCell>
+              <TableCell className="whitespace-nowrap text-right" onClick={e => e.stopPropagation()}>
+                <button
+                  disabled={i === 0 || swapM.isPending}
+                  onClick={() => swapM.mutate({ a: p, b: plans[i - 1] })}
+                  title="Subir"
+                  className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground/50 transition-colors hover:bg-muted hover:text-foreground disabled:opacity-30"
+                >
+                  <ArrowUp className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  disabled={i === plans.length - 1 || swapM.isPending}
+                  onClick={() => swapM.mutate({ a: p, b: plans[i + 1] })}
+                  title="Bajar"
+                  className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground/50 transition-colors hover:bg-muted hover:text-foreground disabled:opacity-30"
+                >
+                  <ArrowDown className="h-3.5 w-3.5" />
+                </button>
+              </TableCell>
+            </TableRow>
+          ))}
         </TableBody>
       </Table>
     </div>
@@ -153,6 +165,30 @@ function PlanModal({ plan, onClose, onSaved }: { plan: PlanRow | null; onClose: 
   const [price, setPrice]               = useState(plan?.price_usd != null ? String(plan.price_usd) : "");
   const [isActive, setIsActive]         = useState(plan?.is_active ?? true);
   const [error, setError]               = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  // Los 3 planes base viven como fallback hardcodeado — no se pueden eliminar
+  // (reaparecerían); el backend los rechaza. Solo se borran los planes custom.
+  const isDefaultPlan = isEdit && ["starter", "professional", "enterprise"].includes(plan!.id);
+
+  const deleteM = useMutation({
+    mutationFn: () => api.tenants.deletePlan(plan!.id),
+    onSuccess: () => { toast({ title: "Plan eliminado", variant: "success" }); onSaved(); },
+    onError: (e: any) => {
+      setConfirmDelete(false);
+      const d = e?.response?.data?.detail;
+      setError(typeof d === "string" ? d : "No se pudo eliminar el plan.");
+    },
+  });
+
+  // ¿Cuántas organizaciones están en este plan? — para avisar al desactivar.
+  const { data: tenants = [] } = useQuery({
+    queryKey: ["tenants"],
+    queryFn: api.tenants.list,
+    enabled: isEdit,
+    staleTime: 60_000,
+  });
+  const orgsOnPlan = isEdit ? tenants.filter(t => t.plan === plan!.id).length : 0;
 
   const buildBody = (): PlanBody => ({
     name: name.trim(),
@@ -188,6 +224,20 @@ function PlanModal({ plan, onClose, onSaved }: { plan: PlanRow | null; onClose: 
       description={isEdit ? plan!.id : "Definí los límites del nuevo plan."}
       footer={
         <>
+          {isEdit && !isDefaultPlan && (
+            <Button
+              variant="ghost"
+              className="mr-auto gap-1.5 text-destructive hover:bg-destructive/10 hover:text-destructive"
+              disabled={deleteM.isPending}
+              onClick={() => {
+                if (!confirmDelete) { setConfirmDelete(true); return; }
+                deleteM.mutate();
+              }}
+            >
+              {deleteM.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+              {confirmDelete ? "¿Seguro? Click de nuevo" : "Eliminar"}
+            </Button>
+          )}
           <Button variant="outline" onClick={onClose}>Cancelar</Button>
           <Button onClick={submit} disabled={saveM.isPending}>
             {saveM.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
@@ -219,6 +269,12 @@ function PlanModal({ plan, onClose, onSaved }: { plan: PlanRow | null; onClose: 
           <span className="text-sm font-medium">Plan activo</span>
           <input type="checkbox" checked={isActive} onChange={e => setIsActive(e.target.checked)} className="h-4 w-4" />
         </label>
+        {isEdit && !isActive && plan!.is_active && orgsOnPlan > 0 && (
+          <p className="text-xs font-medium text-warning">
+            {orgsOnPlan} {orgsOnPlan === 1 ? "organización usa" : "organizaciones usan"} este plan — al desactivarlo
+            dejan de poder asignarse nuevas, pero las existentes lo conservan.
+          </p>
+        )}
 
         {error && <p className="text-xs text-destructive">{error}</p>}
       </div>

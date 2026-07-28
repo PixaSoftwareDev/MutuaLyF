@@ -111,6 +111,16 @@ apiClient.interceptors.response.use(
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
+// Fila del listado de organizaciones (GET /tenants).
+export interface TenantListRow {
+  id: string; name: string; plan: string; status: string;
+  admin_email: string; created_at: string;
+  limits: { users: number; documents: number; queries_month: number };
+  usage_30d: { queries: number; ingests: number };
+  queries_this_month: number;
+  last_activity_at: string | null;
+}
+
 export interface PlanRow {
   id: string;
   name: string;
@@ -1029,6 +1039,43 @@ export const api = {
   },
 
   tenants: {
+    // ── CRUD de organizaciones (antes: apiClient crudo esparcido en las páginas) ──
+    list: async () => {
+      const { data } = await apiClient.get("/tenants");
+      return data as TenantListRow[];
+    },
+    create: async (body: {
+      id: string; name: string; plan: string;
+      admin_email: string; admin_name: string; admin_password: string; personality_id: string;
+    }) => {
+      const { data } = await apiClient.post("/tenants", body);
+      return data;
+    },
+    changePlan: async (id: string, plan: string) => {
+      const { data } = await apiClient.patch(`/tenants/${id}`, { plan });
+      return data;
+    },
+    suspend: async (id: string) => {
+      const { data } = await apiClient.post(`/tenants/${id}/suspend`);
+      return data;
+    },
+    activateTenant: async (id: string) => {
+      const { data } = await apiClient.post(`/tenants/${id}/activate`);
+      return data;
+    },
+    resetOnboarding: async (id: string) => {
+      const { data } = await apiClient.post(`/tenants/${id}/reset-onboarding`);
+      return data;
+    },
+    // Destructivo e irreversible — exige el tenant suspendido y el id como confirmación.
+    deleteTenant: async (id: string) => {
+      const { data } = await apiClient.delete(`/tenants/${id}`, { params: { confirm: id } });
+      return data;
+    },
+    deletePlan: async (id: string) => {
+      const { data } = await apiClient.delete(`/tenants/platform/plans/${id}`);
+      return data;
+    },
     platformTraffic: async () => {
       const { data } = await apiClient.get("/tenants/platform/traffic");
       return data as {
@@ -1084,6 +1131,11 @@ export const api = {
           weekly: { filename: string; completed_at: number; size_bytes: number; age_hours: number; healthy: boolean; count: number } | null;
           daily_history?: Array<{ filename: string; completed_at: number; size_bytes: number }>;
         } | null;
+        // Memoria y carga del host (leídas de /proc — sin depender de Prometheus).
+        server?: {
+          mem_total_bytes: number | null; mem_available_bytes: number | null; mem_used_pct: number | null;
+          load_1m: number | null; cpus: number | null; load_pct: number | null;
+        };
       };
     },
     platformAlerts: async () => {
@@ -1475,7 +1527,7 @@ export interface ChannelsState {
   webhook_url: string;
 }
 
-interface PromptTemplate {
+export interface PromptTemplate {
   id: string; nombre: string; descripcion: string | null; categoria: string;
   plan_minimo: string; is_active: boolean; created_at: string; updated_at: string;
   assigned_count: number; active_count: number;

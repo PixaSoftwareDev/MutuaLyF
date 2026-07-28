@@ -5,12 +5,12 @@ import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronRight, Building2, MessageSquare, Coins, Upload, ArrowRight } from "lucide-react";
 import { api } from "@/lib/api";
-import { PageShell } from "@/components/layout/page-shell";
-import { PageHeader } from "@/components/layout/page-header";
+import { SuperShell } from "@/components/superadmin/shell";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatePill } from "@/components/ui/state-pill";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { fmtNum, Kpi } from "@/components/superadmin/shared";
+import { DOT as STATUS_DOT, type Tone, svcTone, iaTone, backupTone as backupToneOf, serverMemTone, serverLoadTone, worst } from "@/components/superadmin/status";
 import { cn } from "@/lib/utils";
 
 /**
@@ -20,28 +20,10 @@ import { cn } from "@/lib/utils";
  * crípticos). El detalle técnico vive en Monitoreo.
  */
 
-// "unknown" = sin monitoreo (Prometheus no está en este entorno): neutro,
-// nunca alarma. Solo up=false explícito cuenta como caído.
-type Tone = "ok" | "warn" | "down" | "unknown";
-
-const DOT: Record<Tone, string> = {
-  ok:      "bg-success",
-  warn:    "bg-warning",
-  down:    "bg-destructive animate-pulse motion-reduce:animate-none",
-  unknown: "bg-muted-foreground/40",
-};
-
-const TONE_TEXT: Record<Tone, string> = {
-  ok:      "Operativo",
-  warn:    "Atención",
-  down:    "Caído",
-  unknown: "Sin datos",
-};
-
 function StatusRow({ label, tone, detail, loading }: { label: string; tone: Tone; detail?: string; loading?: boolean }) {
   return (
     <div className="flex items-center gap-2.5 px-4 py-2.5">
-      <span className={cn("h-2 w-2 shrink-0 rounded-full", loading ? "bg-muted-foreground/30" : DOT[tone])} />
+      <span className={cn("h-2 w-2 shrink-0 rounded-full", loading ? "bg-muted-foreground/30" : STATUS_DOT[tone])} />
       <span className="min-w-0 flex-1 truncate text-[13px] text-foreground">{label}</span>
       {loading
         ? <Skeleton className="h-3.5 w-14" />
@@ -50,7 +32,7 @@ function StatusRow({ label, tone, detail, loading }: { label: string; tone: Tone
             tone === "down" ? "font-medium text-destructive" :
             tone === "warn" ? "font-medium text-warning" :
             "text-muted-foreground",
-          )}>{detail ?? TONE_TEXT[tone]}</span>}
+          )}>{detail ?? (tone === "ok" ? "Operativo" : tone === "down" ? "Caído" : tone === "warn" ? "Atención" : "Sin datos")}</span>}
     </div>
   );
 }
@@ -90,21 +72,11 @@ export default function PlatformHomePage() {
   const recentErrors = (errorsData?.errors ?? []).filter(e => e.level === "ERROR");
 
   // ── Estado por servicio (el detalle vive en Monitoreo) ──
-  const upTone = (up: boolean | null | undefined): Tone =>
-    up === false ? "down" : up === true ? "ok" : "unknown";
-
-  const iaOk = system
-    ? system.groq.total_calls === 0 ? true : (system.groq.by_model ?? []).every((m: any) => m.errors === 0 || m.errors < m.total)
-    : null;
 
   const daily   = system?.backups?.daily;
   const weekly  = system?.backups?.weekly;
   const diskPct = system?.storage?.used_pct ?? null;
-  const backupTone: Tone =
-    !monitoringAvailable && system?.backups == null ? "unknown" :
-    (daily && !daily.healthy) || (diskPct != null && diskPct >= 85) ? "down" :
-    (weekly && !weekly.healthy) || (diskPct != null && diskPct >= 70) || system?.backups == null ? "warn" :
-    "ok";
+  const backupTone: Tone = backupToneOf(system?.backups, diskPct, monitoringAvailable);
   const backupDetail =
     backupTone === "unknown" ? undefined :
     daily && !daily.healthy ? "Diario vencido" :
@@ -117,11 +89,22 @@ export default function PlatformHomePage() {
     alerts.length > 0 ? "warn" : "ok";
   const errTone: Tone = recentErrors.length > 0 ? "warn" : "ok";
 
+  // Servidor (VPS): memoria y carga del host. El detalle vive en Monitoreo.
+  const srv = system?.server;
+  const memPct = srv?.mem_used_pct ?? null;
+  const loadPct = srv?.load_pct ?? null;
+  const serverTone: Tone = worst([serverMemTone(memPct), serverLoadTone(loadPct)]);
+  const serverDetail = [
+    memPct != null ? `RAM ${memPct.toFixed(0)}%` : null,
+    loadPct != null ? `CPU ${loadPct.toFixed(0)}%` : null,
+  ].filter(Boolean).join(" · ") || undefined;
+
   const statusRows: Array<{ label: string; tone: Tone; detail?: string }> = [
-    { label: "PostgreSQL", tone: upTone(system?.postgres.up) },
-    { label: "Redis",      tone: upTone(system?.redis.up) },
-    { label: "Backend",    tone: upTone(system?.backend.up) },
-    { label: "Servicio de IA", tone: iaOk == null ? "unknown" : iaOk ? "ok" : "down" },
+    { label: "Servidor", tone: serverTone, detail: serverDetail },
+    { label: "PostgreSQL", tone: svcTone(system?.postgres.up) },
+    { label: "Redis",      tone: svcTone(system?.redis.up) },
+    { label: "Backend",    tone: svcTone(system?.backend.up) },
+    { label: "Servicio de IA", tone: iaTone(system?.groq) },
     { label: "Backups y disco", tone: backupTone, detail: backupDetail },
     { label: "Alertas", tone: alertTone, detail: alerts.length > 0 ? `${alerts.length} activa${alerts.length === 1 ? "" : "s"}` : "Ninguna" },
     { label: "Errores recientes", tone: errTone, detail: recentErrors.length > 0 ? String(recentErrors.length) : "Ninguno" },
@@ -134,11 +117,11 @@ export default function PlatformHomePage() {
   const totalIngests = orgs.reduce((s, o) => s + o.ingests_30d, 0);
 
   return (
-    <PageShell>
-      <PageHeader
-        title="Inicio"
-        badge={<span className="text-xs text-muted-foreground">Últimos 30 días</span>}
-      />
+    <SuperShell
+      title="Inicio"
+      badge={<span className="text-xs text-muted-foreground">Últimos 30 días</span>}
+    >
+      <div className="space-y-4">
 
       {/* ── Stats del período ── */}
       <div className="grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-4">
@@ -247,6 +230,7 @@ export default function PlatformHomePage() {
           )}
         </div>
       </div>
-    </PageShell>
+      </div>
+    </SuperShell>
   );
 }

@@ -7,6 +7,7 @@ import {
   Inbox, FileText, Settings, LogOut,
   Home, Building2, GitMerge, Users, MessageSquareShare, ClipboardList, Bot, Cpu, Network, X, Layers, BarChart3,
   MessageSquare, Clock, UserCheck, Archive, UserRound, ChevronDown, Globe, Database, Grid3x3, Pin, PinOff, ShieldCheck, Smile,
+  Bug, HardDrive,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CONNECTORS_UI_ENABLED, FEEDBACK_UI_ENABLED } from "@/lib/features";
@@ -116,9 +117,17 @@ export const navGroups: NavGroup[] = [
   },
   {
     sectionId: "sa-monitoring",
+    label: "Monitoreo",
     items: [
-      { href: "/superadmin/monitoring", label: "Monitoreo", icon: Network, superAdminOnly: true,
-        tooltip: "Infraestructura, alertas, errores recientes y backups." },
+      { href: "/superadmin/monitoring", label: "Estado", icon: Network, superAdminOnly: true,
+        matchPrefixes: ["/superadmin/monitoring"],
+        tooltip: "Servicios, servidor y alertas activas — ¿está todo funcionando?" },
+      { href: "/superadmin/monitoring/errores", label: "Errores", icon: Bug, superAdminOnly: true,
+        tooltip: "Errores y warnings del backend, explicados en claro." },
+      { href: "/superadmin/monitoring/backups", label: "Backups", icon: HardDrive, superAdminOnly: true,
+        tooltip: "Backups diario y semanal, disco y el historial de dumps." },
+      { href: "/superadmin/monitoring/metricas", label: "Métricas", icon: BarChart3, superAdminOnly: true,
+        tooltip: "Números técnicos por servicio: API, PostgreSQL, Redis e IA." },
     ],
   },
   {
@@ -455,8 +464,20 @@ export function Sidebar() {
           {/* ── Mobile: navegación completa espejando el modelo desktop ──────── */}
           <div className="lg:hidden">
             {isSuperAdmin ? (
-              <div className="space-y-0.5">
-                {allGroups.flatMap(g => g.items.filter(isVisible)).map(renderItem)}
+              // Grupos plegables como el admin — la lista plana era ilegible
+              // con 10+ entradas. Los grupos sin label (Inicio, Auditoría) van
+              // sueltos arriba/abajo; el resto, plegable con su título.
+              <div className="space-y-1">
+                {allGroups.map(g => {
+                  const items = g.items.filter(isVisible);
+                  if (items.length === 0) return null;
+                  if (!g.label) return <div key={g.sectionId} className="space-y-0.5">{items.map(renderItem)}</div>;
+                  return (
+                    <CollapsibleGroup key={g.sectionId} label={g.label} defaultOpen>
+                      <div className="space-y-0.5">{items.map(renderItem)}</div>
+                    </CollapsibleGroup>
+                  );
+                })}
               </div>
             ) : (
               <Suspense fallback={null}>

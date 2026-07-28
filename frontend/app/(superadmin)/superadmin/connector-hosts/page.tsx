@@ -9,8 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
-import { PageShell } from "@/components/layout/page-shell";
-import { PageHeader, CountChip } from "@/components/layout/page-header";
+import { SuperShell } from "@/components/superadmin/shell";
 import { ListToolbar } from "@/components/admin/list-toolbar";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
@@ -166,13 +165,17 @@ export default function ConnectorHostsPage() {
   });
 
   return (
-    <PageShell>
-      <PageHeader
-        eyebrow="Plataforma"
-        title="Hosts aprobados"
-        badge={!isLoading ? <CountChip>{hosts.length} {hosts.length === 1 ? "host" : "hosts"}</CountChip> : undefined}
-        description="Los servidores externos a los que se les permite llamar a los conectores. Un admin arma y prueba su fuente de datos libremente, pero para activarla el host tiene que estar aprobado acá. Es la barrera que evita que la plataforma llame a destinos no autorizados."
-      />
+    <SuperShell
+      title="Hosts aprobados"
+      badge={!isLoading
+        ? <span className="text-xs text-muted-foreground tabular-nums">{hosts.length} {hosts.length === 1 ? "host" : "hosts"}</span>
+        : undefined}
+    >
+      <div className="space-y-4">
+      <p className="text-xs leading-snug text-muted-foreground">
+        Los servidores externos a los que se les permite llamar a los conectores. Para activar una fuente
+        de datos, su host tiene que estar aprobado acá — la barrera contra destinos no autorizados.
+      </p>
 
       {/* Aviso: se agregaron rutas nuevas desde la última revisión. Reemplaza al
           historial permanente — el aviso aparece solo cuando hay algo que mirar
@@ -463,6 +466,7 @@ export default function ConnectorHostsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </PageShell>
+      </div>
+    </SuperShell>
   );
 }
