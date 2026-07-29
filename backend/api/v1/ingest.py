@@ -570,7 +570,7 @@ async def delete_document(
     tenant_id: str = Depends(get_tenant_id),
     current_user: CurrentUser = Depends(require_admin),
 ):
-    """Delete a document and all associated data: PG record, Qdrant chunks, Neo4j nodes, parent_chunks, MinIO file."""
+    """Delete a document and all associated data: PG record, Qdrant chunks, parent_chunks, MinIO file."""
     # 1. Verify document exists and belongs to this tenant; fetch storage_key for MinIO cleanup
     async with get_pg_session(tenant_id) as session:
         result = await session.execute(
@@ -604,41 +604,7 @@ async def delete_document(
         logger.warning("delete_qdrant_chunks_failed document_id=%s error=%s", document_id, e)
         critical_failures.append("qdrant")
 
-    # 3. Delete Neo4j nodes (best-effort: entidades deshabilitadas y Neo4j puede
-    #    no estar disponible legítimamente → NO bloquea el borrado del documento)
-    try:
-        from core.database import get_neo4j_driver
-        neo4j = get_neo4j_driver()
-        database = tenant_id if settings.neo4j_multidatabase else "neo4j"
-        async with neo4j.session(database=database) as neo4j_session:
-            # Step 1: delete entity→chunk edges for this document's chunks, then
-            # delete any entity nodes that now have no remaining MENCIONADA_EN edges.
-            await neo4j_session.run(
-                """
-                MATCH (c:Chunk {tenant_id: $tenant_id})-[:PERTENECE_A]->
-                      (d:Documento {id: $doc_id, tenant_id: $tenant_id})
-                WITH c, d
-                OPTIONAL MATCH (e)-[r:MENCIONADA_EN]->(c)
-                DELETE r
-                WITH c, d, e
-                WHERE e IS NOT NULL AND NOT (e)-[:MENCIONADA_EN]->()
-                DELETE e
-                """,
-                tenant_id=tenant_id, doc_id=document_id,
-            )
-            # Step 2: delete chunk and document nodes
-            await neo4j_session.run(
-                """
-                MATCH (c:Chunk {tenant_id: $tenant_id})-[:PERTENECE_A]->
-                      (d:Documento {id: $doc_id, tenant_id: $tenant_id})
-                DETACH DELETE c, d
-                """,
-                tenant_id=tenant_id, doc_id=document_id,
-            )
-    except Exception as e:
-        logger.warning("delete_neo4j_nodes_failed document_id=%s error=%s", document_id, e)
-
-    # 4. Delete original file from MinIO (crítico: archivo original con PII)
+    # 3. Delete original file from MinIO (crítico: archivo original con PII)
     if storage_key:
         try:
             import asyncio as _asyncio

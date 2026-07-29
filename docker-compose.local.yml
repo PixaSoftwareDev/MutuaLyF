@@ -63,31 +63,6 @@ services:
       retries: 5
     logging: *default-logging
 
-  neo4j:
-    image: neo4j:5.18-community
-    container_name: local_neo4j
-    restart: unless-stopped
-    environment:
-      NEO4J_AUTH: ${NEO4J_USER}/${NEO4J_PASSWORD}
-      NEO4J_PLUGINS: '["apoc"]'
-      NEO4J_dbms_security_procedures_unrestricted: apoc.*
-      NEO4J_server_memory_heap_initial__size: 256m
-      NEO4J_server_memory_heap_max__size: 512m
-      NEO4J_server_memory_pagecache_size: 256m
-    volumes:
-      - local_neo4j_data:/data
-      - local_neo4j_logs:/logs
-    ports:
-      - "127.0.0.1:7475:7474"
-      - "127.0.0.1:7688:7687"
-    networks: [data]
-    healthcheck:
-      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/7474' 2>/dev/null"]
-      interval: 15s
-      timeout: 10s
-      retries: 5
-    logging: *default-logging
-
   qdrant:
     image: qdrant/qdrant:v1.9.2
     container_name: local_qdrant
@@ -167,7 +142,6 @@ services:
       - local_branding:/uploads
     depends_on:
       postgres: { condition: service_healthy }
-      neo4j: { condition: service_healthy }
       qdrant: { condition: service_healthy }
       redis: { condition: service_healthy }
     # data: para hablar con las DBs (red interna sin salida). internal: para el
@@ -279,8 +253,6 @@ networks:
 
 volumes:
   local_postgres_data:
-  local_neo4j_data:
-  local_neo4j_logs:
   local_qdrant_data:
   local_redis_data:
   local_minio_data:

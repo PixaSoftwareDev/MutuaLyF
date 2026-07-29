@@ -10,6 +10,7 @@ Usage:
 
 import argparse
 import asyncio
+import shutil
 import logging
 import smtplib
 import sys
@@ -20,7 +21,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "backend"))
 
 import asyncpg
-from neo4j import AsyncGraphDatabase
 from qdrant_client import AsyncQdrantClient
 from qdrant_client.models import Distance, VectorParams
 
@@ -44,10 +44,7 @@ async def provision_tenant(
     """Run full tenant provisioning. Raises on any failure — caller must handle rollback."""
     logger.info("provision_start tenant_id=%s", tenant_id)
 
-    pg_conn = await asyncpg.connect(settings.postgres_dsn_sync.replace("+asyncpg", "").replace("postgresql", "postgresql"))
-    neo4j_driver = AsyncGraphDatabase.driver(
-        settings.neo4j_uri, auth=(settings.neo4j_user, settings.neo4j_password)
-    )
+    pg_conn = await asyncpg.connect(settings.postgres_dsn_sync)
     qdrant = AsyncQdrantClient(host=settings.qdrant_host, port=settings.qdrant_port)
 
     # Track what was created for rollback
@@ -55,7 +52,6 @@ async def provision_tenant(
         "pg_schema": False,
         "pg_global_row": False,
         "qdrant_docs": False,
-        "neo4j_db": False,
         "models_dir": False,
     }
 
@@ -127,51 +123,32 @@ async def provision_tenant(
         created["qdrant_docs"] = True
         logger.info("step_3_done qdrant_collections tenant_id=%s", tenant_id)
 
-        # ── Step 4: Neo4j database ─────────────────────────────────────────────
-        # Community Edition doesn't support multiple databases — tenant isolation
-        # is achieved via tenant_id property on all nodes (see neo4j_client.py).
-        # Enterprise Edition supports CREATE DATABASE per tenant.
-        try:
-            async with neo4j_driver.session(database="system") as session:
-                await session.run(f"CREATE DATABASE `{tenant_id}` IF NOT EXISTS")
-            # Solo marcar para rollback si la DB se creo realmente (Enterprise).
-            created["neo4j_db"] = True
-        except Exception as neo4j_err:
-            if "UnsupportedAdministrationCommand" in str(neo4j_err) or "unsupported" in str(neo4j_err).lower():
-                # Community Edition no crea DB por tenant: no hay nada que dropear en
-                # el rollback, asi que no marcamos el flag.
-                logger.warning("neo4j_community_edition_skipping_create_db tenant_id=%s", tenant_id)
-            else:
-                raise
-        logger.info("step_4_done neo4j_db tenant_id=%s", tenant_id)
-
-        # ── Step 5: Models directory ───────────────────────────────────────────
+        # ── Step 4: Models directory ───────────────────────────────────────────
         models_dir = Path("/app/ml_artifacts") / tenant_id
         models_dir.mkdir(parents=True, exist_ok=True)
         created["models_dir"] = True
-        logger.info("step_5_done models_dir path=%s", models_dir)
+        logger.info("step_4_done models_dir path=%s", models_dir)
 
-        # ── Step 6: Mark tenant as active ─────────────────────────────────────
+        # ── Step 5: Mark tenant as active ─────────────────────────────────────
         await pg_conn.execute(
             "UPDATE public.tenants SET status = 'active' WHERE id = $1", tenant_id
         )
-        logger.info("step_6_done tenant_activated tenant_id=%s", tenant_id)
+        logger.info("step_5_done tenant_activated tenant_id=%s", tenant_id)
 
-        # ── Step 7: Welcome email ─────────────────────────────────────────────
+        # ── Step 6: Welcome email ─────────────────────────────────────────────
         _send_welcome_email(admin_email, admin_name, tenant_id)
         logger.info("provision_complete tenant_id=%s", tenant_id)
 
     except Exception as exc:
         logger.error("provision_failed tenant_id=%s error=%s", tenant_id, exc)
-        await _rollback(pg_conn, neo4j_driver, qdrant, tenant_id, created)
+        await _rollback(pg_conn, qdrant, tenant_id, created)
         raise
     finally:
         await pg_conn.close()
-        await neo4j_driver.close()
         await qdrant.close()
 
 
-async def _rollback(pg_conn, neo4j_driver, qdrant, tenant_id: str, created: dict) -> None:
+async def _rollback(pg_conn, qdrant, tenant_id: str, created: dict) -> None:
     """Best-effort rollback of each created resource."""
     logger.warning("rollback_start tenant_id=%s", tenant_id)
     safe_id = tenant_id.replace("-", "_")
@@ -194,12 +171,11 @@ async def _rollback(pg_conn, neo4j_driver, qdrant, tenant_id: str, created: dict
         except Exception as e:
             logger.error("rollback_qdrant_docs_failed error=%s", e)
 
-    if created.get("neo4j_db"):
+    if created.get("models_dir"):
         try:
-            async with neo4j_driver.session(database="system") as session:
-                await session.run(f"DROP DATABASE `{tenant_id}` IF EXISTS")
+            shutil.rmtree(Path("/app/ml_artifacts") / tenant_id, ignore_errors=True)
         except Exception as e:
-            logger.error("rollback_neo4j_failed error=%s", e)
+            logger.error("rollback_models_dir_failed error=%s", e)
 
     logger.warning("rollback_complete tenant_id=%s", tenant_id)
 
@@ -233,6 +209,11 @@ def main() -> None:
     parser.add_argument("--admin-name", required=True)
     parser.add_argument("--admin-password", required=True)
     args = parser.parse_args()
+    # Misma validación que TenantCreate (models/tenant.py): el id se interpola
+    # en DDL (schema, colección) — un id libre desde la CLI sería inyección SQL.
+    import re as _re
+    if not _re.fullmatch(r"[a-z0-9][a-z0-9\-]{1,48}[a-z0-9]", args.id):
+        parser.error("--id inválido: minúsculas/números/guiones, 3-50 chars (mismo formato que la API)")
 
     asyncio.run(
         provision_tenant(

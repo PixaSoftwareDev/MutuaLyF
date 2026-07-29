@@ -1,9 +1,9 @@
-"""Tests del modo connector_routing_mode='tool_calling' (Fase 1).
+"""Tests del ruteo unificado de conectores.
 
-El LLM elige la tool desde el catálogo; el resto (resolución por slug, ejecución,
-FSM) es el mismo. Acá se mockea `select_tool` (sin red) y el DAO/executor (sin PG),
-para validar: resolución por slug, filtrado de params alucinados, fail-closed ante
-slug inexistente, y passthrough a RAG cuando el LLM no elige tool.
+La DECISIÓN de tool ocurre dentro de la llamada RAG; su resultado se despacha por
+`handle_tool_signal(slug, params)`. Acá se mockea el DAO/executor (sin PG/red) para
+validar: resolución por slug, filtrado de params alucinados, fail-closed ante slug
+inexistente, y que `maybe_handle` (sin FSM activo) NO selecciona ninguna tool.
 """
 
 import pytest
@@ -35,7 +35,6 @@ _CATALOG = [{"slug": "proyectos", "display_name": "Proyectos",
 def wired_tc(monkeypatch):
     from core.config import settings
     monkeypatch.setattr(settings, "connectors_enabled", True)
-    monkeypatch.setattr(settings, "connector_routing_mode", "tool_calling")
 
     async def _catalog(tenant_id):
         return _CATALOG
@@ -47,58 +46,20 @@ def wired_tc(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_selecciona_tool_y_filtra_params(wired_tc, monkeypatch):
-    # LLM elige 'proyectos' y agrega un param alucinado ('foo') que debe filtrarse.
-    async def _select(messages, tools, tenant_id=None):
-        return {"name": "proyectos", "arguments": {"estado": "activo", "foo": "bar"}}
-    monkeypatch.setattr("services.groq_client.select_tool", _select)
-
-    resolved = await connector_router._resolve_tool_via_llm("t1", "qué proyectos hay activos?")
-    assert resolved is not None
-    binding, params = resolved
-    assert binding.tool_slug == "proyectos"
-    assert params == {"estado": "activo"}  # 'foo' descartado (no está en el schema)
-
-
-@pytest.mark.asyncio
-async def test_sin_tool_va_a_rag(wired_tc, monkeypatch):
-    # El LLM responde con texto (no llama tool) → None → RAG.
-    async def _select(messages, tools, tenant_id=None):
-        return None
-    monkeypatch.setattr("services.groq_client.select_tool", _select)
-    assert await connector_router._resolve_tool_via_llm("t1", "hola") is None
-
-
-@pytest.mark.asyncio
-async def test_slug_inexistente_fail_closed(wired_tc, monkeypatch):
-    # El LLM alucina un slug fuera del catálogo → fail-closed → None → RAG.
-    async def _select(messages, tools, tenant_id=None):
-        return {"name": "tool_que_no_existe", "arguments": {}}
-    monkeypatch.setattr("services.groq_client.select_tool", _select)
-    assert await connector_router._resolve_tool_via_llm("t1", "cualquier cosa") is None
-
-
-@pytest.mark.asyncio
-async def test_unified_maybe_handle_no_selecciona(monkeypatch):
-    # En modo unified, sin FSM activo, maybe_handle NO clasifica ni selecciona:
-    # devuelve None y la decisión queda en la llamada RAG (handle_query+tools).
+async def test_maybe_handle_sin_fsm_no_selecciona(monkeypatch):
+    # Sin FSM activo, maybe_handle NO decide tools: devuelve None y la selección
+    # queda en la única llamada RAG (handle_query + tool_schemas). El ruteo previo
+    # con una llamada LLM separada (select_tool pre-RAG) se eliminó.
     from core.config import settings
     monkeypatch.setattr(settings, "connectors_enabled", True)
-    monkeypatch.setattr(settings, "connector_routing_mode", "unified")
 
     class _NoFlowRedis:
         async def get(self, k):
             return None
     monkeypatch.setattr(connector_router, "get_redis_session", lambda: _NoFlowRedis())
 
-    called = {"select": False}
-    async def _select(*a, **k):
-        called["select"] = True
-    monkeypatch.setattr("services.groq_client.select_tool", _select)
-
     r = await connector_router.maybe_handle("t1", "conv-u1", "qué proyectos hay?")
     assert r is None
-    assert called["select"] is False  # la selección NO ocurre acá en unified
 
 
 @pytest.mark.asyncio
@@ -117,7 +78,7 @@ async def test_handle_tool_signal_despacha_y_filtra(wired_tc, monkeypatch):
     async def _noop_audit(*a, **k):
         return None
     monkeypatch.setattr(connector_router, "record_tool_call", _noop_audit, raising=False)
-    async def _phrase(tenant_id, question, data, nombre):
+    async def _phrase(tenant_id, question, data, nombre, **kwargs):
         return "Proyecto: Beta"
     monkeypatch.setattr(connector_router, "_phrase_with_llm", _phrase)
 
@@ -154,7 +115,7 @@ async def test_dispatch_merge_params_lexico_llm(wired_tc, monkeypatch):
     async def _noop_audit(*a, **k):
         return None
     monkeypatch.setattr(connector_router, "record_tool_call", _noop_audit, raising=False)
-    async def _phrase(tenant_id, question, data, nombre):
+    async def _phrase(tenant_id, question, data, nombre, **kwargs):
         return "ok"
     monkeypatch.setattr(connector_router, "_phrase_with_llm", _phrase)
 
@@ -165,12 +126,9 @@ async def test_dispatch_merge_params_lexico_llm(wired_tc, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_maybe_handle_ejecuta_tool_publica(wired_tc, monkeypatch):
-    # Integración: tool_calling → tool pública → execute_tool → respuesta.
-    async def _select(messages, tools, tenant_id=None):
-        return {"name": "proyectos", "arguments": {"estado": "activo"}}
-    monkeypatch.setattr("services.groq_client.select_tool", _select)
-
+async def test_tool_signal_ejecuta_tool_publica(wired_tc, monkeypatch):
+    # Integración: la decisión RAG entrega (slug, params) → handle_tool_signal →
+    # tool pública → execute_tool → respuesta redactada.
     from services.connector_executor import OK
 
     class _Res:
@@ -183,11 +141,13 @@ async def test_maybe_handle_ejecuta_tool_publica(wired_tc, monkeypatch):
     async def _noop_audit(*a, **k):
         return None
     monkeypatch.setattr(connector_router, "record_tool_call", _noop_audit, raising=False)
-    async def _phrase(tenant_id, question, data, nombre):
+    async def _phrase(tenant_id, question, data, nombre, **kwargs):
         return "Proyecto activo: Alpha"
     monkeypatch.setattr(connector_router, "_phrase_with_llm", _phrase)
 
-    r = await connector_router.maybe_handle("t1", "conv-tc-1", "qué proyectos hay activos?")
+    r = await connector_router.handle_tool_signal(
+        "t1", "conv-tc-1", "qué proyectos hay activos?",
+        "proyectos", {"estado": "activo"})
     assert r is not None
     assert "Alpha" in r["answer"]
     assert r["connector_handled"] is True

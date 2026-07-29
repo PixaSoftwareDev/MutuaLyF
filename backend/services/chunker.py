@@ -390,7 +390,7 @@ def chunk_document_hierarchical(
     search.  Each child carries `parent_id` so retrieval can expand back to
     the parent.
 
-    Quality gate, NLU, and Neo4j entity writes operate on children (same
+    Quality gate operates on children (same
     Chunk interface).  Quality gate runs once per parent — children of a
     failed parent are dropped before embedding, cutting Groq calls ≈5×.
 
@@ -1007,70 +1007,6 @@ def _dedup_cell(s: str) -> str:
             if candidate * (n // period) == s:
                 return candidate
     return s
-
-
-def _row_to_natural(headers: list[str], values: list[str]) -> str:
-    """Convert a table data row to natural language using its column headers.
-
-    Domain-agnostic: works for any table structure in any document.
-    Only pairs where both header and value are non-empty are included.
-    Falls back to pipe-delimited if there aren't enough valid pairs.
-
-    Example:
-      headers = ["Certificacion", "Duracion", "Costo"]
-      values  = ["NSA", "60 horas", "USD 199"]
-      → "Certificacion: NSA. Duracion: 60 horas. Costo: USD 199."
-    """
-    pairs = [
-        (h.strip(), v.strip())
-        for h, v in zip(headers, values)
-        if h.strip() and v.strip()
-    ]
-    if len(pairs) < 2:
-        return " | ".join(v for v in values if v.strip())
-    return ". ".join(f"{h}: {v}" for h, v in pairs) + "."
-
-
-def _naturalize_pipe_tables(text: str) -> str:
-    """Post-process extracted text: convert pipe-delimited table blocks to natural language.
-
-    Identifies table regions (consecutive lines containing ' | '), treats the
-    first row as the header, then rewrites each subsequent data row as
-    'Header1: Value1. Header2: Value2.' — a format the embedding model and
-    cross-encoder reranker both handle much better than raw pipe notation.
-
-    The original pipe-delimited header row is preserved for BM25 / keyword
-    matching; only data rows are converted.  Works for any domain.
-    """
-    lines = text.split("\n")
-    result: list[str] = []
-    i = 0
-    while i < len(lines):
-        line = lines[i]
-        if " | " not in line:
-            result.append(line)
-            i += 1
-            continue
-
-        # Collect consecutive pipe-delimited lines as a table block
-        block_start = i
-        while i < len(lines) and " | " in lines[i]:
-            i += 1
-        block = lines[block_start:i]
-
-        if len(block) < 2:
-            # Single pipe row — keep as-is (no data rows to naturalize)
-            result.extend(block)
-            continue
-
-        headers = [c.strip() for c in block[0].split(" | ")]
-        result.append(block[0])  # keep original header for keyword search
-        for data_line in block[1:]:
-            values = [c.strip() for c in data_line.split(" | ")]
-            natural = _row_to_natural(headers, values)
-            result.append(natural)
-
-    return "\n".join(result)
 
 
 def _extract_docx(content: bytes, filename: str) -> str:

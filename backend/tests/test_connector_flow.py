@@ -58,9 +58,6 @@ def wired(monkeypatch):
     """Cablea el flujo con Redis fake, stub habilitado, clasificador/DAO/audit mockeados."""
     from core.config import settings
     monkeypatch.setattr(settings, "connectors_enabled", True)
-    # Modo tool_calling explícito: sin esto heredan CONNECTOR_ROUTING_MODE del
-    # ambiente (p.ej. unified en dev local) y maybe_handle ni selecciona.
-    monkeypatch.setattr(settings, "connector_routing_mode", "tool_calling")
     monkeypatch.setattr(settings, "connector_stub_enabled", True)
 
     fake_session = FakeRedis()
@@ -72,15 +69,9 @@ def wired(monkeypatch):
 
     # Redacción con LLM anulada: estos tests validan el fallback determinista
     # (y no deben depender de un LLM vivo — costo, flakiness, CI offline).
-    async def _no_llm(tenant_id, question, data, nombre):
+    async def _no_llm(tenant_id, question, data, nombre, **kwargs):
         return None
     monkeypatch.setattr("services.connector_router._phrase_with_llm", _no_llm)
-
-    # Selección de tool por LLM mockeada (sin red): las preguntas de órdenes
-    # eligen la tool; el resto va al RAG. "rden" matchea "orden" y "órdenes".
-    async def _resolve(tenant_id, text):
-        return (_binding(), {}) if "rden" in text.lower() else None
-    monkeypatch.setattr("services.connector_router._resolve_tool_via_llm", _resolve)
 
     # Rehidratación del binding a mitad del FSM (pending_intent guarda el slug).
     async def _by_slug(tenant_id, slug):
@@ -96,8 +87,34 @@ def wired(monkeypatch):
     return {"session": fake_session, "rl": fake_rl}
 
 
-async def _turn(msg):
-    return await connector_router.maybe_handle("t1", "conv1", msg)
+# El "LLM" del ruteo unificado, mockeado sin red: las preguntas de órdenes eligen
+# la tool; el resto va al RAG. "rden" matchea "orden" y "órdenes".
+_SENTINEL = object()
+
+
+def _fake_router_pick(msg: str):
+    return {"name": "ordenes_pendientes", "arguments": {}} if "rden" in msg.lower() else None
+
+
+async def _turn(msg, pick=_SENTINEL):
+    """Replica el flujo real del widget en ruteo unificado:
+      1) con conectores apagados no se intercepta nada (todo va al RAG);
+      2) maybe_handle atiende el FSM de login en curso (o logout);
+      3) sin FSM, la decisión de tool (que en runtime hace la llamada RAG) se
+         despacha por handle_tool_signal(slug, params). `pick` permite al test
+         fijar esa decisión; por defecto usa el router fake por palabra clave.
+    """
+    from core.config import settings
+    if not settings.connectors_enabled:
+        return await connector_router.maybe_handle("t1", "conv1", msg)  # None por flag
+    r = await connector_router.maybe_handle("t1", "conv1", msg)
+    if r is not None:
+        return r
+    chosen = _fake_router_pick(msg) if pick is _SENTINEL else pick
+    if chosen is None:
+        return None  # ninguna tool aplica → RAG
+    return await connector_router.handle_tool_signal(
+        "t1", "conv1", msg, chosen["name"], chosen["arguments"])
 
 
 @pytest.mark.asyncio
@@ -256,9 +273,9 @@ def _public_binding():
 async def test_tool_publica_no_pide_login(wired, monkeypatch):
     from services.connector_executor import ExecResult, OK
 
-    async def _resolve(tenant_id, text):
-        return (_public_binding(), {})
-    monkeypatch.setattr("services.connector_router._resolve_tool_via_llm", _resolve)
+    async def _by_slug(tenant_id, slug):
+        return _public_binding() if slug == "profesionales_por_especialidad" else None
+    monkeypatch.setattr("services.connector_router.get_tool_by_slug", _by_slug)
 
     async def _exec(binding, identity, params=None):
         # La tool pública se ejecuta SIN identidad (sin login).
@@ -267,7 +284,8 @@ async def test_tool_publica_no_pide_login(wired, monkeypatch):
                           tool_slug="profesionales_por_especialidad")
     monkeypatch.setattr("services.connector_router.execute_tool", _exec)
 
-    r = await _turn("¿quién atiende cardiología?")
+    r = await _turn("¿quién atiende cardiología?",
+                    pick={"name": "profesionales_por_especialidad", "arguments": {}})
     assert r is not None and "DNI" not in r["answer"]
     assert "Ana Gómez" in r["answer"]
 
@@ -299,15 +317,11 @@ def _binding_legajo():
 
 @pytest.mark.asyncio
 async def test_fsm_pide_identificador_custom(wired, monkeypatch):
-    async def _resolve(tenant_id, text):
-        return (_binding_legajo(), {}) if "rden" in text.lower() else None
-    monkeypatch.setattr("services.connector_router._resolve_tool_via_llm", _resolve)
-
     async def _by_slug(tenant_id, slug):
         return _binding_legajo() if slug == "ordenes_pendientes" else None
     monkeypatch.setattr("services.connector_router.get_tool_by_slug", _by_slug)
 
-    # 1) Pregunta personal → pide legajo, no DNI.
+    # 1) Pregunta personal → pide legajo, no DNI (la tool la elige el router unificado).
     r = await _turn("¿tengo órdenes pendientes?")
     assert "legajo" in r["answer"] and "DNI" not in r["answer"]
 

@@ -30,7 +30,17 @@ import httpx
 
 from core.config import settings
 from core.egress_guard import EgressBlocked, assert_egress_allowed
-from services.connector_secrets import build_auth, open_secret
+from services.connector_secrets import open_secret, resolve_auth
+
+
+def _conn_oauth_ctx(connector: dict) -> dict:
+    """Contexto para connector_oauth desde el dict del conector (panel/discovery)."""
+    return {
+        "connector_id": str(connector.get("id") or connector.get("slug") or ""),
+        "slug": connector.get("slug"),
+        "egress_allow": connector.get("egress_allow") or [],
+        "timeout_ms": connector.get("timeout_ms") or 4000,
+    }
 
 logger = logging.getLogger(__name__)
 
@@ -43,8 +53,8 @@ SPEC_PATHS = ["/openapi.json", "/swagger.json", "/api-docs", "/v3/api-docs", "/s
 async def fetch_spec(connector: dict, secret_enc: str | None) -> tuple[dict | None, str | None]:
     """Prueba las rutas conocidas del catálogo. Devuelve (spec, url) o (None, None).
     Envía la credencial del conector: muchos proveedores protegen también el spec."""
-    auth_kwargs = build_auth(connector["auth_type"], connector.get("auth_config") or {},
-                             open_secret(secret_enc))
+    auth_kwargs = await resolve_auth(connector["auth_type"], connector.get("auth_config") or {},
+                                     open_secret(secret_enc), oauth_ctx=_conn_oauth_ctx(connector))
     allow_http = settings.environment == "development"
     async with httpx.AsyncClient(timeout=connector["timeout_ms"] / 1000) as client:
         for path in SPEC_PATHS:
@@ -52,7 +62,8 @@ async def fetch_spec(connector: dict, secret_enc: str | None) -> tuple[dict | No
             try:
                 assert_egress_allowed(url, connector["egress_allow"], allow_http=allow_http,
                                       trusted_internal_hosts=settings.trusted_internal_hosts_set)
-                resp = await client.get(url, headers=auth_kwargs["headers"] or None,
+                resp = await client.get(url, params=auth_kwargs["params"] or None,
+                                        headers=auth_kwargs["headers"] or None,
                                         auth=auth_kwargs["auth"])
                 if resp.status_code == 200 and "json" in (resp.headers.get("content-type") or ""):
                     spec = resp.json()
@@ -124,9 +135,13 @@ y devolvés SOLO un JSON array (sin markdown, sin explicación) con un objeto po
  "sample_params": {"param": "valor"}  // valores de prueba realistas para probar la ruta
                                  // (para el param de identidad usá "IDENTITY" literal)
 }
-Reglas: rutas que muestran listados o catálogos generales (productos, sucursales, servicios,
-horarios) son "publico". Rutas con el documento/identificador de una persona en el path son
-"personal". La ruta de perfil de la persona (datos de contacto) marcala is_lookup=true e include=true.
+Reglas — identity_kind, la prueba de fuego: ¿la respuesta sería LA MISMA para cualquier
+persona que consulte? → "publico". Marcá "personal" SOLO si la respuesta depende de QUIÉN
+pregunta (sus datos, su cuenta, su historial) o si el dato es interno del negocio y exige
+estar registrado para verlo. Catálogos, listados generales, contenido del mundo (productos,
+sucursales, horarios, noticias, clima, películas, precios públicos) son SIEMPRE "publico" —
+marcarlos "personal" obliga a la gente a loguearse para nada. Rutas con el documento/
+identificador de una persona en el path son "personal". La ruta de perfil de la persona (datos de contacto) marcala is_lookup=true e include=true.
 IMPORTANTE: que una ruta devuelva información sensible o privada de la persona (facturación, cuenta,
 saldos, historial) NO es motivo de descarte — es el caso de uso central: incluila con
 identity_kind="personal" (la plataforma la protege con login + código de verificación).
@@ -139,6 +154,12 @@ Si la documentación la subió el admin, asumí que TODAS las rutas de NEGOCIO q
 usables: ante la MÍNIMA duda marcá include=true — el descarte es solo una sugerencia que el
 admin ve y puede revertir, nunca elimina la ruta. La EXCEPCIÓN son las rutas de secretos de
 arriba: esas van descartadas siempre, aunque el resto lo incluyas con criterio amplio."""
+
+
+async def _registry_text(slug: str) -> str:
+    """Prompt override-aware desde el registro (default = constantes de este módulo)."""
+    from services.prompt_registry import get_text
+    return await get_text(slug)
 
 
 def _parse_llm_json_array(raw: str) -> list[dict]:
@@ -188,9 +209,13 @@ async def classify_routes(routes: list[dict], tenant_id: str) -> list[dict]:
     from services.groq_client import complete
     payload = json.dumps(routes, ensure_ascii=False)
     raw = await complete(
-        [{"role": "system", "content": _CLASSIFY_SYSTEM + await _tenant_context(tenant_id)},
+        [{"role": "system", "content": (await _registry_text("discovery_clasificador")) + await _tenant_context(tenant_id)},
          {"role": "user", "content": f"Rutas del proveedor:\n{payload}"}],
-        temperature=0.1, max_tokens=8000, tenant_id=tenant_id, timeout_s=120,
+        # 60s y no más: una llamada normal tarda 7-25s; cuando el proveedor LLM se
+        # cuelga, conviene cortar rápido y que el retry (que sí responde) resuelva.
+        # Con 120s un solo cuelgue hacía que el cliente HTTP del admin cortara antes
+        # de que el backend terminara — el admin veía un error genérico.
+        temperature=0.1, max_tokens=8000, tenant_id=tenant_id, timeout_s=60,
     )
     return _parse_llm_json_array(raw)
 
@@ -226,7 +251,7 @@ async def routes_from_document(doc_text: str, tenant_id: str) -> list[dict]:
     """Extrae rutas GET desde documentación en texto libre. Misma forma que parse_openapi()."""
     from services.groq_client import complete
     raw = await complete(
-        [{"role": "system", "content": _EXTRACT_ROUTES_SYSTEM + await _tenant_context(tenant_id)},
+        [{"role": "system", "content": (await _registry_text("discovery_rutas")) + await _tenant_context(tenant_id)},
          {"role": "user", "content": f"Documentación del API:\n{doc_text[:_MAX_DOC_CHARS]}"}],
         temperature=0.0, max_tokens=8000, tenant_id=tenant_id, timeout_s=120,
     )
@@ -276,17 +301,18 @@ async def dry_run(connector: dict, secret_enc: str | None, path_template: str,
     """GET real contra el proveedor con la credencial. Devuelve {ok, status, latency_ms,
     raw?, suggested_response_map?} — mismo espíritu que el botón Probar."""
     path = path_template.replace("{identity}", identity)
-    url = connector["base_url"].rstrip("/") + path
+    from services.connector_executor import join_url
+    url = join_url(connector["base_url"], path)
     allow_http = settings.environment == "development"
     out: dict = {"url": url}
     try:
         assert_egress_allowed(url, connector["egress_allow"], allow_http=allow_http,
                               trusted_internal_hosts=settings.trusted_internal_hosts_set)
-        auth_kwargs = build_auth(connector["auth_type"], connector.get("auth_config") or {},
-                                 open_secret(secret_enc))
+        auth_kwargs = await resolve_auth(connector["auth_type"], connector.get("auth_config") or {},
+                                         open_secret(secret_enc), oauth_ctx=_conn_oauth_ctx(connector))
         start = time.monotonic()
         async with httpx.AsyncClient(timeout=connector["timeout_ms"] / 1000) as client:
-            resp = await client.get(url, params=query_params or None,
+            resp = await client.get(url, params={**(query_params or {}), **auth_kwargs["params"]} or None,
                                     headers=auth_kwargs["headers"] or None, auth=auth_kwargs["auth"])
         out["latency_ms"] = int((time.monotonic() - start) * 1000)
         out["status"] = resp.status_code
@@ -313,6 +339,41 @@ def _normalize_path_params(path: str) -> str:
     una ruta documentada como /projects/:id quedaba con ':id' LITERAL en el
     template — la URL salía tal cual y el proveedor respondía 404."""
     return _EXPRESS_PARAM_RE.sub(r"{\1}", path)
+
+
+# Nombres de parámetro que inequívocamente identifican a una PERSONA. Para estos
+# se respeta siempre lo que dijo el LLM; la salvaguarda estructural solo pisa
+# nombres genéricos (id, identity, uuid...) que los proveedores usan para recursos.
+_PERSON_PARAM_RE = re.compile(r"dni|legajo|cuil|cuit|documento|socio|afiliado|matricula|member", re.I)
+
+
+def _effective_identity_param(cls: dict, classified_by_path: dict[str, dict]) -> str | None:
+    """Salvaguarda dura sobre identity_param (no confiar solo en el prompt).
+
+    El LLM a veces marca el id de un RECURSO como identidad de la persona —
+    típico cuando el proveedor llama '{identity}' o '{id}' a sus params de path
+    (/documents/{identity}). Regla estructural: si la colección dueña del param
+    (la ruta sin el tramo '/{param}') existe como ruta incluida, ese param es un
+    id de recurso que sale de esa lista, NO la identidad de quien consulta.
+    Sin esto, el param se traga del schema, el encadenado lista→detalle no corre
+    y en runtime iría la identidad de la sesión donde va el id del recurso."""
+    name = cls.get("identity_param")
+    if not name:
+        return None
+    if cls.get("is_lookup"):
+        return name  # la ruta de perfil resuelve a la persona por SU identidad
+    path = _normalize_path_params(cls.get("path") or "")
+    if "{" + name + "}" not in path:
+        return name  # identidad por query param — la salvaguarda es solo de path
+    if _PERSON_PARAM_RE.search(name):
+        return name
+    parent = path.split("/{" + name + "}")[0]
+    sib = classified_by_path.get(parent)
+    if sib and sib.get("include"):
+        logger.info("identity_param_override path=%s param=%s lista=%s",
+                    path, name, parent)
+        return None
+    return name
 
 
 def _list_sibling(path: str, classified_by_path: dict[str, dict]) -> dict | None:
@@ -356,14 +417,18 @@ def _build_tool_fields(route: dict, cls: dict,
             spec_prop["enum"] = p["enum"]
         # Param de path que no es la identidad → id de recurso: el LLM lo completa
         # con un valor que salió de un resultado previo (lista hermana).
-        if p.get("in") == "path" or ("{" + name + "}") in path_template:
+        # EXCEPCIÓN: si tiene enum es un SELECTOR (/trending/{media_type} con
+        # movie|tv), no un id — se elige del enum o del pedido del usuario, no
+        # requiere procedencia de una lista.
+        is_path_param = p.get("in") == "path" or ("{" + name + "}") in path_template
+        if is_path_param and not p.get("enum"):
             spec_prop["x-resource-id"] = True
             sib = _list_sibling(path_template, classified_by_path or {})
             origen = f" Obtené el valor de la operación '{sib['slug']}'." if sib and sib.get("slug") else \
                      " Obtené el valor de la operación de listado correspondiente."
             spec_prop["description"] = f"Identificador del recurso.{origen} Nunca lo inventes."
-            if not p.get("required"):
-                p["required"] = True
+        if is_path_param and not p.get("required"):
+            p["required"] = True  # un placeholder del path siempre necesita valor
         props[name] = spec_prop
         if p.get("required"):
             required.append(name)
@@ -423,6 +488,11 @@ async def propose_from_routes(connector: dict, secret_enc: str | None, tenant_id
     classified_by_path = {
         _normalize_path_params(c.get("path") or ""): c for c in classified
     }
+    # Salvaguarda estructural ANTES de armar nada: si el LLM confundió un id de
+    # recurso con la identidad de la persona, acá se corrige para que el schema,
+    # el sample y el item salgan consistentes.
+    for cls in classified:
+        cls["identity_param"] = _effective_identity_param(cls, classified_by_path)
 
     proposal: list[dict] = []
     # Detalles a probar en 2ª pasada (con id real de su lista) y listas ya

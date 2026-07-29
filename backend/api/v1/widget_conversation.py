@@ -402,19 +402,25 @@ async def send_message(
                       "Por favor, comunicate directamente con la organización.")
         sources = []
     else:
-        # Modo unificado (2b): la MISMA llamada LLM del RAG recibe el catálogo de
+        # Ruteo unificado: la MISMA llamada LLM del RAG recibe el catálogo de
         # tools del tenant y decide tool-vs-responder (cero hops extra en turnos
         # RAG). Si eligió tool, se ejecuta acá — capa de conversación, con estado —
-        # por el mismo camino que los otros modos (público / sesión / FSM login).
+        # por el mismo camino que el FSM de login (público / sesión).
         from core.config import settings as _settings
         tool_schemas = None
-        if _settings.connectors_enabled and _settings.connector_routing_mode == "unified":
+        tool_domains = None
+        if _settings.connectors_enabled:
             try:
                 from services.connector_router import _build_tool_schemas
                 from services.connectors_dao import list_tools_for_tool_calling
+                from services.prompt_builder import tool_domain_summary
                 catalog = await list_tools_for_tool_calling(tenant_id)
                 if catalog:
                     tool_schemas = _build_tool_schemas(catalog)
+                    # Dominios cubiertos por las tools → el módulo de alcance del
+                    # prompt los declara en-scope (sin esto, la política de alcance
+                    # institucional rechazaba temas que las tools sí cubren).
+                    tool_domains = tool_domain_summary(catalog)
             except Exception as exc:
                 # Sin catálogo no hay tools este turno; el RAG sigue normal.
                 logger.warning("tool_catalog_failed tenant_id=%s error=%s", tenant_id, exc)
@@ -426,6 +432,7 @@ async def send_message(
                 language="es",
                 conversation_history=conversation_history,
                 tool_schemas=tool_schemas,
+                tool_domains=tool_domains,
             )
             if rag_result.get("tool_call"):
                 from services.connector_router import handle_tool_signal

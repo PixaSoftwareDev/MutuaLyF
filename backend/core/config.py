@@ -99,15 +99,6 @@ class Settings(BaseSettings):
             f"?sslmode=disable"
         )
 
-    # ── Neo4j ─────────────────────────────────────────────────────────────────
-    neo4j_uri: str = "bolt://neo4j:7687"
-    neo4j_user: str = "neo4j"
-    neo4j_password: str
-    # Multi-database isolation requires Neo4j Enterprise.
-    # Community Edition only has the "neo4j" database; tenant isolation is
-    # enforced via the tenant_id property on every node and relationship.
-    neo4j_multidatabase: bool = False
-
     # ── Qdrant ────────────────────────────────────────────────────────────────
     qdrant_host: str = "qdrant"
     qdrant_port: int = 6333
@@ -137,28 +128,23 @@ class Settings(BaseSettings):
     # a nivel sistema — el bot sigue siendo solo-RAG). Se activa por tenant vía la
     # config de conectores, pero este flag lo apaga globalmente si hace falta.
     connectors_enabled: bool = False
-    # Cómo decide el router QUÉ tool disparar:
-    #   "tool_calling" → llamada LLM SEPARADA pre-RAG elige la tool (2a). Ruteo correcto
-    #                    (eval 46/46) pero suma ~0.9-1.2s a CADA turno del widget.
-    #   "unified"      → la MISMA llamada LLM que genera la respuesta RAG recibe el
-    #                    catálogo (tool_choice=auto) y decide tool-vs-responder (2b).
-    #                    Cero latencia extra en turnos RAG; recomendado.
-    # El flujo posterior (FSM de login, roles, execute_tool) es idéntico en ambos.
-    # El modo "cosine" (clasificador de intenciones + binding) se eliminó 2026-07-22
-    # por ruteo poco fiable; un env legacy con ese valor se coerciona a "unified".
+    # DEPRECADO — hay un único ruteo: la MISMA llamada LLM que genera la respuesta
+    # RAG recibe el catálogo (tool_choice=auto) y decide tool-vs-responder, sin un
+    # hop LLM extra. Los modos separados "tool_calling" (select_tool pre-RAG,
+    # ~0.9-1.2s por turno) y "cosine" (clasificador de intenciones) se eliminaron.
+    # El campo queda solo para no romper .env legacy: cualquier valor se coerciona
+    # al ruteo único. Se puede borrar cuando ningún deploy lo setee.
     connector_routing_mode: str = "unified"
 
     @field_validator("connector_routing_mode")
     @classmethod
     def _coerce_routing_mode(cls, v: str) -> str:
-        valid = {"unified", "tool_calling"}
-        if v not in valid:
+        if v != "unified":
             import logging
             logging.getLogger(__name__).warning(
-                "connector_routing_mode=%r no soportado (modo cosine eliminado) — usando 'unified'", v
+                "connector_routing_mode=%r está deprecado (ruteo unificado único) — ignorado", v
             )
-            return "unified"
-        return v
+        return "unified"
     # Loop agéntico de conectores: tras ejecutar una tool, el resultado vuelve al
     # LLM (con el catálogo) para que encadene la siguiente o redacte la respuesta.
     # Presupuesto DURO: llamadas a tools por turno y tiempo total del loop. Las
@@ -232,13 +218,9 @@ class Settings(BaseSettings):
     # Bajo contención CPU en backend (~200%), modelos locales y conexiones
     # de red necesitan headroom mayor que el ideal de "happy path".
     redis_timeout_ms: int = 200          # antes 20ms: causaba timeouts en cada request bajo carga
-    classifier_timeout_ms: int = 200     # antes 80ms
-    nlu_timeout_ms: int = 1000           # antes 200ms: GLiNER local CPU-bound bajo carga
-    orchestrator_timeout_ms: int = 100   # antes 50ms
     db_timeout_ms: int = 1500            # antes 500ms
     llm_fast_timeout_ms: int = 3000      # antes 1500ms: bajo carga + retries
     llm_reasoning_timeout_ms: int = 10000  # antes 7000ms
-    neo4j_timeout_ms: int = 1500         # antes 500ms
 
     # ── Chunking ──────────────────────────────────────────────────────────────
     chunk_size_tokens: int = 512
@@ -272,7 +254,12 @@ class Settings(BaseSettings):
     bm25_limit: int = 20                # BM25 candidates from PostgreSQL
     rrf_k: int = 60                     # RRF constant (standard value, rarely changed)
     skipped_chunk_score_penalty: float = 0.85  # score multiplier for quality_gate_status=skipped
-    low_confidence_fallback_chunks: int = 2    # chunks to include when all below min_score
+    # Chunks a incluir cuando todo quedó bajo min_score. Con 2, en consultas
+    # multi-sujeto el dato del sujeto correcto quedaba FUERA del contexto ("el
+    # mail de ventas NUESTRO": el contacto del producto entraba en el top-2 y
+    # el de la organización quedaba 4º — el modelo no puede desambiguar lo que
+    # no ve; visto 2026-07-28). 4 mantiene la cautela con cobertura razonable.
+    low_confidence_fallback_chunks: int = 4
     # Piso de confianza para el corte duro anti-alucinación. DESACTIVADO (0.0) por
     # ahora: el score final tiene escala INCONSISTENTE — RRF (fusión con BM25) lo
     # comprime a ~0.03, y el reranker (que lo devolvería a ~0.4) no siempre corre.
@@ -307,8 +294,6 @@ class Settings(BaseSettings):
 
     # ── ML models ─────────────────────────────────────────────────────────────
     embedding_model: str = "intfloat/multilingual-e5-large"
-    nlu_model: str = "urchade/gliner_large-v2.1"
-    nlu_enabled: bool = True
 
     # ── Cache ─────────────────────────────────────────────────────────────────
     cache_ttl_seconds: int = 3600
@@ -400,7 +385,6 @@ def _assert_production_secrets_safe() -> None:
     }
     checks = [
         ("POSTGRES_PASSWORD",       settings.postgres_password),
-        ("NEO4J_PASSWORD",          settings.neo4j_password),
         ("JWT_SECRET_KEY",          settings.jwt_secret_key),
         ("MINIO_ROOT_PASSWORD",     settings.minio_root_password),
     ]

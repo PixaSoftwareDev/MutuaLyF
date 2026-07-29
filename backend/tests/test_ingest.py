@@ -315,7 +315,6 @@ class TestDeleteDocumentOrphans:
 
         with patch.object(ingest, "get_pg_session", lambda *a, **k: _FakePgCM(session)), \
              patch.object(ingest, "get_qdrant_client", return_value=qdrant), \
-             patch("core.database.get_neo4j_driver", return_value=MagicMock()), \
              patch.object(ingest, "get_minio_client", return_value=MagicMock()):
             with pytest.raises(HTTPException) as exc:
                 await ingest.delete_document(

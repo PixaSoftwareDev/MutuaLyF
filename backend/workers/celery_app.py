@@ -24,7 +24,7 @@ def on_worker_process_init(**kwargs):
     1. Dispose inherited SQLAlchemy engine — asyncpg connections from the parent
        are bound to the parent's event loop and must not be reused after fork.
     2. Pre-warm CPU-intensive models so the FIRST task doesn't pay cold-load cost.
-       multilingual-e5-large: ~5s load  |  GLiNER large: ~21s load
+       multilingual-e5-large: ~5s load
     """
     import asyncio
     from core.database import _pg_engine
@@ -42,12 +42,6 @@ def on_worker_process_init(**kwargs):
     except Exception:
         pass
 
-    # ENTITIES_DISABLED: NLU warmup desactivado
-    # try:
-    #     from services.nlu import _load_model as _warm_nlu
-    #     _warm_nlu()
-    # except Exception:
-    #     pass
 
 
 # ── Beat schedule ───────────────────────────────────────────────────────────────

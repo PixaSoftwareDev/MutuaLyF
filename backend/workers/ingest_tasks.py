@@ -6,7 +6,6 @@ Full pipeline per document:
   3. Quality gate per chunk (Groq) — non-blocking on failure
   4. Embed chunks (multilingual-e5-large) — batch
   5. Index in Qdrant
-  6. Extract entities (GLiNER) → write to Neo4j (MERGE, circuit-breaker protected)
   7. Update document status in PostgreSQL
   8. Log usage event
 
@@ -14,7 +13,7 @@ Event-loop contract
 -------------------
 Every Celery task that does async work must:
   1. Call asyncio.run() exactly ONCE.
-  2. Create all async clients (Qdrant, Neo4j) INSIDE that single run, using
+  2. Create all async clients (Qdrant) INSIDE that single run, using
      the get_worker_*() context managers from core.database.
   3. Never pass async client objects across asyncio.run() boundaries — they
      are bound to the event loop that created them.
@@ -27,7 +26,6 @@ import time
 from pathlib import Path
 
 from celery import Task
-from neo4j import AsyncDriver
 from qdrant_client import AsyncQdrantClient
 from qdrant_client.models import PointStruct
 
@@ -90,14 +88,13 @@ async def _ingest_with_lifecycle(
     filename: str,
 ) -> dict:
     """Single event loop entry point. Opens all async clients here and closes them on exit."""
-    from core.database import get_worker_qdrant_client, get_worker_neo4j_driver
+    from core.database import get_worker_qdrant_client
 
-    async with get_worker_qdrant_client() as qdrant, get_worker_neo4j_driver() as neo4j_driver:
+    async with get_worker_qdrant_client() as qdrant:
         try:
             result = await _run_ingest_pipeline(
                 document_id, tenant_id, file_path, mime_type, filename,
                 qdrant=qdrant,
-                neo4j_driver=neo4j_driver,
             )
             logger.info("ingest_complete document_id=%s chunks=%d", document_id, result["chunk_count"])
             # Re-escanear contradicciones de campos: un doc nuevo puede introducir
@@ -127,7 +124,6 @@ async def _run_ingest_pipeline(
     filename: str,
     *,
     qdrant: AsyncQdrantClient,
-    neo4j_driver: AsyncDriver,
 ) -> dict:
     """Core ingestion logic. All async clients are injected — no global lookups."""
     from services.chunker import extract_text_from_bytes, chunk_document_hierarchical
@@ -212,10 +208,12 @@ async def _run_ingest_pipeline(
     if not parents_stage2:
         parents_stage2 = parents  # keep all if everything filtered
 
-    # Stage 1: Groq coherence gate on parent texts
-    from services.orchestrator import _get_tenant_config as _get_config, _get_system_template
+    # Stage 1: Groq coherence gate on parent texts.
+    # Prompt: override por tenant (config) o el default del registro — la fila
+    # DB global "Validador de documentos" se eliminó (prompt_registry, mig 046).
+    from services.orchestrator import _get_tenant_config as _get_config
     _cfg = await _get_config(tenant_id)
-    quality_prompt = _cfg.get("prompt_quality_gate") or await _get_system_template("Validador de documentos")
+    quality_prompt = _cfg.get("prompt_quality_gate") or None
 
     # Wrap parents as Chunk-compatible objects for validate_chunks_batch
     parent_as_chunks: list[ChunkType] = [
@@ -243,6 +241,15 @@ async def _run_ingest_pipeline(
     # el documento (auditoría de casuística 2026-06). Descartar es decisión del
     # admin (review_chunk → reject), no de la IA.
     chunks = children
+
+    # Coherencia parent↔child: si el Stage-2 filtró un parent, sus children NO
+    # deben apuntar a un parent que nunca se guardó (referencia colgante rompe el
+    # small-to-big) ni heredar "passed" por ausencia en quality_map. Se les anula
+    # el parent_id: quedan como chunks planos, buscables por derecho propio.
+    stored_parent_ids = {p.id for p in parents_stage2}
+    for c in chunks:
+        if c.parent_id and c.parent_id not in stored_parent_ids:
+            c.parent_id = None
 
     # ── 4. Store parents in PostgreSQL (before Qdrant so children can reference them) ─
     t = time.monotonic()
@@ -369,8 +376,6 @@ async def _run_ingest_pipeline(
     logger.info("ingest_indexed document_id=%s points=%d", document_id, len(points))
 
     # ── 8. Mark document ready immediately — chunks are searchable now ────────
-    # NLU/Neo4j entity extraction runs as a background task so the user sees
-    # "ready" without waiting for GLiNER CPU inference (which can take minutes).
     passed_count = sum(1 for r in quality_results if r.status.value == "passed")
     pending_count = sum(1 for r in quality_results if r.status.value == "pending")
     if pending_count > 0:
@@ -394,14 +399,7 @@ async def _run_ingest_pipeline(
     await _log_usage_event(tenant_id, "ingest", len(points))
     await _invalidate_tenant_cache(tenant_id)
 
-    # ENTITIES_DISABLED: NLU + Neo4j enrichment desactivado
-    # chunk_texts_and_ids = [(chunk.id, chunk.text) for chunk, _ in valid]
-    # enrich_document_entities.apply_async(
-    #     args=[document_id, tenant_id, chunk_texts_and_ids],
-    #     countdown=0,
-    # )
-
-    # ── 10. Encolar revalidación de quality gate para los chunks pendientes ────
+    # ── 9. Encolar revalidación de quality gate para los chunks pendientes ────
     # El quality gate corre sobre PARENTS; quality_map está indexado por id de
     # PARENT. El bug previo buscaba quality_map.get(c.id) con c = child → un id de
     # child JAMÁS está en quality_map → pending_retry siempre vacío → la
@@ -427,11 +425,6 @@ async def _run_ingest_pipeline(
 
     return {"chunk_count": len(points), "status": "ready", "timings": timings}
 
-
-# ENTITIES_DISABLED: enrich_document_entities task desactivado
-# @app.task(name="workers.ingest_tasks.enrich_document_entities", ...)
-# def enrich_document_entities(...): ...
-# async def _run_entity_enrichment(...): ...
 
 
 # ── revalidate_chunk_quality ──────────────────────────────────────────────────
@@ -476,25 +469,12 @@ async def _run_revalidation(chunk_id: str, tenant_id: str) -> str:
             return "done"
 
         chunk_text = results[0].payload.get("text", "")
-        # Load tenant quality-gate prompt via worker pg session (avoids using the
-        # FastAPI app pool, which is not available in the Celery process).
-        quality_prompt: str | None = None
-        try:
-            from core.database import get_worker_pg_session
-            from sqlalchemy import text as _sa_text
-            async with get_worker_pg_session(tenant_id) as _pg:
-                row = await _pg.execute(
-                    _sa_text(
-                        "SELECT pt.content FROM system_prompt_templates pt "
-                        "JOIN tenants t ON t.prompt_template_id = pt.id "
-                        "WHERE t.id = :tid"
-                    ),
-                    {"tid": tenant_id},
-                )
-                quality_prompt = (row.scalar_one_or_none() or None)
-        except Exception as _cfg_exc:
-            logger.warning("tenant_config_load_failed_worker tenant_id=%s error=%s", tenant_id, _cfg_exc)
-        result = await complete_quality_gate(chunk_text, tenant_id, custom_prompt=quality_prompt)
+        # Prompt del gate: default del registro (prompt_registry vía
+        # complete_quality_gate). El query viejo acá referenciaba columnas que
+        # no existen (pt.content / tenants.prompt_template_id) — fallaba
+        # SIEMPRE en silencio y caía al default, o sea que nunca hubo override
+        # funcional por este camino. Eliminado en la limpieza del registro.
+        result = await complete_quality_gate(chunk_text, tenant_id, custom_prompt=None)
 
         # Respect manual overrides — never overwrite a human decision
         if results[0].payload.get("manually_reviewed"):
@@ -651,7 +631,12 @@ async def _store_parent_chunks(parents: list, tenant_id: str) -> None:
                 )
         logger.info("parent_chunks_stored tenant_id=%s count=%d", tenant_id, len(parents))
     except Exception as exc:
+        # Fatal a propósito: si los parents no se guardan, los children quedarían
+        # en Qdrant con parent_id hacia filas inexistentes y el small-to-big
+        # retrieval perdería el contexto en silencio. Mejor fallar la ingesta:
+        # el autoretry + purge idempotente hacen seguro el reintento.
         logger.error("parent_chunks_store_failed tenant_id=%s error=%s", tenant_id, exc)
+        raise
 
 
 async def _ensure_qdrant_collection(qdrant: AsyncQdrantClient, collection: str) -> None:

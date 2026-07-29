@@ -111,6 +111,30 @@ def seen_ids(entries: list[dict]) -> set[str]:
     return out
 
 
+def render_referents(entries: list[dict]) -> str:
+    """Nota de REFERENTES para la síntesis de la respuesta (no para el loop).
+
+    A diferencia de render_note (ids "usables"), acá importa la RECENCIA: el
+    último elemento consultado es el referente más probable de un pronombre
+    («le», «ese», «el segundo»). Orden inverso-cronológico y etiquetas al
+    frente. '' si no hay memoria."""
+    if not entries:
+        return ""
+    lines = []
+    for e in reversed(entries[-_MAX_ENTRIES:]):
+        items = e.get("items") or []
+        labels = [i["label"] for i in items if i.get("label")]
+        if not labels:
+            continue
+        # La marca va en la PRIMERA línea emitida (no en la primera iterada:
+        # una entrada reciente sin labels la salteaba y la marca se perdía).
+        marca = " ← lo MÁS RECIENTE (referente probable)" if not lines else ""
+        lines.append(f"- {', '.join(labels[:6])}{marca}")
+    if not lines:
+        return ""
+    return "Entidades de la conversación, de más a menos reciente:\n" + "\n".join(lines)
+
+
 def render_note(entries: list[dict]) -> str:
     """Nota compacta para inyectar al LLM del loop. '' si no hay memoria."""
     if not entries:

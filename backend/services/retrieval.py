@@ -26,9 +26,9 @@ logger = logging.getLogger(__name__)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # PyTorch threading config — aplica a cualquier modelo torch cargado en el
-# proceso (GLiNER/NLU). 4 workers uvicorn con cgroup limit 12 CPUs → ~3
-# threads por worker para no oversubscribir (24 threads en 12 cores = context
-# switching que mata performance).
+# proceso (embeddings locales). 4 workers uvicorn con cgroup limit 12 CPUs →
+# ~3 threads por worker para no oversubscribir (24 threads en 12 cores =
+# context switching que mata performance).
 # ─────────────────────────────────────────────────────────────────────────────
 try:
     import torch as _torch
@@ -58,7 +58,6 @@ except ImportError:
 # Per-source timeout
 _QDRANT_TIMEOUT_S = settings.db_timeout_ms / 1000       # default 500ms
 
-
 @dataclass
 class RetrievedChunk:
     chunk_id:            str
@@ -76,7 +75,6 @@ class RetrievedChunk:
     @property
     def strategy(self) -> str:
         return self.metadata.get("strategy", "fixed")
-
 
 async def retrieve_multi_query(
     queries: list[str],
@@ -138,7 +136,6 @@ async def retrieve_multi_query(
     fused = _rrf_fuse_lists(valid_lists, top_k=max(rerank_top_k, 20))
     return fused[:rerank_top_k]
 
-
 def _rrf_fuse_lists(
     rankings: list[list[RetrievedChunk]],
     top_k: int,
@@ -169,7 +166,6 @@ def _rrf_fuse_lists(
     sorted_chunks = sorted(chunk_by_id.values(), key=lambda c: c.score, reverse=True)
     return sorted_chunks[:top_k]
 
-
 async def retrieve(
     query: str,
     tenant_id: str,
@@ -184,7 +180,14 @@ async def retrieve(
     from core.tracing import get_tracer
     tracer = get_tracer()
 
-    loop = asyncio.get_running_loop()
+    # BM25 no necesita el embedding: se lanza YA y corre en paralelo con
+    # embed + Qdrant. Antes iba en serie después del search — latencia sumada
+    # por nada (son independientes hasta el merge RRF).
+    bm25_task = asyncio.create_task(_bm25_search(query, tenant_id, limit=settings.bm25_limit))
+
+    def _drop_bm25() -> None:
+        if not bm25_task.done():
+            bm25_task.cancel()
 
     # ── 1. Embed query (CPU-bound, non-blocking) ──────────────────────────────
     with tracer.start_as_current_span("retrieval.embed") as span:
@@ -193,6 +196,7 @@ async def retrieve(
 
     if query_vector is None:
         logger.error("retrieve_embed_failed query_len=%d", len(query))
+        _drop_bm25()
         return []
 
     # ── 2. Qdrant search with independent timeout ─────────────────────────────
@@ -216,12 +220,15 @@ async def retrieve(
                 tenant_id, _QDRANT_TIMEOUT_S,
             )
             span.set_attribute("timeout", True)
+            _drop_bm25()
             return []
         except Exception as exc:
             logger.error("qdrant_search_failed tenant_id=%s error=%s", tenant_id, exc)
+            _drop_bm25()
             return []
 
     if not results:
+        _drop_bm25()
         return []
 
     # ── 3. Build chunk list with parent_id from Qdrant payload ──────────────
@@ -281,9 +288,11 @@ async def retrieve(
             span.set_attribute("after_dedup", len(chunks))
 
     # ── 5. BM25 keyword search + RRF merge ───────────────────────────────────
+    # El search corrió en paralelo desde el arranque; acá solo se espera el
+    # resultado (normalmente ya está listo) y se fusiona.
     with tracer.start_as_current_span("retrieval.bm25_rrf") as span:
         try:
-            bm25_hits = await _bm25_search(query, tenant_id, limit=settings.bm25_limit)
+            bm25_hits = await bm25_task
             span.set_attribute("bm25_hits", len(bm25_hits))
             if bm25_hits:
                 chunks = _rrf_merge(chunks, bm25_hits)
@@ -299,53 +308,6 @@ async def retrieve(
         tenant_id, len(chunks), len(reranked),
     )
     return reranked
-
-
-async def retrieve_by_ids(
-    chunk_ids: list[str],
-    tenant_id: str,
-) -> list[RetrievedChunk]:
-    """Fetch specific chunks from Qdrant by ID.
-
-    Used to materialize Neo4j entity-graph results: Neo4j returns chunk_ids that
-    contain a named entity; this function fetches the actual text from Qdrant so
-    those chunks can be included in the LLM context.
-
-    Chunks returned here get score=1.0 — entity-graph lookup is always highly
-    relevant by definition (the entity was explicitly named in the query).
-    """
-    if not chunk_ids:
-        return []
-
-    collection = f"{tenant_id}_docs"
-    qdrant = get_qdrant_client()
-
-    try:
-        async with asyncio.timeout(_QDRANT_TIMEOUT_S):
-            points = await qdrant.retrieve(
-                collection_name=collection,
-                ids=chunk_ids,
-                with_payload=True,
-            )
-    except asyncio.TimeoutError:
-        logger.warning("retrieve_by_ids_timeout tenant_id=%s", tenant_id)
-        return []
-    except Exception as exc:
-        logger.warning("retrieve_by_ids_failed tenant_id=%s error=%s", tenant_id, exc)
-        return []
-
-    return [
-        RetrievedChunk(
-            chunk_id=str(point.id),
-            document_id=point.payload.get("document_id", ""),
-            text=point.payload.get("text", ""),
-            score=1.0,
-            quality_gate_status=point.payload.get("quality_gate_status", "unknown"),
-            metadata={k: v for k, v in point.payload.items() if k not in ("text", "document_id")},
-        )
-        for point in points
-    ]
-
 
 async def _fetch_parent_texts(parent_ids: list[str], tenant_id: str) -> dict[str, str]:
     """Fetch parent chunk texts from PostgreSQL in a single IN query."""
@@ -365,7 +327,6 @@ async def _fetch_parent_texts(parent_ids: list[str], tenant_id: str) -> dict[str
     except Exception as exc:
         logger.warning("fetch_parent_texts_failed tenant_id=%s error=%s", tenant_id, exc)
         return {}
-
 
 async def _bm25_search(query: str, tenant_id: str, limit: int = 20) -> list[dict]:
     """Full-text BM25 search over parent_chunks via PostgreSQL tsvector."""
@@ -428,7 +389,6 @@ async def _bm25_search(query: str, tenant_id: str, limit: int = 20) -> list[dict
     except Exception as exc:
         logger.warning("bm25_search_failed tenant_id=%s error=%s", tenant_id, exc)
         return []
-
 
 def _rrf_merge(
     semantic_chunks: list[RetrievedChunk],

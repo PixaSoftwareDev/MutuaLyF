@@ -162,9 +162,12 @@ async def _judge(question: str, chunk_texts: list[str], tenant_id: str) -> dict 
         '¿Cuáles fragmentos CONTIENEN la respuesta? JSON: {"responden": [...], "motivo": "..."}'
     )
     try:
+        # Override-aware: el super-admin puede pisar el texto del juez desde el
+        # panel (prompt_registry "trust_gate_juez"); default = _JUDGE_SYSTEM.
+        from services.prompt_registry import get_text
         raw = await complete(
             messages=[
-                {"role": "system", "content": _JUDGE_SYSTEM},
+                {"role": "system", "content": await get_text("trust_gate_juez")},
                 {"role": "user", "content": user},
             ],
             temperature=0.0,
