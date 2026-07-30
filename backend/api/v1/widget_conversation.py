@@ -260,9 +260,16 @@ async def send_message(
             INSERT INTO mensajes (id, conversation_id, sender_type, content)
             VALUES (:id, :cid, 'user', :content)
         """), {"id": msg_id, "cid": conversation_id, "content": body.content})
-        await session.execute(text(
-            "UPDATE conversaciones SET updated_at = NOW() WHERE id = :id"
-        ), {"id": conversation_id})
+        # updated_at SOLO se renueva mientras la conversación está con el bot.
+        # En cola (handoff_requested) el reloj de cierre debe contar desde que
+        # entró a la cola — si cada mensaje del afiliado esperando lo reseteara,
+        # la conversación no cerraría nunca (incidente Josué 2026-07-29). En
+        # atención (human_attending) el cierre usa el último msg del afiliado,
+        # no updated_at, así que congelarlo acá tampoco molesta.
+        if conv_status == ConvStatus.BOT_ACTIVE:
+            await session.execute(text(
+                "UPDATE conversaciones SET updated_at = NOW() WHERE id = :id"
+            ), {"id": conversation_id})
     await _publish_event(tenant_id, "new_message", {"conversation_id": conversation_id})
 
     # If human is attending, just queue the message (operator will respond via panel)

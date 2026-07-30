@@ -142,8 +142,8 @@ async def _close_stale_tenant(tenant_id: str) -> int:
     """Cierra conversaciones inactivas por estado, con thresholds distintos:
 
     bot_active          → 30 min  (el bot respondio, user no volvio)
-    handoff_requested   → 2 h     (espera de operador muy larga)
-    human_attending     → 12 h    (operador atendio, user abandono el chat)
+    handoff_requested   → 1 h     (en cola sin que ningun operador la tome)
+    human_attending     → 2 h     (operador atendio, user abandono el chat)
 
     Para cada cierre: UPDATE + INSERT mensaje system + publish SSE. Sin
     el publish el operador queda con UI stale (panel mostrando conv en
@@ -178,9 +178,13 @@ async def _close_stale_tenant(tenant_id: str) -> int:
             "status = 'bot_active' AND updated_at < NOW() - INTERVAL '30 minutes'",
             "bot_active",
         )
+        # handoff_requested: updated_at queda CONGELADO en el momento de la
+        # derivacion (widget_conversation.py no lo renueva con los mensajes que
+        # el afiliado manda esperando en cola). Asi el cierre cuenta desde que
+        # entro a la cola, no se resetea con la ansiedad del afiliado.
         handoff_ids = await _close_batch(
             session,
-            "status = 'handoff_requested' AND updated_at < NOW() - INTERVAL '2 hours'",
+            "status = 'handoff_requested' AND updated_at < NOW() - INTERVAL '1 hour'",
             "handoff_requested",
         )
         # human_attending: usamos last user message, no updated_at, porque
@@ -197,7 +201,7 @@ async def _close_stale_tenant(tenant_id: str) -> int:
                    WHERE conversation_id = c.id AND sender_type = 'user'
                  ) m ON TRUE
                  WHERE c.status = 'human_attending'
-                   AND COALESCE(m.last_user_msg, c.created_at) < NOW() - INTERVAL '12 hours'
+                   AND COALESCE(m.last_user_msg, c.created_at) < NOW() - INTERVAL '2 hours'
                )""",
             "human_attending",
         )
