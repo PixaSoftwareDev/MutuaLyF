@@ -381,7 +381,7 @@ function ConvRow({ conv, selected, onClick }: {
             info vive en el panel derecho de contexto) */}
         <span className="flex items-baseline gap-2">
           <span className="flex min-w-0 flex-1 items-center gap-1.5">
-            {/* El origen "de prueba" vive en el panel de contexto — la fila queda limpia */}
+            {conv.is_test && <span aria-label="Conversación de prueba" className="shrink-0 rounded bg-action/10 px-1 py-0.5 text-[9px] font-bold uppercase tracking-wide text-action">TEST</span>}
             <span className="truncate text-[13px] font-semibold text-foreground">
               {name ?? <span className="font-normal italic text-muted-foreground">Anónimo</span>}
             </span>
@@ -465,6 +465,7 @@ function ConvDetail({ detail, loading, isError, onRetry, onClose, backArrow, con
             <p className="min-w-0 flex-1 truncate text-sm font-semibold">
               {detail.afiliado_nombre || (detail.afiliado_ip ? `IP ${detail.afiliado_ip}` : "Anónimo")}
             </p>
+            {detail.is_test && <span aria-label="Conversación de prueba" className="shrink-0 rounded bg-action/10 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-action">TEST</span>}
             <StatusBadge status={detail.status} />
           </>
         )}
