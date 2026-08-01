@@ -93,11 +93,16 @@ def parse_openapi(spec: dict) -> list[dict]:
                     if cand.get("enum") or cand.get("type"):
                         schema = cand
                         break
+            example = p.get("example", schema.get("example", schema.get("default")))
             params.append({
                 "name": p.get("name"), "in": p.get("in", "query"),
                 "required": bool(p.get("required")),
                 "type": schema.get("type", "string"),
                 "enum": schema.get("enum"),
+                # Metadata para humanos y para el LLM: la descripción y el
+                # ejemplo del spec alimentan el panel Probar y el tool schema.
+                "description": (p.get("description") or schema.get("description") or "").strip() or None,
+                "example": example,
             })
         routes.append({
             "path": path, "method": "GET", "params": params,
@@ -415,6 +420,10 @@ def _build_tool_fields(route: dict, cls: dict,
         spec_prop: dict = {"type": p.get("type") or "string"}
         if p.get("enum"):
             spec_prop["enum"] = p["enum"]
+        if p.get("description"):
+            spec_prop["description"] = p["description"]
+        if p.get("example") is not None:
+            spec_prop["x-example"] = p["example"]
         # Param de path que no es la identidad → id de recurso: el LLM lo completa
         # con un valor que salió de un resultado previo (lista hermana).
         # EXCEPCIÓN: si tiene enum es un SELECTOR (/trending/{media_type} con
@@ -427,6 +436,8 @@ def _build_tool_fields(route: dict, cls: dict,
             origen = f" Obtené el valor de la operación '{sib['slug']}'." if sib and sib.get("slug") else \
                      " Obtené el valor de la operación de listado correspondiente."
             spec_prop["description"] = f"Identificador del recurso.{origen} Nunca lo inventes."
+            # Sin ejemplo del spec: un id "de muestra" invita a inventar ids.
+            spec_prop.pop("x-example", None)
         if is_path_param and not p.get("required"):
             p["required"] = True  # un placeholder del path siempre necesita valor
         props[name] = spec_prop
@@ -526,6 +537,14 @@ async def propose_from_routes(connector: dict, secret_enc: str | None, tenant_id
         # admin pueda corregir a la IA y re-incluirlas). El dry-run solo corre en
         # las incluidas — no gastamos llamadas al proveedor en descartes.
         path_template, params_schema = _build_tool_fields(route, cls, classified_by_path)
+        # Los sample_params que la IA generó para el dry-run también sirven de
+        # ejemplo permanente en el panel Probar — antes se usaban una vez y se
+        # tiraban. El spec manda; la IA rellena solo donde no hubo ejemplo.
+        for pname, pval in (cls.get("sample_params") or {}).items():
+            prop = (params_schema.get("properties") or {}).get(pname)
+            if prop is not None and "x-example" not in prop and not prop.get("x-resource-id") \
+                    and str(pval).strip() and str(pval) != "IDENTITY":
+                prop["x-example"] = pval
         item["path_template"] = path_template
         item["params_schema"] = params_schema
         item["response_map"] = {}

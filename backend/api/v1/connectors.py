@@ -904,6 +904,25 @@ async def discover_connector_from_file(
     return proposal
 
 
+async def _backfill_param_metadata(tenant_id: str, tool: dict, new_schema: dict) -> None:
+    """Completa description/x-example en los parámetros de una tool existente a
+    partir de una re-detección. Solo AGREGA claves ausentes en props ya
+    declarados — nunca pisa valores ni cambia el set de parámetros."""
+    old_schema = dict(tool.get("params_schema") or {})
+    old_props = old_schema.get("properties") or {}
+    changed = False
+    for name, new_prop in ((new_schema or {}).get("properties") or {}).items():
+        old_prop = old_props.get(name)
+        if old_prop is None:
+            continue
+        for key in ("description", "x-example"):
+            if key in new_prop and key not in old_prop:
+                old_prop[key] = new_prop[key]
+                changed = True
+    if changed:
+        await dao.update_tool(tenant_id, tool["id"], {"params_schema": old_schema})
+
+
 @router.post("/admin/connectors/{connector_id}/apply")
 async def apply_proposal(
     connector_id: str, body: ApplyIn, request: Request,
@@ -924,6 +943,7 @@ async def apply_proposal(
     # corridas (español↔inglés) pero la ruta es estable.
     existing = await dao.list_tools(tenant_id, connector_id)
     existing_paths = {(e["http_method"].upper(), e["path_template"]) for e in existing}
+    existing_by_path = {(e["http_method"].upper(), e["path_template"]): e for e in existing}
 
     created, kept, lookup_path, lookup_param = [], [], None, None
     id_params: list[str] = []   # identity_param de las operaciones personales
@@ -935,6 +955,12 @@ async def apply_proposal(
             continue  # el perfil no es una tool de chat: solo config del OTP
         if (t.http_method.upper(), t.path_template) in existing_paths:
             kept.append(t.slug)   # ya existe esa ruta → intacta, no la tocamos
+            # …salvo la metadata de parámetros (descripción/ejemplo) que la
+            # re-detección trae y la tool aún no tiene: se COMPLETA sin pisar
+            # nada existente ni tocar lo curado a mano (ejemplos, response_map).
+            await _backfill_param_metadata(
+                tenant_id, existing_by_path[(t.http_method.upper(), t.path_template)],
+                t.params_schema)
             continue
         data = t.model_dump(exclude={"is_lookup", "identity_param"})
         data["http_method"] = data["http_method"].upper()

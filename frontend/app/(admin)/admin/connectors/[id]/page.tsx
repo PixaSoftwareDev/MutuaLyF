@@ -1173,7 +1173,7 @@ function ToolCard({ connectorId, tool, onDelete, onChanged }: {
   const [result, setResult]       = useState<ConnectorTestResult | null>(null);
 
   const schemaProps = (tool.params_schema?.properties ?? {}) as Record<
-    string, { type?: string; enum?: unknown[]; description?: string; "x-resource-id"?: boolean }
+    string, { type?: string; enum?: unknown[]; description?: string; "x-resource-id"?: boolean; "x-example"?: unknown }
   >;
   const schemaRequired = (tool.params_schema?.required ?? []) as string[];
   const hasDeclaredParams = Object.keys(schemaProps).length > 0;
@@ -1391,7 +1391,9 @@ function ToolCard({ connectorId, tool, onDelete, onChanged }: {
               </div>
             )}
             {/* Un campo por parámetro del schema — sin JSON a mano. Sin
-                parámetros declarados no se pide nada. */}
+                parámetros declarados no se pide nada. La ayuda va VISIBLE bajo
+                el campo (un tooltip nadie lo descubre) y el ejemplo del spec o
+                del discovery es el placeholder. */}
             {hasDeclaredParams &&
               Object.entries(schemaProps).map(([name, spec]) => (
                 <div key={name} className="w-44 space-y-1.5">
@@ -1408,17 +1410,48 @@ function ToolCard({ connectorId, tool, onDelete, onChanged }: {
                         {spec.enum.map(v => <SelectItem key={String(v)} value={String(v)}>{String(v)}</SelectItem>)}
                       </SelectContent>
                     </Select>
+                  ) : spec.type === "boolean" ? (
+                    <Select value={paramVals[name] ?? ""} onValueChange={v => setParamVals(s => ({ ...s, [name]: v }))}>
+                      <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Elegí…" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="true">Sí</SelectItem>
+                        <SelectItem value="false">No</SelectItem>
+                      </SelectContent>
+                    </Select>
                   ) : (
                     <Input
                       className="h-8 font-mono text-sm"
-                      placeholder={spec["x-resource-id"] ? "vacío → lo buscamos solos" : (spec.type === "integer" || spec.type === "number") ? "123" : "valor"}
-                      title={spec.description}
+                      placeholder={spec["x-resource-id"] ? "vacío → lo buscamos solos"
+                        : spec["x-example"] != null ? `ej. ${String(spec["x-example"])}`
+                        : (spec.type === "integer" || spec.type === "number") ? "123" : "valor"}
                       value={paramVals[name] ?? ""}
                       onChange={e => setParamVals(s => ({ ...s, [name]: e.target.value }))}
                     />
                   )}
+                  {spec.description && !spec["x-resource-id"] && (
+                    <p className="text-[10px] leading-snug text-muted-foreground line-clamp-3">{spec.description}</p>
+                  )}
+                  {spec["x-resource-id"] && (
+                    <p className="text-[10px] leading-snug text-muted-foreground">Se completa solo con un id real del listado.</p>
+                  )}
                 </div>
               ))}
+            {/* Autocompletar con los ejemplos disponibles (spec del proveedor o
+                discovery) — solo llena campos vacíos, no pisa lo tipeado. */}
+            {hasDeclaredParams && Object.values(schemaProps).some(s => s["x-example"] != null) && (
+              <Button
+                size="sm" variant="outline"
+                onClick={() => setParamVals(prev => {
+                  const next = { ...prev };
+                  for (const [name, spec] of Object.entries(schemaProps)) {
+                    if (spec["x-example"] != null && !(next[name] ?? "").trim()) next[name] = String(spec["x-example"]);
+                  }
+                  return next;
+                })}
+              >
+                Completar con ejemplos
+              </Button>
+            )}
             <Button
               size="sm"
               disabled={testM.isPending || (needsIdentity && !identity.trim()) || missingRequired.length > 0}
