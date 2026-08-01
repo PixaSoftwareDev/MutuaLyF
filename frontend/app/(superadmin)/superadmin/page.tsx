@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronRight, Building2, MessageSquare, Coins, Upload, ArrowRight } from "lucide-react";
+import { ChevronRight, Building2, MessageSquare, Coins, Upload, ArrowRight, ShieldAlert } from "lucide-react";
 import { api } from "@/lib/api";
 import { SuperShell } from "@/components/superadmin/shell";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -60,6 +60,13 @@ export default function PlatformHomePage() {
     queryKey: ["platform-traffic"], queryFn: api.tenants.platformTraffic,
     staleTime: 5 * 60_000,
   });
+  // Conectores esperando aprobación de hosts — acción del superadmin que no
+  // debe depender de que alguien recuerde entrar a la ficha del cliente.
+  const { data: reqData } = useQuery({
+    queryKey: ["activation-requests"], queryFn: api.connectors.activationRequests,
+    refetchInterval: 60_000, staleTime: 30_000,
+  });
+
   const { data: costs } = useQuery({
     queryKey: ["platform-costs"], queryFn: api.tenants.platformCosts,
     staleTime: 10 * 60_000, refetchInterval: 15 * 60_000,
@@ -122,6 +129,30 @@ export default function PlatformHomePage() {
       badge={<span className="text-xs text-muted-foreground">Últimos 30 días</span>}
     >
       <div className="space-y-4">
+
+      {/* ── Acción pendiente: conectores esperando aprobación de hosts ── */}
+      {(reqData?.requests ?? []).length > 0 && (
+        <div className="overflow-hidden rounded-xl border border-warning/40 bg-warning/[0.06]">
+          {(reqData?.requests ?? []).map(r => (
+            <Link
+              key={`${r.tenant_id}-${r.connector_id}`}
+              href={`/superadmin/tenants/${r.tenant_id}`}
+              className="flex items-center gap-2.5 px-4 py-3 transition-colors hover:bg-warning/[0.08]"
+            >
+              <ShieldAlert className="h-4 w-4 shrink-0 text-warning" />
+              <span className="min-w-0 flex-1 text-[13px]">
+                <span className="font-medium">{r.connector_name}</span>
+                <span className="text-muted-foreground"> de </span>
+                <span className="font-medium">{r.tenant_name}</span>
+                <span className="text-muted-foreground">
+                  {" "}espera aprobación de {r.hosts.filter(h => !h.approved).map(h => h.host).join(", ") || "sus hosts"}
+                </span>
+              </span>
+              <span className="shrink-0 text-xs font-medium text-warning">Revisar y aprobar →</span>
+            </Link>
+          ))}
+        </div>
+      )}
 
       {/* ── Stats del período ── */}
       <div className="grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-4">
