@@ -114,27 +114,26 @@ export function ConnectorsPanel({ tenantId }: { tenantId: string }) {
         <EmptyState icon={Plug} title="Sin conectores configurados" />
       ) : (
         <div className="divide-y divide-border/60">
-          {/* Pedidos de activación pendientes de ESTE cliente — lo accionable primero. */}
-          {requests.map(r => (
-            <div key={r.connector_id} className="space-y-2 border-l-2 border-warning bg-warning/[0.06] px-4 py-3">
-              <p className="text-[13px]">
-                <ShieldAlert className="mr-1.5 inline h-3.5 w-3.5 text-warning" />
-                <span className="font-medium">{r.connector_name}</span>
-                <span className="text-muted-foreground"> — pidió activarse{r.requested_by ? ` (${r.requested_by})` : ""} y espera que apruebes:</span>
-              </p>
-              <div className="flex flex-wrap gap-1.5">
-                {r.hosts.map(h => <HostChip key={h.host} host={h.host} />)}
-              </div>
-            </div>
-          ))}
-
-          {conns.map(c => (
-            <div key={c.id} className="space-y-2.5 px-4 py-3">
+          {conns.map(c => {
+            // El pedido de activación se integra a la fila de SU conector —
+            // un solo lugar por conector, sin repetir hosts ni botones.
+            const req = requests.find(r => r.connector_id === c.id);
+            return (
+            <div key={c.id} className={cn("space-y-2.5 px-4 py-3", req && "border-l-2 border-warning bg-warning/[0.05]")}>
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-[13px] font-medium">{c.display_name}</span>
                 <StatePill tone={c.is_active ? "success" : "muted"}>{c.is_active ? "Activo" : "Inactivo"}</StatePill>
                 <code className="min-w-0 truncate font-mono text-xs text-muted-foreground">{c.base_url}</code>
               </div>
+
+              {req && (
+                <p className="text-[13px]">
+                  <ShieldAlert className="mr-1.5 inline h-3.5 w-3.5 text-warning" />
+                  <span className="text-muted-foreground">
+                    Pidió activarse{req.requested_by ? ` (${req.requested_by})` : ""} — espera que apruebes sus hosts.
+                  </span>
+                </p>
+              )}
 
               <div className="flex flex-wrap gap-1.5">
                 {c.egress_allow.length === 0
@@ -170,7 +169,8 @@ export function ConnectorsPanel({ tenantId }: { tenantId: string }) {
                 </div>
               )}
             </div>
-          ))}
+            );
+          })}
 
           <p className="px-4 py-2.5 text-[11px] leading-snug text-muted-foreground">
             La aprobación es de plataforma: habilita el host para todas las organizaciones.
