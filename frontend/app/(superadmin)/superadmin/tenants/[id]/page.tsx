@@ -19,6 +19,7 @@ import { UsagePanel } from "./_components/usage-panel";
 import { QueriesPanel } from "./_components/queries-panel";
 import { TeamPanel } from "./_components/team-panel";
 import { HealthPanel } from "./_components/health-panel";
+import { ConnectorsPanel } from "./_components/connectors-panel";
 
 const STATUS_META: Record<string, { label: string; tone: StatePillTone }> = {
   active:     { label: "Activa",     tone: "success" },
@@ -128,6 +129,7 @@ export default function TenantDetailPage() {
           <UsagePanel usage={m.usage} quotaQ={quotaQ} quotaD={quotaD} />
           <QueriesPanel queries={m.recent_queries} />
           <TeamPanel tenantId={tenantId} tenantName={t.name} />
+          <ConnectorsPanel tenantId={tenantId} />
           <HealthPanel m={m} health={health} loading={healthLoading} />
         </div>
 
