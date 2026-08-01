@@ -1481,8 +1481,10 @@ function ToolCard({ connectorId, tool, onDelete, onChanged }: {
               </div>
               {result.auto_filled?.map(a => (
                 <p key={a.param} className="text-xs text-muted-foreground">
-                  Probada con <code>{a.param}={a.value}</code>{a.label ? ` («${a.label}»)` : ""} — lo
-                  conseguimos automáticamente de “{a.from}”.
+                  {a.from === "__example__"
+                    ? <>Probada con <code>{a.param}={a.value}</code> — usamos el ejemplo declarado del parámetro.</>
+                    : <>Probada con <code>{a.param}={a.value}</code>{a.label ? ` («${a.label}»)` : ""} — lo
+                       conseguimos automáticamente de “{a.from}”.</>}
                 </p>
               ))}
               {!result.ok && (() => {

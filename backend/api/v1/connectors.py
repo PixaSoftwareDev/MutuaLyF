@@ -1129,6 +1129,20 @@ async def _autofill_resource_ids(conn: dict, tool: dict, tools: list[dict],
         if spec.get("enum") and not str(filled.get(name) or "").strip():
             filled[name] = spec["enum"][0]
 
+    # 1b) Requeridos sin valor con ejemplo declarado (spec/IA/doc/admin) →
+    #     usarlo. Solo requeridos: probar con el mínimo real es lo más parecido
+    #     al uso; llenar opcionales solo suma modos de falla espurios.
+    for name in required:
+        spec = props.get(name) or {}
+        if spec.get("x-resource-id") or spec.get("enum"):
+            continue
+        if str(filled.get(name) or "").strip():
+            continue
+        ex = spec.get("x-example")
+        if ex is not None and str(ex).strip():
+            filled[name] = ex
+            autos.append({"param": name, "value": ex, "from": "__example__"})
+
     # 2) Ids de recurso → conseguir un id real desde su lista.
     for name, spec in props.items():
         if not (isinstance(spec, dict) and spec.get("x-resource-id")):
@@ -1268,7 +1282,33 @@ def _test_detail(result: dict) -> str | None:
     return f"{status} — {msg}"[:300] if msg else status
 
 
+async def _learn_examples_from_test(tenant_id: str, tool: dict, params: dict) -> None:
+    """Guarda como x-example los valores tipeados en una prueba individual que
+    salió OK, solo en params declarados que aún no tenían ejemplo (nunca pisa,
+    nunca en ids de recurso). Best-effort: si falla, la prueba vale igual."""
+    schema = dict(tool.get("params_schema") or {})
+    props = schema.get("properties") or {}
+    changed = False
+    for name, val in (params or {}).items():
+        prop = props.get(name)
+        if prop is None or prop.get("x-resource-id") or "x-example" in prop:
+            continue
+        if val is None or not str(val).strip():
+            continue
+        prop["x-example"] = val
+        changed = True
+    if changed:
+        try:
+            await dao.update_tool(tenant_id, tool["id"], {"params_schema": schema})
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("learn_example_failed tool=%s error=%s", tool["id"], exc)
+
+
 async def _persist_test(tenant_id: str, tool_id: str, result: dict) -> None:
+    # "Falta un parámetro" NO es una falla del proveedor (nunca lo llamamos):
+    # no pisa el último estado conocido — la operación queda como estaba.
+    if result.get("error") == "params_missing":
+        return
     try:
         await dao.record_tool_test(tenant_id, tool_id, bool(result.get("ok")), _test_detail(result))
     except Exception as exc:  # noqa: BLE001 — el resultado de la prueba vale igual
@@ -1304,6 +1344,11 @@ async def test_tool(
         if autos:
             result["auto_filled"] = autos
         await _maybe_apply_suggested_map(tenant_id, tool, result)
+        if result.get("ok"):
+            # Aprendizaje del uso: los valores que el admin tipeó y funcionaron
+            # quedan como x-example de los params que no tenían — la próxima
+            # «Probar todas» ya no depende de que alguien recuerde un valor.
+            await _learn_examples_from_test(tenant_id, tool, body.params)
     await _persist_test(tenant_id, tool_id, result)
     _audit(request, current_user, "connector_tool_tested", f"{connector_id}/{tool['slug']}",
            {"ok": result.get("ok"), "status": result.get("status")})
@@ -1342,6 +1387,11 @@ async def test_all_tools(
                 result = await _dry_run_tool(conn, tool, tenant_id, connector_id,
                                              body.identity, filled)
                 await _maybe_apply_suggested_map(tenant_id, tool, result)
+        if result.get("error") == "params_missing":
+            # Sin datos para probarla (requerido sin valor ni ejemplo): queda
+            # "sin probar", no "Falló" — el proveedor nunca fue llamado.
+            return {**base, "skipped": True, "ok": None,
+                    "detail": result.get("detail") or "sin datos para probar"}
         await _persist_test(tenant_id, tool["id"], result)
         out = {**base, "skipped": False, "ok": bool(result.get("ok")),
                "status": result.get("status"), "error": result.get("error"),

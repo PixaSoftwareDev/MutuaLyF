@@ -483,8 +483,17 @@ def _is_secret_route(path: str) -> bool:
 
 def _sample_query(cls: dict, params_schema: dict) -> dict:
     """Query params de muestra para el dry-run: solo los declarados en el schema,
-    nunca el de identidad (ese lo maneja dry_run con test_identity)."""
+    nunca el de identidad (ese lo maneja dry_run con test_identity). Los
+    requeridos que la IA no cubrió caen al x-example del schema (spec/doc) —
+    la IA es no-determinística y a veces omite un sample; sin este respaldo la
+    ruta quedaba "sin probar" en la propuesta. Ids de recurso: 2ª pasada."""
     sample = dict(cls.get("sample_params") or {})
+    props = params_schema.get("properties") or {}
+    for name in (params_schema.get("required") or []):
+        prop = props.get(name) or {}
+        if name not in sample and not prop.get("x-resource-id") \
+                and prop.get("x-example") is not None:
+            sample[name] = prop["x-example"]
     sample.pop(cls.get("identity_param") or "", None)
     return {k: v for k, v in sample.items() if k in (params_schema.get("properties") or {})}
 
