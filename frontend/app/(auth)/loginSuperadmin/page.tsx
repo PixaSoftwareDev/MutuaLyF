@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,20 +21,30 @@ export default function LoginSuperadminPage() {
   const [error, setError]     = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // Valor actual del input en el DOM: el autofill de Chrome y el tipeo
+  // pre-hidratación llenan el DOM sin disparar onChange, y el estado
+  // controlado queda atrás (ver replay abajo).
+  const domValue = (id: string) =>
+    (document.getElementById(id) as HTMLInputElement | null)?.value ?? "";
+
+  // Núcleo del login: recibe los valores explícitos para que el replay
+  // pre-hidratación pueda pasar lo que realmente hay en el DOM.
+  const submitCredentials = async (emailVal: string, pwdVal: string) => {
     setError(null);
     setLoading(true);
     try {
-      const data = await api.auth.login(email, password, "");
+      const data = await api.auth.login(emailVal, pwdVal, "");
       const payload = decodeJwtPayload<{ role?: string; tenant_id?: string }>(data.access_token);
       if (!payload?.role || !payload?.tenant_id) throw new Error("Token de sesión inválido");
       const role = payload.role;
       const resolvedTenant = payload.tenant_id;
 
-      setAuth(data.access_token, resolvedTenant, email, role);
-      document.cookie = `ia_role=${role}; path=/; SameSite=strict`;
-      document.cookie = `ia_tenant=${resolvedTenant}; path=/; SameSite=strict`;
+      setAuth(data.access_token, resolvedTenant, emailVal, role);
+      // max-age alineado al refresh_token del backend (30 días) — sin él son
+      // cookies de sesión y el middleware pierde el rol al reabrir el navegador.
+      const maxAge = 60 * 60 * 24 * 30;
+      document.cookie = `ia_role=${role}; path=/; max-age=${maxAge}; SameSite=strict`;
+      document.cookie = `ia_tenant=${resolvedTenant}; path=/; max-age=${maxAge}; SameSite=strict`;
 
       if (role === "super_admin") router.push("/superadmin");
       else setError("Esta página es solo para super administradores.");
@@ -45,6 +55,33 @@ export default function LoginSuperadminPage() {
       setLoading(false);
     }
   };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    // Si el estado quedó atrás del DOM (autofill sin eventos), el DOM manda.
+    const emailVal = email || domValue("email");
+    const pwdVal   = password || domValue("password");
+    if (emailVal !== email)  setEmail(emailVal);
+    if (pwdVal !== password) setPassword(pwdVal);
+    await submitCredentials(emailVal, pwdVal);
+  };
+
+  // Rescate de la ventana pre-hidratación (esta página va SSR completa en prod):
+  // DOM → estado para no pisar lo tipeado/autocompletado, y reenvío del submit
+  // que el script del layout (auth) tragó antes de que React montara.
+  useEffect(() => {
+    const emailDom = domValue("email");
+    const pwdDom = domValue("password");
+    if (emailDom) setEmail(emailDom);
+    if (pwdDom) setPassword(pwdDom);
+    const w = window as unknown as { __iaHydrated?: boolean; __iaPendingSubmit?: boolean };
+    w.__iaHydrated = true;
+    if (w.__iaPendingSubmit) {
+      w.__iaPendingSubmit = false;
+      if (emailDom && pwdDom) void submitCredentials(emailDom, pwdDom);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <AuthShell>

@@ -24,6 +24,10 @@ const BRAND_GRADIENT = `linear-gradient(135deg, ${BRAND_CYAN} 0%, ${BRAND_INDIGO
 // El botón y los focus rings siempre llevan el gradient/índigo de la marca.
 const BTN_STYLE = { backgroundImage: BRAND_GRADIENT, color: "#fff" };
 
+// Vida de las cookies de gating UX (ia_role/ia_tenant) — igual al max_age del
+// refresh_token que setea el backend en el login.
+const COOKIE_MAX_AGE = 60 * 60 * 24 * 30;
+
 // Pantalla única (credentials). Los casos raros se ramifican: "select" cuando
 // un email pertenece a varias organizaciones, "org" cuando no reconocemos el
 // dominio y hay que pedir la organización a mano.
@@ -113,6 +117,28 @@ function LoginForm() {
     setIsLocal(DEV_LOGIN_ENABLED && (h === "localhost" || h === "127.0.0.1"));
   }, []);
 
+  // Rescate de la ventana pre-hidratación: lo que el usuario tipeó (o el
+  // autofill llenó) antes de que React montara vive solo en el DOM — el estado
+  // controlado arranca vacío y lo pisaría. Al montar: DOM → estado, y si el
+  // script del layout (auth) tragó un submit en esa ventana, se reenvía acá
+  // con los valores del DOM (el estado recién seteado aún no es visible).
+  useEffect(() => {
+    const emailDom = domValue("email");
+    const pwdDom = domValue("password");
+    if (emailDom) setEmail(emailDom);
+    if (pwdDom) setPassword(pwdDom);
+    const w = window as unknown as { __iaHydrated?: boolean; __iaPendingSubmit?: boolean };
+    w.__iaHydrated = true;
+    if (w.__iaPendingSubmit) {
+      w.__iaPendingSubmit = false;
+      // isSuperAdmin todavía no reflejó el ?platform=1 (setState del efecto de
+      // arriba, mismo commit) — se lee el param directo para no perderlo.
+      const asPlatform = new URLSearchParams(window.location.search).get("platform") === "1";
+      if (emailDom && pwdDom) void submitCredentials(emailDom, pwdDom, asPlatform);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Login de un clic para el panel de dev: setea el form (feedback visual) y
   // dispara doLogin con credenciales explícitas (no espera al setState).
   const quickLogin = (u: DevUser) => {
@@ -131,6 +157,11 @@ function LoginForm() {
   // haya algo razonable antes de hacer el roundtrip al backend.
   const isValidEmail = (s: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.trim());
 
+  // Valor actual del input en el DOM. Necesario porque el autofill de Chrome
+  // (y el tipeo pre-hidratación) llenan el DOM sin disparar onChange: el
+  // estado controlado queda atrás y validaríamos contra "".
+  const domValue = (id: string) => (document.getElementById(id) as HTMLInputElement | null)?.value ?? "";
+
   const doLogin = async (effectiveTenant: string, creds?: { email: string; password: string }) => {
     const loginEmail = creds?.email ?? email;
     const loginPassword = creds?.password ?? password;
@@ -144,8 +175,12 @@ function LoginForm() {
       const resolvedTenant = payload.tenant_id;
 
       setAuth(data.access_token, resolvedTenant, loginEmail, role);
-      document.cookie = `ia_role=${role}; path=/; SameSite=strict`;
-      document.cookie = `ia_tenant=${resolvedTenant}; path=/; SameSite=strict`;
+      // max-age alineado al refresh_token del backend (30 días): sin él son
+      // cookies de sesión que mueren al cerrar el navegador mientras el store
+      // persiste en localStorage → al reabrir, el root redirige a /admin, el
+      // middleware no ve cookie y rebota a /login (baile de redirects).
+      document.cookie = `ia_role=${role}; path=/; max-age=${COOKIE_MAX_AGE}; SameSite=strict`;
+      document.cookie = `ia_tenant=${resolvedTenant}; path=/; max-age=${COOKIE_MAX_AGE}; SameSite=strict`;
 
       if (role === "super_admin")      router.push("/superadmin");
       else if (role === "operator")    router.push("/operator");
@@ -174,23 +209,26 @@ function LoginForm() {
     // que dejamos el spinner hasta el redirect. El error sí resetea loading.
   };
 
-  // Pantalla principal: email + contraseña juntos. Al enviar resolvemos el
-  // tenant por el email y ramificamos según cuántas organizaciones matcheen.
-  const handleCredentialsSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // Núcleo del envío de credenciales: resuelve el tenant por email y ramifica
+  // según cuántas organizaciones matcheen. Recibe los valores explícitos (no
+  // lee el estado) para que el replay pre-hidratación y el fallback de autofill
+  // puedan pasar lo que realmente hay en el DOM.
+  const submitCredentials = async (emailVal: string, pwdVal: string, asPlatform: boolean = isSuperAdmin) => {
     setError(null);
-    if (!email.trim())          { setError("Ingresá tu email para continuar."); return; }
-    if (!isValidEmail(email))   { setError("Revisá el email — falta el dominio o el @."); return; }
-    if (!password)              { setError("Ingresá tu contraseña."); return; }
+    if (!emailVal.trim())        { setError("Ingresá tu email para continuar."); return; }
+    if (!isValidEmail(emailVal)) { setError("Revisá el email — falta el dominio o el @."); return; }
+    if (!pwdVal)                 { setError("Ingresá tu contraseña."); return; }
+
+    const creds = { email: emailVal, password: pwdVal };
 
     // Super admin: no hay tenant que resolver, login directo de plataforma.
-    if (isSuperAdmin) { await doLogin(""); return; }
+    if (asPlatform) { await doLogin("", creds); return; }
 
     setLoading(true);
     try {
-      const data = await api.auth.lookupTenant(email);
+      const data = await api.auth.lookupTenant(emailVal);
       if (data.matches.length === 1) {
-        await doLogin(data.matches[0].tenant_id);
+        await doLogin(data.matches[0].tenant_id, creds);
       } else if (data.matches.length > 1) {
         setMatches(data.matches);
         setStep("select");
@@ -203,6 +241,17 @@ function LoginForm() {
       setStep("org");
       setLoading(false);
     }
+  };
+
+  // Pantalla principal: email + contraseña juntos. Si el estado quedó atrás
+  // del DOM (autofill sin eventos), el DOM manda y se re-sincroniza.
+  const handleCredentialsSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const emailVal = email || domValue("email");
+    const pwdVal   = password || domValue("password");
+    if (emailVal !== email)  setEmail(emailVal);
+    if (pwdVal !== password) setPassword(pwdVal);
+    await submitCredentials(emailVal, pwdVal);
   };
 
   // Multi-org: ya tenemos email + contraseña, al elegir entramos directo.
