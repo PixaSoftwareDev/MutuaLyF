@@ -9,9 +9,10 @@
 // aprobar acá habilita el host para TODAS las organizaciones; por eso el
 // panel lo dice y la revocación queda en la pantalla global (cross-tenant).
 
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
-import { Loader2, Plug, ShieldAlert } from "lucide-react";
+import { ChevronDown, Loader2, Plug, ShieldAlert } from "lucide-react";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -23,6 +24,9 @@ import { cn } from "@/lib/utils";
 
 export function ConnectorsPanel({ tenantId }: { tenantId: string }) {
   const qc = useQueryClient();
+  // Rutas desplegables por conector — colapsadas por defecto: el panel se lee
+  // de un vistazo y el detalle se abre solo cuando hay que decidir.
+  const [openRoutes, setOpenRoutes] = useState<Record<string, boolean>>({});
 
   const ov = useQuery({
     queryKey: ["platform-connectors-overview"],
@@ -139,12 +143,24 @@ export function ConnectorsPanel({ tenantId }: { tenantId: string }) {
               </div>
 
               {/* Las rutas concretas que el bot podrá llamar — la base de la
-                  decisión de aprobar. */}
+                  decisión de aprobar. Desplegable: colapsado se lee el resumen,
+                  abierto se audita ruta por ruta. */}
               {c.tools.length > 0 && (
                 <div className="overflow-hidden rounded-lg border border-border/60">
-                  {c.tools.map((t, i) => (
+                  <button
+                    type="button"
+                    aria-expanded={!!openRoutes[c.id]}
+                    onClick={() => setOpenRoutes(s => ({ ...s, [c.id]: !s[c.id] }))}
+                    className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
+                  >
+                    <span className="font-medium">
+                      {c.tools.length} {c.tools.length === 1 ? "ruta" : "rutas"}
+                    </span>
+                    <ChevronDown className={cn("h-3.5 w-3.5 transition-transform duration-200", openRoutes[c.id] && "rotate-180")} />
+                  </button>
+                  {openRoutes[c.id] && c.tools.map((t, i) => (
                     <div key={`${t.http_method}-${t.path_template}-${i}`}
-                         className={cn("flex items-center gap-2 px-2.5 py-1.5 text-xs", i > 0 && "border-t border-border/50")}>
+                         className="flex items-center gap-2 border-t border-border/50 px-2.5 py-1.5 text-xs">
                       <code className="shrink-0 font-mono text-[11px] font-semibold text-muted-foreground">{t.http_method}</code>
                       <code className="min-w-0 truncate font-mono text-[11px]">{t.path_template}</code>
                       <span className="min-w-0 flex-1 truncate text-right text-muted-foreground">{t.display_name}</span>
