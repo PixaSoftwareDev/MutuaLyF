@@ -458,6 +458,7 @@ function ConnectorDetailInner() {
   const [mMethod, setMMethod] = useState("GET");
   const [mPath, setMPath]     = useState("");
   const [mAccess, setMAccess] = useState("personal");
+  const [mParams, setMParams] = useState<ParamRow[]>([]);
   const mSlug = toSlug(mName.trim());
   const mNeedsIdentity = mAccess === "personal" && !mPath.includes("{identity}");
   const createToolM = useMutation({
@@ -465,10 +466,11 @@ function ConnectorDetailInner() {
       slug: mSlug, display_name: mName.trim(), http_method: mMethod, path_template: mPath.trim(),
       identity_kind: mAccess, is_read_only: true,
       roles: mAccess === "publico" ? ["publico"] : [mAccess],
+      params_schema: paramRowsToSchema(mParams),
     }),
     onSuccess: () => {
       inv(); setShowManual(false);
-      setMName(""); setMMethod("GET"); setMPath(""); setMAccess("personal");
+      setMName(""); setMMethod("GET"); setMPath(""); setMAccess("personal"); setMParams([]);
       toast({ title: "Operación creada", description: "Probala y activala cuando esté lista.", variant: "success" });
     },
     onError: (e) => toast({ title: "No se pudo crear", description: humanizeConnectorError(errDetail(e)), variant: "destructive" }),
@@ -1139,6 +1141,7 @@ function ConnectorDetailInner() {
                 <p className="text-[11px] leading-snug text-warning">Una operación personal necesita <code className="font-mono">{"{identity}"}</code> en la ruta.</p>
               )}
             </div>
+            <ParamsEditor rows={mParams} onChange={setMParams} />
           </div>
 
           <DialogFooter>
@@ -1231,11 +1234,13 @@ function ToolCard({ connectorId, tool, onDelete, onChanged }: {
   const [eAccess, setEAccess] = useState(tool.identity_kind === "publico" ? "publico" : "personal");
   // Ejemplos: una frase por línea en el textarea; se guardan como lista.
   const [eExamples, setEExamples] = useState((tool.examples ?? []).join("\n"));
+  const [eParams, setEParams]     = useState<ParamRow[]>([]);
   const openEditOp = () => {
     setEName(tool.display_name); setEDesc(tool.description ?? "");
     setEMethod(tool.http_method); setEPath(tool.path_template);
     setEAccess(tool.identity_kind === "publico" ? "publico" : "personal");
     setEExamples((tool.examples ?? []).join("\n"));
+    setEParams(schemaToParamRows(tool.params_schema as Record<string, unknown> | undefined));
     setShowEditOp(true);
   };
   const eNeedsIdentity = eAccess === "personal" && !ePath.includes("{identity}");
@@ -1269,6 +1274,7 @@ function ToolCard({ connectorId, tool, onDelete, onChanged }: {
       http_method: eMethod, path_template: ePath.trim(),
       identity_kind: eAccess, roles: eAccess === "publico" ? ["publico"] : [eAccess],
       examples: eExamples.split("\n").map(s => s.trim()).filter(Boolean).slice(0, 20),
+      params_schema: paramRowsToSchema(eParams),
     }),
     onSuccess: () => { onChanged(); setShowEditOp(false); toast({ title: "Operación actualizada", variant: "success" }); },
     onError: (e) => toast({ title: "No se pudo guardar", description: humanizeConnectorError(errDetail(e)), variant: "destructive" }),
@@ -1599,6 +1605,7 @@ function ToolCard({ connectorId, tool, onDelete, onChanged }: {
                 <p className="text-[11px] leading-snug text-warning">Una operación personal necesita <code className="font-mono">{"{identity}"}</code> en la ruta.</p>
               )}
             </div>
+            <ParamsEditor rows={eParams} onChange={setEParams} />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowEditOp(false)}>Cancelar</Button>
@@ -1612,6 +1619,115 @@ function ToolCard({ connectorId, tool, onDelete, onChanged }: {
       </div>
       )}
 
+    </div>
+  );
+}
+
+// ── Editor de parámetros (sin JSON) ───────────────────────────────────────────
+// Filas nombre/tipo/requerido/descripción/ejemplo ↔ params_schema. Las claves
+// que el editor no maneja (enum, x-resource-id) se preservan intactas en cada
+// fila para no romper lo que armó el discovery.
+
+type ParamRow = {
+  name: string; type: string; required: boolean;
+  description: string; example: string;
+  extra: Record<string, unknown>;
+};
+
+const PARAM_TYPES = [
+  { value: "string", label: "Texto" },
+  { value: "integer", label: "Entero" },
+  { value: "number", label: "Número" },
+  { value: "boolean", label: "Sí/No" },
+];
+
+function schemaToParamRows(schema: Record<string, unknown> | null | undefined): ParamRow[] {
+  const props = ((schema as { properties?: Record<string, Record<string, unknown>> } | null)?.properties) ?? {};
+  const req = new Set(((schema as { required?: string[] } | null)?.required) ?? []);
+  return Object.entries(props).map(([name, p]) => {
+    const { type, description, ["x-example"]: example, ...extra } = p;
+    return {
+      name,
+      type: typeof type === "string" ? type : "string",
+      required: req.has(name),
+      description: typeof description === "string" ? description : "",
+      example: example != null ? String(example) : "",
+      extra,
+    };
+  });
+}
+
+function paramRowsToSchema(rows: ParamRow[]): Record<string, unknown> {
+  const clean = rows.filter(r => r.name.trim());
+  if (!clean.length) return {};
+  const properties: Record<string, unknown> = {};
+  const required: string[] = [];
+  for (const r of clean) {
+    const prop: Record<string, unknown> = { ...r.extra, type: r.type };
+    if (r.description.trim()) prop.description = r.description.trim();
+    const ex = r.example.trim();
+    if (ex) {
+      const n = r.type === "integer" ? parseInt(ex, 10) : r.type === "number" ? parseFloat(ex) : NaN;
+      prop["x-example"] = Number.isNaN(n) ? ex : n;
+    }
+    properties[r.name.trim()] = prop;
+    if (r.required) required.push(r.name.trim());
+  }
+  const schema: Record<string, unknown> = { type: "object", properties };
+  if (required.length) schema.required = required;
+  return schema;
+}
+
+function ParamsEditor({ rows, onChange }: { rows: ParamRow[]; onChange: (rows: ParamRow[]) => void }) {
+  const set = (i: number, patch: Partial<ParamRow>) =>
+    onChange(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+  return (
+    <div className="space-y-1.5">
+      <Label className="text-xs">
+        Parámetros <span className="font-normal text-muted-foreground">· lo que la operación acepta en la consulta</span>
+      </Label>
+      {rows.length > 0 && (
+        <div className="space-y-2">
+          {rows.map((r, i) => (
+            <div key={i} className="space-y-1.5 rounded-lg border border-border/70 p-2">
+              <div className="flex items-center gap-1.5">
+                <Input className="h-8 w-36 font-mono text-xs" placeholder="nombre" value={r.name}
+                       onChange={e => set(i, { name: e.target.value })} />
+                <Select value={r.type} onValueChange={v => set(i, { type: v })}>
+                  <SelectTrigger className="h-8 w-24 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {PARAM_TYPES.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <label className="flex shrink-0 cursor-pointer items-center gap-1 text-[11px] text-muted-foreground">
+                  <input type="checkbox" className="h-3.5 w-3.5 accent-primary" checked={r.required}
+                         onChange={e => set(i, { required: e.target.checked })} />
+                  requerido
+                </label>
+                <button type="button" aria-label="Quitar parámetro"
+                        className="ml-auto shrink-0 rounded p-1 text-muted-foreground transition-colors hover:text-destructive"
+                        onClick={() => onChange(rows.filter((_, j) => j !== i))}>
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <Input className="h-8 flex-1 text-xs" placeholder="Qué es y qué formato espera (lo ve el asistente y el panel Probar)"
+                       value={r.description} onChange={e => set(i, { description: e.target.value })} />
+                <Input className="h-8 w-28 font-mono text-xs" placeholder="ejemplo" value={r.example}
+                       onChange={e => set(i, { example: e.target.value })} />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      <Button type="button" size="sm" variant="outline" className="h-7 text-xs"
+              onClick={() => onChange([...rows, { name: "", type: "string", required: false, description: "", example: "", extra: {} }])}>
+        <Plus className="mr-1 h-3 w-3" /> Agregar parámetro
+      </Button>
+      <p className="text-[11px] leading-snug text-muted-foreground">
+        Sin parámetros, el asistente consulta la ruta tal cual. La descripción y el ejemplo
+        alimentan el panel Probar y ayudan al asistente a armar bien la consulta.
+      </p>
     </div>
   );
 }

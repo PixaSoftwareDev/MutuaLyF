@@ -137,8 +137,12 @@ y devolvés SOLO un JSON array (sin markdown, sin explicación) con un objeto po
                                  // queda como parámetro normal de la operación.
  "is_lookup": true|false,        // true SOLO para la ruta que devuelve el perfil/datos de
                                  // contacto de la persona (sirve para enviar el código OTP)
- "sample_params": {"param": "valor"}  // valores de prueba realistas para probar la ruta
+ "sample_params": {"param": "valor"},  // valores de prueba realistas para probar la ruta
                                  // (para el param de identidad usá "IDENTITY" literal)
+ "params_doc": {"param": "..."}  // para CADA parámetro de la ruta (path y query): qué es y
+                                 // qué formato espera, en 1 línea y SIEMPRE en español (si el
+                                 // proveedor documentó en inglés, traducí; si no hay dato,
+                                 // inferilo del nombre y el contexto de la ruta)
 }
 Reglas — identity_kind, la prueba de fuego: ¿la respuesta sería LA MISMA para cualquier
 persona que consulte? → "publico". Marcá "personal" SOLO si la respuesta depende de QUIÉN
@@ -241,7 +245,9 @@ HTTP que describe, un objeto por ruta:
  "method": "GET",
  "summary": "qué devuelve, en 1 línea en español",
  "params": [{"name": "dni", "in": "path"|"query", "required": true|false,
-             "type": "string"|"integer"|"number"|"boolean", "enum": ["a","b"]|null}]
+             "type": "string"|"integer"|"number"|"boolean", "enum": ["a","b"]|null,
+             "description": "qué es y qué formato espera, en español, 1 línea (si la doc lo dice)",
+             "example": "valor de ejemplo SOLO si la doc muestra uno"|null}]
 }
 
 Reglas:
@@ -537,11 +543,21 @@ async def propose_from_routes(connector: dict, secret_enc: str | None, tenant_id
         # admin pueda corregir a la IA y re-incluirlas). El dry-run solo corre en
         # las incluidas — no gastamos llamadas al proveedor en descartes.
         path_template, params_schema = _build_tool_fields(route, cls, classified_by_path)
-        # Los sample_params que la IA generó para el dry-run también sirven de
-        # ejemplo permanente en el panel Probar — antes se usaban una vez y se
-        # tiraban. El spec manda; la IA rellena solo donde no hubo ejemplo.
+        # Metadata por parámetro, dos fuentes con criterio distinto:
+        # - description: gana la de la IA (params_doc) porque es SIEMPRE en
+        #   español — la del spec (que la IA recibió de entrada) suele venir en
+        #   inglés. Los x-resource-id conservan su descripción sintética.
+        # - x-example: gana el spec (formato exacto garantizado); los
+        #   sample_params de la IA rellenan solo donde el spec no trajo.
+        #   Antes se usaban una vez para el dry-run y se tiraban.
+        props = params_schema.get("properties") or {}
+        for pname, pdesc in (cls.get("params_doc") or {}).items():
+            prop = props.get(pname)
+            if prop is not None and not prop.get("x-resource-id") \
+                    and isinstance(pdesc, str) and pdesc.strip():
+                prop["description"] = pdesc.strip()
         for pname, pval in (cls.get("sample_params") or {}).items():
-            prop = (params_schema.get("properties") or {}).get(pname)
+            prop = props.get(pname)
             if prop is not None and "x-example" not in prop and not prop.get("x-resource-id") \
                     and str(pval).strip() and str(pval) != "IDENTITY":
                 prop["x-example"] = pval
