@@ -178,9 +178,12 @@ CREATE TABLE IF NOT EXISTS mensajes (
     attachment_name  TEXT,            -- nombre original del archivo
     attachment_mime  TEXT,            -- content-type (image/*, application/pdf)
     attachment_size  INTEGER,         -- bytes
+    external_message_id VARCHAR(128), -- wamid de Meta (matchea webhooks de status)
+    delivery_status  VARCHAR(20),     -- ticks WhatsApp: sent|delivered|read|failed
     created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS ix_mensajes_conversation ON mensajes (conversation_id, created_at);
+CREATE INDEX IF NOT EXISTS ix_mensajes_external_msg ON mensajes (external_message_id) WHERE external_message_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS handoff_config (
     id                              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
