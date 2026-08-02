@@ -333,6 +333,23 @@ async def set_connector_active(tenant_id: str, connector_id: str, active: bool) 
     return res.rowcount > 0
 
 
+async def deactivate_connectors_using_host(tenant_id: str, host: str) -> list[dict]:
+    """Apaga los conectores ACTIVOS del tenant que egresan hacia ese host.
+    Es la contracara de quitar la aprobación: sin esto, revocar un host dejaría
+    al conector activo llamándolo igual (la aprobación solo se chequea al
+    activar). Devuelve los apagados para avisar quiénes fueron."""
+    invalidate_tool_catalog(tenant_id)
+    async with get_pg_session(tenant_id) as session:
+        rows = (await session.execute(text(
+            "UPDATE tenant_connectors SET is_active = FALSE, updated_at = NOW() "
+            "WHERE is_active AND :h = ANY(egress_allow) "
+            "RETURNING id, display_name"
+        ), {"h": host})).mappings().all()
+        await session.commit()
+    # id como str: viaja a auditoría y a la tabla de avisos (columna TEXT).
+    return [{"id": str(r["id"]), "display_name": r["display_name"]} for r in rows]
+
+
 async def delete_connector(tenant_id: str, connector_id: str) -> bool:
     async with get_pg_session(tenant_id) as session:
         res = await session.execute(text(
@@ -570,28 +587,32 @@ async def get_connector_user_by_documento(tenant_id: str, connector_id: str, doc
     return dict(row) if row else None
 
 
-# ── Allowlist global de hosts aprobados (decisión D2, schema public) ─────────────
-async def is_host_approved(host: str) -> bool:
+# ── Allowlist de hosts aprobados POR TENANT (schema public, PK tenant+host) ──────
+# La aprobación habilita el egreso solo para ESA organización — nunca cruza
+# tenants (decisión 2026-08-02, reemplaza al gobierno global D2).
+async def is_host_approved(tenant_id: str, host: str) -> bool:
     async with get_pg_session() as session:
         return (await session.execute(text(
-            "SELECT 1 FROM public.approved_connector_hosts WHERE host = :h"
-        ), {"h": host})).scalar() is not None
+            "SELECT 1 FROM public.approved_connector_hosts WHERE tenant_id = :t AND host = :h"
+        ), {"t": tenant_id, "h": host})).scalar() is not None
 
 
-async def list_approved_hosts() -> list[dict]:
+async def list_approved_hosts(tenant_id: str) -> list[dict]:
     async with get_pg_session() as session:
         rows = (await session.execute(text(
-            "SELECT host, approved_by, note, created_at FROM public.approved_connector_hosts ORDER BY host"
-        ))).mappings().all()
+            "SELECT host, approved_by, note, created_at FROM public.approved_connector_hosts "
+            "WHERE tenant_id = :t ORDER BY host"
+        ), {"t": tenant_id})).mappings().all()
     return [dict(r) for r in rows]
 
 
-async def approve_host(host: str, approved_by: str | None, note: str | None = None) -> None:
+async def approve_host(tenant_id: str, host: str, approved_by: str | None, note: str | None = None) -> None:
     async with get_pg_session() as session:
         await session.execute(text(
-            "INSERT INTO public.approved_connector_hosts (host, approved_by, note) "
-            "VALUES (:h, :by, :note) ON CONFLICT (host) DO UPDATE SET approved_by = EXCLUDED.approved_by"
-        ), {"h": host, "by": approved_by, "note": note})
+            "INSERT INTO public.approved_connector_hosts (tenant_id, host, approved_by, note) "
+            "VALUES (:t, :h, :by, :note) "
+            "ON CONFLICT (tenant_id, host) DO UPDATE SET approved_by = EXCLUDED.approved_by"
+        ), {"t": tenant_id, "h": host, "by": approved_by, "note": note})
         await session.commit()
 
 
@@ -633,34 +654,68 @@ async def list_tenant_ids() -> list[dict]:
 async def upsert_activation_request(tenant_id: str, connector_id: str,
                                     hosts: list[str], requested_by: str | None) -> None:
     """Registra (o refresca) la solicitud de activación bloqueada por hosts sin
-    aprobar. Una viva por (tenant, conector)."""
+    aprobar. Una viva por (tenant, conector). Re-pedir revive una denegada:
+    vuelve a pending y limpia el veredicto anterior."""
     async with get_pg_session() as session:
         await session.execute(text(
             "INSERT INTO public.connector_activation_requests "
             "(tenant_id, connector_id, hosts, requested_by) "
             "VALUES (:t, :c, :h, :by) "
             "ON CONFLICT (tenant_id, connector_id) DO UPDATE SET "
-            "hosts = EXCLUDED.hosts, requested_by = EXCLUDED.requested_by, created_at = NOW()"
+            "hosts = EXCLUDED.hosts, requested_by = EXCLUDED.requested_by, created_at = NOW(), "
+            "status = 'pending', denied_reason = NULL, resolved_by = NULL, resolved_at = NULL"
         ), {"t": tenant_id, "c": connector_id, "h": hosts, "by": requested_by})
         await session.commit()
 
 
-async def list_activation_request_ids(tenant_id: str) -> set[str]:
-    """Ids de conectores del tenant con solicitud de activación viva (para el
-    flag pending_approval de los GET del panel del tenant)."""
+async def activation_requests_by_connector(tenant_id: str) -> dict[str, dict]:
+    """Solicitudes vivas del tenant, indexadas por conector, con su estado —
+    la fuente de los flags pending/ready/denied/revoked de los GET del panel."""
     async with get_pg_session() as session:
         rows = (await session.execute(text(
-            "SELECT connector_id FROM public.connector_activation_requests "
-            "WHERE tenant_id = :t"
-        ), {"t": tenant_id})).fetchall()
-    return {r[0] for r in rows}
+            "SELECT connector_id, status, denied_reason, hosts "
+            "FROM public.connector_activation_requests WHERE tenant_id = :t"
+        ), {"t": tenant_id})).mappings().all()
+    return {r["connector_id"]: dict(r) for r in rows}
+
+
+async def record_host_revocation_notice(tenant_id: str, connector_id: str,
+                                        host: str, revoked_by: str | None) -> None:
+    """Deja constancia de que el conector se apagó porque se revocó su host —
+    el panel del admin lo muestra como aviso (status 'revoked') en vez de un
+    Inactivo mudo. Reusa la fila de solicitud: muere al darla por vista, al
+    re-pedir activación (revive a pending) o al reactivar el conector."""
+    async with get_pg_session() as session:
+        await session.execute(text(
+            "INSERT INTO public.connector_activation_requests "
+            "(tenant_id, connector_id, hosts, requested_by, status, resolved_by, resolved_at) "
+            "VALUES (:t, :c, :h, NULL, 'revoked', :by, NOW()) "
+            "ON CONFLICT (tenant_id, connector_id) DO UPDATE SET "
+            "status = 'revoked', hosts = EXCLUDED.hosts, denied_reason = NULL, "
+            "resolved_by = EXCLUDED.resolved_by, resolved_at = NOW()"
+        ), {"t": tenant_id, "c": connector_id, "h": [host], "by": revoked_by})
+        await session.commit()
+
+
+async def deny_activation_request(tenant_id: str, connector_id: str,
+                                  denied_by: str | None, reason: str | None) -> bool:
+    """Marca la solicitud como denegada (no la borra: el admin tiene que
+    enterarse). Solo aplica sobre solicitudes pendientes."""
+    async with get_pg_session() as session:
+        res = await session.execute(text(
+            "UPDATE public.connector_activation_requests "
+            "SET status = 'denied', denied_reason = :r, resolved_by = :by, resolved_at = NOW() "
+            "WHERE tenant_id = :t AND connector_id = :c AND status = 'pending'"
+        ), {"t": tenant_id, "c": connector_id, "r": reason, "by": denied_by})
+        await session.commit()
+    return res.rowcount > 0
 
 
 async def list_activation_requests() -> list[dict]:
     async with get_pg_session() as session:
         rows = (await session.execute(text(
             "SELECT r.tenant_id, r.connector_id, r.hosts, r.requested_by, r.created_at, "
-            "       t.name AS tenant_name "
+            "       r.status, r.denied_reason, r.resolved_at, t.name AS tenant_name "
             "FROM public.connector_activation_requests r "
             "LEFT JOIN public.tenants t ON t.id = r.tenant_id "
             "ORDER BY r.created_at DESC"
@@ -677,10 +732,10 @@ async def delete_activation_request(tenant_id: str, connector_id: str) -> None:
         await session.commit()
 
 
-async def remove_approved_host(host: str) -> bool:
+async def remove_approved_host(tenant_id: str, host: str) -> bool:
     async with get_pg_session() as session:
         res = await session.execute(text(
-            "DELETE FROM public.approved_connector_hosts WHERE host = :h"
-        ), {"h": host})
+            "DELETE FROM public.approved_connector_hosts WHERE tenant_id = :t AND host = :h"
+        ), {"t": tenant_id, "h": host})
         await session.commit()
     return res.rowcount > 0

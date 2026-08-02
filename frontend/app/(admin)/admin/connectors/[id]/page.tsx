@@ -39,8 +39,31 @@ function errDetail(e: unknown): string {
 
 // Pastilla de estado con punto (mismo lenguaje que los canales). El tercer
 // estado ("esperando aprobación") es un inactivo con solicitud enviada al
-// super-admin — ámbar para que se lea como "en trámite", no como falla.
-function StatePill({ active, pending }: { active: boolean; pending?: boolean }) {
+// super-admin — ámbar para que se lea como "en trámite", no como falla. El
+// cuarto ("aprobado — activalo") avisa que la aprobación llegó: color de
+// acción, porque el próximo clic es del admin.
+function StatePill({ active, pending, ready, denied, deniedReason }: {
+  active: boolean; pending?: boolean; ready?: boolean; denied?: boolean; deniedReason?: string | null;
+}) {
+  if (!active && denied) {
+    return (
+      <span
+        className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-destructive/30 bg-destructive/[0.08] px-2 py-0.5 text-[11px] font-semibold text-destructive"
+        title={deniedReason ? `Motivo: ${deniedReason}` : "El super-admin denegó la solicitud"}
+      >
+        <span className="h-1.5 w-1.5 rounded-full bg-destructive" />
+        Denegada
+      </span>
+    );
+  }
+  if (!active && ready) {
+    return (
+      <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-action/30 bg-action/[0.08] px-2 py-0.5 text-[11px] font-semibold text-action">
+        <span className="h-1.5 w-1.5 rounded-full bg-action" />
+        Aprobado — activalo
+      </span>
+    );
+  }
   if (!active && pending) {
     return (
       <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-warning/30 bg-warning/[0.08] px-2 py-0.5 text-[11px] font-semibold text-warning">
@@ -62,6 +85,11 @@ function StatePill({ active, pending }: { active: boolean; pending?: boolean }) 
 
 // Campo de configuración: etiqueta chica arriba, valor abajo. En grilla llena
 // el ancho sin dejar huecos (mejor que label-izq / valor-der a lo ancho).
+// Una ruta vale si es relativa a la URL base ('/x') o absoluta a otro
+// subdominio del mismo proveedor ('https://geocoding-api…'), caso común en
+// APIs repartidas por subdominio. El host absoluto igual pasa por egress.
+const rutaValida = (p: string) => /^(\/|https?:\/\/)/i.test(p.trim());
+
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="min-w-0 space-y-1">
@@ -349,7 +377,7 @@ function ConnectorDetailInner() {
       if (d.pending_approval) {
         toast({
           title: "Esperando aprobación del super-admin",
-          description: "Le enviamos la solicitud. Cuando apruebe, tocá Activar de nuevo — mientras tanto podés seguir probando las operaciones.",
+          description: "Le enviamos la solicitud. Cuando apruebe, vas a ver el aviso acá para activarlo — mientras tanto podés seguir probando las operaciones.",
         });
         return;
       }
@@ -460,7 +488,9 @@ function ConnectorDetailInner() {
   const [mAccess, setMAccess] = useState("personal");
   const [mParams, setMParams] = useState<ParamRow[]>([]);
   const mSlug = toSlug(mName.trim());
-  const mNeedsIdentity = mAccess === "personal" && !mPath.includes("{identity}");
+  // Personal sin {identity} en la ruta es VÁLIDO: el gate es la sesión
+  // identificada. El aviso solo explica la diferencia, no bloquea.
+  const mPersonalSinIdentity = mAccess === "personal" && !mPath.includes("{identity}");
   const createToolM = useMutation({
     mutationFn: () => api.connectors.createTool(id, {
       slug: mSlug, display_name: mName.trim(), http_method: mMethod, path_template: mPath.trim(),
@@ -508,7 +538,8 @@ function ConnectorDetailInner() {
       title={conn.display_name}
       actions={
         <div className="flex shrink-0 items-center gap-2">
-          <StatePill active={conn.is_active} pending={conn.pending_approval} />
+          <StatePill active={conn.is_active} pending={conn.pending_approval} ready={conn.approval_ready}
+                     denied={conn.approval_denied} deniedReason={conn.approval_denied_reason} />
           <Button size="sm" variant="ghost" onClick={openEdit} className="gap-1.5">
             <Pencil className="h-3.5 w-3.5" /> Editar
           </Button>
@@ -1137,8 +1168,11 @@ function ConnectorDetailInner() {
                   Pública: <strong>cualquiera podrá consultarla sin identificarse</strong>. Asegurate de que no exponga datos privados.
                 </p>
               )}
-              {mNeedsIdentity && (
-                <p className="text-[11px] leading-snug text-warning">Una operación personal necesita <code className="font-mono">{"{identity}"}</code> en la ruta.</p>
+              {mPersonalSinIdentity && (
+                <p className="text-[11px] leading-snug text-muted-foreground">
+                  El asistente va a pedir identificarse antes de consultarla. Si además la ruta necesita
+                  el dato de esa persona, usá <code className="font-mono">{"{identity}"}</code> en la ruta.
+                </p>
               )}
             </div>
             <ParamsEditor rows={mParams} onChange={setMParams} />
@@ -1147,7 +1181,7 @@ function ConnectorDetailInner() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowManual(false)}>Cancelar</Button>
             <Button
-              disabled={!mSlug || !mPath.trim().startsWith("/") || mNeedsIdentity || createToolM.isPending}
+              disabled={!mSlug || !rutaValida(mPath) || createToolM.isPending}
               onClick={() => createToolM.mutate()}
             >
               {createToolM.isPending && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
@@ -1243,7 +1277,7 @@ function ToolCard({ connectorId, tool, onDelete, onChanged }: {
     setEParams(schemaToParamRows(tool.params_schema as Record<string, unknown> | undefined));
     setShowEditOp(true);
   };
-  const eNeedsIdentity = eAccess === "personal" && !ePath.includes("{identity}");
+  const ePersonalSinIdentity = eAccess === "personal" && !ePath.includes("{identity}");
 
   // Data flywheel: consultas reales que rutearon a esta operación y aún no son
   // ejemplos. El admin las suma con un clic (aprender del uso) o las descarta.
@@ -1603,15 +1637,18 @@ function ToolCard({ connectorId, tool, onDelete, onChanged }: {
                   Al hacerla pública, <strong>cualquiera podrá consultarla sin identificarse</strong>. Asegurate de que no exponga datos privados.
                 </p>
               )}
-              {eNeedsIdentity && (
-                <p className="text-[11px] leading-snug text-warning">Una operación personal necesita <code className="font-mono">{"{identity}"}</code> en la ruta.</p>
+              {ePersonalSinIdentity && (
+                <p className="text-[11px] leading-snug text-muted-foreground">
+                  El asistente va a pedir identificarse antes de consultarla. Si además la ruta necesita
+                  el dato de esa persona, usá <code className="font-mono">{"{identity}"}</code> en la ruta.
+                </p>
               )}
             </div>
             <ParamsEditor rows={eParams} onChange={setEParams} />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowEditOp(false)}>Cancelar</Button>
-            <Button disabled={!eName.trim() || !ePath.trim().startsWith("/") || eNeedsIdentity || editOpM.isPending} onClick={() => editOpM.mutate()}>
+            <Button disabled={!eName.trim() || !rutaValida(ePath) || editOpM.isPending} onClick={() => editOpM.mutate()}>
               {editOpM.isPending && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
               Guardar
             </Button>

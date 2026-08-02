@@ -32,7 +32,7 @@ export function humanizeConnectorError(raw: string | undefined | null): string {
 
   // Aprobación de host (activar) — el backend ya lista los hosts pendientes; sumamos el paso.
   if (s.includes("pendientes de aprob") || s.includes("aprobación por el super") || s.includes("super-admin")) {
-    return `${raw} Pedile al super-admin que lo apruebe en Plataforma → Hosts aprobados y reintentá.`;
+    return `${raw} Pedile al super-admin que apruebe el host para tu organización y reintentá.`;
   }
   if (s.includes("timeout") || s.includes("read timed out") || s.includes("timed out"))
     return "El proveedor tardó demasiado en responder. Puede estar lento o caído — probá de nuevo en un rato.";

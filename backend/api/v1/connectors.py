@@ -13,9 +13,11 @@ connector_roles), más:
        host de egress_allow esté aprobado por super-admin o sea un host
        interno de confianza en dev (D2 — gobierno híbrido).
 
-Los hosts aprobados viven en public.approved_connector_hosts (global); su alta
-es de super-admin. El admin del tenant configura y prueba libremente mientras
-el conector está inactivo.
+Los hosts aprobados viven en public.approved_connector_hosts con PK
+(tenant_id, host): la aprobación es POR TENANT — habilita el egreso solo para
+esa organización, nunca para todas (independencia de datos entre tenants).
+Su alta es de super-admin desde la ficha del tenant. El admin del tenant
+configura y prueba libremente mientras el conector está inactivo.
 """
 
 import asyncio
@@ -30,8 +32,8 @@ from pydantic import BaseModel, Field, field_validator
 
 from core.audit import record as audit, fire_and_log
 from core.config import settings
-from core.egress_guard import EgressBlocked, assert_egress_allowed
-from core.security import CurrentUser, require_admin_or_super, require_super_admin
+from core.egress_guard import EgressBlocked, EgressUnreachable, assert_egress_allowed
+from core.security import CurrentUser, Role, require_admin_or_super, require_super_admin
 from services import connectors_dao as dao
 from services.connector_secrets import SUPPORTED_AUTH_TYPES, build_auth, open_secret, seal_secret
 
@@ -145,6 +147,9 @@ class TestIn(BaseModel):
 class HostIn(BaseModel):
     host: str = Field(min_length=3, max_length=200)
     note: str | None = None
+    # A qué organización se le aprueba el host. Lo manda el super-admin desde
+    # la ficha del tenant; un admin común no lo necesita (usa su propio tenant).
+    tenant_id: str | None = None
 
 
 # Usuarios autorizados por conector (registro de identidad, modo platform_registry).
@@ -193,8 +198,13 @@ def _validate_tool_payload(method: str | None, identity_kind: str | None, path: 
         raise HTTPException(status_code=422, detail=f"http_method debe ser uno de {sorted(_HTTP_METHODS)}")
     if identity_kind is not None and identity_kind not in _IDENTITY_KINDS:
         raise HTTPException(status_code=422, detail=f"identity_kind debe ser uno de {sorted(_IDENTITY_KINDS)}")
-    if path is not None and not path.startswith("/"):
-        raise HTTPException(status_code=422, detail="path_template debe empezar con '/'")
+    # Ruta relativa a la base, o absoluta cuando el proveedor reparte su API en
+    # varios subdominios (api./geocoding-api./…). La absoluta no relaja la
+    # seguridad: su host tiene que estar en egress_allow y aprobado igual.
+    if path is not None and not (path.startswith("/") or re.match(r"^https?://", path, re.IGNORECASE)):
+        raise HTTPException(
+            status_code=422,
+            detail="La ruta tiene que empezar con '/' (relativa a la URL base) o con https:// (otro subdominio del proveedor)")
 
 
 # ── Identificador de la persona: derivado del parámetro que detecta el discovery ──
@@ -224,22 +234,44 @@ def _identifier_config(param_name: str | None) -> dict:
     """Deriva {identity_label, identity_min_digits, identity_max_digits} desde el
     nombre del parámetro detectado. None/'identity' → genérico 'documento'."""
     key = (param_name or "").strip().lower()
-    if key in ("", "identity"):
+    # 'id'/'identity' solos no dicen QUÉ dato es: genérico. (La abreviatura
+    # "id"→"número de" existe para compuestos como id_cliente; sola dejaba el
+    # label colgado en una preposición: "Decime tu número de".)
+    if key in ("", "id", "identity"):
         label, lo, hi = "documento", 3, 12
     elif key in _ID_PARAM_PRESETS:
         label, lo, hi = _ID_PARAM_PRESETS[key]
     else:
         words = [_ID_ABBR.get(w, w) for w in re.split(r"[_\s\-]+", key) if w]
         label, lo, hi = (" ".join(words) or "documento"), 3, 12
+        # Red de seguridad: cualquier combinación que termine en preposición
+        # produce una frase rota al pedírselo a la persona.
+        if label.split()[-1] in ("de", "del", "la", "el"):
+            label = "documento"
     return {"identity_label": label, "identity_min_digits": lo, "identity_max_digits": hi}
 
 
-# ── Hosts aprobados (D2) — rutas estáticas ANTES de /{connector_id} ───────────
+# ── Hosts aprobados (por tenant) — rutas estáticas ANTES de /{connector_id} ───
+
+def _host_tenant(current_user: CurrentUser, tenant_id: str | None) -> str:
+    """Tenant al que aplica la operación sobre hosts. El super-admin DEBE decir
+    cuál (opera desde la ficha del tenant); el admin siempre es el suyo — se
+    ignora lo que mande, no puede tocar aprobaciones ajenas."""
+    if current_user.role == Role.SUPER_ADMIN:
+        if not tenant_id:
+            raise HTTPException(status_code=422, detail="Falta tenant_id (la aprobación es por organización)")
+        return tenant_id
+    return _own_tenant(current_user)
+
 
 @router.get("/admin/connectors/approved-hosts")
-async def get_approved_hosts(current_user: CurrentUser = Depends(require_admin_or_super)):
-    """El admin puede VER qué hosts están aprobados (para saber si podrá activar)."""
-    return {"hosts": await dao.list_approved_hosts()}
+async def get_approved_hosts(
+    tenant_id: str | None = None,
+    current_user: CurrentUser = Depends(require_admin_or_super),
+):
+    """El admin puede VER qué hosts tiene aprobados SU organización (para saber
+    si podrá activar). El super-admin consulta los de un tenant puntual."""
+    return {"hosts": await dao.list_approved_hosts(_host_tenant(current_user, tenant_id))}
 
 
 @router.post("/admin/connectors/approved-hosts", status_code=201)
@@ -247,10 +279,28 @@ async def add_approved_host(
     body: HostIn, request: Request,
     current_user: CurrentUser = Depends(require_super_admin),
 ):
+    tenant = _host_tenant(current_user, body.tenant_id)
     host = body.host.strip().lower()
-    await dao.approve_host(host, current_user.email or current_user.user_id, body.note)
-    _audit(request, current_user, "connector_host_approved", host, {"note": body.note})
-    return {"host": host, "approved": True}
+    await dao.approve_host(tenant, host, current_user.email or current_user.user_id, body.note)
+    # Aviso proactivo: si esta aprobación deja algún conector inactivo del
+    # tenant LISTO para prender (todos sus hosts aprobados, con operaciones) y
+    # no hay solicitud/veredicto vivo, se registra el aviso "ya podés
+    # activarlo" — la aprobación le llega al admin aunque nunca haya pedido
+    # (p. ej. tras descartar el aviso de una revocación).
+    try:
+        requests = await dao.activation_requests_by_connector(tenant)
+        for c in await dao.list_connectors(tenant):
+            if c["is_active"] or c["id"] in requests or c.get("tool_count", 0) == 0:
+                continue
+            if host not in [h.lower() for h in c["egress_allow"]]:
+                continue
+            if not await _unapproved_hosts(tenant, c["egress_allow"]):
+                await dao.upsert_activation_request(tenant, c["id"], c["egress_allow"], None)
+    except Exception as exc:  # noqa: BLE001 — el aviso es cortesía, la aprobación ya está
+        logger.warning("approve_ready_notice_failed tenant=%s host=%s error=%s", tenant, host, exc)
+    _audit(request, current_user, "connector_host_approved", host,
+           {"note": body.note, "tenant_id": tenant})
+    return {"host": host, "tenant_id": tenant, "approved": True}
 
 
 @router.get("/admin/connectors/overview")
@@ -327,17 +377,37 @@ async def list_activation_requests(current_user: CurrentUser = Depends(require_s
             except Exception:  # noqa: BLE001
                 pass
             continue
+        # Denegada: resuelta para el super-admin, pero viaja en la respuesta —
+        # la ficha del tenant la muestra como estado ("la denegaste, por esto")
+        # en vez de hacer de cuenta que nunca existió. La fila vive hasta que
+        # el admin la da por vista o re-pide.
+        if req.get("status") == "denied":
+            out.append({
+                "tenant_id": tenant_id,
+                "tenant_name": req.get("tenant_name") or tenant_id,
+                "connector_id": connector_id,
+                "connector_name": conn["display_name"],
+                "base_url": conn["base_url"],
+                "status": "denied",
+                "denied_reason": req.get("denied_reason"),
+                "resolved_at": req.get("resolved_at"),
+                "hosts": [], "tools": [],
+                "requested_by": req.get("requested_by"),
+                "requested_at": req.get("created_at"),
+            })
+            continue
+        # 'revoked' es un aviso PARA EL ADMIN (su conector se apagó al quitarse
+        # el host) — el super-admin fue quien lo hizo: ni pendiente ni cartel.
+        if req.get("status") == "revoked":
+            continue
         hosts = []
         for h in req["hosts"] or []:
-            hosts.append({"host": h, "approved": await dao.is_host_approved(h)})
-        # Todos los hosts aprobados → el trabajo del super-admin terminó: la
-        # solicitud sale de la lista (el admin del tenant solo tiene que
-        # reactivar; si no lo hace, no es un pendiente NUESTRO).
+            hosts.append({"host": h, "approved": await dao.is_host_approved(tenant_id, h)})
+        # Todos los hosts aprobados → el trabajo del super-admin terminó y la
+        # solicitud sale de SU lista, pero la fila NO se borra: es la señal con
+        # la que el panel del admin le avisa "aprobado — activalo" (flag
+        # approval_ready). Se limpia sola cuando el admin activa el conector.
         if all(h["approved"] for h in hosts):
-            try:
-                await dao.delete_activation_request(tenant_id, connector_id)
-            except Exception:  # noqa: BLE001
-                pass
             continue
         try:
             tools = await dao.list_tools(tenant_id, connector_id)
@@ -349,6 +419,7 @@ async def list_activation_requests(current_user: CurrentUser = Depends(require_s
             "connector_id": connector_id,
             "connector_name": conn["display_name"],
             "base_url": conn["base_url"],
+            "status": "pending",
             "hosts": hosts,
             "requested_by": req.get("requested_by"),
             "requested_at": req.get("created_at"),
@@ -359,41 +430,122 @@ async def list_activation_requests(current_user: CurrentUser = Depends(require_s
     return {"requests": out}
 
 
-@router.delete("/admin/connectors/approved-hosts/{host}")
-async def delete_approved_host(
-    host: str, request: Request,
+class DenyIn(BaseModel):
+    tenant_id: str
+    connector_id: str
+    reason: str | None = Field(default=None, max_length=500)
+
+
+@router.post("/admin/connectors/activation-requests/deny")
+async def deny_activation_request(
+    body: DenyIn, request: Request,
     current_user: CurrentUser = Depends(require_super_admin),
 ):
-    removed = await dao.remove_approved_host(host.strip().lower())
+    """Denegar una solicitud de activación. No la borra: la marca, para que el
+    admin del tenant vea "denegada" (con el motivo) en su panel en vez de un
+    silencio. El admin puede darla por vista o corregir y volver a pedir."""
+    denied = await dao.deny_activation_request(
+        body.tenant_id, body.connector_id,
+        current_user.email or current_user.user_id, body.reason)
+    if not denied:
+        raise HTTPException(status_code=404, detail="No hay una solicitud pendiente para denegar")
+    _audit(request, current_user, "connector_activation_denied", body.connector_id,
+           {"tenant_id": body.tenant_id, "reason": body.reason})
+    return {"ok": True}
+
+
+@router.delete("/admin/connectors/{connector_id}/activation-request")
+async def dismiss_activation_request(
+    connector_id: str, request: Request,
+    current_user: CurrentUser = Depends(require_admin_or_super),
+):
+    """El admin da por vista una solicitud resuelta (típicamente denegada): la
+    fila muere y el conector vuelve a leerse como un inactivo común."""
+    tenant_id = _own_tenant(current_user)
+    await dao.delete_activation_request(tenant_id, connector_id)
+    _audit(request, current_user, "connector_activation_dismissed", connector_id)
+    return {"ok": True}
+
+
+@router.delete("/admin/connectors/approved-hosts/{host}")
+async def delete_approved_host(
+    host: str, request: Request, tenant_id: str | None = None,
+    current_user: CurrentUser = Depends(require_super_admin),
+):
+    tenant = _host_tenant(current_user, tenant_id)
+    clean_host = host.strip().lower()
+    removed = await dao.remove_approved_host(tenant, clean_host)
     if not removed:
         raise HTTPException(status_code=404, detail="Host no encontrado")
-    _audit(request, current_user, "connector_host_removed", host)
-    return {"host": host, "approved": False}
+    # Cumplir lo que promete el diálogo: sin aprobación no hay egreso. Los
+    # conectores activos hacia ese host se apagan acá mismo — si no, seguirían
+    # llamándolo (la aprobación solo se chequea al activar).
+    try:
+        deactivated = await dao.deactivate_connectors_using_host(tenant, clean_host)
+    except Exception as exc:  # noqa: BLE001 — la revocación ya ocurrió; avisar igual
+        logger.warning("deactivate_on_revoke_failed tenant=%s host=%s error=%s", tenant, clean_host, exc)
+        deactivated = []
+    for d in deactivated:
+        _audit(request, current_user, "connector_active_changed", d["id"],
+               {"is_active": False, "reason": "host_revocado", "host": clean_host, "tenant_id": tenant})
+        # El admin tiene que enterarse de por qué su conector se apagó — aviso
+        # en su panel, mismo trato que aprobar y denegar (nunca en silencio).
+        try:
+            await dao.record_host_revocation_notice(
+                tenant, d["id"], clean_host, current_user.email or current_user.user_id)
+        except Exception as exc:  # noqa: BLE001 — el apagado ya ocurrió
+            logger.warning("revocation_notice_failed tenant=%s error=%s", tenant, exc)
+    _audit(request, current_user, "connector_host_removed", host, {"tenant_id": tenant})
+    return {"host": host, "tenant_id": tenant, "approved": False,
+            "deactivated": [d["display_name"] for d in deactivated]}
 
 
 # ── Conectores ────────────────────────────────────────────────────────────────
 
-async def _unapproved_hosts(egress_allow: list[str]) -> list[str]:
-    """Hosts del conector que todavía necesitan aprobación del super-admin
-    (excluye los internos de confianza). Compartido por activar y por el flag
-    pending_approval de los GET."""
+async def _unapproved_hosts(tenant_id: str, egress_allow: list[str]) -> list[str]:
+    """Hosts del conector que todavía necesitan aprobación del super-admin PARA
+    ESTE tenant (excluye los internos de confianza). Compartido por activar y
+    por el flag pending_approval de los GET."""
     trusted = settings.trusted_internal_hosts_set
     out = []
     for host in egress_allow:
         if host in trusted:
             continue
-        if not await dao.is_host_approved(host):
+        if not await dao.is_host_approved(tenant_id, host):
             out.append(host)
     return out
 
 
-async def _pending_approval(tenant_id: str, conn: dict, requested_ids: set[str]) -> bool:
-    """True si el conector está esperando al super-admin: hay solicitud viva Y
-    sigue habiendo hosts sin aprobar. Se recalcula contra los hosts actuales
-    para que el estado caiga solo apenas el super-admin aprueba."""
-    if conn["is_active"] or conn["id"] not in requested_ids:
-        return False
-    return bool(await _unapproved_hosts(conn["egress_allow"]))
+async def _approval_state(tenant_id: str, conn: dict, requests: dict[str, dict]) -> dict:
+    """Estado de la solicitud de activación como flags excluyentes que los GET
+    mezclan en el conector: pending_approval (espera al super-admin), approval_
+    ready (aprobó todo, falta que el admin toque Activar), approval_denied (la
+    rechazó — con motivo). Todos False sin solicitud viva o con el conector ya
+    activo. pending/ready se recalculan contra los hosts actuales: aprobar (o
+    revocar) mueve el estado solo, sin pasos extra."""
+    out = {"pending_approval": False, "approval_ready": False,
+           "approval_denied": False, "approval_denied_reason": None,
+           "approval_revoked": False, "approval_revoked_host": None}
+    req = requests.get(conn["id"])
+    if conn["is_active"] or req is None:
+        return out
+    if req["status"] == "denied":
+        out["approval_denied"] = True
+        out["approval_denied_reason"] = req.get("denied_reason")
+        return out
+    if req["status"] == "revoked":
+        # Si el host volvió a aprobarse, el aviso muta solo: de "se apagó" a
+        # "ya podés activarlo" — el admin nunca queda leyendo historia vieja.
+        if not await _unapproved_hosts(tenant_id, conn["egress_allow"]):
+            out["approval_ready"] = True
+            return out
+        out["approval_revoked"] = True
+        out["approval_revoked_host"] = (req.get("hosts") or [None])[0]
+        return out
+    pending = bool(await _unapproved_hosts(tenant_id, conn["egress_allow"]))
+    out["pending_approval"] = pending
+    out["approval_ready"] = not pending
+    return out
 
 
 @router.get("/admin/connectors")
@@ -408,13 +560,23 @@ async def list_connectors(current_user: CurrentUser = Depends(require_admin_or_s
         logger.warning("connectors_health_failed tenant=%s error=%s", tenant_id, exc)
         health = {}
     try:
-        requested = await dao.list_activation_request_ids(tenant_id)
+        requested = await dao.activation_requests_by_connector(tenant_id)
     except Exception as exc:  # noqa: BLE001 — el flag es informativo
         logger.warning("activation_request_ids_failed tenant=%s error=%s", tenant_id, exc)
-        requested = set()
+        requested = {}
     for c in conns:
         c["health"] = health.get(c["id"])
-        c["pending_approval"] = await _pending_approval(tenant_id, c, requested)
+        c.update(await _approval_state(tenant_id, c, requested))
+        # Inactivo pero listo para prender YA (hosts aprobados, operaciones
+        # cargadas, sin trámite en el medio): la UI ofrece Activar directo —
+        # no importa si la aprobación llegó por solicitud o de antemano.
+        c["can_activate"] = (
+            not c["is_active"]
+            and not c["pending_approval"] and not c["approval_denied"]
+            and c.get("tool_count", 0) > 0
+            and bool(c["egress_allow"])
+            and not await _unapproved_hosts(tenant_id, c["egress_allow"])
+        )
     return {"connectors": conns}
 
 
@@ -447,10 +609,10 @@ async def get_connector(connector_id: str, current_user: CurrentUser = Depends(r
         raise HTTPException(status_code=404, detail="Conector no encontrado")
     conn["tools"] = await dao.list_tools(tenant_id, connector_id)
     try:
-        requested = await dao.list_activation_request_ids(tenant_id)
+        requested = await dao.activation_requests_by_connector(tenant_id)
     except Exception:  # noqa: BLE001 — el flag es informativo
-        requested = set()
-    conn["pending_approval"] = await _pending_approval(tenant_id, conn, requested)
+        requested = {}
+    conn.update(await _approval_state(tenant_id, conn, requested))
     return conn
 
 
@@ -554,7 +716,7 @@ async def test_auth(
         else:
             build_auth(conn["auth_type"], conn.get("auth_config") or {}, secret)
             note = "Config completa. La validez real de la clave se comprueba al probar una operación."
-    except (ValueError, EgressBlocked) as exc:
+    except (ValueError, EgressBlocked, EgressUnreachable) as exc:
         _audit(request, current_user, "connector_auth_tested", connector_id, {"ok": False})
         return {"ok": False, "detail": str(exc)[:300]}
     _audit(request, current_user, "connector_auth_tested", connector_id, {"ok": True})
@@ -574,10 +736,16 @@ async def set_active(
     if conn is None:
         raise HTTPException(status_code=404, detail="Conector no encontrado")
 
+    # Idempotencia: pedir el estado que ya tiene no hace nada. Evita que un
+    # doble clic (o dos pestañas) sobre un conector ya activo registre una
+    # solicitud de activación fantasma.
+    if conn["is_active"] == body.is_active:
+        return {"ok": True, "is_active": conn["is_active"]}
+
     if body.is_active:
         if not conn["egress_allow"]:
             raise HTTPException(status_code=422, detail="El conector no tiene hosts en egress_allow")
-        pending = await _unapproved_hosts(conn["egress_allow"])
+        pending = await _unapproved_hosts(tenant_id, conn["egress_allow"])
         if pending:
             # No es un error del admin: es un paso del circuito. Queda registrada
             # la solicitud (el super-admin la ve en su panel con tenant + conector
@@ -1024,7 +1192,15 @@ async def _dry_run_tool(conn: dict, tool: dict, tenant_id: str, connector_id: st
     """Núcleo del dry-run: arma la URL final, valida egress, llama al tercero y
     devuelve crudo + mapeado + sugerencia de response_map. Compartido por la
     prueba individual y la masiva."""
-    from services.connector_executor import _apply_response_map, _build_path, join_url
+    from services.connector_executor import (
+        _apply_response_map, _build_path, apply_param_defaults, join_url,
+    )
+
+    # Mismos defaults que en ejecución real: sin esto, "Probar" manda la consulta
+    # SIN las constantes técnicas del proveedor y muestra un error en una
+    # operación que en el chat funciona perfecto — el admin desconfía de una
+    # config sana (o peor, la "arregla" y la rompe).
+    params = apply_param_defaults(dict(params or {}), tool.get("params_schema") or {})
 
     # Requeridos sin valor (el autofill ya completó enums e ids de recurso): mejor
     # un mensaje claro en castellano que el 400 del proveedor. En "Probar todas"
@@ -1050,7 +1226,7 @@ async def _dry_run_tool(conn: dict, tool: dict, tenant_id: str, connector_id: st
             allow_http=settings.environment == "development",
             trusted_internal_hosts=settings.trusted_internal_hosts_set,
         )
-    except EgressBlocked as exc:
+    except (EgressBlocked, EgressUnreachable) as exc:
         result.update(ok=False, error="egress_blocked", detail=str(exc))
         return result
 
@@ -1138,7 +1314,10 @@ async def _autofill_resource_ids(conn: dict, tool: dict, tools: list[dict],
             continue
         if str(filled.get(name) or "").strip():
             continue
-        ex = spec.get("x-example")
+        # 'x-example' es lo que escribe el discovery; 'example' es lo que trae
+        # un OpenAPI estándar (y lo que tipea quien edita por API). Aceptar los
+        # dos evita que un ejemplo válido se ignore y la prueba quede saltada.
+        ex = spec.get("x-example", spec.get("example"))
         if ex is not None and str(ex).strip():
             filled[name] = ex
             autos.append({"param": name, "value": ex, "from": "__example__"})

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CONNECTORS_UI_ENABLED } from "@/lib/features";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Plug, Loader2, KeyRound, Database, ArrowRight, SearchX, Trash2 } from "lucide-react";
+import { Plus, Plug, Loader2, KeyRound, Database, ArrowRight, SearchX, Trash2, BellRing, Zap } from "lucide-react";
 import { api, type ConnectorRow } from "@/lib/api";
 
 // "hace 5 min" / "hace 2 h" / "hace 3 d" — para la línea de salud del conector.
@@ -67,11 +67,18 @@ function errDetail(e: unknown): string {
 }
 
 // Pastilla de estado con punto — verde al estar activo (mismo lenguaje que
-// sectores/canales). Ámbar cuando la activación espera al super-admin.
-function StatePill({ active, pending }: { active: boolean; pending?: boolean }) {
+// sectores/canales). Ámbar cuando la activación espera al super-admin; rojo si
+// la denegó. El estado "aprobado" no tiene pastilla: se dibuja como BOTÓN
+// Activar en la celda (un estado que es una acción se muestra como acción).
+function StatePill({ active, pending, denied }: { active: boolean; pending?: boolean; denied?: boolean }) {
   if (active) return (
     <span className="inline-flex items-center gap-1.5 rounded-full border border-success/30 bg-success/[0.08] px-2 py-0.5 text-[11px] font-semibold text-success">
       <span className="h-1.5 w-1.5 rounded-full bg-success" /> Activo
+    </span>
+  );
+  if (denied) return (
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-destructive/30 bg-destructive/[0.08] px-2 py-0.5 text-[11px] font-semibold text-destructive">
+      <span className="h-1.5 w-1.5 rounded-full bg-destructive" /> Denegada
     </span>
   );
   if (pending) return (
@@ -186,6 +193,34 @@ function ConnectorsPageInner() {
     onError: (e) => toast({ title: "No se pudo eliminar", description: humanizeConnectorError(errDetail(e)), variant: "destructive" }),
   });
 
+  // Solicitudes que el super-admin ya aprobó: el aviso de arriba las destaca y
+  // deja activar sin salir de la lista — el circuito se cierra en un clic.
+  const readyConns = connectors.filter(c => c.approval_ready);
+  // Y las denegadas: mismo trato — veredicto visible con motivo, nunca un
+  // silencio. "Entendido" la da por vista; corregir y reactivar la re-pide.
+  const deniedConns = connectors.filter(c => c.approval_denied);
+  // Apagadas por revocación de host: el admin se entera de por qué se apagó.
+  const revokedConns = connectors.filter(c => c.approval_revoked);
+  const dismissM = useMutation({
+    mutationFn: (id: string) => api.connectors.dismissActivationRequest(id),
+    onSuccess: () => inv(),
+    onError: (e) => toast({ title: "No se pudo descartar el aviso", description: humanizeConnectorError(errDetail(e)), variant: "destructive" }),
+  });
+  const activateM = useMutation({
+    mutationFn: (id: string) => api.connectors.setActive(id, true),
+    onSuccess: (d) => {
+      inv();
+      // Carrera rara pero posible: el super-admin revocó el host entre el aviso
+      // y el clic — la solicitud vuelve a "esperando", no es un error.
+      if (d.pending_approval) {
+        toast({ title: "Volvió a quedar en espera", description: "Un host dejó de estar aprobado — la solicitud se reenvió al super-admin." });
+        return;
+      }
+      toast({ title: "Conector activado", variant: "success" });
+    },
+    onError: (e) => toast({ title: "No se pudo activar", description: humanizeConnectorError(errDetail(e)), variant: "destructive" }),
+  });
+
   const isEmpty = !isLoading && connectors.length === 0;
 
   return (
@@ -223,6 +258,58 @@ function ConnectorsPageInner() {
           </div>
         ) : (
           <div className="space-y-4">
+            {/* Aviso: la aprobación llegó. Vive mientras haya algo listo sin
+                activar y desaparece solo al activarlo — no hay "descartar"
+                porque el pendiente es real hasta que se cierra. */}
+            {readyConns.map(c => (
+              <div key={c.id} className="flex flex-wrap items-center gap-3 rounded-2xl border border-action/40 bg-action/[0.05] px-4 py-3">
+                <BellRing className="h-4 w-4 shrink-0 text-action" />
+                <p className="min-w-0 flex-1 text-sm text-foreground">
+                  El super-admin aprobó <strong>{c.display_name}</strong> — ya podés activarlo.
+                </p>
+                <span className="flex shrink-0 items-center gap-2">
+                  <Button size="sm" disabled={activateM.isPending}
+                          onClick={() => activateM.mutate(c.id)}>
+                    {activateM.isPending && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+                    Activar
+                  </Button>
+                  <button
+                    type="button"
+                    onClick={() => dismissM.mutate(c.id)}
+                    className="text-xs text-muted-foreground transition-colors hover:text-foreground hover:underline"
+                  >
+                    Descartar
+                  </button>
+                </span>
+              </div>
+            ))}
+            {revokedConns.map(c => (
+              <div key={c.id} className="flex flex-wrap items-center gap-3 rounded-2xl border border-warning/40 bg-warning/[0.05] px-4 py-3">
+                <BellRing className="h-4 w-4 shrink-0 text-warning" />
+                <p className="min-w-0 flex-1 text-sm text-foreground">
+                  <strong>{c.display_name}</strong> se desactivó: el super-admin quitó la aprobación
+                  {c.approval_revoked_host ? <> del host <code className="font-mono text-xs">{c.approval_revoked_host}</code></> : " de un host que usaba"}.
+                  {" "}Si lo necesitás, tocá Activar y le llega la solicitud de nuevo.
+                </p>
+                <Button size="sm" variant="outline" className="shrink-0" disabled={dismissM.isPending}
+                        onClick={() => dismissM.mutate(c.id)}>
+                  Entendido
+                </Button>
+              </div>
+            ))}
+            {deniedConns.map(c => (
+              <div key={c.id} className="flex flex-wrap items-center gap-3 rounded-2xl border border-destructive/40 bg-destructive/[0.05] px-4 py-3">
+                <BellRing className="h-4 w-4 shrink-0 text-destructive" />
+                <p className="min-w-0 flex-1 text-sm text-foreground">
+                  El super-admin denegó la activación de <strong>{c.display_name}</strong>
+                  {c.approval_denied_reason ? <>: <span className="text-muted-foreground">{c.approval_denied_reason}</span></> : "."}
+                </p>
+                <Button size="sm" variant="outline" className="shrink-0" disabled={dismissM.isPending}
+                        onClick={() => dismissM.mutate(c.id)}>
+                  Entendido
+                </Button>
+              </div>
+            ))}
             <ListToolbar search={search} onSearch={setSearch} placeholder="Buscar fuente…" />
 
             {sorted.length === 0 ? (
@@ -269,7 +356,26 @@ function ConnectorsPageInner() {
                         {c.has_secret && <span className="text-muted-foreground/60"> · credencial</span>}
                       </TableCell>
                       <TableCell className="hidden text-right text-sm tabular-nums text-muted-foreground sm:table-cell">{c.tool_count}</TableCell>
-                      <TableCell><StatePill active={c.is_active} pending={c.pending_approval} /></TableCell>
+                      <TableCell>
+                        {/* Inactivo pero activable ya (hosts aprobados + operaciones):
+                            el estado ES una acción — botón directo, un clic y listo. */}
+                        {!c.is_active && (c.can_activate || c.approval_ready) ? (
+                          <Button
+                            size="sm"
+                            className="h-7 gap-1.5 rounded-full px-3 text-xs shadow-sm"
+                            disabled={activateM.isPending}
+                            title="Hosts aprobados — activalo cuando quieras"
+                            onClick={e => { e.stopPropagation(); activateM.mutate(c.id); }}
+                          >
+                            {activateM.isPending && activateM.variables === c.id
+                              ? <Loader2 className="h-3 w-3 animate-spin" />
+                              : <Zap className="h-3 w-3" />}
+                            Activar
+                          </Button>
+                        ) : (
+                          <StatePill active={c.is_active} pending={c.pending_approval} denied={c.approval_denied} />
+                        )}
+                      </TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-0.5">
                           <Button

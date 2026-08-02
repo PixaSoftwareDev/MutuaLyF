@@ -6,7 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import {
   Inbox, FileText, Users, BarChart3, Settings, Home, Building2, Network, Bot,
-  ClipboardList, History, LogOut, Monitor, Sun, Moon, ShieldCheck,
+  ClipboardList, History, LogOut, Monitor, Sun, Moon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/lib/store";
@@ -57,8 +57,6 @@ const SUPER_RAIL: RailItem[] = [
     prefixes: ["/superadmin/monitoring"] },
   { href: "/superadmin/prompts", label: "Bots y prompts", icon: Bot,
     prefixes: ["/superadmin/prompts"] },
-  { href: "/superadmin/connector-hosts", label: "Conectores", icon: ShieldCheck,
-    prefixes: ["/superadmin/connector-hosts"] },
   { href: "/superadmin/audit", label: "Auditoría", icon: ClipboardList,
     prefixes: ["/superadmin/audit"] },
 ];

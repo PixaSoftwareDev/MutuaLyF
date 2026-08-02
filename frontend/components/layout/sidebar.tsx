@@ -6,7 +6,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   Inbox, FileText, Settings, LogOut,
   Home, Building2, GitMerge, Users, MessageSquareShare, ClipboardList, Bot, Cpu, Network, X, Layers, BarChart3,
-  MessageSquare, Clock, UserCheck, Archive, UserRound, ChevronDown, Globe, Database, Grid3x3, Pin, PinOff, ShieldCheck, Smile,
+  MessageSquare, Clock, UserCheck, Archive, UserRound, ChevronDown, Globe, Database, Grid3x3, Pin, PinOff, Smile,
   Bug, HardDrive,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -141,14 +141,6 @@ export const navGroups: NavGroup[] = [
     ],
   },
   {
-    sectionId: "sa-connectors",
-    label: "Conectores",
-    items: [
-      { href: "/superadmin/connector-hosts", label: "Hosts aprobados", icon: ShieldCheck, superAdminOnly: true,
-        tooltip: "Servicios externos que los conectores pueden llamar. Aprobalos para que los admins activen sus fuentes de datos." },
-    ],
-  },
-  {
     sectionId: "sa-audit",
     items: [
       { href: "/superadmin/audit", label: "Auditoría", icon: ClipboardList, superAdminOnly: true,
@@ -224,7 +216,6 @@ const SECTIONS: Array<{ id: string; title: string; prefixes: string[] }> = [
   { id: "sa-clients",    title: "Organizaciones",     prefixes: ["/superadmin/orgs", "/superadmin/tenants", "/superadmin/plans"] },
   { id: "sa-monitoring", title: "Monitoreo",          prefixes: ["/superadmin/monitoring"] },
   { id: "sa-prompts",    title: "Bots y prompts",     prefixes: ["/superadmin/prompts"] },
-  { id: "sa-connectors", title: "Conectores",         prefixes: ["/superadmin/connector-hosts"] },
   { id: "sa-audit",      title: "Auditoría",          prefixes: ["/superadmin/audit"] },
 ];
 

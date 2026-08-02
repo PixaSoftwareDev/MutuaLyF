@@ -1,8 +1,13 @@
 "use client";
 
 // Últimas consultas — qué está preguntando la gente de este cliente.
+// Desplegable, colapsado por defecto: la ficha se lee de un vistazo (cuántas
+// y hace cuánto la última) y la tabla aparece solo a pedido. El backend corta
+// en 10 — esto es un pulso del asistente, no un historial navegable.
 // En móvil la latencia y el cuándo viajan bajo la pregunta.
 
+import { useState } from "react";
+import { ChevronDown } from "lucide-react";
 import { Panel } from "@/components/superadmin/panel";
 import { StatePill } from "@/components/ui/state-pill";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
@@ -34,11 +39,27 @@ function relTime(iso: string): string {
 export function QueriesPanel({ queries }: {
   queries: Array<{ question_text: string | null; latency_ms: number | null; from_cache: boolean; created_at: string }>;
 }) {
+  const [open, setOpen] = useState(false);
+
   return (
-    <Panel title="Últimas consultas" sub="qué pregunta la gente">
+    <Panel
+      title="Últimas consultas"
+      sub={queries.length > 0 ? `la más reciente ${relTime(queries[0].created_at)}` : "qué pregunta la gente"}
+      action={queries.length > 0 ? (
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => setOpen(o => !o)}
+          className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+        >
+          {open ? "Ocultar" : `Ver ${queries.length === 1 ? "la última" : `las ${queries.length}`}`}
+          <ChevronDown className={cn("h-3.5 w-3.5 transition-transform duration-200", open && "rotate-180")} />
+        </button>
+      ) : undefined}
+    >
       {queries.length === 0 ? (
         <p className="px-4 py-6 text-center text-sm text-muted-foreground">Sin consultas registradas todavía.</p>
-      ) : (
+      ) : !open ? null : (
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>

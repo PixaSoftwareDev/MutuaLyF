@@ -326,6 +326,16 @@ export interface ConnectorRow {
   is_active: boolean;
   // Inactivo con solicitud de activación esperando al super-admin (hosts sin aprobar).
   pending_approval?: boolean;
+  // El super-admin ya aprobó todos los hosts de la solicitud — solo falta Activar.
+  approval_ready?: boolean;
+  // El super-admin denegó la solicitud — el admin la da por vista o re-pide.
+  approval_denied?: boolean;
+  approval_denied_reason?: string | null;
+  // Inactivo pero activable YA: hosts aprobados, operaciones cargadas, sin trámite.
+  can_activate?: boolean;
+  // Se apagó porque el super-admin quitó la aprobación de un host que usaba.
+  approval_revoked?: boolean;
+  approval_revoked_host?: string | null;
   timeout_ms: number;
   has_secret: boolean;
   tool_count: number;
@@ -359,6 +369,11 @@ export interface ActivationRequest {
   connector_id: string;
   connector_name: string;
   base_url: string;
+  // "pending" espera veredicto; "denied" viaja igual para que la ficha muestre
+  // el estado (quién la denegó ya lo sabe el super-admin: fue él).
+  status: "pending" | "denied";
+  denied_reason?: string | null;
+  resolved_at?: string | null;
   hosts: Array<{ host: string; approved: boolean }>;
   requested_by: string | null;
   requested_at: string | null;
@@ -928,22 +943,40 @@ export const api = {
       // super-admin apruebe los hosts (pending_hosts dice cuáles).
       return data as { ok: boolean; is_active: boolean; pending_approval?: boolean; pending_hosts?: string[] };
     },
-    approvedHosts: async (): Promise<{ hosts: Array<{ host: string; approved_by: string | null; note: string | null; created_at: string | null }> }> => {
-      const { data } = await apiClient.get("/admin/connectors/approved-hosts");
+    // La aprobación es POR TENANT: el super-admin siempre indica cuál; el admin
+    // omite el parámetro y el backend usa su propia organización.
+    approvedHosts: async (tenantId?: string): Promise<{ hosts: Array<{ host: string; approved_by: string | null; note: string | null; created_at: string | null }> }> => {
+      const { data } = await apiClient.get("/admin/connectors/approved-hosts", {
+        params: tenantId ? { tenant_id: tenantId } : undefined,
+      });
       return data;
     },
-    addApprovedHost: async (host: string, note?: string) => {
-      const { data } = await apiClient.post("/admin/connectors/approved-hosts", { host, note: note || null });
+    addApprovedHost: async (host: string, tenantId: string, note?: string) => {
+      const { data } = await apiClient.post("/admin/connectors/approved-hosts", { host, note: note || null, tenant_id: tenantId });
       return data as { host: string; approved: boolean };
     },
-    removeApprovedHost: async (host: string) => {
-      await apiClient.delete(`/admin/connectors/approved-hosts/${encodeURIComponent(host)}`);
+    // Devuelve qué conectores activos se apagaron al revocar (para avisarlo).
+    removeApprovedHost: async (host: string, tenantId: string): Promise<{ deactivated: string[] }> => {
+      const { data } = await apiClient.delete(`/admin/connectors/approved-hosts/${encodeURIComponent(host)}`, {
+        params: { tenant_id: tenantId },
+      });
+      return data;
     },
     // Solicitudes de activación pendientes (super-admin): qué tenant pide activar
     // qué conector, con sus hosts y rutas a la vista para aprobar con fundamento.
     activationRequests: async (): Promise<{ requests: ActivationRequest[] }> => {
       const { data } = await apiClient.get("/admin/connectors/activation-requests");
       return data;
+    },
+    // Super-admin: denegar una solicitud (queda marcada — el admin ve el motivo).
+    denyActivationRequest: async (tenantId: string, connectorId: string, reason?: string) => {
+      await apiClient.post("/admin/connectors/activation-requests/deny", {
+        tenant_id: tenantId, connector_id: connectorId, reason: reason || null,
+      });
+    },
+    // Admin: dar por vista la solicitud resuelta (borra el aviso de denegada).
+    dismissActivationRequest: async (connectorId: string) => {
+      await apiClient.delete(`/admin/connectors/${connectorId}/activation-request`);
     },
     // Oversight de plataforma: todos los conectores de todos los tenants con sus
     // rutas, más el feed de cambios de configuración (30 días).
