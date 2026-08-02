@@ -42,7 +42,7 @@ async def lifespan(app: FastAPI):
 
     # Default ThreadPoolExecutor en Python es min(32, cpu+4)=10 threads.
     # Bajo carga concurrente el RAG necesita threads para: embed(local o
-    # HTTP-sync OpenAI), reranker (CPU), Redis cache.
+    # HTTP-sync OpenAI), Redis cache.
     # 10 threads se saturan con ~3-4 queries paralelas, encolando todo lo demás.
     # Subir a 64 destraba el cuello sin costo significativo (threads idle son
     # baratos en Python).
@@ -53,12 +53,8 @@ async def lifespan(app: FastAPI):
     logger.info("executor_configured", max_workers=64)
     try:
         from services.embeddings import _load_model as _warm_embed
-        from services.retrieval import _load_reranker
         logger.info("model_warmup_start")
-        await asyncio.gather(
-            loop.run_in_executor(None, _warm_embed),
-            loop.run_in_executor(None, _load_reranker),
-        )
+        await loop.run_in_executor(None, _warm_embed)
         logger.info("model_warmup_complete")
     except Exception as exc:
         logger.warning("model_warmup_failed", error=str(exc))
