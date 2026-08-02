@@ -163,6 +163,17 @@ class Settings(BaseSettings):
     # cuenta hasta verificar dominio). Ignorado SIEMPRE en environment=production
     # (doble gate en services/otp.py::_dev_fixed_code). Vacío = OTP real por email.
     otp_dev_fixed_code: str = ""
+
+    # Tope del cuerpo que aceptamos de un proveedor. Por encima, la respuesta se
+    # rechaza sin parsear: un JSON de decenas de MB bloquea el event loop del
+    # worker (afecta a todos los tenants) y, por el fallback de formato, terminaba
+    # volcado al navegador del usuario. 2 MB cubre cualquier listado razonable.
+    connector_max_response_bytes: int = 2_000_000
+
+    # Retención de logs. Sin purga, tool_call_audit y consultas_log crecen sin
+    # techo (~180 GB/año a 100 tenants × 10k consultas/día).
+    connector_audit_retention_days: int = 90
+    query_log_retention_days: int = 180
     connector_auth_lockout_window_s: int = 900  # ventana de 15 min
     # Timeout y circuit breaker del executor HTTP hacia terceros.
     connector_http_timeout_ms: int = 4000

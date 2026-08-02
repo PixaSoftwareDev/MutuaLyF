@@ -8,7 +8,7 @@ import socket
 
 import pytest
 
-from core.egress_guard import EgressBlocked, assert_egress_allowed
+from core.egress_guard import EgressBlocked, EgressUnreachable, assert_egress_allowed
 
 
 def _fake_getaddrinfo(ip: str):
@@ -72,11 +72,14 @@ def test_bloquea_dns_rebinding_a_ip_interna(monkeypatch, internal_ip):
         assert_egress_allowed("https://api.ejemplo.com.ar/x", ALLOW)
 
 
-def test_bloquea_si_dns_no_resuelve(monkeypatch):
+def test_dns_que_no_resuelve_es_unreachable_no_bloqueo(monkeypatch):
+    # Distinto de un rechazo de política: el host ESTÁ permitido pero no
+    # responde. El executor lo cuenta para el circuit breaker (si fuera
+    # EgressBlocked, cada consulta reintentaría un dominio muerto para siempre).
     def _boom(*a, **k):
         raise socket.gaierror("no such host")
     monkeypatch.setattr(socket, "getaddrinfo", _boom)
-    with pytest.raises(EgressBlocked, match="resolver"):
+    with pytest.raises(EgressUnreachable, match="resolver"):
         assert_egress_allowed("https://api.ejemplo.com.ar/x", ALLOW)
 
 

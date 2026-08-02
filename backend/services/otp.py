@@ -58,8 +58,14 @@ def mask_phone(phone: str | None) -> str | None:
 
 
 async def can_send(tenant_id: str, conv_id: str) -> bool:
-    """Rate limit de generación/envío. Fail-open a True (el throttle de intentos
-    del FSM sigue protegiendo la validación)."""
+    """Rate limit de generación/envío de códigos.
+
+    Fail-CLOSED: si el contador no está disponible no se manda nada. El
+    argumento viejo era que el throttle de intentos del FSM seguía protegiendo,
+    pero ese throttle vive en el MISMO Redis — con Redis caído no quedaba
+    ninguna barrera y la organización quedaba expuesta a bombardeo de emails
+    contra la casilla de una persona.
+    """
     try:
         redis = get_redis_ratelimit()
         key = f"otpsend:{tenant_id}:{conv_id}"
@@ -67,8 +73,10 @@ async def can_send(tenant_id: str, conv_id: str) -> bool:
         if n == 1:
             await redis.expire(key, OTP_SEND_WINDOW_S)
         return int(n) <= OTP_MAX_SENDS
-    except Exception:
-        return True
+    except Exception as exc:  # noqa: BLE001
+        logger.error("otp_throttle_no_disponible tenant=%s error=%s — no se envía",
+                     tenant_id, type(exc).__name__)
+        return False
 
 
 def _dev_fixed_code() -> str | None:

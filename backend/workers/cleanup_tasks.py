@@ -28,6 +28,56 @@ logger = logging.getLogger(__name__)
 _BATCH_LIMIT = 500
 
 
+@app.task(name="workers.cleanup_tasks.purge_old_logs", queue="default")
+def purge_old_logs() -> dict:
+    """Purga logs antiguos de todos los tenants activos.
+
+    Sin esto, tool_call_audit y consultas_log crecen sin techo: con 100 tenants
+    y 10k consultas/día son ~180 GB/año en el disco compartido, y el scan de
+    tool_call_audit degrada el panel de conectores a medida que engorda.
+    """
+    return asyncio.run(_run_purge())
+
+
+async def _run_purge() -> dict:
+    from core.config import settings
+    from core.database import get_worker_pg_session
+    from sqlalchemy import text
+
+    async with get_worker_pg_session(None) as session:
+        result = await session.execute(text("SELECT id FROM tenants WHERE status = 'active'"))
+        tenant_ids = [row[0] for row in result.fetchall()]
+
+    # Borrado por lotes acotados: un DELETE masivo tomaría locks largos sobre
+    # tablas que el chat está escribiendo en ese momento.
+    tablas = [
+        ("tool_call_audit", settings.connector_audit_retention_days),
+        ("consultas_log", settings.query_log_retention_days),
+    ]
+    total = 0
+    for tenant_id in tenant_ids:
+        for tabla, dias in tablas:
+            try:
+                async with get_worker_pg_session(tenant_id) as session:
+                    for _ in range(50):  # techo por corrida: 50 lotes
+                        res = await session.execute(text(f"""
+                            DELETE FROM {tabla}
+                            WHERE ctid IN (
+                                SELECT ctid FROM {tabla}
+                                WHERE created_at < NOW() - INTERVAL '1 day' * :dias
+                                LIMIT :lim
+                            )
+                        """), {"dias": dias, "lim": _BATCH_LIMIT})
+                        await session.commit()
+                        total += res.rowcount or 0
+                        if not res.rowcount:
+                            break
+            except Exception as exc:  # noqa: BLE001 — un tenant no frena al resto
+                logger.error("purge_error tenant=%s tabla=%s error=%s", tenant_id, tabla, exc)
+    logger.info("purge_old_logs_done tenants=%d filas=%d", len(tenant_ids), total)
+    return {"tenants": len(tenant_ids), "deleted": total}
+
+
 @app.task(name="workers.cleanup_tasks.delete_expired_attachments", queue="default")
 def delete_expired_attachments() -> dict:
     """Borra adjuntos más viejos que la retención en todos los tenants activos."""

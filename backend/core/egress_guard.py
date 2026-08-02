@@ -22,6 +22,13 @@ import socket
 from urllib.parse import urlparse
 
 
+class EgressUnreachable(Exception):
+    """El destino ESTÁ permitido pero no se pudo resolver (DNS caído, dominio
+    vencido, host apagado). Se separa de EgressBlocked porque no es un rechazo
+    de política sino una falla del proveedor: el circuit breaker tiene que
+    contarla, si no cada consulta reintenta la resolución de un host muerto."""
+
+
 class EgressBlocked(Exception):
     """La URL de destino viola la política de egress (posible SSRF)."""
 
@@ -46,7 +53,22 @@ def _is_blocked_ip(ip_str: str) -> bool:
         ip = ipaddress.ip_address(ip_str)
     except ValueError:
         return True  # no parseable → bloquear por las dudas
-    return any(ip in net for net in _BLOCKED_NETS)
+    # IPv6 que envuelve una IPv4 (::ffff:169.254.169.254): comparar contra las
+    # redes v4 da False siempre — versiones distintas no matchean, y sin error.
+    # Un host de la allowlist con un AAAA así alcanzaba loopback y la metadata
+    # del cloud esquivando toda la lista. Se desenvuelve ANTES de comparar.
+    if ip.version == 6:
+        mapped = getattr(ip, "ipv4_mapped", None)
+        if mapped is not None:
+            ip = mapped
+        elif getattr(ip, "sixtofour", None) is not None:
+            ip = ip.sixtofour
+    if any(ip in net for net in _BLOCKED_NETS):
+        return True
+    # Red de seguridad sobre la lista explícita: cualquier dirección que no sea
+    # ruteable en internet (reservadas, benchmarking 198.18/15, 240/4, NAT64,
+    # multicast, futuras) no puede ser el destino de una "API externa".
+    return not ip.is_global or ip.is_multicast or ip.is_reserved
 
 
 def assert_egress_allowed(
@@ -93,7 +115,7 @@ def assert_egress_allowed(
         infos = socket.getaddrinfo(host, parsed.port or (443 if scheme == "https" else 80),
                                    proto=socket.IPPROTO_TCP)
     except socket.gaierror as exc:
-        raise EgressBlocked(f"no se pudo resolver {host!r}: {exc}") from exc
+        raise EgressUnreachable(f"no se pudo resolver {host!r}: {exc}") from exc
 
     for info in infos:
         ip = info[4][0]

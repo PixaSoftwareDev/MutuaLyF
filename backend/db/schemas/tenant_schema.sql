@@ -355,6 +355,11 @@ CREATE TABLE IF NOT EXISTS tool_call_audit (
 );
 CREATE INDEX IF NOT EXISTS ix_tool_audit_actor   ON tool_call_audit (actor_ref, created_at DESC);
 CREATE INDEX IF NOT EXISTS ix_tool_audit_outcome ON tool_call_audit (outcome, created_at DESC);
+-- Salud del panel (filtra por created_at y joinea por tool_id) y purga por
+-- antigüedad: sin estos dos, ambas cosas hacen scan completo de una tabla que
+-- crece con cada llamada a un conector.
+CREATE INDEX IF NOT EXISTS ix_tool_audit_tool_created ON tool_call_audit (tool_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS ix_tool_audit_created ON tool_call_audit (created_at DESC);
 
 -- Registro de identidad por conector: usuarios autorizados de NUESTRO lado
 -- (para sistemas externos sin modelo de usuarios, ej. CRM con token de servicio).
