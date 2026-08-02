@@ -77,6 +77,17 @@ def test_upstream_message_formatos(raw, esperado):
     ("http://149.50.152.218", "/crmpixs/api/contacts", "http://149.50.152.218/crmpixs/api/contacts"),
     # coincidencia parcial de segmento no cuenta (/3 vs /30)
     ("https://x.com/3", "/30/items", "https://x.com/3/30/items"),
+    # prefijo de VARIOS segmentos (CRM Pixs: base /crmpixs/api + rutas con el
+    # mismo prefijo). Sin esto la URL sale duplicada y el proveedor da 404.
+    ("http://149.50.152.218/crmpixs/api", "/crmpixs/api/contacts/{id}",
+     "http://149.50.152.218/crmpixs/api/contacts/{id}"),
+    ("http://149.50.152.218/crmpixs/api", "/contacts", "http://149.50.152.218/crmpixs/api/contacts"),
+    # solapamiento parcial: solo /api coincide, /crmpixs no se pierde
+    ("http://h/api", "/api/crmpixs/x", "http://h/api/crmpixs/x"),
+    # ruta ABSOLUTA: proveedor repartido en subdominios (Open-Meteo) — se usa
+    # tal cual; el egress_guard sigue exigiendo que el host esté aprobado.
+    ("https://api.open-meteo.com", "https://geocoding-api.open-meteo.com/v1/search",
+     "https://geocoding-api.open-meteo.com/v1/search"),
 ])
 def test_join_url(base, path, esperado):
     assert join_url(base, path) == esperado

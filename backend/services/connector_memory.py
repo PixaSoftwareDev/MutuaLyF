@@ -101,6 +101,43 @@ async def recall(tenant_id: str, conversation_id: str) -> list[dict]:
         return []
 
 
+async def forget(tenant_id: str, conversation_id: str) -> None:
+    """Borra la memoria de resultados de la conversación. La usa el logout: sin
+    esto, cerrar sesión mataba la credencial pero dejaba los datos ya traídos
+    (nombres, montos, ids) disponibles para que el bot los repita — el mensaje
+    promete que los datos personales quedan protegidos y no era cierto."""
+    try:
+        await get_redis_session().delete(_key(tenant_id, conversation_id))
+    except Exception as exc:  # noqa: BLE001 — best-effort, nunca rompe el turno
+        logger.warning("connmem_forget_failed tenant=%s error=%s", tenant_id, exc)
+
+
+# ── Corte de contexto por logout ──────────────────────────────────────────────
+# Cerrar sesión también tiene que cortar lo que el modelo puede LEER del pasado:
+# los datos personales ya respondidos siguen en el historial de la charla y sin
+# esto el bot los repite sin credencial. Guardamos el momento del corte; el
+# historial anterior no se le pasa más al modelo (la charla no se borra: sigue
+# en la base para el operador y la auditoría).
+def _cut_key(tenant_id: str, conversation_id: str) -> str:
+    return f"connmem:cut:{tenant_id}:{conversation_id}"
+
+
+async def set_history_cut(tenant_id: str, conversation_id: str, when_iso: str) -> None:
+    try:
+        await get_redis_session().setex(_cut_key(tenant_id, conversation_id), _TTL_SECONDS, when_iso)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("connmem_cut_failed tenant=%s error=%s", tenant_id, exc)
+
+
+async def get_history_cut(tenant_id: str, conversation_id: str) -> str | None:
+    try:
+        v = await get_redis_session().get(_cut_key(tenant_id, conversation_id))
+        return v.decode() if isinstance(v, bytes) else v
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("connmem_cut_read_failed tenant=%s error=%s", tenant_id, exc)
+        return None
+
+
 def seen_ids(entries: list[dict]) -> set[str]:
     """Todos los ids de recurso vistos en la conversación (para procedencia)."""
     out: set[str] = set()

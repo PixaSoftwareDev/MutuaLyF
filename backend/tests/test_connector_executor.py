@@ -67,3 +67,60 @@ def test_response_map_forbidden_por_not_found():
     rm = {"not_found_field": "encontrado", "not_found_value": False}
     res = _apply_response_map({"encontrado": False, "ordenes": []}, rm)
     assert res.outcome == FORBIDDEN
+
+
+# ── detección de página parcial ────────────────────────────────────────────────
+def test_parcial_por_total_heuristico():
+    rm = {"items_path": "items"}
+    res = _apply_response_map({"items": [{"id": 1}], "total": 40}, rm)
+    assert res.detail == {"parcial": True, "traidos": 1, "total_declarado": 40}
+
+
+def test_parcial_por_totalresults_estilo_newsapi():
+    rm = {"items_path": "articles"}
+    res = _apply_response_map({"articles": [{"t": "a"}, {"t": "b"}], "totalResults": 120}, rm)
+    assert res.detail == {"parcial": True, "traidos": 2, "total_declarado": 120}
+
+
+def test_parcial_por_has_more_sin_total():
+    rm = {"items_path": "items"}
+    res = _apply_response_map({"items": [{"id": 1}], "has_more": True}, rm)
+    assert res.detail == {"parcial": True, "traidos": 1}
+    assert "total_declarado" not in res.detail
+
+
+def test_completo_sin_marcadores():
+    res = _apply_response_map({"items": [{"id": 1}], "total": 1}, {"items_path": "items"})
+    assert res.outcome == OK and res.detail == {}
+
+
+def test_total_path_configurado_parcial():
+    rm = {"items_path": "data.rows", "total_path": "meta.paging.grand_total"}
+    raw = {"data": {"rows": [{"id": 1}]}, "meta": {"paging": {"grand_total": 99}}}
+    res = _apply_response_map(raw, rm)
+    assert res.detail == {"parcial": True, "traidos": 1, "total_declarado": 99}
+
+
+def test_total_path_gana_sobre_heuristica():
+    # total_path dice completo (1 == 1) aunque un campo 'total' heurístico
+    # diga otra cosa: la config explícita es autoritativa.
+    rm = {"items_path": "rows", "total_path": "verdadero_total"}
+    raw = {"rows": [{"id": 1}], "verdadero_total": 1, "total": 500}
+    res = _apply_response_map(raw, rm)
+    assert res.outcome == OK and res.detail == {}
+
+
+def test_total_path_no_resuelve_cae_a_heuristica():
+    rm = {"items_path": "rows", "total_path": "meta.no.existe"}
+    raw = {"rows": [{"id": 1}], "total": 7}
+    res = _apply_response_map(raw, rm)
+    assert res.detail == {"parcial": True, "traidos": 1, "total_declarado": 7}
+
+
+def test_total_path_bool_no_cuenta_como_total():
+    # True es int en Python: un total_path que apunta a un booleano no debe
+    # decidir nada — cae a la heurística.
+    rm = {"items_path": "rows", "total_path": "ok"}
+    raw = {"rows": [{"id": 1}], "ok": True, "total": 9}
+    res = _apply_response_map(raw, rm)
+    assert res.detail == {"parcial": True, "traidos": 1, "total_declarado": 9}

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 
@@ -27,7 +28,7 @@ import httpx
 from urllib.parse import urlparse
 
 from core.config import settings
-from core.egress_guard import EgressBlocked, assert_egress_allowed
+from core.egress_guard import EgressBlocked, EgressUnreachable, assert_egress_allowed
 
 logger = logging.getLogger(__name__)
 
@@ -141,6 +142,25 @@ def validate_params(params: dict, schema: dict) -> dict:
     return clean
 
 
+def apply_param_defaults(params: dict, schema: dict) -> dict:
+    """Completa los params que el schema declara con 'default'.
+
+    Son las constantes técnicas del proveedor (qué variables pedir, formato,
+    versión, tamaño de página): no las decide el modelo — si tuviera que
+    adivinarlas, cualquier omisión devuelve una respuesta vacía y el bot dice
+    "no encontré" con la API andando. El default lo fija el admin al configurar
+    la operación y viaja siempre; lo que el modelo mandó explícitamente gana.
+    """
+    props = (schema or {}).get("properties") or {}
+    out = dict(params or {})
+    for name, spec in props.items():
+        if not isinstance(spec, dict):
+            continue
+        if out.get(name) is None and spec.get("default") is not None:
+            out[name] = spec["default"]
+    return out
+
+
 def _build_path(path_template: str, identity: str, params: dict) -> tuple[str, dict]:
     """Sustituye {identity} (server-side) y {param} en el path. Devuelve (path, query)
     donde query son los params que no se consumieron en el path."""
@@ -154,20 +174,28 @@ def _build_path(path_template: str, identity: str, params: dict) -> tuple[str, d
 
 
 def join_url(base_url: str, path: str) -> str:
-    """Une base + ruta tolerando el prefijo duplicado (base ...tld/3 + ruta
-    /3/movie → un solo /3). Pasa con cualquier proveedor versionado: la doc trae
-    las rutas con el prefijo de versión (/3, /v2, /api) que el admin ya puso en
-    la URL base. Solo se dedupe el ÚLTIMO segmento del path de la base contra el
-    PRIMERO de la ruta — nunca el host."""
+    """Une base + ruta tolerando el prefijo duplicado: la doc del proveedor trae
+    las rutas con el prefijo (/3, /v2, /crmpixs/api) que el admin ya puso en la
+    URL base. Se dedupe el SOLAPAMIENTO MÁXIMO entre el final del path de la
+    base y el principio de la ruta — prefijos de varios segmentos incluidos
+    (base .../crmpixs/api + ruta /crmpixs/api/contacts → un solo /crmpixs/api).
+    Solo toca el path; el host nunca entra en la comparación."""
+    # Ruta absoluta: el proveedor reparte su API en varios subdominios
+    # (api./geocoding-api./air-quality-api. de un mismo servicio). Se usa tal
+    # cual — sin relajar nada: el host igual tiene que estar en egress_allow y
+    # aprobado por el super-admin, que es donde vive la defensa.
+    if re.match(r"^https?://", path, re.IGNORECASE):
+        return path
     base = base_url.rstrip("/")
     path = "/" + path.lstrip("/")
-    base_path = urlparse(base).path.rstrip("/")
-    if base_path:
-        tail = base_path.rsplit("/", 1)[-1]
-        first = path.lstrip("/").split("/", 1)[0]
-        if tail and tail == first:
-            path = path[len(first) + 1:] or "/"
-    return base + path
+    base_segs = [s for s in urlparse(base).path.strip("/").split("/") if s]
+    path_segs = [s for s in path.strip("/").split("/") if s]
+    # Del solapamiento más largo al más corto: el primero que coincide gana.
+    for k in range(min(len(base_segs), len(path_segs)), 0, -1):
+        if base_segs[-k:] == path_segs[:k]:
+            path_segs = path_segs[k:]
+            break
+    return base + ("/" + "/".join(path_segs) if path_segs else "/")
 
 
 def _apply_response_map(raw: dict | list, response_map: dict) -> ExecResult:
@@ -177,6 +205,9 @@ def _apply_response_map(raw: dict | list, response_map: dict) -> ExecResult:
       items_path:        clave (dotted) hacia la lista/dato de interés
       empty_when_empty:  si la lista está vacía → outcome=empty
       not_found_field / not_found_value: si raw[field]==value → forbidden
+      total_path:        clave (dotted) hacia el total declarado por el
+                         proveedor; si está, gana sobre la heurística de
+                         nombres comunes (total/totalResults/has_more/...)
     """
     rm = response_map or {}
 
@@ -191,12 +222,51 @@ def _apply_response_map(raw: dict | list, response_map: dict) -> ExecResult:
         node = raw
         for part in items_path.split("."):
             node = node.get(part) if isinstance(node, dict) else None
+        if node is None:
+            # items_path que no resuelve devolvía OK con data=None y el bot
+            # respondía "esto es lo que encontré: null". Es un error de config,
+            # no un resultado: decilo como error para que se pueda arreglar.
+            logger.error("response_map_items_path_no_resuelve path=%s", items_path)
+            return ExecResult(outcome=UPSTREAM_ERROR, data=None,
+                              detail={"error": "items_path_invalido", "items_path": items_path})
         data = node
 
     if rm.get("empty_when_empty", True) and isinstance(data, (list, dict)) and len(data) == 0:
         return ExecResult(outcome=EMPTY, data=data)
 
-    return ExecResult(outcome=OK, data=data)
+    # ¿La respuesta es una PÁGINA de un conjunto más grande? Muchas APIs lo
+    # declaran (total/count/total_results/has_more/next). Si lo hace y trajimos
+    # menos de lo que dice, el turno NO puede contar ni totalizar: el modelo
+    # sumaría sobre datos parciales y daría una cifra falsa con desglose y todo.
+    detail: dict = {}
+    if isinstance(raw, dict) and isinstance(data, list):
+        total_path = rm.get("total_path")
+        if total_path:
+            # Config explícita del conector: es autoritativa. Si resuelve a un
+            # entero, decide sola (== len → completo, > len → parcial) y la
+            # heurística no corre. Si no resuelve, no es un error del turno
+            # (el dato llegó igual): se loguea y cae a la heurística.
+            node = raw
+            for part in str(total_path).split("."):
+                node = node.get(part) if isinstance(node, dict) else None
+            if isinstance(node, int) and not isinstance(node, bool):
+                if node > len(data):
+                    detail = {"parcial": True, "traidos": len(data), "total_declarado": node}
+                return ExecResult(outcome=OK, data=data, detail=detail)
+            logger.warning("response_map_total_path_no_resuelve path=%s", total_path)
+        for clave in ("total", "totalCount", "total_count", "total_results",
+                      "totalResults", "count", "totalItems"):
+            valor = raw.get(clave)
+            if isinstance(valor, int) and valor > len(data):
+                detail = {"parcial": True, "traidos": len(data), "total_declarado": valor}
+                break
+        if not detail:
+            for clave in ("has_more", "hasMore", "next", "next_page", "nextCursor", "next_cursor"):
+                if raw.get(clave):
+                    detail = {"parcial": True, "traidos": len(data)}
+                    break
+
+    return ExecResult(outcome=OK, data=data, detail=detail)
 
 
 async def _invoke_stub(binding, identity: str, query: dict) -> dict | list:
@@ -229,6 +299,51 @@ async def _binding_auth(binding) -> dict:
         open_secret(getattr(binding, "auth_secret_enc", None)),
         oauth_ctx=_oauth_ctx(binding),
     )
+
+
+class ResponseTooLarge(Exception):
+    """El proveedor devolvió más de lo que estamos dispuestos a procesar."""
+
+
+def _safe_err(exc: Exception) -> str:
+    """Texto de una excepción apto para log.
+
+    httpx mete la URL COMPLETA en el str() de sus errores, y nuestras URLs
+    llevan el código OTP y la api key en el querystring (van como params
+    justamente para que NO aparezcan en logs). Un 401 del proveedor escribía
+    los dos en texto plano. Para errores de httpx logueamos tipo y estado.
+    """
+    if isinstance(exc, httpx.HTTPStatusError):
+        return f"{type(exc).__name__}: HTTP {exc.response.status_code}"
+    if isinstance(exc, httpx.RequestError):
+        host = exc.request.url.host if exc.request is not None else "?"
+        return f"{type(exc).__name__} contra {host}"
+    return f"{type(exc).__name__}: {str(exc)[:200]}"
+
+
+def _parse_response(resp, binding):
+    """Cuerpo de la respuesta → dict/list, con dos defensas que faltaban:
+
+    1. TAMAÑO: sin tope, una API que devuelve decenas de MB se carga entera en
+       memoria, bloquea el event loop al parsear (afecta a TODOS los tenants del
+       worker) y terminaba volcada al navegador por el fallback de formato.
+    2. CONTENT-TYPE: `resp.json()` a ciegas hacía que un proveedor XML/CSV/HTML
+       fallara como "error del proveedor" y sumara al circuit breaker, sin que
+       nadie supiera que el problema real era el formato.
+    """
+    limite = settings.connector_max_response_bytes
+    declarado = resp.headers.get("content-length")
+    if declarado and declarado.isdigit() and int(declarado) > limite:
+        raise ResponseTooLarge(f"el proveedor declaró {int(declarado)} bytes (tope {limite})")
+    if len(resp.content) > limite:
+        raise ResponseTooLarge(f"el proveedor devolvió {len(resp.content)} bytes (tope {limite})")
+    ctype = (resp.headers.get("content-type") or "").lower()
+    try:
+        return resp.json()
+    except ValueError as exc:
+        raise ValueError(
+            f"el proveedor respondió {ctype or 'sin content-type'} y esperábamos JSON"
+        ) from exc
 
 
 async def _invoke_http(binding, path: str, query: dict) -> dict | list:
@@ -265,7 +380,7 @@ async def _invoke_http(binding, path: str, query: dict) -> dict | list:
                 auth_kwargs = await _binding_auth(binding)
                 continue
             resp.raise_for_status()
-            return resp.json()
+            return _parse_response(resp, binding)
 
 
 async def validate_second_factor(binding, identity: str, code: str) -> dict:
@@ -297,10 +412,10 @@ async def validate_second_factor(binding, identity: str, code: str) -> dict:
             resp = await client.get(url, params={"codigo": code, **auth_kwargs["params"]},
                                     headers=auth_kwargs["headers"] or None, auth=auth_kwargs["auth"])
             resp.raise_for_status()
-            return resp.json()
+            return _parse_response(resp, binding)
     except Exception as exc:
         logger.warning("second_factor_upstream_error connector=%s error=%s",
-                       binding.connector_slug, exc)
+                       binding.connector_slug, _safe_err(exc))
         return {"ok": False, "reason": "upstream"}
 
 
@@ -337,7 +452,7 @@ async def lookup_identity(binding, identity: str, cfg: dict | None = None) -> tu
             resp.raise_for_status()
             data = resp.json()
     except Exception as exc:
-        logger.warning("identity_lookup_failed connector=%s error=%s", binding.connector_slug, exc)
+        logger.warning("identity_lookup_failed connector=%s error=%s", binding.connector_slug, _safe_err(exc))
         return None, "upstream"
     found_field = cfg.get("found_field", "encontrado")
     if isinstance(data, dict) and found_field in data and not data.get(found_field):
@@ -355,9 +470,11 @@ async def execute_tool(binding, identity: str, params: dict | None = None) -> Ex
     start = time.monotonic()
     tool_slug = binding.tool_slug
 
-    # 1) Validar params (lo que el LLM decide). identity NUNCA está acá.
+    # 1) Validar params (lo que el LLM decide) y completar los defaults de la
+    #    config (constantes técnicas del proveedor). identity NUNCA está acá.
     try:
         clean_params = validate_params(params or {}, binding.params_schema)
+        clean_params = apply_param_defaults(clean_params, binding.params_schema)
     except ParamValidationError as exc:
         logger.info("tool_param_invalid tool=%s error=%s", tool_slug, exc)
         return ExecResult(outcome=UPSTREAM_ERROR, tool_slug=tool_slug,
@@ -366,6 +483,32 @@ async def execute_tool(binding, identity: str, params: dict | None = None) -> Ex
 
     # 2) Armar path + query.
     path, query = _build_path(binding.path_template, identity, clean_params)
+
+    # Identidad que el proveedor espera como QUERY param (?dni=...): se inyecta
+    # ACÁ, server-side, igual que {identity} en el path — nunca desde el schema
+    # visible al LLM ni desde el texto del usuario. Sin esto la tool sale sin
+    # filtro y devuelve los datos de todas las personas.
+    iqp = (binding.params_schema or {}).get("x-identity-query-param")
+    if iqp:
+        if binding.identity_kind != "publico" and not identity:
+            logger.error("tool_identity_missing tool=%s — se rechaza por seguridad", tool_slug)
+            return ExecResult(outcome=FORBIDDEN, tool_slug=tool_slug,
+                              detail={"error": "identity_required"},
+                              latency_ms=int((time.monotonic() - start) * 1000))
+        query[iqp] = identity
+
+    # 2b) Fase 1 es SOLO LECTURA y esto lo hace cierto, no accidental.
+    #     is_read_only existía en la base y no lo miraba nadie: una tool creada a
+    #     mano con DELETE /clientes/{id} quedaba en el catálogo del LLM y era
+    #     ejecutable por decisión del modelo, sin confirmación humana. El circuito
+    #     de aprobación del super-admin autoriza HOSTS, no métodos.
+    metodo = (binding.http_method or "GET").upper()
+    if metodo != "GET" or getattr(binding, "is_read_only", True) is False:
+        logger.error("tool_write_blocked tool=%s metodo=%s — escrituras deshabilitadas",
+                     tool_slug, metodo)
+        return ExecResult(outcome=FORBIDDEN, tool_slug=tool_slug,
+                          detail={"error": "write_not_allowed"},
+                          latency_ms=int((time.monotonic() - start) * 1000))
 
     # 3) Circuit breaker (por conector).
     ckey = _circuit_key(binding)
@@ -390,6 +533,15 @@ async def execute_tool(binding, identity: str, params: dict | None = None) -> Ex
         return ExecResult(outcome=UPSTREAM_ERROR, tool_slug=tool_slug,
                           detail={"error": "egress_blocked"},
                           latency_ms=int((time.monotonic() - start) * 1000))
+    except EgressUnreachable as exc:
+        # El host está permitido pero no resuelve: es el proveedor el que está
+        # caído. SÍ cuenta para el breaker — si no, cada consulta de cada
+        # usuario paga una resolución DNS contra un dominio muerto.
+        _record_failure(ckey)
+        logger.warning("tool_upstream_unreachable tool=%s error=%s", tool_slug, exc)
+        return ExecResult(outcome=UPSTREAM_ERROR, tool_slug=tool_slug,
+                          detail={"error": "unreachable"},
+                          latency_ms=int((time.monotonic() - start) * 1000))
     except httpx.HTTPStatusError as exc:
         code = exc.response.status_code
         _record_failure(ckey) if code >= 500 else None
@@ -398,9 +550,16 @@ async def execute_tool(binding, identity: str, params: dict | None = None) -> Ex
         return ExecResult(outcome=outcome, tool_slug=tool_slug,
                           detail={"error": f"http_{code}"},
                           latency_ms=int((time.monotonic() - start) * 1000))
+    except ResponseTooLarge as exc:
+        # El proveedor CONTESTÓ: es config (nuestra o suya) lo que hay que
+        # corregir, no una caída — no ensucia el circuit breaker.
+        logger.error("tool_response_too_large tool=%s error=%s", tool_slug, exc)
+        return ExecResult(outcome=UPSTREAM_ERROR, tool_slug=tool_slug,
+                          detail={"error": "response_too_large"},
+                          latency_ms=int((time.monotonic() - start) * 1000))
     except (asyncio.TimeoutError, httpx.HTTPError, ConnectorCircuitOpen, Exception) as exc:
         _record_failure(ckey)
-        logger.warning("tool_upstream_error tool=%s error=%s", tool_slug, exc)
+        logger.warning("tool_upstream_error tool=%s error=%s", tool_slug, _safe_err(exc))
         return ExecResult(outcome=UPSTREAM_ERROR, tool_slug=tool_slug,
                           detail={"error": "upstream"},
                           latency_ms=int((time.monotonic() - start) * 1000))

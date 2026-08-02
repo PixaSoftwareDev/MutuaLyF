@@ -349,12 +349,19 @@ async def send_message(
     # El bot corre el RAG para el resto. Las reglas de derivación miran el
     # resultado (insuficiente xN, frustración, keywords del tenant).
     from services.orchestrator import handle_query
+    # Si hubo un logout en esta conversación, el historial ANTERIOR no se le pasa
+    # al modelo: ahí quedaron datos personales que ya respondió, y sin este corte
+    # los repite sin credencial (la charla completa sigue en la base, intacta,
+    # para el operador y la auditoría).
+    from services import connector_memory as _connmem
+    corte = await _connmem.get_history_cut(tenant_id, str(conversation_id))
     async with get_pg_session(tenant_id) as session:
         hist_result = await session.execute(text("""
             SELECT sender_type, content FROM mensajes
             WHERE conversation_id = :cid AND sender_type IN ('user', 'bot')
+              AND (CAST(:corte AS timestamptz) IS NULL OR created_at > CAST(:corte AS timestamptz))
             ORDER BY created_at DESC LIMIT 20
-        """), {"cid": conversation_id})
+        """), {"cid": conversation_id, "corte": corte})
         history_rows = list(reversed(hist_result.mappings().fetchall()))
     conversation_history = [
         (r["sender_type"], r["content"])

@@ -188,10 +188,36 @@ async def _eval_case(sem, query, expected, acceptable, note):
             "args": (picked or {}).get("arguments")}
 
 
+# Cuántas veces se reintenta un caso que falló antes de darlo por falla real.
+# El modelo NO es determinista ni con temperature=0 (la API de OpenAI solo
+# ofrece reproducibilidad "best effort" con seed, y acá no se fija): un caso
+# límite alterna entre bien y mal en corridas idénticas. Sin esta confirmación
+# el harness tira rojos fantasma — y un rojo fantasma hace revertir una mejora
+# buena, que es el peor error posible en un harness de evaluación.
+CONFIRM_RUNS = 2
+
+
+async def _eval_case_confirmado(sem, query, expected, acceptable, note):
+    """Corre el caso; si falla, lo reintenta. Un caso que en algún intento sale
+    bien NO es una falla: se reporta como 'inestable' para verlo aparte."""
+    r = await _eval_case(sem, query, expected, acceptable, note)
+    if r["verdict"] in ("ok", "soft_ok"):
+        return r
+    intentos = [r]
+    for _ in range(CONFIRM_RUNS):
+        r2 = await _eval_case(sem, query, expected, acceptable, note)
+        intentos.append(r2)
+        if r2["verdict"] in ("ok", "soft_ok"):
+            r2["inestable"] = [i["verdict"] for i in intentos]
+            return r2
+    r["confirmada"] = True
+    return r
+
+
 async def main():
     sem = asyncio.Semaphore(8)
     results = await asyncio.gather(*[
-        _eval_case(sem, q, exp, acc, note) for q, exp, acc, note in CASES
+        _eval_case_confirmado(sem, q, exp, acc, note) for q, exp, acc, note in CASES
     ])
 
     counts: dict[str, int] = {}
@@ -220,6 +246,11 @@ async def main():
         for r in fails:
             print(f"  [{r['verdict']:^13}] {r['query']!r}")
             print(f"                 esperado={r['expected']}  obtuvo={r['got']}  ({r['note']})")
+    inestables = [r for r in results if r.get("inestable")]
+    if inestables:
+        print(f"\n─ INESTABLES ({len(inestables)}) — falló y acertó con el mismo prompt " + "─" * 20)
+        for r in inestables:
+            print(f"  {r['query']!r}: {' → '.join(r['inestable'])}")
     if softs:
         print(f"\n─ SOFT OK ({len(softs)}) — ambigüedad legítima " + "─" * 40)
         for r in softs:

@@ -29,7 +29,7 @@ import time
 import httpx
 
 from core.config import settings
-from core.egress_guard import EgressBlocked, assert_egress_allowed
+from core.egress_guard import EgressBlocked, EgressUnreachable, assert_egress_allowed
 from services.connector_secrets import open_secret, resolve_auth
 
 
@@ -69,7 +69,7 @@ async def fetch_spec(connector: dict, secret_enc: str | None) -> tuple[dict | No
                     spec = resp.json()
                     if isinstance(spec, dict) and ("paths" in spec):
                         return spec, url
-            except (EgressBlocked, httpx.HTTPError, ValueError) as exc:
+            except (EgressBlocked, EgressUnreachable, httpx.HTTPError, ValueError) as exc:
                 logger.debug("spec_probe_miss url=%s err=%s", url, exc)
     return None, None
 
@@ -334,7 +334,7 @@ async def dry_run(connector: dict, secret_enc: str | None, path_template: str,
             # antes de mandar la propuesta a la UI.
             out["raw"] = raw
             out["suggested_response_map"] = suggest_response_map(raw)
-    except (EgressBlocked, httpx.HTTPError, ValueError) as exc:
+    except (EgressBlocked, EgressUnreachable, httpx.HTTPError, ValueError) as exc:
         out.update(ok=False, error=str(exc)[:200])
     return out
 
@@ -418,10 +418,21 @@ def _build_tool_fields(route: dict, cls: dict,
         if name not in declared:
             params.append({"name": name, "in": "path", "required": True, "type": "string"})
 
+    identity_query_param = None
     for p in params:
         name = p["name"]
         if identity_param and name == identity_param:
-            path_template = path_template.replace("{" + name + "}", "{identity}")
+            marcador = "{" + name + "}"
+            if marcador in path_template:
+                path_template = path_template.replace(marcador, "{identity}")
+            else:
+                # El proveedor recibe la identidad como QUERY param (?dni=...).
+                # Antes se descartaba en silencio: la tool quedaba 'personal'
+                # (pedía login y OTP) pero salía SIN filtro de identidad, así que
+                # devolvía los datos de TODAS las personas a cualquiera que se
+                # identificara. Se registra para que el executor la inyecte
+                # server-side; fuera del schema, para que el LLM no la toque.
+                identity_query_param = name
             continue
         spec_prop: dict = {"type": p.get("type") or "string"}
         if p.get("enum"):
@@ -438,6 +449,11 @@ def _build_tool_fields(route: dict, cls: dict,
         is_path_param = p.get("in") == "path" or ("{" + name + "}") in path_template
         if is_path_param and not p.get("enum"):
             spec_prop["x-resource-id"] = True
+            # SIEMPRE string: el id sale textual de una lista previa y puede ser
+            # uuid, slug o número. Tiparlo 'integer' (como suele deducir el LLM
+            # de una doc que dice ":id") rompe con todo proveedor que no use
+            # enteros — y un string acepta "123" igual.
+            spec_prop["type"] = "string"
             sib = _list_sibling(path_template, classified_by_path or {})
             origen = f" Obtené el valor de la operación '{sib['slug']}'." if sib and sib.get("slug") else \
                      " Obtené el valor de la operación de listado correspondiente."
@@ -454,6 +470,11 @@ def _build_tool_fields(route: dict, cls: dict,
         schema["required"] = required
     if not props:
         schema = {}
+    if identity_query_param:
+        # Extensión x-: no es parte del contrato JSON Schema hacia el LLM, la lee
+        # el executor. Va aunque props esté vacío.
+        schema = schema or {"type": "object", "properties": {}}
+        schema["x-identity-query-param"] = identity_query_param
     return path_template, schema
 
 
@@ -491,9 +512,9 @@ def _sample_query(cls: dict, params_schema: dict) -> dict:
     props = params_schema.get("properties") or {}
     for name in (params_schema.get("required") or []):
         prop = props.get(name) or {}
-        if name not in sample and not prop.get("x-resource-id") \
-                and prop.get("x-example") is not None:
-            sample[name] = prop["x-example"]
+        ex = prop.get("x-example", prop.get("example"))  # spec estándar usa 'example'
+        if name not in sample and not prop.get("x-resource-id") and ex is not None:
+            sample[name] = ex
     sample.pop(cls.get("identity_param") or "", None)
     return {k: v for k, v in sample.items() if k in (params_schema.get("properties") or {})}
 
