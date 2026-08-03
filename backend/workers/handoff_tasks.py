@@ -150,7 +150,7 @@ async def _close_stale_tenant(tenant_id: str) -> int:
     "atendiendo" cuando en realidad fue cerrada por timeout).
     """
     from core.database import get_worker_pg_session
-    from services.events import publish
+    from services.events import publish_worker
     from sqlalchemy import text
 
     async def _close_batch(session, where_clause: str, from_status: str) -> list[str]:
@@ -206,13 +206,18 @@ async def _close_stale_tenant(tenant_id: str) -> int:
             "human_attending",
         )
 
-    # Publish SSE despues del commit. Si el publish falla, el cierre ya quedo
-    # persistido — el operador lo va a ver via polling de respaldo (~6s).
+    # Publish SSE despues del commit. Se AWAITEA (no fire-and-forget): la tarea
+    # corre en Celery via asyncio.run(), que cierra el event loop al terminar —
+    # un fire_and_log quedaba pendiente y moria con "Event loop is closed", el
+    # evento nunca salia y el panel del operador quedaba mostrando la conv en
+    # cola aunque ya habia cerrado (incidente Josué 2026-08-03). Al await, el
+    # aviso se manda de verdad antes de que el loop cierre. Best-effort: publish
+    # atrapa sus errores adentro, no rompe el cierre ya persistido.
     for cid in (*bot_ids, *handoff_ids, *human_ids):
-        fire_and_log(publish(tenant_id, "conversation_updated", {
+        await publish_worker(tenant_id, "conversation_updated", {
             "conversation_id": cid,
             "status": "closed",
-        }))
+        })
 
     # Relay del aviso de cierre al cliente de WhatsApp (el widget lo ve por poll;
     # WhatsApp necesita el envio explicito a Meta). Worker-safe + best-effort.

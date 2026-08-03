@@ -149,6 +149,7 @@ CREATE TABLE IF NOT EXISTS conversaciones (
 CREATE INDEX IF NOT EXISTS ix_conversaciones_feedback_pending ON conversaciones (feedback_at DESC) WHERE feedback_review_status = 'pending';
 CREATE INDEX IF NOT EXISTS ix_conversaciones_session ON conversaciones (widget_session_id);
 CREATE INDEX IF NOT EXISTS ix_conversaciones_status  ON conversaciones (status, created_at DESC);
+CREATE INDEX IF NOT EXISTS ix_conversaciones_status_updated ON conversaciones (status, updated_at);
 CREATE INDEX IF NOT EXISTS ix_conversaciones_sector  ON conversaciones (sector_id, status);
 CREATE INDEX IF NOT EXISTS ix_conversaciones_channel_ext ON conversaciones (channel, external_id) WHERE external_id IS NOT NULL;
 

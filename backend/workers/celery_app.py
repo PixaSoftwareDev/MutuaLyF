@@ -65,7 +65,7 @@ _beat_schedule = {
     },
     "close-stale-conversations": {
         "task": "workers.handoff_tasks.close_stale_conversations",
-        "schedule": 300,  # every 5 min — close bot_active idle > 30 min
+        "schedule": 60,  # cada 1 min — cierre preciso (~1 min de margen sobre el umbral)
     },
     "cleanup-expired-attachments": {
         "task": "workers.cleanup_tasks.delete_expired_attachments",

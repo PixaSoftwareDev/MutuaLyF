@@ -133,6 +133,30 @@ async def publish(tenant_id: str, event_type: str, payload: dict) -> None:
         logger.warning("event_publish_failed tenant=%s type=%s error=%s", tenant_id, event_type, exc)
 
 
+async def publish_worker(tenant_id: str, event_type: str, payload: dict) -> None:
+    """Publish desde un contexto Celery (que corre asyncio.run() por tarea).
+
+    NO usa el singleton get_redis_cache: ese cliente queda atado al event loop de
+    la tarea ANTERIOR (ya cerrado), y publicar sobre él tira "Event loop is
+    closed" — el evento nunca sale y el panel del operador queda con la conv en
+    cola aunque ya cerró (incidente Josué 2026-08-03). Acá se crea una conexión
+    FRESCA en el loop actual y se cierra al final — mismo criterio que
+    get_worker_pg_session (NullPool, no reusar conexiones entre asyncio.run)."""
+    from core.database import new_redis_pubsub_connection
+    conn = new_redis_pubsub_connection()
+    try:
+        message = json.dumps({"type": event_type, **payload})
+        await conn.publish(_channel(tenant_id), message)
+        logger.debug("event_published_worker tenant=%s type=%s", tenant_id, event_type)
+    except Exception as exc:
+        logger.warning("event_publish_worker_failed tenant=%s type=%s error=%s", tenant_id, event_type, exc)
+    finally:
+        try:
+            await conn.aclose()
+        except Exception:
+            pass
+
+
 async def subscribe(tenant_id: str, user_id: str | None = None, user_name: str | None = None):
     """Async generator that yields SSE-formatted strings for this tenant.
 

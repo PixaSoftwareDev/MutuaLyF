@@ -128,6 +128,10 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
     staleTime: 5_000,
     refetchInterval: 6_000,
     refetchIntervalInBackground: false,
+    // Al volver el foco a la pestaña, refrescar sí o sí: el polling se pausa en
+    // segundo plano, y un cierre automático que no llegó por SSE dejaba la cola
+    // mostrando una conversación ya cerrada (incidente Josué 2026-08-03).
+    refetchOnWindowFocus: true,
   });
 
   const { data: detail, isLoading: detailLoading } = useQuery({
@@ -180,7 +184,12 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
       `${base}/api/v1/operator/events?token=${encodeURIComponent(token)}&tenant_id=${encodeURIComponent(tenantId)}`
     );
 
-    es.onopen = () => setSseConnected(true);
+    es.onopen = () => {
+      setSseConnected(true);
+      // Al (re)conectar, ponerse al día: mientras estuvo caído pudieron cerrarse
+      // o cambiar conversaciones sin que llegara el evento.
+      qc.invalidateQueries({ queryKey: ["operator-conversations"] });
+    };
     es.onerror = () => setSseConnected(false);
 
     es.onmessage = (e) => {
