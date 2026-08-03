@@ -272,6 +272,24 @@ def new_redis_pubsub_connection() -> aioredis.Redis:
     )
 
 
+def new_redis_cache_connection() -> aioredis.Redis:
+    """Create a NEW dedicated Redis (cache DB) connection for worker use.
+
+    El singleton get_redis_cache() queda atado al event loop de la PRIMERA
+    tarea que lo creó; reusarlo desde otra tarea Celery (que corre asyncio.run()
+    por tarea, cerrando el loop al terminar) tira "Event loop is closed" y la
+    operación falla en silencio. Igual criterio que get_worker_pg_session /
+    new_redis_pubsub_connection: conexión fresca en el loop actual, el caller
+    la cierra con `await conn.aclose()`.
+    """
+    return aioredis.from_url(
+        settings.redis_url_cache,
+        decode_responses=True,
+        socket_timeout=settings.redis_timeout_ms / 1000,
+        socket_connect_timeout=0.1,
+    )
+
+
 async def close_redis_connections() -> None:
     global _redis_cache, _redis_ratelimit, _redis_session
     if _redis_cache:

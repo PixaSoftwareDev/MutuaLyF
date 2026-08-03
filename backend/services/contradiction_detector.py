@@ -181,14 +181,24 @@ async def detect_contradictions(tenant_id: str) -> dict:
 
 
 async def _store(tenant_id: str, result: dict) -> None:
+    # Conexión FRESCA al cache: _store corre en el beat nocturno de Celery
+    # (asyncio.run() por tarea). El singleton get_redis_cache quedaría atado al
+    # loop de la corrida anterior y en la 2da noche del mismo worker tiraría
+    # "Event loop is closed", dejando los hechos canónicos stale en silencio.
+    # get_canonical_facts (query-time, proceso backend) sigue con el singleton.
     import json
-    from core.database import get_redis_cache
-    redis = get_redis_cache()
+    from core.database import new_redis_cache_connection
+    redis = new_redis_cache_connection()
     try:
         await redis.set(f"{tenant_id}:canonical_facts", json.dumps(result["canonical_facts"]))
         await redis.set(f"{tenant_id}:contradictions", json.dumps(result["contradictions"]))
     except Exception as exc:
         logger.warning("contradiction_store_failed tenant=%s err=%s", tenant_id, exc)
+    finally:
+        try:
+            await redis.aclose()
+        except Exception:
+            pass
 
 
 async def get_canonical_facts(tenant_id: str) -> dict:

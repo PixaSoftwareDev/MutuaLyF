@@ -698,10 +698,17 @@ async def _invalidate_tenant_cache(tenant_id: str) -> None:
     Called after a successful ingestion so newly indexed content is immediately
     searchable. Without this, a 'no info' response cached before ingestion
     would be served for up to TTL seconds even after the document is ready.
+
+    Usa una conexión FRESCA al cache (no el singleton get_redis_cache): esta
+    tarea corre en Celery via asyncio.run(), que cierra el event loop al
+    terminar. El singleton queda atado al loop de la primera ingesta y en la
+    2da+ ingesta del mismo proceso worker tira "Event loop is closed" — la
+    invalidación fallaba EN SILENCIO (solo warning) y el 'no info' viejo se
+    seguía sirviendo aunque el documento ya estaba cargado.
     """
+    from core.database import new_redis_cache_connection
+    redis = new_redis_cache_connection()
     try:
-        from core.database import get_redis_cache
-        redis = get_redis_cache()
         pattern = f"{tenant_id}:cache:*"
         cursor = 0
         deleted = 0
@@ -716,6 +723,11 @@ async def _invalidate_tenant_cache(tenant_id: str) -> None:
             logger.info("cache_invalidated tenant_id=%s keys_deleted=%d", tenant_id, deleted)
     except Exception as exc:
         logger.warning("cache_invalidation_failed tenant_id=%s error=%s (continuing)", tenant_id, exc)
+    finally:
+        try:
+            await redis.aclose()
+        except Exception:
+            pass
 
 
 async def _log_usage_event(tenant_id: str, event_type: str, value: int) -> None:
