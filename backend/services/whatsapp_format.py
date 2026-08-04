@@ -27,6 +27,13 @@ _INLINE_CODE = re.compile(r'`([^`]+)`')
 # Viñeta Markdown al inicio de línea: "* item" ó "+ item" → "- item"
 _BULLET = re.compile(r'^(\s*)[*+]\s+')
 _MULTI_BLANK = re.compile(r'\n{3,}')
+# Para comparar si el texto de un link es la MISMA dirección que su URL,
+# ignorando esquema (http/https) y www. y la barra final.
+_SCHEME_WWW = re.compile(r'^(?:https?://)?(?:www\.)?', re.I)
+
+
+def _norm_url(s: str) -> str:
+    return _SCHEME_WWW.sub("", s.strip().lower()).rstrip("/")
 
 
 def markdown_a_whatsapp(text: str) -> str:
@@ -35,9 +42,12 @@ def markdown_a_whatsapp(text: str) -> str:
     if not text:
         return text
 
-    # 1) Links: "[texto](url)" → "texto (url)"; si el texto es igual a la url o
-    #    está vacío, dejamos solo la url (WhatsApp la autolinkea). Los esquemas
-    #    mailto:/tel: se muestran por su destino legible, no con el prefijo.
+    # 1) Links: "[texto](url)" → "texto (url)". Casos especiales:
+    #    - texto vacío → solo la URL (WhatsApp la autolinkea).
+    #    - texto == la MISMA dirección que la URL (aunque una tenga http(s)://
+    #      o www. y la otra no) → un SOLO link, sin repetir la dirección entre
+    #      paréntesis (reporte Alejo: salía "linkedin.com/x (https://linkedin.com/x)").
+    #    - mailto:/tel: → se muestran por su destino legible, sin el prefijo.
     def _flatten_link(m: "re.Match") -> str:
         label = (m.group(1) or "").strip()
         url = m.group(2).strip()
@@ -46,8 +56,10 @@ def markdown_a_whatsapp(text: str) -> str:
             if bare.lower().startswith(scheme):
                 bare = bare[len(scheme):]
                 break
-        if not label or label == url or label == bare:
+        if not label:
             return bare
+        if _norm_url(label) == _norm_url(bare):
+            return label  # texto y URL son la misma dirección → un solo link
         return f"{label} ({bare})"
 
     text = _LINK.sub(_flatten_link, text)

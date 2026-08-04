@@ -18,6 +18,18 @@ def test_link_con_title_se_ignora():
     assert r == "Contacto (https://x.com/c)"
 
 
+def test_link_texto_es_misma_url_sin_scheme_no_se_duplica():
+    # Caso real (Enzo): el texto es la URL sin https:// → un solo link, no duplicado
+    r = markdown_a_whatsapp("[linkedin.com/in/enzo-italo-batistelli-5516b1177](https://linkedin.com/in/enzo-italo-batistelli-5516b1177)")
+    assert r == "linkedin.com/in/enzo-italo-batistelli-5516b1177"
+    assert "(" not in r  # sin paréntesis con la dirección repetida
+
+
+def test_link_texto_con_www_igual_a_url():
+    r = markdown_a_whatsapp("[www.pixs.dev](https://pixs.dev)")
+    assert r == "www.pixs.dev"
+
+
 def test_link_mailto_muestra_email_sin_scheme():
     r = markdown_a_whatsapp("Escribinos a [soporte@mimutual.com.ar](mailto:soporte@mimutual.com.ar)")
     assert r == "Escribinos a soporte@mimutual.com.ar"
