@@ -225,13 +225,20 @@ async def _post_message(account: WhatsAppAccount, payload: dict) -> str | None:
 
 
 async def send_text(account: WhatsAppAccount, to_wa_id: str, body: str) -> str | None:
-    """Envía un mensaje de texto. WhatsApp corta en 4096 chars — truncamos."""
+    """Envía un mensaje de texto. WhatsApp corta en 4096 chars — truncamos.
+
+    El bot responde en Markdown (que el widget renderiza), pero WhatsApp no lo
+    entiende y mostraba los símbolos crudos ("links mal formados", reporte
+    Gustavo). Aplanamos a formato WhatsApp antes de enviar. preview_url=True para
+    que el primer link muestre vista previa."""
+    from services.whatsapp_format import markdown_a_whatsapp
+    body = markdown_a_whatsapp(body)
     return await _post_message(account, {
         "messaging_product": "whatsapp",
         "recipient_type": "individual",
         "to": _normalize_recipient(to_wa_id),
         "type": "text",
-        "text": {"preview_url": False, "body": body[:4096]},
+        "text": {"preview_url": True, "body": body[:4096]},
     })
 
 
