@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuthStore } from "@/lib/store";
-import { api } from "@/lib/api";
+import { api, scheduleProactiveRefresh } from "@/lib/api";
 import { decodeJwtPayload } from "@/lib/jwt";
 import { AuthShell, brandBtnStyle, BRAND_GRADIENT } from "@/components/auth/auth-shell";
 import { Loader2, AlertTriangle, ShieldCheck, Eye, EyeOff } from "lucide-react";
@@ -40,6 +40,7 @@ export default function LoginSuperadminPage() {
       const resolvedTenant = payload.tenant_id;
 
       setAuth(data.access_token, resolvedTenant, emailVal, role);
+      scheduleProactiveRefresh(data.access_token);  // renueva ~60s antes de vencer
       // max-age alineado al refresh_token del backend (30 días) — sin él son
       // cookies de sesión y el middleware pierde el rol al reabrir el navegador.
       const maxAge = 60 * 60 * 24 * 30;
