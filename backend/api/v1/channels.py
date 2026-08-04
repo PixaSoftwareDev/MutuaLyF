@@ -221,14 +221,24 @@ async def upsert_whatsapp(
         if clash:
             raise HTTPException(status_code=409, detail="Ese phone_number_id ya está registrado por otra organización.")
 
-        # En el alta nueva el token es obligatorio; en edición puede venir vacío
-        # (= mantener el guardado vía COALESCE). Sin esto, una cuenta nueva sin
-        # token quedaría con access_token_enc NULL e inservible.
-        exists = (await session.execute(text(
-            "SELECT 1 FROM public.whatsapp_accounts WHERE tenant_id = :tid"
+        # Traemos los secretos cifrados actuales (si la cuenta ya existe) para
+        # usarlos de fallback cuando el campo viene vacío = "mantener el
+        # guardado". NO alcanza con COALESCE en el ON CONFLICT: access_token_enc
+        # es NOT NULL y Postgres valida esa restricción sobre la fila candidata
+        # del VALUES ANTES de resolver el ON CONFLICT, así que un :tok NULL
+        # explotaba con NotNullViolation (500) al editar solo la clave secreta.
+        current = (await session.execute(text(
+            "SELECT access_token_enc, app_secret_enc FROM public.whatsapp_accounts WHERE tenant_id = :tid"
         ), {"tid": tenant_id})).fetchone()
+        exists = current is not None
         if not exists and not body.access_token:
             raise HTTPException(status_code=422, detail="El token de acceso es obligatorio al configurar el canal por primera vez.")
+
+        # Cada secreto: si vino uno nuevo lo ciframos; si vino vacío, conservamos
+        # el ya guardado (o NULL en el alta). Así :tok nunca es NULL cuando la
+        # cuenta existe → no se viola el NOT NULL.
+        tok_enc = encrypt_secret(body.access_token.strip()) if body.access_token else (current[0] if exists else None)
+        sec_enc = encrypt_secret(body.app_secret.strip()) if body.app_secret else (current[1] if exists else None)
 
         verify_token = secrets.token_urlsafe(24)
         await session.execute(text("""
@@ -239,8 +249,8 @@ async def upsert_whatsapp(
             ON CONFLICT (tenant_id) DO UPDATE SET
               phone_number_id = EXCLUDED.phone_number_id,
               waba_id         = EXCLUDED.waba_id,
-              access_token_enc = COALESCE(EXCLUDED.access_token_enc, public.whatsapp_accounts.access_token_enc),
-              app_secret_enc  = COALESCE(EXCLUDED.app_secret_enc, public.whatsapp_accounts.app_secret_enc),
+              access_token_enc = EXCLUDED.access_token_enc,
+              app_secret_enc  = EXCLUDED.app_secret_enc,
               enabled         = FALSE,
               status          = 'pending',
               updated_at      = NOW()
@@ -248,8 +258,8 @@ async def upsert_whatsapp(
             "tid": tenant_id,
             "pid": pnid,
             "waba": body.waba_id.strip() if body.waba_id else None,
-            "tok": encrypt_secret(body.access_token.strip()) if body.access_token else None,
-            "sec": encrypt_secret(body.app_secret.strip()) if body.app_secret else None,
+            "tok": tok_enc,
+            "sec": sec_enc,
             "vt": verify_token,
         })
         # El verify_token NO se regenera en updates (rompería el webhook ya

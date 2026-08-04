@@ -249,6 +249,8 @@ async def send_interactive_buttons(
     """Mensaje con botones de respuesta rápida (máx 3). `buttons`: [{id, title}].
     Cada title se corta a 20 chars (límite de Meta). El id vuelve en el webhook
     como interactive.button_reply.id."""
+    from services.whatsapp_format import markdown_a_whatsapp
+    body = markdown_a_whatsapp(body)
     reply_buttons = [
         {"type": "reply", "reply": {"id": str(b["id"])[:256], "title": str(b["title"])[:20]}}
         for b in buttons[:3]
@@ -273,6 +275,8 @@ async def send_interactive_list(
     """Mensaje con lista desplegable (hasta 10 filas). `rows`: [{id, title,
     description?}]. title ≤24, description ≤72 (límites de Meta). El id elegido
     vuelve en el webhook como interactive.list_reply.id."""
+    from services.whatsapp_format import markdown_a_whatsapp
+    body = markdown_a_whatsapp(body)
     list_rows = []
     for r in rows[:10]:
         row = {"id": str(r["id"])[:200], "title": str(r["title"])[:24]}
