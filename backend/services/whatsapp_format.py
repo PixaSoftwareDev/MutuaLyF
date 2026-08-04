@@ -15,6 +15,9 @@ import re
 
 # [texto](url)  ó  [texto](<url> "title")  → capturamos label y url
 _LINK = re.compile(r'\[([^\]]*)\]\(\s*<?([^)\s>]+)>?(?:\s+"[^"]*")?\s*\)')
+# ***negrita+itálica*** (triple) → *x*. DEBE ir antes que el doble, si no el
+# doble deja un asterisco suelto ("**x**" literal en WhatsApp).
+_BOLD_ITALIC = re.compile(r'\*\*\*(?=\S)(.+?)(?<=\S)\*\*\*')
 # **negrita** y __negrita__ (Markdown) → *negrita* (WhatsApp). Sin `*`/`_` adentro.
 _BOLD_STARS = re.compile(r'\*\*(?=\S)(.+?)(?<=\S)\*\*')
 _BOLD_UNDER = re.compile(r'__(?=\S)(.+?)(?<=\S)__')
@@ -26,6 +29,8 @@ _HEADER = re.compile(r'^\s{0,3}#{1,6}\s+(.*?)\s*#*\s*$')
 _INLINE_CODE = re.compile(r'`([^`]+)`')
 # Viñeta Markdown al inicio de línea: "* item" ó "+ item" → "- item"
 _BULLET = re.compile(r'^(\s*)[*+]\s+')
+# Cita Markdown "> texto": WhatsApp no la renderiza, muestra el ">" crudo → lo quitamos.
+_BLOCKQUOTE = re.compile(r'^\s*>\s?')
 _MULTI_BLANK = re.compile(r'\n{3,}')
 # Para comparar si el texto de un link es la MISMA dirección que su URL,
 # ignorando esquema (http/https) y www. y la barra final.
@@ -76,10 +81,12 @@ def markdown_a_whatsapp(text: str) -> str:
             titulo = h.group(1).strip()
             lines.append(f"*{titulo}*" if titulo else "")
             continue
+        line = _BLOCKQUOTE.sub("", line)
         lines.append(_BULLET.sub(r"\1- ", line))
     text = "\n".join(lines)
 
-    # 3) Negrita **x**/__x__ → *x* (formato WhatsApp).
+    # 3) Negrita: primero el triple (***), después el doble (**) y __.
+    text = _BOLD_ITALIC.sub(r"*\1*", text)
     text = _BOLD_STARS.sub(r"*\1*", text)
     text = _BOLD_UNDER.sub(r"*\1*", text)
 

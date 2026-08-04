@@ -44,6 +44,17 @@ def test_negrita_doble_asterisco():
     assert markdown_a_whatsapp("El horario es **de 8 a 14hs**") == "El horario es *de 8 a 14hs*"
 
 
+def test_negrita_italica_triple_asterisco():
+    # ***x*** no debe dejar asteriscos crudos ("**x**" literal en WhatsApp)
+    r = markdown_a_whatsapp("Esto es ***muy importante*** che")
+    assert r == "Esto es *muy importante* che"
+    assert "**" not in r
+
+
+def test_cita_blockquote_se_limpia():
+    assert markdown_a_whatsapp("> Esto es una cita\nNormal") == "Esto es una cita\nNormal"
+
+
 def test_negrita_underscore():
     assert markdown_a_whatsapp("__Importante__: traer DNI") == "*Importante*: traer DNI"
 
