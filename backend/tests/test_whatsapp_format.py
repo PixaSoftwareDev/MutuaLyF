@@ -3,9 +3,10 @@
 from services.whatsapp_format import markdown_a_whatsapp
 
 
-def test_link_con_texto_distinto():
+def test_link_siempre_solo_la_url_descarta_texto():
+    # Estilo elegido: siempre la URL completa, sin el texto/nombre del link.
     r = markdown_a_whatsapp("Turnos en [el portal](https://mimutual.com.ar/turnos)")
-    assert r == "Turnos en el portal (https://mimutual.com.ar/turnos)"
+    assert r == "Turnos en https://mimutual.com.ar/turnos"
 
 
 def test_link_texto_igual_a_url_queda_solo_url():
@@ -15,19 +16,20 @@ def test_link_texto_igual_a_url_queda_solo_url():
 
 def test_link_con_title_se_ignora():
     r = markdown_a_whatsapp('[Contacto](https://x.com/c "Ir a contacto")')
-    assert r == "Contacto (https://x.com/c)"
+    assert r == "https://x.com/c"
 
 
-def test_link_texto_es_misma_url_sin_scheme_no_se_duplica():
-    # Caso real (Enzo): el texto es la URL sin https:// → un solo link, no duplicado
-    r = markdown_a_whatsapp("[linkedin.com/in/enzo-italo-batistelli-5516b1177](https://linkedin.com/in/enzo-italo-batistelli-5516b1177)")
-    assert r == "linkedin.com/in/enzo-italo-batistelli-5516b1177"
-    assert "(" not in r  # sin paréntesis con la dirección repetida
+def test_link_conserva_https_para_click_directo():
+    # El texto era la URL sin https://; igual mostramos la URL COMPLETA (con
+    # scheme) para que WhatsApp la abra directo y no dispare redirects/captcha.
+    r = markdown_a_whatsapp("[linkedin.com/in/enzo-5516b1177](https://linkedin.com/in/enzo-5516b1177)")
+    assert r == "https://linkedin.com/in/enzo-5516b1177"
+    assert "(" not in r
 
 
-def test_link_texto_con_www_igual_a_url():
-    r = markdown_a_whatsapp("[www.pixs.dev](https://pixs.dev)")
-    assert r == "www.pixs.dev"
+def test_link_lista_fundadores_uniforme():
+    entrada = "- LinkedIn: [Enzo Italo Batistelli](https://linkedin.com/in/enzo)"
+    assert markdown_a_whatsapp(entrada) == "- LinkedIn: https://linkedin.com/in/enzo"
 
 
 def test_link_mailto_muestra_email_sin_scheme():
@@ -37,7 +39,7 @@ def test_link_mailto_muestra_email_sin_scheme():
 
 def test_link_tel_muestra_numero_sin_scheme():
     r = markdown_a_whatsapp("[Llamar](tel:+543424520074)")
-    assert r == "Llamar (+543424520074)"
+    assert r == "+543424520074"
 
 
 def test_negrita_doble_asterisco():
@@ -115,6 +117,6 @@ def test_caso_realista_completo():
     assert "*Autorización de prácticas*" in salida
     assert "- DNI" in salida
     assert "*Orden médica*" in salida
-    assert "el portal (https://mimutual.com.ar)" in salida
+    assert "Más info en https://mimutual.com.ar" in salida
     assert "(0342) 452-0074" in salida
     assert "##" not in salida and "**" not in salida and "](" not in salida
