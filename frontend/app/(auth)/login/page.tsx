@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuthStore } from "@/lib/store";
-import { api, type LookupTenantMatch } from "@/lib/api";
+import { api, scheduleProactiveRefresh, type LookupTenantMatch } from "@/lib/api";
 import { decodeJwtPayload } from "@/lib/jwt";
 import { toSlug } from "@/lib/utils";
 import { Loader2, AlertTriangle, Shield, Eye, EyeOff, ChevronLeft, ChevronDown, Lock, ShieldCheck, User, Mail, ArrowLeft, CheckCircle2 } from "lucide-react";
@@ -144,6 +144,7 @@ function LoginForm() {
       const resolvedTenant = payload.tenant_id;
 
       setAuth(data.access_token, resolvedTenant, loginEmail, role);
+      scheduleProactiveRefresh(data.access_token);  // renueva ~60s antes de vencer
       document.cookie = `ia_role=${role}; path=/; SameSite=strict`;
       document.cookie = `ia_tenant=${resolvedTenant}; path=/; SameSite=strict`;
 

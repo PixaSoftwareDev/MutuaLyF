@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuthStore } from "@/lib/store";
-import { api } from "@/lib/api";
+import { api, scheduleProactiveRefresh } from "@/lib/api";
 import { decodeJwtPayload } from "@/lib/jwt";
 import { AuthShell, brandBtnStyle, BRAND_GRADIENT } from "@/components/auth/auth-shell";
 import { Loader2, AlertTriangle, ShieldCheck, Eye, EyeOff } from "lucide-react";
@@ -33,6 +33,7 @@ export default function LoginSuperadminPage() {
       const resolvedTenant = payload.tenant_id;
 
       setAuth(data.access_token, resolvedTenant, email, role);
+      scheduleProactiveRefresh(data.access_token);  // renueva ~60s antes de vencer
       document.cookie = `ia_role=${role}; path=/; SameSite=strict`;
       document.cookie = `ia_tenant=${resolvedTenant}; path=/; SameSite=strict`;
 

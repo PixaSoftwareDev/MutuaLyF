@@ -4,6 +4,7 @@
  */
 
 import axios, { AxiosError, type AxiosInstance } from "axios";
+import { decodeJwtPayload } from "./jwt";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
 
@@ -42,13 +43,43 @@ function refreshAccessToken(): Promise<string | null> {
       .post("/auth/refresh", null, { withCredentials: true, _skipAuthRetry: true } as never)
       .then((res) => {
         const token = (res.data as { access_token?: string })?.access_token;
-        if (token && typeof window !== "undefined") localStorage.setItem("access_token", token);
+        if (token && typeof window !== "undefined") {
+          localStorage.setItem("access_token", token);
+          scheduleProactiveRefresh(token);  // reprograma el próximo refresh
+        }
         return token ?? null;
       })
       .catch(() => null)
       .finally(() => { _refreshing = null; });
   }
   return _refreshing;
+}
+
+// ── Refresh PROACTIVO ────────────────────────────────────────────────────────
+// Renueva el access token ~60s ANTES de que venza (lee el `exp` del JWT), así
+// ningún request sale con el token muerto. Sin esto, cada ~60min una tanda de
+// requests concurrentes caía en 401 → refresh → retry: funcionaba (el operador
+// no lo notaba) pero ensuciaba los logs con "jwt_decode_failed" y metía un
+// micro-blip. Complementa, NO reemplaza, al refresh reactivo del 401 de arriba
+// (que sigue cubriendo el caso de que la pestaña estuvo dormida/suspendida).
+let _proactiveTimer: ReturnType<typeof setTimeout> | null = null;
+
+export function scheduleProactiveRefresh(token: string | null): void {
+  if (typeof window === "undefined") return;
+  if (_proactiveTimer) { clearTimeout(_proactiveTimer); _proactiveTimer = null; }
+  if (!token) return;
+  const payload = decodeJwtPayload<{ exp?: number }>(token);
+  if (!payload?.exp) return;  // sin exp / no decodificable → lo cubre el 401 reactivo
+  const msLeft = payload.exp * 1000 - Date.now();
+  if (msLeft <= 0) return;  // ya vencido → lo cubre el 401 del próximo request
+  const delay = Math.max(msLeft - 60_000, 5_000);  // 60s antes de vencer, mínimo 5s
+  _proactiveTimer = setTimeout(() => { void refreshAccessToken(); }, delay);
+}
+
+// Arranque en el cliente: si ya hay token guardado (recarga de página, pestaña
+// reabierta), programa el refresh proactivo desde su exp.
+if (typeof window !== "undefined") {
+  scheduleProactiveRefresh(localStorage.getItem("access_token"));
 }
 
 function wipeAndRedirect() {
@@ -697,6 +728,7 @@ export const api = {
       return data;
     },
     logout: async () => {
+      scheduleProactiveRefresh(null);  // cancela el timer de refresh
       await apiClient.post("/auth/logout");
       localStorage.removeItem("access_token");
       localStorage.removeItem("tenant_id");
