@@ -37,6 +37,11 @@ _CONFIRM_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Ids de los botones interactivos de la oferta de derivación (button_reply.id).
+# El fallback de texto (_CONFIRM_RE) sigue vigente por si el afiliado escribe.
+HANDOFF_YES_ID = "handoff:yes"
+HANDOFF_NO_ID = "handoff:no"
+
 _DEDUP_TTL_S = 24 * 3600
 
 
@@ -180,6 +185,33 @@ def _extract_interactive_id(message: dict) -> str | None:
     return None
 
 
+async def _confirm_handoff(account, tenant_id: str, conv_id: str, wa_id: str) -> None:
+    """Encola la derivación y avisa al afiliado. Único camino para confirmar,
+    sea por tocar el botón 'Sí' o por escribir 'operador'/'sí'/'dale'."""
+    from services.handoff import _get_handoff_config
+    config = await _get_handoff_config(tenant_id)
+    msg = (config["transition_messages"].get("handoff_confirmed")
+           or "Listo, tu solicitud fue recibida. Un operador te atenderá en breve.")
+    await request_handoff(conv_id, tenant_id, msg)
+    await send_text(account, wa_id, msg)
+
+
+async def _handle_handoff_button(account, tenant_id: str, conv: dict, wa_id: str, selected_id: str) -> None:
+    """Tap a los botones Sí/No de una oferta de derivación pendiente."""
+    conv_id = conv["id"]
+    # Solo aplica si hay una oferta pendiente: un tap a un cartel viejo se ignora.
+    if conv["status"] != ConvStatus.BOT_ACTIVE or not await _has_pending_offer(tenant_id, conv_id):
+        return
+    if selected_id == HANDOFF_YES_ID:
+        await _insert_message(tenant_id, conv_id, "user", "Sí, con un operador")
+        await _confirm_handoff(account, tenant_id, conv_id, wa_id)
+    else:  # HANDOFF_NO_ID
+        await _insert_message(tenant_id, conv_id, "user", "No, sigo así")
+        note = "Perfecto, seguimos por acá 🙂 ¿En qué más te puedo ayudar?"
+        await _insert_message(tenant_id, conv_id, "system", note)
+        await send_text(account, wa_id, note)
+
+
 # Flag en Redis: ya le mandamos el menú a este número y todavía no eligió. Evita
 # re-mandar el menú en loop si el afiliado lo ignora y escribe texto.
 _MENU_TTL_S = 3600
@@ -320,7 +352,10 @@ async def process_incoming_message(account: WhatsAppAccount, value: dict, messag
                 return
             conv = result["conv"]  # se creó en el sector por defecto; seguimos con el texto
         elif selected_id is not None:
-            # Un toque a un menú viejo con la conversación ya abierta no aplica.
+            # Tap con la conversación ya abierta: los botones Sí/No de la oferta
+            # de derivación se procesan; un toque a un menú de áreas viejo no aplica.
+            if selected_id in (HANDOFF_YES_ID, HANDOFF_NO_ID):
+                await _handle_handoff_button(account, tenant_id, conv, wa_id, selected_id)
             return
 
         # Media entrante (imagen/PDF): descargar de Meta, guardar en MinIO reusando
@@ -388,13 +423,7 @@ async def process_incoming_message(account: WhatsAppAccount, value: dict, messag
             return
 
         if confirm_handoff:
-            from services.handoff import _get_handoff_config
-            config = await _get_handoff_config(tenant_id)
-            messages = config["transition_messages"]
-            msg = (messages.get("handoff_confirmed")
-                   or "Listo, tu solicitud fue recibida. Un operador te atenderá en breve.")
-            await request_handoff(conv_id, tenant_id, msg)
-            await send_text(account, wa_id, msg)
+            await _confirm_handoff(account, tenant_id, conv_id, wa_id)
             return
 
         # ── Bot activo: mismo flujo que el widget ────────────────────────────
@@ -450,7 +479,7 @@ async def process_incoming_message(account: WhatsAppAccount, value: dict, messag
         # Evaluación de derivación — misma regla que el widget. Se evalúa ANTES de
         # enviar el bot_answer: si se va a mostrar la oferta de operador, el genérico
         # ("no pude / fuera de mi área") es redundante con la oferta y no se envía.
-        # En WhatsApp la oferta es texto plano y se confirma respondiendo "OPERADOR".
+        # En WhatsApp la oferta va con botones Sí/No (fallback: escribir "OPERADOR").
         signal = await evaluate_handoff(
             conversation_id=conv_id,
             tenant_id=tenant_id,
@@ -472,12 +501,18 @@ async def process_incoming_message(account: WhatsAppAccount, value: dict, messag
             if signal.keep_answer:
                 await _insert_message(tenant_id, conv_id, "bot", bot_answer)
                 await send_text(account, wa_id, bot_answer)
-            offer = f"{signal.offer_message}\n\nRespondé *OPERADOR* para hablar con una persona."
+            offer = signal.offer_message
             if not has_ops:
                 cfg = await _get_handoff_config(tenant_id)
                 offer = f"{offer}{offer_expectation_suffix(cfg)}"
+            # La oferta va con botones Sí/No. Se guarda con is_handoff_offer=True para
+            # que _has_pending_offer la reconozca —tanto para el tap como para el
+            # fallback de texto ("operador"/"sí"/"dale")— y luego se envían los botones.
             await _insert_message(tenant_id, conv_id, "system", offer, is_handoff_offer=True)
-            await send_text(account, wa_id, offer)
+            await send_interactive_buttons(account, wa_id, offer, [
+                {"id": HANDOFF_YES_ID, "title": "Sí, con un operador"},
+                {"id": HANDOFF_NO_ID, "title": "No, sigo así"},
+            ])
             await _mark_offer_pending(conv_id)  # cooldown 90s SOLO al mostrar el cartel
             if signal.trigger == HandoffTrigger.KEYWORD:
                 from services.handoff import mark_keyword_offered
