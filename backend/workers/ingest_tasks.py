@@ -200,13 +200,25 @@ async def _run_ingest_pipeline(
     t = time.monotonic()
     from services.quality_gate import validate_chunk_semantic_autonomy
 
-    # Stage 2: filter parents that are too short to be useful
-    autonomous_checks = await asyncio.gather(*[
+    # Stage 2: ANTES descartaba los padres "cortos" (< chunk_overlap_tokens para
+    # fixed, < semantic_min_tokens para semantic). Eso rompía los docs tipo FAQ:
+    # el chunker FAQ hace UN PADRE POR PREGUNTA (~30-50 tokens c/u), y el filtro
+    # los tomaba por "puro solapamiento" y los DROPEABA — en el doc real Auditoría,
+    # 30 de 31 padres → quedaba 1 (5% del contenido), EN SILENCIO (admin veía
+    # "Listo"). Cada Q&A es una unidad autónoma legítima, no un fragmento huérfano.
+    # Misma decisión que ya se tomó para el Stage-1 (marcar, no censurar —
+    # auditoría 2026-06): NO se descartan más. Se evalúa solo para observabilidad;
+    # TODOS los padres se guardan. Descartar es decisión del admin, no de la IA.
+    autonomous_flags = await asyncio.gather(*[
         validate_chunk_semantic_autonomy(p) for p in parents  # type: ignore[arg-type]
     ])
-    parents_stage2 = [p for p, ok in zip(parents, autonomous_checks) if ok]
-    if not parents_stage2:
-        parents_stage2 = parents  # keep all if everything filtered
+    short_parents = sum(1 for ok in autonomous_flags if not ok)
+    if short_parents:
+        logger.info(
+            "parents_short_kept document_id=%s short=%d total=%d",
+            document_id, short_parents, len(parents),
+        )
+    parents_stage2 = parents  # mark-don't-censor: se guardan TODOS
 
     # Stage 1: Groq coherence gate on parent texts.
     # Prompt: override por tenant (config) o el default del registro — la fila
