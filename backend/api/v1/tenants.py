@@ -173,10 +173,24 @@ async def create_tenant(
         # exactamente el bug que hubo acá.
         async with get_pg_session(None) as _check:
             # Detección ESTRUCTURADA del conflicto (no por substring del error).
-            if (await _check.execute(
+            ya_existe = (await _check.execute(
                 text("SELECT 1 FROM tenants WHERE id = :id"), {"id": payload.id}
-            )).scalar() is not None:
-                raise HTTPException(status_code=409, detail=f"Tenant '{payload.id}' ya existe")
+            )).scalar() is not None
+
+            # Un tenant provisionado pero SIN ninguna personalidad asignada quedó a
+            # medio camino: provision_tenant terminó y algo posterior falló. Ese
+            # estado no se puede arreglar desde el panel del tenant (la ficha solo
+            # lista lo ya asignado) y el reintento rebotaba con 409 dejándolo mudo.
+            # Reintentar completa la configuración en vez de rechazar.
+            reanudar = False
+            if ya_existe:
+                sin_personalidad = (await _check.execute(
+                    text("SELECT NOT EXISTS (SELECT 1 FROM tenant_prompt_assignments WHERE tenant_id = :id)"),
+                    {"id": payload.id},
+                )).scalar()
+                if not sin_personalidad:
+                    raise HTTPException(status_code=409, detail=f"Tenant '{payload.id}' ya existe")
+                reanudar = True
 
             tpl = await _check.execute(
                 text("SELECT id, plan_minimo FROM system_prompt_templates WHERE id = :id AND is_active = TRUE AND is_system = FALSE"),
@@ -194,14 +208,17 @@ async def create_tenant(
                     detail=f"El plan {tenant_plan} no permite la personalidad seleccionada (requiere {tpl_row['plan_minimo']})",
                 )
 
-        await provision_tenant(
-            tenant_id=payload.id,
-            name=payload.name,
-            plan=payload.plan.value,
-            admin_email=payload.admin_email,
-            admin_name=payload.admin_name,
-            admin_password=payload.admin_password,
-        )
+        if reanudar:
+            logger.warning("tenant_create_resume id=%s — provisionado pero sin personalidad", payload.id)
+        else:
+            await provision_tenant(
+                tenant_id=payload.id,
+                name=payload.name,
+                plan=payload.plan.value,
+                admin_email=payload.admin_email,
+                admin_name=payload.admin_name,
+                admin_password=payload.admin_password,
+            )
 
         # Auto-assign system infrastructure templates
         from api.v1.system_prompts import auto_assign_system_templates, _invalidate_tenant_cache

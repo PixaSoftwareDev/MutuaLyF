@@ -78,6 +78,28 @@ class PersonalityTestRequest(BaseModel):
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+# Los CAST no son decorativos: :tid aparece en el VALUES (donde PG lo deduce
+# varchar por la columna) y en el "=" del NOT EXISTS (donde el operador de
+# varchar es texteq y lo deduce text). Sin el CAST asyncpg falla al PREPARAR con
+# AmbiguousParameterError — el tenant se provisiona y queda sin ninguna
+# personalidad asignada (bug de galo, 2026-08-03). La sentencia vive en una
+# constante para que test_auto_assign_sql.py la haga PREPARE contra Postgres:
+# es un error de preparación, ningún mock lo detecta.
+AUTO_ASSIGN_SQL = """
+    INSERT INTO tenant_prompt_assignments (tenant_id, template_id, assigned_by, is_active)
+    VALUES (CAST(:tid AS varchar), :tmpl, 'system',
+        -- Activate Asistente estándar by default, salvo que el tenant
+        -- ya tenga un bot activo (solo puede haber uno por tenant)
+        (SELECT nombre = 'Asistente estándar' FROM system_prompt_templates WHERE id = :tmpl)
+        AND NOT EXISTS (
+            SELECT 1 FROM tenant_prompt_assignments
+            WHERE tenant_id = CAST(:tid AS varchar) AND is_active = TRUE
+        )
+    )
+    ON CONFLICT (tenant_id, template_id) DO NOTHING
+"""
+
+
 async def auto_assign_system_templates(tenant_id: str) -> None:
     """Assign system infrastructure + Asistente estándar to a newly created tenant."""
     async with get_pg_session(None) as session:
@@ -89,19 +111,7 @@ async def auto_assign_system_templates(tenant_id: str) -> None:
         auto_ids = [str(r[0]) for r in result.fetchall()]
 
         for tmpl_id in auto_ids:
-            await session.execute(text("""
-                INSERT INTO tenant_prompt_assignments (tenant_id, template_id, assigned_by, is_active)
-                VALUES (:tid, :tmpl, 'system',
-                    -- Activate Asistente estándar by default, salvo que el tenant
-                    -- ya tenga un bot activo (solo puede haber uno por tenant)
-                    (SELECT nombre = 'Asistente estándar' FROM system_prompt_templates WHERE id = :tmpl)
-                    AND NOT EXISTS (
-                        SELECT 1 FROM tenant_prompt_assignments
-                        WHERE tenant_id = :tid AND is_active = TRUE
-                    )
-                )
-                ON CONFLICT (tenant_id, template_id) DO NOTHING
-            """), {"tid": tenant_id, "tmpl": tmpl_id})
+            await session.execute(text(AUTO_ASSIGN_SQL), {"tid": tenant_id, "tmpl": tmpl_id})
 
     logger.info("system_templates_auto_assigned tenant=%s count=%d", tenant_id, len(auto_ids))
 
