@@ -4,20 +4,25 @@ import os
 import pytest
 from fastapi.testclient import TestClient
 
-# Load test env before any app import
+# Load test env before any app import. Se respeta ENV_FILE (default .env.test):
+# con ENV_FILE=none dentro del contenedor la suite usa las credenciales reales
+# del entorno, que es lo que necesitan los tests que hablan con Postgres.
 os.environ.setdefault("ENV_FILE", ".env.test")
-if os.path.exists(".env.test"):
+_env_file = os.environ["ENV_FILE"]
+if os.path.exists(_env_file):
     from dotenv import load_dotenv
-    load_dotenv(".env.test", override=True)
+    load_dotenv(_env_file, override=True)
 else:
-    # Set required env vars inline so tests run without a file
-    os.environ.update({
+    # Valores mínimos para arrancar sin archivo — setdefault, NO update: si el
+    # entorno ya trae credenciales (contenedor), pisarlas rompe la conexión.
+    for _k, _v in {
         "GROQ_API_KEY": "test_key",
         "POSTGRES_USER": "test",
         "POSTGRES_PASSWORD": "test",
         "NEO4J_PASSWORD": "test",
         "JWT_SECRET_KEY": "test_secret_key_at_least_32_chars_long!!",
-    })
+    }.items():
+        os.environ.setdefault(_k, _v)
 
 from main import app
 
