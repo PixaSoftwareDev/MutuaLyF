@@ -365,6 +365,7 @@ function DocumentTableRow({
             open={showDelete}
             onOpenChange={setShowDelete}
             title={doc.title}
+            documentId={doc.id}
             onConfirm={() => deleteDoc()}
             deleting={deleting}
           />

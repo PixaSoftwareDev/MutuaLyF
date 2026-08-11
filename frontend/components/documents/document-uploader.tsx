@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useDropzone } from "react-dropzone";
 import { Upload, File, AlertCircle, Loader2, X, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -222,6 +223,14 @@ export function DocumentUploader({ onUploaded, onDone }: { onUploaded?: () => vo
 // ── UploadRow ─────────────────────────────────────────────────────────────────
 
 function UploadRow({ item, onDismiss, onReplace }: { item: UploadItem; onDismiss: () => void; onReplace: () => void }) {
+  // Cuántas partes del documento que se va a reemplazar fueron corregidas a mano.
+  const { data: manualEdits } = useQuery({
+    queryKey: ["document-manual-edits", item.duplicateOfId],
+    queryFn: () => api.documents.manualEdits(item.duplicateOfId!),
+    enabled: item.phase === "duplicate" && !!item.duplicateOfId,
+    staleTime: 0,
+  });
+  const manualEditCount = manualEdits?.count ?? 0;
   const sizeMB = (item.file.size / (1024 * 1024)).toFixed(1);
   const isUploading = item.phase === "uploading";
   const isFailed    = item.phase === "failed";
@@ -310,6 +319,20 @@ function UploadRow({ item, onDismiss, onReplace }: { item: UploadItem; onDismiss
               {item.duplicateOfTitle && "."} No se volvió a procesar.
             </>
           )}
+        </p>
+      )}
+
+      {/* Reemplazar borra el documento anterior. Si ese documento tiene partes
+          corregidas a mano, esas correcciones NO están en ningún archivo y se
+          pierden al pisarlo: hay que avisarlo antes de que toque el botón. */}
+      {isDuplicate && item.duplicateOfId && item.duplicateMatchType !== "exact_bytes" && manualEditCount > 0 && (
+        <p className="rounded-md border border-warning/40 bg-warning/[0.07] px-2.5 py-2 text-xs text-foreground">
+          El documento anterior tiene{" "}
+          <span className="font-medium">
+            {manualEditCount === 1 ? "1 parte corregida a mano" : `${manualEditCount} partes corregidas a mano`}
+          </span>
+          . Si el archivo nuevo no las incluye, se pierden. Podés descargar antes{" "}
+          <span className="font-medium">Versión actual</span> desde el documento.
         </p>
       )}
 
