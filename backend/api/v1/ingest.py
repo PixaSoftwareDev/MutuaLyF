@@ -190,6 +190,126 @@ async def download_document(
     return Response(content=content, media_type=media_type or "application/octet-stream", headers={"Content-Disposition": cd})
 
 
+async def _texto_vigente(document_id: str, tenant_id: str) -> str:
+    """Documento tal como lo usa el asistente hoy: las partes en uso, en orden,
+    CON las correcciones hechas a mano y sin las marcadas "sin usar".
+
+    Es la única representación completa y al día del documento: el archivo
+    original no tiene las correcciones del panel.
+    """
+    qdrant = get_qdrant_client()
+    results, _ = await qdrant.scroll(
+        collection_name=f"{tenant_id}_docs",
+        scroll_filter=Filter(
+            must=[FieldCondition(key="document_id", match=MatchValue(value=str(document_id)))]
+        ),
+        limit=1000,
+        with_payload=True,
+        with_vectors=False,
+    )
+    partes = sorted(
+        (
+            (p.payload.get("chunk_index", 0), p.payload.get("text", ""))
+            for p in results
+            if p.payload.get("quality_gate_status") != "skipped"
+        ),
+        key=lambda t: t[0],
+    )
+    return "\n\n".join(t.strip() for _, t in partes if t.strip())
+
+
+@router.post("/documents/{document_id}/reprocess", status_code=status.HTTP_202_ACCEPTED)
+async def reprocess_document(
+    document_id: uuid.UUID,
+    request: Request,
+    tenant_id: str = Depends(get_tenant_id),
+    current_user: CurrentUser = Depends(require_admin),
+):
+    """Vuelve a procesar el documento PARTIENDO DE SU VERSIÓN VIGENTE.
+
+    Existe para poder mejorar cómo se corta un documento (que es una necesidad
+    real: un corte pobre da peores respuestas) sin perder las correcciones hechas
+    a mano. Procesar de nuevo el archivo original las borraría — fue lo que pasó
+    el 05/08/2026 y obligó a reconstruirlas desde un backup.
+
+    El archivo original NO se toca: queda como estaba y se sigue pudiendo
+    descargar. Además se guarda una copia del texto vigente en el almacenamiento,
+    con fecha, para tener trazabilidad de con qué se reprocesó.
+    """
+    import io as _io
+    import asyncio as _asyncio
+    from datetime import datetime as _dt
+
+    async with get_pg_session(tenant_id) as session:
+        row = (await session.execute(
+            text("SELECT title, filename, status, chunk_count FROM documentos WHERE id = :id"),
+            {"id": document_id},
+        )).mappings().fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if row["status"] != "ready":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"El documento está en estado '{row['status']}'. Esperá a que termine de procesarse.",
+        )
+
+    texto = await _texto_vigente(str(document_id), tenant_id)
+    if not texto.strip():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="El documento no tiene partes en uso para reprocesar.",
+        )
+
+    # Copia con fecha del texto con el que se reprocesa. No pisa el original.
+    sello = _dt.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    respaldo_key = f"{tenant_id}/{document_id}/vigente-{sello}.txt"
+    datos = texto.encode("utf-8")
+    try:
+        def _guardar() -> None:
+            get_minio_client().put_object(
+                settings.minio_bucket, respaldo_key, _io.BytesIO(datos),
+                length=len(datos), content_type="text/plain",
+            )
+        await _asyncio.to_thread(_guardar)
+    except Exception as exc:
+        logger.warning("reprocess_backup_failed document_id=%s error=%s", document_id, exc)
+
+    _ensure_upload_dir()
+    safe_name = re.sub(r"[^\w\-.]", "_", row["filename"] or "documento")[:200]
+    file_path = os.path.join(_UPLOAD_DIR, f"{document_id}_reproceso_{sello}_{safe_name}")
+    with open(file_path, "wb") as f:
+        f.write(datos)
+
+    async with get_pg_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE documentos SET status = 'processing' WHERE id = :id"),
+            {"id": document_id},
+        )
+
+    from workers.ingest_tasks import process_document
+    process_document.apply_async(
+        args=[str(document_id), tenant_id, file_path, "text/plain", row["filename"] or safe_name],
+        queue="ingest",
+    )
+
+    logger.info(
+        "document_reprocess_enqueued document_id=%s tenant_id=%s chars=%d user=%s",
+        document_id, tenant_id, len(texto), current_user.email,
+    )
+    from core.audit import record as audit, fire_and_log
+    fire_and_log(audit(
+        tenant_id=tenant_id,
+        actor_id=current_user.user_id,
+        actor_email=current_user.email,
+        actor_role=current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role),
+        action="documents.reprocess",
+        resource=f"document:{document_id}",
+        detail={"chars": len(texto), "chunks_previos": row["chunk_count"], "respaldo": respaldo_key},
+        request=request,
+    ))
+    return {"status": "processing", "document_id": str(document_id), "chars": len(texto)}
+
+
 @router.get("/documents/{document_id}/download/edited")
 async def download_document_edited(
     document_id: uuid.UUID,
@@ -212,28 +332,12 @@ async def download_document_edited(
     if not row:
         raise HTTPException(status_code=404, detail="Document not found")
 
-    qdrant = get_qdrant_client()
-    results, _ = await qdrant.scroll(
-        collection_name=f"{tenant_id}_docs",
-        scroll_filter=Filter(
-            must=[FieldCondition(key="document_id", match=MatchValue(value=str(document_id)))]
-        ),
-        limit=500,
-        with_payload=True,
-        with_vectors=False,
-    )
-    parts = sorted(
-        (
-            (p.payload.get("chunk_index", 0), p.payload.get("text", ""))
-            for p in results
-            if p.payload.get("quality_gate_status") != "skipped"
-        ),
-        key=lambda t: t[0],
-    )
-    if not parts:
+    # Misma reconstrucción que usa el reproceso: una sola definición de "versión
+    # vigente" para que la descarga y el reproceso nunca difieran.
+    body = await _texto_vigente(str(document_id), tenant_id)
+    if not body.strip():
         raise HTTPException(status_code=404, detail="El documento no tiene partes en uso para exportar")
 
-    body = "\n\n".join(txt.strip() for _, txt in parts if txt.strip())
     stem = (row["filename"] or "documento").rsplit(".", 1)[0]
     cd = f"attachment; filename=\"{stem} (editado).txt\""
     return Response(
@@ -273,12 +377,54 @@ async def list_chunks(
                 "quality_gate_reason": point.payload.get("quality_gate_reason"),
                 "manually_reviewed": point.payload.get("manually_reviewed", False),
                 "reviewed_by": point.payload.get("reviewed_by"),
+                # Editado a mano desde el panel: el archivo original NO tiene este
+                # texto, así que se pierde si el documento se vuelve a procesar.
+                "manually_edited": point.payload.get("manually_edited", False),
+                "edited_by": point.payload.get("edited_by"),
+                "edited_at": point.payload.get("edited_at"),
             }
             for point in results
         ],
         key=lambda c: c["chunk_index"],
     )
     return chunks
+
+
+@router.get("/documents/{document_id}/manual-edits")
+async def document_manual_edits(
+    document_id: str,
+    tenant_id: str = Depends(get_tenant_id),
+    current_user: CurrentUser = Depends(require_admin),
+):
+    """Correcciones hechas a mano sobre este documento que NO están en el archivo.
+
+    Se consulta antes de borrar o reemplazar un documento: esas correcciones viven
+    solo en la base y se pierden al volver a procesar el archivo, que es lo que
+    pasó el 05/08/2026 y obligó a reconstruirlas desde un backup.
+    """
+    qdrant = get_qdrant_client()
+    results, _ = await qdrant.scroll(
+        collection_name=f"{tenant_id}_docs",
+        scroll_filter=Filter(
+            must=[FieldCondition(key="document_id", match=MatchValue(value=document_id))]
+        ),
+        limit=500,
+        with_payload=True,
+        with_vectors=False,
+    )
+    editados = [
+        {
+            "chunk_id": str(p.id),
+            "chunk_index": p.payload.get("chunk_index", 0),
+            "edited_by": p.payload.get("edited_by"),
+            "edited_at": p.payload.get("edited_at"),
+            "preview": (p.payload.get("text") or "")[:180],
+        }
+        for p in results
+        if p.payload.get("manually_edited")
+    ]
+    editados.sort(key=lambda c: c["chunk_index"])
+    return {"count": len(editados), "edits": editados}
 
 
 @router.get("/chunks/pending")
@@ -406,6 +552,10 @@ async def edit_chunk_text(
         raise HTTPException(status_code=502, detail="No se pudo re-embeddear el texto")
 
     # 3. Upsert Qdrant con payload merged + nuevo vector
+    # El texto ANTERIOR se guarda para la auditoría: es lo único que se pierde si
+    # el documento se reprocesa (incidente 2026-08-05, donde hubo que reconstruir
+    # las correcciones desde un backup de PostgreSQL).
+    old_text = payload.get("text") or ""
     payload["text"] = new_text
     payload["manually_edited"] = True
     payload["edited_by"] = current_user.email
@@ -456,7 +606,14 @@ async def edit_chunk_text(
         actor_role=current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role),
         action="documents.chunk_text_edited",
         resource=f"document:{document_id}/chunk:{chunk_id}",
-        detail={"len": len(new_text), "parent_updated": bool(parent_id)},
+        # Guardamos AMBOS textos, no solo el largo: la auditoría es la única copia
+        # de una corrección manual hasta que el archivo original se actualiza.
+        detail={
+            "len": len(new_text),
+            "parent_updated": bool(parent_id),
+            "text_before": old_text[:8000],
+            "text_after": new_text[:8000],
+        },
         request=request,
     ))
 
@@ -637,8 +794,15 @@ async def delete_document(
         await session.execute(
             text("DELETE FROM parent_chunks WHERE document_id = :id"), {"id": document_id}
         )
+        # Solo los PENDIENTES. Los pares ya resueltos se conservan como memoria de
+        # la decisión del admin: si se borran, al volver a subir el documento la
+        # detección los recrea como pendientes y el admin tiene que resolverlos de
+        # nuevo, una y otra vez (reporte del cliente, 10/08/2026).
         await session.execute(
-            text("DELETE FROM chunk_duplicate_pairs WHERE doc_id_a = :id OR doc_id_b = :id"),
+            text(
+                "DELETE FROM chunk_duplicate_pairs "
+                "WHERE (doc_id_a = :id OR doc_id_b = :id) AND status = 'pending'"
+            ),
             {"id": document_id},
         )
         await session.execute(

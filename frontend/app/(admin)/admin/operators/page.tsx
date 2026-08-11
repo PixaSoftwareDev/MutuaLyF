@@ -597,7 +597,7 @@ function DeactivateDialog({ open, onOpenChange, operator, onDeactivated }: {
             </div>
             <div className="min-w-0 space-y-1.5 pt-0.5">
               <DialogTitle>Eliminar operador</DialogTitle>
-              <DialogDescription>
+              <DialogDescription className="[overflow-wrap:anywhere]">
                 <span className="font-medium text-foreground">{operator.name}</span> ya no va a recibir conversaciones.
                 Las que tenga abiertas vuelven a la cola.
               </DialogDescription>

@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Check, X, Pencil, PanelRight, AlertTriangle } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Loader2, Check, X, Pencil, PanelRight, AlertTriangle, RefreshCw } from "lucide-react";
 import { api, type DocumentResponse, type ChunkResponse } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import {
@@ -70,13 +70,26 @@ export function partStatus(s: ChunkResponse["quality_gate_status"]) {
 // Confirmación de eliminación de un documento. Se usa desde el detalle y desde
 // el tachito de la tabla de documentos.
 
-export function DocumentDeleteDialog({ open, onOpenChange, title, onConfirm, deleting }: {
+export function DocumentDeleteDialog({ open, onOpenChange, title, onConfirm, deleting, documentId }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   title: string;
   onConfirm: () => void;
   deleting: boolean;
+  /** Con el id se avisa si el documento tiene correcciones hechas a mano. */
+  documentId?: string;
 }) {
+  // Las correcciones hechas desde el panel viven solo en la base: si el documento
+  // se borra y se vuelve a subir el archivo original, se pierden. Avisarlo ANTES
+  // es lo que evita repetir el incidente del 05/08/2026.
+  const { data: manualEdits } = useQuery({
+    queryKey: ["document-manual-edits", documentId],
+    queryFn: () => api.documents.manualEdits(documentId!),
+    enabled: open && !!documentId,
+    staleTime: 0,
+  });
+  const editCount = manualEdits?.count ?? 0;
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
@@ -87,17 +100,98 @@ export function DocumentDeleteDialog({ open, onOpenChange, title, onConfirm, del
             </div>
             <div className="min-w-0 space-y-1.5 pt-0.5">
               <DialogTitle>Eliminar documento</DialogTitle>
-              <DialogDescription>
+              {/* El nombre puede ser larguísimo y sin espacios (un .txt exportado):
+                  sin overflow-wrap el título estira el diálogo y se sale de la caja. */}
+              <DialogDescription className="[overflow-wrap:anywhere]">
                 Vas a eliminar <span className="font-medium text-foreground">{title}</span> y todas sus partes. Esta acción no se puede deshacer.
               </DialogDescription>
             </div>
           </div>
         </DialogHeader>
+
+        {editCount > 0 && (
+          <div className="rounded-md border border-warning/40 bg-warning/[0.07] px-3 py-2.5 text-sm">
+            <p className="font-medium text-foreground">
+              {editCount === 1
+                ? "Este documento tiene 1 parte corregida a mano"
+                : `Este documento tiene ${editCount} partes corregidas a mano`}
+            </p>
+            <p className="mt-1 text-muted-foreground">
+              Esas correcciones no están en el archivo original. Si volvés a subirlo sin
+              incluirlas, se pierden. Descargá primero <span className="font-medium text-foreground">Versión actual</span> para
+              conservarlas.
+            </p>
+          </div>
+        )}
         <DialogFooter className="mt-2">
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={deleting}>Cancelar</Button>
           <Button variant="destructive" onClick={onConfirm} disabled={deleting}>
             {deleting && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
             Eliminar
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ── DocumentReprocessDialog ───────────────────────────────────────────────────
+// Confirmación para volver a dividir un documento. A diferencia de borrar y subir
+// de nuevo, este camino parte de la versión vigente (con las correcciones hechas
+// a mano), así que no se pierde nada.
+
+export function DocumentReprocessDialog({ open, onOpenChange, title, onConfirm, running, documentId }: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  title: string;
+  onConfirm: () => void;
+  running: boolean;
+  documentId?: string;
+}) {
+  const { data: manualEdits } = useQuery({
+    queryKey: ["document-manual-edits", documentId],
+    queryFn: () => api.documents.manualEdits(documentId!),
+    enabled: open && !!documentId,
+    staleTime: 0,
+  });
+  const editCount = manualEdits?.count ?? 0;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <div className="flex items-start gap-3 text-left">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-info/10">
+              <RefreshCw className="h-5 w-5 text-info" />
+            </div>
+            <div className="min-w-0 space-y-1.5 pt-0.5">
+              <DialogTitle>Reprocesar documento</DialogTitle>
+              <DialogDescription className="[overflow-wrap:anywhere]">
+                Se vuelve a dividir <span className="font-medium text-foreground">{title}</span> en partes,
+                usando el texto que el asistente tiene hoy. Sirve cuando las partes quedaron mal cortadas.
+              </DialogDescription>
+            </div>
+          </div>
+        </DialogHeader>
+
+        <div className="rounded-md border bg-muted/40 px-3 py-2.5 text-sm text-muted-foreground">
+          {editCount > 0 ? (
+            <>
+              Las <span className="font-medium text-foreground">
+                {editCount === 1 ? "1 corrección hecha a mano" : `${editCount} correcciones hechas a mano`}
+              </span> se conservan: el reproceso parte de la versión vigente, no del archivo original.
+            </>
+          ) : (
+            <>Las correcciones hechas a mano se conservan: el reproceso parte de la versión vigente, no del archivo original.</>
+          )}
+          <p className="mt-1.5">El archivo original queda como está y se puede seguir descargando.</p>
+        </div>
+
+        <DialogFooter className="mt-2">
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={running}>Cancelar</Button>
+          <Button onClick={onConfirm} disabled={running}>
+            {running && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+            Reprocesar
           </Button>
         </DialogFooter>
       </DialogContent>
