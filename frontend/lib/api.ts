@@ -252,6 +252,22 @@ export interface ChunkResponse {
   quality_gate_reason: string | null;
   manually_reviewed?: boolean;
   reviewed_by?: string;
+  /** Editado a mano desde el panel: el archivo original no tiene este texto. */
+  manually_edited?: boolean;
+  edited_by?: string | null;
+  edited_at?: string | null;
+}
+
+/** Correcciones manuales de un documento que no están en su archivo original. */
+export interface ManualEditsResponse {
+  count: number;
+  edits: Array<{
+    chunk_id: string;
+    chunk_index: number;
+    edited_by: string | null;
+    edited_at: string | null;
+    preview: string;
+  }>;
 }
 
 export interface PendingChunkResponse extends ChunkResponse {
@@ -849,6 +865,26 @@ export const api = {
     },
     delete: async (documentId: string): Promise<void> => {
       await apiClient.delete(`/documents/${documentId}`);
+    },
+    /**
+     * Vuelve a procesar el documento partiendo de su versión vigente (la que usa
+     * el asistente, con las correcciones hechas a mano). Sirve para mejorar cómo
+     * quedó cortado el texto sin perder nada. El archivo original no se toca.
+     */
+    reprocess: async (documentId: string): Promise<{ status: string; chars: number }> => {
+      const { data } = await apiClient.post(`/documents/${documentId}/reprocess`);
+      return data;
+    },
+    /**
+     * Correcciones hechas a mano sobre este documento que NO están en el archivo
+     * original. Se consulta antes de borrar o reemplazar: al volver a procesar el
+     * archivo esas correcciones se pierden.
+     */
+    manualEdits: async (documentId: string): Promise<ManualEditsResponse> => {
+      const { data } = await apiClient.get<ManualEditsResponse>(
+        `/documents/${documentId}/manual-edits`,
+      );
+      return data;
     },
     /**
      * Edita el texto de un chunk del documento. Backend re-embeddea el texto

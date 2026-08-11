@@ -349,13 +349,35 @@ async def _run_ingest_pipeline(
             async with get_worker_pg_session(tenant_id) as pg_session:
                 for pair in existing_pairs:
                     try:
+                        # No se recrea un par cuyo CONTENIDO ya fue resuelto: al
+                        # reprocesar un documento los fragmentos cambian de id, así
+                        # que comparar por id haría reaparecer como pendiente algo
+                        # que el admin ya decidió (reporte del cliente, 10/08/2026).
+                        # La comparación es por texto normalizado, en los dos órdenes.
                         await pg_session.execute(
                             sa_text(
-                                "INSERT INTO chunk_duplicate_pairs "
-                                "(chunk_id_a, chunk_id_b, doc_id_a, doc_id_b, "
-                                " text_a, text_b, jaccard_score, cosine_score) "
-                                "VALUES (:a, :b, :da, :db, :ta, :tb, :j, :c) "
-                                "ON CONFLICT DO NOTHING"
+                                r"""
+                                INSERT INTO chunk_duplicate_pairs
+                                    (chunk_id_a, chunk_id_b, doc_id_a, doc_id_b,
+                                     text_a, text_b, jaccard_score, cosine_score)
+                                SELECT :a, :b, :da, :db, :ta, :tb, :j, :c
+                                WHERE NOT EXISTS (
+                                    SELECT 1 FROM chunk_duplicate_pairs r
+                                    WHERE r.status <> 'pending'
+                                      AND (
+                                        (md5(lower(regexp_replace(r.text_a, '\s+', ' ', 'g')))
+                                           = md5(lower(regexp_replace(:ta, '\s+', ' ', 'g')))
+                                         AND md5(lower(regexp_replace(r.text_b, '\s+', ' ', 'g')))
+                                           = md5(lower(regexp_replace(:tb, '\s+', ' ', 'g'))))
+                                        OR
+                                        (md5(lower(regexp_replace(r.text_a, '\s+', ' ', 'g')))
+                                           = md5(lower(regexp_replace(:tb, '\s+', ' ', 'g')))
+                                         AND md5(lower(regexp_replace(r.text_b, '\s+', ' ', 'g')))
+                                           = md5(lower(regexp_replace(:ta, '\s+', ' ', 'g'))))
+                                      )
+                                )
+                                ON CONFLICT DO NOTHING
+                                """
                             ),
                             {
                                 "a": pair["chunk_id_new"],
@@ -599,8 +621,14 @@ async def _purge_document_artifacts(
                 _sa_text("DELETE FROM parent_chunks WHERE document_id = :id"),
                 {"id": document_id},
             )
+            # Solo los PENDIENTES: los resueltos son la memoria de lo que el admin
+            # ya decidió. Borrarlos hace que la detección los recree en la próxima
+            # ingesta y reaparezcan como pendientes (reporte del cliente, 10/08/2026).
             await session.execute(
-                _sa_text("DELETE FROM chunk_duplicate_pairs WHERE doc_id_a = :id OR doc_id_b = :id"),
+                _sa_text(
+                    "DELETE FROM chunk_duplicate_pairs "
+                    "WHERE (doc_id_a = :id OR doc_id_b = :id) AND status = 'pending'"
+                ),
                 {"id": document_id},
             )
     except Exception as exc:
