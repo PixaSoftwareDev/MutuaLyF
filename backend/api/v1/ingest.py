@@ -190,6 +190,37 @@ async def download_document(
     return Response(content=content, media_type=media_type or "application/octet-stream", headers={"Content-Disposition": cd})
 
 
+_PREFIJO_INDEXADO_RE = re.compile(r"\[[^\]\n]*\]")
+# Formato exclusivo del indexador (services/chunker.py:_build_contact_prefix):
+# no puede confundirse con contenido del documento, así que se quita esté donde esté.
+_PREFIJO_CONTACTO_RE = re.compile(r"^[ \t]*\[Datos de contacto:[^\]\n]*\][ \t]*\n?", re.MULTILINE)
+
+
+def _sin_prefijos_del_indexador(texto: str) -> str:
+    """Quita los prefijos que el procesador antepone al indexar.
+
+    Al armar el texto que va al buscador, el chunker le pone delante
+    "[Datos de contacto: ...]" y/o "[Encabezado de sección]", cada uno en su
+    propia línea (services/chunker.py:495). Son señales para la búsqueda, no
+    contenido del documento.
+
+    Hay que sacarlos al reconstruir el documento: si no, cada reproceso los
+    vuelve a anteponer sobre un texto que ya los tenía y se van acumulando
+    ("[Datos de contacto: email]" dos y tres veces en el mismo fragmento).
+
+    El de contacto se quita en cualquier posición —su formato es inconfundible y
+    puede haber quedado en el medio por reprocesos anteriores—; el encabezado
+    solo al principio, porque un texto entre corchetes en el medio bien puede ser
+    contenido real del documento.
+    """
+    texto = _PREFIJO_CONTACTO_RE.sub("", texto)
+    lineas = texto.split("\n")
+    i = 0
+    while i < len(lineas) and _PREFIJO_INDEXADO_RE.fullmatch(lineas[i].strip()):
+        i += 1
+    return "\n".join(lineas[i:]).strip()
+
+
 async def _texto_vigente(document_id: str, tenant_id: str) -> str:
     """Documento tal como lo usa el asistente hoy: las partes en uso, en orden,
     CON las correcciones hechas a mano y sin las marcadas "sin usar".
@@ -209,7 +240,7 @@ async def _texto_vigente(document_id: str, tenant_id: str) -> str:
     )
     partes = sorted(
         (
-            (p.payload.get("chunk_index", 0), p.payload.get("text", ""))
+            (p.payload.get("chunk_index", 0), _sin_prefijos_del_indexador(p.payload.get("text", "")))
             for p in results
             if p.payload.get("quality_gate_status") != "skipped"
         ),
