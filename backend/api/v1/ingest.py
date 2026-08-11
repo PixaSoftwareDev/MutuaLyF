@@ -208,17 +208,24 @@ def _sin_prefijos_del_indexador(texto: str) -> str:
     vuelve a anteponer sobre un texto que ya los tenía y se van acumulando
     ("[Datos de contacto: email]" dos y tres veces en el mismo fragmento).
 
-    El de contacto se quita en cualquier posición —su formato es inconfundible y
-    puede haber quedado en el medio por reprocesos anteriores—; el encabezado
-    solo al principio, porque un texto entre corchetes en el medio bien puede ser
-    contenido real del documento.
+    Los dos se tratan distinto porque son cosas distintas:
+
+    - "[Datos de contacto: ...]" es una señal para el buscador, no está en el
+      documento. Se elimina, esté donde esté (puede haber quedado en el medio
+      por reprocesos anteriores).
+
+    - El encabezado SÍ es texto del documento —el título de la sección o la
+      pregunta que encabeza la respuesta—; el indexador solo lo repite entre
+      corchetes al principio del fragmento. Se le quitan los corchetes y se
+      conserva: borrarlo dejaría el documento sin sus preguntas.
     """
     texto = _PREFIJO_CONTACTO_RE.sub("", texto)
     lineas = texto.split("\n")
     i = 0
     while i < len(lineas) and _PREFIJO_INDEXADO_RE.fullmatch(lineas[i].strip()):
+        lineas[i] = lineas[i].strip()[1:-1].strip()   # sin corchetes, con su texto
         i += 1
-    return "\n".join(lineas[i:]).strip()
+    return "\n".join(lineas).strip()
 
 
 async def _texto_vigente(document_id: str, tenant_id: str) -> str:
