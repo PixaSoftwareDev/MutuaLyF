@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  FileText, Trash2, Loader2, ChevronLeft, ChevronDown, Download, XCircle, Search, Layers,
+  FileText, Trash2, Loader2, ChevronLeft, ChevronDown, Download, XCircle, Search, Layers, RefreshCw, AlertTriangle,
 } from "lucide-react";
 import { api, type DocumentResponse, type ChunkResponse } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
@@ -15,12 +15,13 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { toast } from "@/components/ui/toast";
+import { extractErrorMessage } from "@/lib/errors";
 import { cn } from "@/lib/utils";
 import { HighlightedText, normSearch } from "@/lib/highlight";
 import { ListDetailShell } from "@/components/admin/list-detail-shell";
 import { DetailShell as Shell } from "@/components/admin/detail-shell";
 import {
-  DOC_STATUS_CONFIG, QG_DOC_CONFIG, fileExt, partStatus, PartDetailPanel, DocumentDeleteDialog,
+  DOC_STATUS_CONFIG, QG_DOC_CONFIG, fileExt, partStatus, PartDetailPanel, DocumentDeleteDialog, DocumentReprocessDialog,
 } from "@/components/documents/document-shared";
 
 type StatusKey = "all" | ChunkResponse["quality_gate_status"];
@@ -39,6 +40,7 @@ export default function DocumentDetailPage() {
   const id = String(params.id);
 
   const [showDelete, setShowDelete] = useState(false);
+  const [showReprocess, setShowReprocess] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState<StatusKey>("all");
@@ -76,6 +78,27 @@ export default function DocumentDetailPage() {
       router.push("/admin/documents");
     },
     onError: () => toast({ title: "Error al eliminar", description: "Intentá de nuevo.", variant: "destructive" }),
+  });
+
+  // Reprocesar parte de la versión vigente (la que usa el asistente, con las
+  // correcciones hechas a mano), no del archivo original: así se puede mejorar
+  // cómo quedó cortado el texto sin perder ninguna corrección.
+  const { mutate: reprocessDoc, isPending: reprocessing } = useMutation({
+    mutationFn: () => api.documents.reprocess(id),
+    onSuccess: () => {
+      toast({
+        title: "Reprocesando el documento",
+        description: "Se está rearmando a partir de la versión vigente. En unos segundos vuelve a estar listo.",
+        variant: "success",
+      });
+      queryClient.invalidateQueries({ queryKey: ["documents"] });
+      queryClient.invalidateQueries({ queryKey: ["chunks", id] });
+    },
+    onError: (err) => toast({
+      title: "No se pudo reprocesar",
+      description: extractErrorMessage(err, "Intentá de nuevo en un momento."),
+      variant: "destructive",
+    }),
   });
 
   const { mutate: downloadDoc, isPending: downloading } = useMutation({
@@ -177,6 +200,23 @@ export default function DocumentDetailPage() {
           </DropdownMenuContent>
         </DropdownMenu>
       )}
+
+      {/* Rearma el documento desde la versión vigente (con las correcciones), no
+          desde el archivo original. Sirve para mejorar cómo quedó cortado sin
+          perder nada de lo editado a mano. */}
+      {doc.status === "ready" && doc.chunk_count > 0 && (
+        <Button
+          variant="outline"
+          size="sm"
+          className="gap-1.5"
+          disabled={reprocessing}
+          onClick={() => setShowReprocess(true)}
+          title="Vuelve a dividir el documento conservando las correcciones"
+        >
+          {reprocessing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+          <span className="hidden sm:inline">Reprocesar</span>
+        </Button>
+      )}
       <Button
         variant="outline" size="sm"
         className="gap-1.5 border-destructive/30 text-destructive hover:bg-destructive/10 hover:text-destructive"
@@ -222,7 +262,8 @@ export default function DocumentDetailPage() {
             )}
           </div>
         </Shell>
-        <DocumentDeleteDialog open={showDelete} onOpenChange={setShowDelete} title={doc.title} onConfirm={() => deleteDoc()} deleting={deleting} />
+        <DocumentDeleteDialog open={showDelete} onOpenChange={setShowDelete} title={doc.title} documentId={doc.id} onConfirm={() => deleteDoc()} deleting={deleting} />
+      <DocumentReprocessDialog open={showReprocess} onOpenChange={setShowReprocess} title={doc.title} documentId={doc.id} running={reprocessing} onConfirm={() => { setShowReprocess(false); reprocessDoc(); }} />
       </>
     );
   }
@@ -337,7 +378,8 @@ export default function DocumentDetailPage() {
         </div>
       </ListDetailShell>
 
-      <DocumentDeleteDialog open={showDelete} onOpenChange={setShowDelete} title={doc.title} onConfirm={() => deleteDoc()} deleting={deleting} />
+      <DocumentDeleteDialog open={showDelete} onOpenChange={setShowDelete} title={doc.title} documentId={doc.id} onConfirm={() => deleteDoc()} deleting={deleting} />
+      <DocumentReprocessDialog open={showReprocess} onOpenChange={setShowReprocess} title={doc.title} documentId={doc.id} running={reprocessing} onConfirm={() => { setShowReprocess(false); reprocessDoc(); }} />
     </>
   );
 }
