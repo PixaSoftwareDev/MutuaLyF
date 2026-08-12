@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { useAuthStore } from "@/lib/store";
 import { api, scheduleProactiveRefresh } from "@/lib/api";
 import { decodeJwtPayload } from "@/lib/jwt";
+import { domFieldValue, useAutofillSync } from "@/lib/use-autofill-sync";
 import { AuthShell, brandBtnStyle, BRAND_GRADIENT } from "@/components/auth/auth-shell";
 import { Loader2, AlertTriangle, ShieldCheck, Eye, EyeOff } from "lucide-react";
 
@@ -21,11 +22,12 @@ export default function LoginSuperadminPage() {
   const [error, setError]     = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // Valor actual del input en el DOM: el autofill de Chrome y el tipeo
-  // pre-hidratación llenan el DOM sin disparar onChange, y el estado
-  // controlado queda atrás (ver replay abajo).
-  const domValue = (id: string) =>
-    (document.getElementById(id) as HTMLInputElement | null)?.value ?? "";
+  // Autofill de Chrome / tipeo pre-hidratación: llenan el DOM sin disparar
+  // onChange y el estado controlado queda atrás. El hook empuja DOM → estado
+  // durante toda esa ventana; `fieldValue` es la red de seguridad al enviar,
+  // donde lo que el usuario tiene a la vista manda. Ver lib/use-autofill-sync.ts.
+  useAutofillSync({ email: setEmail, password: setPassword });
+  const fieldValue = (id: string, fallback: string) => domFieldValue(id) || fallback;
 
   // Núcleo del login: recibe los valores explícitos para que el replay
   // pre-hidratación pueda pasar lo que realmente hay en el DOM.
@@ -60,26 +62,26 @@ export default function LoginSuperadminPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     // Si el estado quedó atrás del DOM (autofill sin eventos), el DOM manda.
-    const emailVal = email || domValue("email");
-    const pwdVal   = password || domValue("password");
+    const emailVal = fieldValue("email", email);
+    const pwdVal   = fieldValue("password", password);
     if (emailVal !== email)  setEmail(emailVal);
     if (pwdVal !== password) setPassword(pwdVal);
     await submitCredentials(emailVal, pwdVal);
   };
 
   // Rescate de la ventana pre-hidratación (esta página va SSR completa en prod):
-  // DOM → estado para no pisar lo tipeado/autocompletado, y reenvío del submit
-  // que el script del layout (auth) tragó antes de que React montara.
+  // reenvía el submit que el script del layout (auth) tragó antes de que React
+  // montara. El DOM → estado lo hace useAutofillSync de arriba.
   useEffect(() => {
-    const emailDom = domValue("email");
-    const pwdDom = domValue("password");
-    if (emailDom) setEmail(emailDom);
-    if (pwdDom) setPassword(pwdDom);
     const w = window as unknown as { __iaHydrated?: boolean; __iaPendingSubmit?: boolean };
     w.__iaHydrated = true;
     if (w.__iaPendingSubmit) {
       w.__iaPendingSubmit = false;
-      if (emailDom && pwdDom) void submitCredentials(emailDom, pwdDom);
+      const emailDom = domFieldValue("email");
+      const pwdDom = domFieldValue("password");
+      // Con campos vacíos igual se envía: el backend responde 401 y el usuario
+      // ve un error, en vez de un click que se perdió en silencio.
+      void submitCredentials(emailDom, pwdDom);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
