@@ -547,6 +547,9 @@ services:
     restart: unless-stopped
     command:
       - "--path.rootfs=/host"
+      # Expone /var/lib/node_exporter/textfile_collector del host: ahi el script
+      # de backup deja mutualyf_backup.prom (alerta BackupDesactualizado).
+      - "--collector.textfile.directory=/host/var/lib/node_exporter/textfile_collector"
     pid: host
     volumes:
       - /:/host:ro,rslave

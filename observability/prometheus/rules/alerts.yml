@@ -164,3 +164,43 @@ groups:
         annotations:
           summary: "Certificado SSL vence en <14 días"
           description: "Verificar que el renovador automático corre. Ver runbook sección 10."
+
+  - name: backups
+    interval: 5m
+    rules:
+
+      # ── Backup de Postgres atrasado ─────────────────────────────────────────
+      # El script publica mutualyf_backup_last_success_timestamp_seconds solo
+      # cuando el dump paso las validaciones. Corre 03:30 -3; 36h da margen a
+      # un fallo aislado sin dormirse dos noches seguidas.
+      - alert: BackupDesactualizado
+        expr: time() - mutualyf_backup_last_success_timestamp_seconds > 36 * 3600
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Backup de Postgres atrasado (>36h sin uno valido)"
+          description: "Ultimo backup OK hace mas de 36h. Correr /usr/local/bin/mutualyf-pg-backup.sh a mano y revisar /var/log/mutualyf-backup.log."
+
+      # ── La metrica desaparecio ──────────────────────────────────────────────
+      # Dead-man switch: cubre el caso en que el cron no corre, el script muere
+      # antes de escribir, o alguien borra el archivo. Sin esto, un backup roto
+      # es invisible (paso: 69 dias sin backups hasta el 2026-08-12).
+      - alert: BackupMetricaAusente
+        expr: absent(mutualyf_backup_last_success_timestamp_seconds)
+        for: 30m
+        labels:
+          severity: critical
+        annotations:
+          summary: "No hay metrica de backup — el backup puede no estar corriendo"
+          description: "node_exporter no expone mutualyf_backup_last_success_timestamp_seconds. Verificar el textfile collector y el cron de las 03:30."
+
+      # ── Backup sospechosamente chico ────────────────────────────────────────
+      - alert: BackupDemasiadoChico
+        expr: mutualyf_backup_last_size_bytes < 100000
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "El ultimo backup pesa menos de 100 KB"
+          description: "Podria estar incompleto. Verificar con un restore de prueba."
