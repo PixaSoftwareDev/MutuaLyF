@@ -249,7 +249,11 @@ services:
       dockerfile: Dockerfile
     container_name: ia_celery_worker
     restart: unless-stopped
-    command: celery -A workers.celery_app worker --loglevel=info --pool=solo -Q ingest,clustering,training,default
+    # 2026-08-12: --pool=solo (may/2026) se puso por el leak del bge-reranker-large
+    # con prefork. El reranker se elimino en jul/2026 y EMBEDDING_PROVIDER=openai,
+    # asi que el worker ya no carga modelos ML: prefork vuelve a ser seguro y saca
+    # el cuello de una-ingesta-por-vez.
+    command: celery -A workers.celery_app worker --loglevel=info --concurrency=4 -Q ingest,clustering,training,default
     env_file: .env
     environment:
       PYTHONPATH: /app
