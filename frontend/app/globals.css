@@ -306,3 +306,30 @@
     @apply transition-none hover:translate-y-0;
   }
 }
+
+/* ── Detección de autofill (soporte de lib/use-autofill-sync.ts) ─────────────
+   Chrome NO dispara un evento propio al autocompletar un formulario, pero SÍ
+   aplica el pseudo-selector :-webkit-autofill. Si ese selector define una
+   animación, el navegador emite `animationstart` — la única señal confiable
+   para enterarse. La animación no cambia nada visualmente (dura 1ms y no anima
+   ninguna propiedad visible); existe solo para producir el evento. Sin esto, el
+   estado de React queda vacío mientras el usuario VE sus credenciales cargadas
+   y "Ingresar" no hace nada.
+
+   OJO: los keyframes NO pueden quedar vacíos. Un `from {} to {}` es correcto
+   en dev pero el minificador de CSS del build de producción lo borra por
+   inútil, la animación deja de existir y `animationstart` nunca se dispara —
+   el arreglo funcionaría local y seguiría roto en el VPS. Por eso animamos dos
+   propiedades inertes con valores DISTINTOS (para que tampoco las colapse):
+   una custom property, que no pinta nada, y outline-color, invisible porque
+   outline-style es `none` salvo en foco. */
+@keyframes ia-autofill-start {
+  from { --ia-autofill: 0; outline-color: rgba(0, 0, 0, 0); }
+  to   { --ia-autofill: 1; outline-color: rgba(0, 0, 0, 0.001); }
+}
+input:-webkit-autofill {
+  animation-name: ia-autofill-start;
+  animation-duration: 1ms;
+}
+/* prefers-reduced-motion NO debe apagar esta animación: no se ve, y sin ella
+   el login vuelve a romperse con autofill. */

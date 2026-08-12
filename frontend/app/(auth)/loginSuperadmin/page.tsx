@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { useAuthStore } from "@/lib/store";
 import { api, scheduleProactiveRefresh } from "@/lib/api";
 import { decodeJwtPayload } from "@/lib/jwt";
+import { domFieldValue, useAutofillSync } from "@/lib/use-autofill-sync";
 import { AuthShell, brandBtnStyle, BRAND_GRADIENT } from "@/components/auth/auth-shell";
 import { Loader2, AlertTriangle, ShieldCheck, Eye, EyeOff } from "lucide-react";
 
@@ -21,21 +22,32 @@ export default function LoginSuperadminPage() {
   const [error, setError]     = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // Autofill de Chrome / tipeo pre-hidratación: llenan el DOM sin disparar
+  // onChange y el estado controlado queda atrás. El hook empuja DOM → estado
+  // durante toda esa ventana; `fieldValue` es la red de seguridad al enviar,
+  // donde lo que el usuario tiene a la vista manda. Ver lib/use-autofill-sync.ts.
+  useAutofillSync({ email: setEmail, password: setPassword });
+  const fieldValue = (id: string, fallback: string) => domFieldValue(id) || fallback;
+
+  // Núcleo del login: recibe los valores explícitos para que el replay
+  // pre-hidratación pueda pasar lo que realmente hay en el DOM.
+  const submitCredentials = async (emailVal: string, pwdVal: string) => {
     setError(null);
     setLoading(true);
     try {
-      const data = await api.auth.login(email, password, "");
+      const data = await api.auth.login(emailVal, pwdVal, "");
       const payload = decodeJwtPayload<{ role?: string; tenant_id?: string }>(data.access_token);
       if (!payload?.role || !payload?.tenant_id) throw new Error("Token de sesión inválido");
       const role = payload.role;
       const resolvedTenant = payload.tenant_id;
 
-      setAuth(data.access_token, resolvedTenant, email, role);
+      setAuth(data.access_token, resolvedTenant, emailVal, role);
       scheduleProactiveRefresh(data.access_token);  // renueva ~60s antes de vencer
-      document.cookie = `ia_role=${role}; path=/; SameSite=strict`;
-      document.cookie = `ia_tenant=${resolvedTenant}; path=/; SameSite=strict`;
+      // max-age alineado al refresh_token del backend (30 días) — sin él son
+      // cookies de sesión y el middleware pierde el rol al reabrir el navegador.
+      const maxAge = 60 * 60 * 24 * 30;
+      document.cookie = `ia_role=${role}; path=/; max-age=${maxAge}; SameSite=strict`;
+      document.cookie = `ia_tenant=${resolvedTenant}; path=/; max-age=${maxAge}; SameSite=strict`;
 
       if (role === "super_admin") router.push("/superadmin");
       else setError("Esta página es solo para super administradores.");
@@ -46,6 +58,33 @@ export default function LoginSuperadminPage() {
       setLoading(false);
     }
   };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    // Si el estado quedó atrás del DOM (autofill sin eventos), el DOM manda.
+    const emailVal = fieldValue("email", email);
+    const pwdVal   = fieldValue("password", password);
+    if (emailVal !== email)  setEmail(emailVal);
+    if (pwdVal !== password) setPassword(pwdVal);
+    await submitCredentials(emailVal, pwdVal);
+  };
+
+  // Rescate de la ventana pre-hidratación (esta página va SSR completa en prod):
+  // reenvía el submit que el script del layout (auth) tragó antes de que React
+  // montara. El DOM → estado lo hace useAutofillSync de arriba.
+  useEffect(() => {
+    const w = window as unknown as { __iaHydrated?: boolean; __iaPendingSubmit?: boolean };
+    w.__iaHydrated = true;
+    if (w.__iaPendingSubmit) {
+      w.__iaPendingSubmit = false;
+      const emailDom = domFieldValue("email");
+      const pwdDom = domFieldValue("password");
+      // Con campos vacíos igual se envía: el backend responde 401 y el usuario
+      // ve un error, en vez de un click que se perdió en silencio.
+      void submitCredentials(emailDom, pwdDom);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <AuthShell>

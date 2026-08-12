@@ -10,6 +10,7 @@ import { useAuthStore } from "@/lib/store";
 import { api, scheduleProactiveRefresh, type LookupTenantMatch } from "@/lib/api";
 import { decodeJwtPayload } from "@/lib/jwt";
 import { toSlug } from "@/lib/utils";
+import { domFieldValue, useAutofillSync } from "@/lib/use-autofill-sync";
 import { Loader2, AlertTriangle, Shield, Eye, EyeOff, ChevronLeft, ChevronDown, Lock, ShieldCheck, User, Mail, ArrowLeft, CheckCircle2 } from "lucide-react";
 
 const PLATFORM_NAME = "Intellix";
@@ -23,6 +24,10 @@ const BRAND_GRADIENT = `linear-gradient(135deg, ${BRAND_CYAN} 0%, ${BRAND_INDIGO
 // branding del cliente solo aparece de cara al afiliado, nunca en el panel.
 // El botón y los focus rings siempre llevan el gradient/índigo de la marca.
 const BTN_STYLE = { backgroundImage: BRAND_GRADIENT, color: "#fff" };
+
+// Vida de las cookies de gating UX (ia_role/ia_tenant) — igual al max_age del
+// refresh_token que setea el backend en el login.
+const COOKIE_MAX_AGE = 60 * 60 * 24 * 30;
 
 // Pantalla única (credentials). Los casos raros se ramifican: "select" cuando
 // un email pertenece a varias organizaciones, "org" cuando no reconocemos el
@@ -113,6 +118,32 @@ function LoginForm() {
     setIsLocal(DEV_LOGIN_ENABLED && (h === "localhost" || h === "127.0.0.1"));
   }, []);
 
+  // Empuja DOM → estado durante toda la ventana en la que el navegador puede
+  // llenar los campos sin que React lo vea (autofill tardío de Chrome, tipeo
+  // pre-hidratación, restauración por botón atrás). Ver lib/use-autofill-sync.ts:
+  // es la mitad "que la UI quede coherente" del arreglo; la otra mitad es leer
+  // el DOM al enviar (domFieldValue más abajo).
+  useAutofillSync({ email: setEmail, password: setPassword, tenant: setTenantInput, "fp-email": setEmail });
+
+  // Rescate de la ventana pre-hidratación: si el script del layout (auth) tragó
+  // un submit antes de que React montara, se reenvía acá con los valores del
+  // DOM (el estado recién seteado por el hook todavía no es visible en este
+  // render). Sin esto, ese click se pierde en silencio.
+  useEffect(() => {
+    const w = window as unknown as { __iaHydrated?: boolean; __iaPendingSubmit?: boolean };
+    w.__iaHydrated = true;
+    if (w.__iaPendingSubmit) {
+      w.__iaPendingSubmit = false;
+      // isSuperAdmin todavía no reflejó el ?platform=1 (setState de un efecto
+      // hermano, mismo commit) — se lee el param directo para no perderlo.
+      const asPlatform = new URLSearchParams(window.location.search).get("platform") === "1";
+      // Se reenvía SIEMPRE, incluso con campos vacíos: así el usuario ve el
+      // mensaje de validación en vez de un botón que no hizo nada.
+      void submitCredentials(domFieldValue("email"), domFieldValue("password"), asPlatform);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Login de un clic para el panel de dev: setea el form (feedback visual) y
   // dispara doLogin con credenciales explícitas (no espera al setState).
   const quickLogin = (u: DevUser) => {
@@ -131,6 +162,12 @@ function LoginForm() {
   // haya algo razonable antes de hacer el roundtrip al backend.
   const isValidEmail = (s: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.trim());
 
+  // Lo que el usuario TIENE A LA VISTA manda sobre el estado de React: si el
+  // autofill llenó el DOM sin disparar onChange, el estado sigue vacío y
+  // validaríamos contra "". El estado queda solo de respaldo para cuando el
+  // input ya no está montado (pasos "select"/"org", que reusan el email).
+  const fieldValue = (id: string, fallback: string) => domFieldValue(id) || fallback;
+
   const doLogin = async (effectiveTenant: string, creds?: { email: string; password: string }) => {
     const loginEmail = creds?.email ?? email;
     const loginPassword = creds?.password ?? password;
@@ -145,8 +182,12 @@ function LoginForm() {
 
       setAuth(data.access_token, resolvedTenant, loginEmail, role);
       scheduleProactiveRefresh(data.access_token);  // renueva ~60s antes de vencer
-      document.cookie = `ia_role=${role}; path=/; SameSite=strict`;
-      document.cookie = `ia_tenant=${resolvedTenant}; path=/; SameSite=strict`;
+      // max-age alineado al refresh_token del backend (30 días): sin él son
+      // cookies de sesión que mueren al cerrar el navegador mientras el store
+      // persiste en localStorage → al reabrir, el root redirige a /admin, el
+      // middleware no ve cookie y rebota a /login (baile de redirects).
+      document.cookie = `ia_role=${role}; path=/; max-age=${COOKIE_MAX_AGE}; SameSite=strict`;
+      document.cookie = `ia_tenant=${resolvedTenant}; path=/; max-age=${COOKIE_MAX_AGE}; SameSite=strict`;
 
       if (role === "super_admin")      router.push("/superadmin");
       else if (role === "operator")    router.push("/operator");
@@ -175,23 +216,26 @@ function LoginForm() {
     // que dejamos el spinner hasta el redirect. El error sí resetea loading.
   };
 
-  // Pantalla principal: email + contraseña juntos. Al enviar resolvemos el
-  // tenant por el email y ramificamos según cuántas organizaciones matcheen.
-  const handleCredentialsSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // Núcleo del envío de credenciales: resuelve el tenant por email y ramifica
+  // según cuántas organizaciones matcheen. Recibe los valores explícitos (no
+  // lee el estado) para que el replay pre-hidratación y el fallback de autofill
+  // puedan pasar lo que realmente hay en el DOM.
+  const submitCredentials = async (emailVal: string, pwdVal: string, asPlatform: boolean = isSuperAdmin) => {
     setError(null);
-    if (!email.trim())          { setError("Ingresá tu email para continuar."); return; }
-    if (!isValidEmail(email))   { setError("Revisá el email — falta el dominio o el @."); return; }
-    if (!password)              { setError("Ingresá tu contraseña."); return; }
+    if (!emailVal.trim())        { setError("Ingresá tu email para continuar."); return; }
+    if (!isValidEmail(emailVal)) { setError("Revisá el email — falta el dominio o el @."); return; }
+    if (!pwdVal)                 { setError("Ingresá tu contraseña."); return; }
+
+    const creds = { email: emailVal, password: pwdVal };
 
     // Super admin: no hay tenant que resolver, login directo de plataforma.
-    if (isSuperAdmin) { await doLogin(""); return; }
+    if (asPlatform) { await doLogin("", creds); return; }
 
     setLoading(true);
     try {
-      const data = await api.auth.lookupTenant(email);
+      const data = await api.auth.lookupTenant(emailVal);
       if (data.matches.length === 1) {
-        await doLogin(data.matches[0].tenant_id);
+        await doLogin(data.matches[0].tenant_id, creds);
       } else if (data.matches.length > 1) {
         setMatches(data.matches);
         setStep("select");
@@ -206,6 +250,19 @@ function LoginForm() {
     }
   };
 
+  // Pantalla principal: email + contraseña juntos. Si el estado quedó atrás
+  // del DOM (autofill sin eventos), el DOM manda y se re-sincroniza — los pasos
+  // "select"/"org" siguen leyendo el email del estado, así que hay que ponerlo
+  // al día antes de ramificar.
+  const handleCredentialsSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const emailVal = fieldValue("email", email);
+    const pwdVal   = fieldValue("password", password);
+    if (emailVal !== email)  setEmail(emailVal);
+    if (pwdVal !== password) setPassword(pwdVal);
+    await submitCredentials(emailVal, pwdVal);
+  };
+
   // Multi-org: ya tenemos email + contraseña, al elegir entramos directo.
   const pickTenant = async (m: LookupTenantMatch) => {
     await doLogin(m.tenant_id);
@@ -216,8 +273,10 @@ function LoginForm() {
   const handleOrgSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    if (!tenantInput.trim()) { setError("Decinos a qué organización pertenecés."); return; }
-    await doLogin(toSlug(tenantInput));
+    const tenantVal = fieldValue("tenant", tenantInput);
+    if (tenantVal !== tenantInput) setTenantInput(tenantVal);
+    if (!tenantVal.trim()) { setError("Decinos a qué organización pertenecés."); return; }
+    await doLogin(toSlug(tenantVal));
   };
 
   const goBack = () => {
@@ -233,11 +292,13 @@ function LoginForm() {
   const submitForgot = async (e: React.FormEvent) => {
     e.preventDefault();
     if (loading) return;
-    if (!isValidEmail(email)) { setError("Ingresá un email válido."); return; }
+    const emailVal = fieldValue("fp-email", email);
+    if (emailVal !== email) setEmail(emailVal);
+    if (!isValidEmail(emailVal)) { setError("Ingresá un email válido."); return; }
     setError(null);
     setLoading(true);
     try {
-      await api.auth.forgotPassword(email.trim());
+      await api.auth.forgotPassword(emailVal.trim());
     } catch {
       // Silencioso a propósito (no revelar si el email existe).
     }
@@ -279,10 +340,11 @@ function LoginForm() {
         style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")" }}
       />
 
-      {/* Logo: ícono + wordmark (versión oscura). En mobile va EN FLUJO centrado
-          arriba de la card (absoluto se superponía con la card al crecer);
-          desde sm vuelve a la esquina superior izquierda con aire. */}
-      <div className="relative z-20 mb-7 flex items-center gap-2.5 sm:absolute sm:left-16 sm:top-14 sm:mb-0 lg:left-20 lg:top-16">
+      {/* Logo: ícono + wordmark (versión oscura). Va EN FLUJO centrado arriba
+          de la card hasta lg: en 640–1023px el absoluto de la esquina no tiene
+          lugar y pisaba la card (logo llega a x≈242; la card centrada de 420px
+          recién arranca después de eso con viewport ≥1024). */}
+      <div className="relative z-20 mb-7 flex items-center gap-2.5 lg:absolute lg:left-20 lg:top-16 lg:mb-0">
         <Image
           src="/brand/intellix-mark.png"
           alt=""
@@ -522,11 +584,14 @@ function LoginForm() {
                       </div>
                     </div>
                     {error && <ErrorBox text={error} />}
+                    {/* `disabled` solo por loading: gatearlo con `!email.trim()`
+                        dejaba el botón muerto cuando el autofill llenó el campo
+                        sin que React lo viera. La validación vive en submitForgot. */}
                     <Button
                       type="submit"
                       className="w-full h-11 font-medium text-[14px] shadow-md hover:shadow-lg transition-shadow border-0"
                       style={BTN_STYLE}
-                      disabled={loading || !email.trim()}
+                      disabled={loading}
                     >
                       {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Enviar enlace"}
                     </Button>
