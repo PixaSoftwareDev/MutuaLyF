@@ -321,11 +321,14 @@
    inútil, la animación deja de existir y `animationstart` nunca se dispara —
    el arreglo funcionaría local y seguiría roto en el VPS. Por eso animamos dos
    propiedades inertes con valores DISTINTOS (para que tampoco las colapse):
-   una custom property, que no pinta nada, y outline-color, invisible porque
-   outline-style es `none` salvo en foco. */
+   una custom property, que no pinta nada, y outline-offset, que no se ve
+   porque outline-style es `none` (el foco de estos inputs es un box-shadow).
+   Tampoco sirve cualquier valor "casi igual": probamos outline-color con alfa
+   0.001 y el navegador lo redondea a transparente, con lo que los dos extremos
+   quedaban idénticos. Los valores tienen que sobrevivir al parseo. */
 @keyframes ia-autofill-start {
-  from { --ia-autofill: 0; outline-color: rgba(0, 0, 0, 0); }
-  to   { --ia-autofill: 1; outline-color: rgba(0, 0, 0, 0.001); }
+  from { --ia-autofill: 0; outline-offset: 0px; }
+  to   { --ia-autofill: 1; outline-offset: 1px; }
 }
 input:-webkit-autofill {
   animation-name: ia-autofill-start;
