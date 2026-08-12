@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { AuthShell, brandBtnStyle } from "@/components/auth/auth-shell";
+import { domFieldValue, useAutofillSync } from "@/lib/use-autofill-sync";
 
 function ResetInner() {
   const params = useSearchParams();
@@ -24,14 +25,23 @@ function ResetInner() {
   const [loading, setLoading] = useState(false);
   const [done, setDone]     = useState(false);
 
+  // El gestor de contraseñas puede sugerir/completar estos campos sin que React
+  // vea el onChange (ver lib/use-autofill-sync.ts): el estado quedaría vacío y
+  // "Guardar" respondería "al menos 8 caracteres" con los campos llenos.
+  useAutofillSync({ "new-pwd": setPwd, "confirm-pwd": setPwd2 });
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErr(null);
-    if (pwd.length < 8) { setErr("La contraseña debe tener al menos 8 caracteres."); return; }
-    if (pwd !== pwd2)   { setErr("Las contraseñas no coinciden."); return; }
+    const pwdVal  = domFieldValue("new-pwd") || pwd;
+    const pwd2Val = domFieldValue("confirm-pwd") || pwd2;
+    if (pwdVal !== pwd)   setPwd(pwdVal);
+    if (pwd2Val !== pwd2) setPwd2(pwd2Val);
+    if (pwdVal.length < 8) { setErr("La contraseña debe tener al menos 8 caracteres."); return; }
+    if (pwdVal !== pwd2Val) { setErr("Las contraseñas no coinciden."); return; }
     setLoading(true);
     try {
-      await api.auth.resetPassword(token, pwd);
+      await api.auth.resetPassword(token, pwdVal);
       setDone(true);
       setTimeout(() => router.push("/login"), 2500);
     } catch (e: unknown) {
