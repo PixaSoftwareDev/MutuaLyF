@@ -529,6 +529,13 @@ async def _run_revalidation(chunk_id: str, tenant_id: str) -> str:
                     payload={"quality_gate_status": "skipped"},
                     points=[chunk_id],
                 )
+                # Este camino también RESUELVE el chunk — sin este recálculo, si
+                # era el último pendiente el documento quedaba con la etiqueta
+                # vieja para siempre (visto en el panel el 10/08: doc "pendiente"
+                # con todos sus fragmentos resueltos).
+                doc_id = results[0].payload.get("document_id")
+                if doc_id:
+                    await _maybe_resolve_document_quality(qdrant, collection, doc_id, tenant_id)
                 return "skip"
             return "retry"
 
