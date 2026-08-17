@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Operación y respaldo</title>
+<style>
+  :root{
+    --bg:#F7F8FA; --panel:#FFFFFF; --ink:#16202E; --dim:#5A6B80;
+    --line:#D8DEE7; --accent:#2563EB; --accent-soft:#E8EEFC;
+    --ok:#0E9F6E; --ok-soft:#E3F5EE; --warn:#B45309; --warn-soft:#FBEEDC;
+    --rail:#C3CCD9; --nav-bg:#FFFFFFF2;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#0E141D; --panel:#161E2A; --ink:#E8EDF4; --dim:#93A2B5;
+      --line:#2A3547; --accent:#5B8DEF; --accent-soft:#1B2A47;
+      --ok:#34C08B; --ok-soft:#12302A; --warn:#E1A055; --warn-soft:#3A2A16;
+      --rail:#3A465A; --nav-bg:#0E141DF2;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0E141D; --panel:#161E2A; --ink:#E8EDF4; --dim:#93A2B5;
+    --line:#2A3547; --accent:#5B8DEF; --accent-soft:#1B2A47;
+    --ok:#34C08B; --ok-soft:#12302A; --warn:#E1A055; --warn-soft:#3A2A16;
+    --rail:#3A465A; --nav-bg:#0E141DF2;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  @media (prefers-reduced-motion: reduce){ html{scroll-behavior:auto} }
+  body{margin:0; background:var(--bg); color:var(--ink); font:16px/1.65 "Segoe UI", system-ui, -apple-system, sans-serif}
+  nav{position:sticky; top:0; z-index:10; background:var(--nav-bg); backdrop-filter:blur(8px); border-bottom:1px solid var(--line)}
+  .nav-in{max-width:920px; margin:0 auto; padding:10px 24px; display:flex; align-items:center; gap:6px; overflow-x:auto; white-space:nowrap}
+  .nav-brand{font-weight:700; font-size:14px; letter-spacing:.02em; margin-right:8px; color:var(--accent); flex-shrink:0; text-decoration:none}
+  nav a{color:var(--dim); text-decoration:none; font-size:13.5px; font-weight:500; padding:5px 11px; border-radius:99px}
+  nav a:hover, nav a:focus-visible{color:var(--ink); background:var(--accent-soft); outline:none}
+  .wrap{max-width:920px; margin:0 auto; padding:52px 24px 96px}
+  section{scroll-margin-top:76px}
+  .eyebrow{font-size:12px; font-weight:600; letter-spacing:.14em; text-transform:uppercase; color:var(--accent); margin:0 0 12px}
+  h1{font-size:clamp(30px,5vw,44px); line-height:1.12; letter-spacing:-.015em; margin:0 0 16px; font-weight:700; text-wrap:balance}
+  .lede{font-size:18px; color:var(--dim); max-width:62ch; margin:0}
+  .meta{font-size:13px; color:var(--dim); margin-top:14px}
+  h2{font-size:23px; letter-spacing:-.01em; margin:64px 0 6px; font-weight:700; text-wrap:balance}
+  h2 .sn{color:var(--accent); font-variant-numeric:tabular-nums; margin-right:10px}
+  h2 + p.sub{margin:0 0 24px; color:var(--dim); max-width:66ch}
+  p{max-width:70ch}
+  code, .mono{font-family:ui-monospace, "Cascadia Code", Consolas, monospace; font-size:.92em}
+  .pipe{margin:26px 0 0}
+  .step{display:grid; grid-template-columns:52px 1fr; gap:0 18px; position:relative; padding-bottom:20px}
+  .step::before{content:""; position:absolute; left:25px; top:34px; bottom:-4px; width:2px; background:var(--rail)}
+  .step:last-child::before{display:none}
+  .dot{width:52px; height:34px; display:flex; align-items:center; justify-content:center; background:var(--panel); border:1.5px solid var(--rail); border-radius:8px; font-family:ui-monospace, Consolas, monospace; font-size:13px; font-weight:700; position:relative; z-index:1}
+  .step.hito .dot{border-color:var(--accent); color:var(--accent); background:var(--accent-soft)}
+  .card{background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:15px 18px}
+  .card h3{margin:0 0 5px; font-size:16.5px; display:flex; align-items:center; gap:10px; flex-wrap:wrap}
+  .card p{margin:0; color:var(--dim); font-size:14.5px; max-width:none}
+  .tag{font-size:11px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; padding:2px 9px; border-radius:99px; white-space:nowrap}
+  .t-ok{background:var(--ok-soft); color:var(--ok)}
+  .t-llm{background:var(--warn-soft); color:var(--warn)}
+  .t-info{background:var(--accent-soft); color:var(--accent)}
+  figure{margin:26px 0; background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:22px; overflow-x:auto}
+  figure svg{display:block; max-width:100%; height:auto; margin:0 auto; color:var(--ink)}
+  figcaption{font-size:13.5px; color:var(--dim); margin-top:14px; max-width:74ch}
+  table{border-collapse:collapse; width:100%; font-size:14.5px; background:var(--panel)}
+  .tbl-wrap{overflow-x:auto; margin-top:16px; border:1px solid var(--line); border-radius:10px}
+  th,td{text-align:left; padding:11px 14px; border-bottom:1px solid var(--line); vertical-align:top}
+  th{font-size:12px; text-transform:uppercase; letter-spacing:.07em; color:var(--dim)}
+  tr:last-child td{border-bottom:none}
+  .prevnext{display:flex; justify-content:space-between; gap:12px; margin-top:64px}
+  .prevnext a{flex:1; background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px 16px; text-decoration:none; color:var(--ink); font-size:14px}
+  .prevnext a:hover{border-color:var(--accent)}
+  .prevnext .lbl{display:block; font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--dim); margin-bottom:3px}
+  .prevnext .der{text-align:right}
+  footer{margin-top:40px; padding-top:18px; border-top:1px solid var(--line); font-size:13px; color:var(--dim); max-width:none}
+</style>
+</head>
+<body>
+
+<nav aria-label="Secciones del capítulo">
+  <div class="nav-in">
+    <a class="nav-brand" href="index.html">Intellix · Manual</a>
+    <a href="index.html">⌂ Portada</a>
+    <a href="#infra">La infraestructura</a>
+    <a href="#ambientes">Los tres ambientes</a>
+    <a href="#backups">Backups y recuperación</a>
+    <a href="#monitoreo">Monitoreo y alertas</a>
+    <a href="#procedimientos">Procedimientos clave</a>
+  </div>
+</nav>
+
+<div class="wrap">
+
+<p class="eyebrow">Manual técnico · Capítulo 06</p>
+  <h1>Operación y respaldo</h1>
+  <p class="lede">Dónde vive la plataforma, cómo se despliegan los cambios, qué se respalda y cómo se recupera — incluido el ensayo de restauración realizado y verificado el 17/08/2026.</p>
+  <p class="meta">Versión del 17/08/2026 · Fuentes: <span class="mono">docker-compose*.yml · scripts/deploy.sh · docs/OPERACIONES.md · docs/AUDITORIA_2026-08-17.md</span></p>
+
+  <section id="infra">
+    <h2><span class="sn">01</span>La infraestructura</h2>
+    <p class="sub">Todo corre en un servidor propio (VPS: 16 núcleos, 31 GB de RAM, 237 GB de disco), orquestado con Docker. Sin dependencia de nubes gestionadas: el único servicio externo del camino de una consulta es OpenAI.</p>
+    <figure>
+      <svg viewBox="0 0 760 300" role="img" aria-label="nginx recibe el tráfico y lo dirige al frontend y backend de producción y de staging; ambos backends comparten PostgreSQL, Qdrant, Redis y MinIO; un worker procesa tareas; el stack de observabilidad vigila todo">
+        <defs>
+          <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+          </marker>
+        </defs>
+        <rect x="8" y="8" width="744" height="284" rx="12" fill="none" stroke="currentColor" stroke-width="1" stroke-dasharray="5 4" opacity="0.5"/>
+        <text x="26" y="30" font-size="11" fill="currentColor" opacity="0.6">VPS PROPIO · DOCKER</text>
+        <rect x="24" y="120" width="110" height="56" rx="8" fill="none" stroke="#2563EB" stroke-width="2"/>
+        <text x="79" y="144" text-anchor="middle" font-size="13" font-weight="700" fill="#2563EB">nginx</text>
+        <text x="79" y="162" text-anchor="middle" font-size="10.5" fill="currentColor" opacity="0.65">TLS · dominios</text>
+        <line x1="134" y1="134" x2="182" y2="94" stroke="currentColor" stroke-width="1.5" marker-end="url(#arr)"/>
+        <line x1="134" y1="162" x2="182" y2="202" stroke="currentColor" stroke-width="1.5" marker-end="url(#arr)"/>
+        <rect x="186" y="48" width="180" height="82" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <text x="276" y="72" text-anchor="middle" font-size="12.5" font-weight="600" fill="currentColor">PRODUCCIÓN</text>
+        <text x="276" y="92" text-anchor="middle" font-size="11" fill="currentColor" opacity="0.7">frontend · backend</text>
+        <text x="276" y="110" text-anchor="middle" font-size="11" fill="currentColor" opacity="0.7">worker · beat</text>
+        <rect x="186" y="170" width="180" height="66" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <text x="276" y="196" text-anchor="middle" font-size="12.5" font-weight="600" fill="currentColor">STAGING</text>
+        <text x="276" y="216" text-anchor="middle" font-size="11" fill="currentColor" opacity="0.7">frontend · backend</text>
+        <line x1="366" y1="89" x2="430" y2="120" stroke="currentColor" stroke-width="1.5" marker-end="url(#arr)"/>
+        <line x1="366" y1="203" x2="430" y2="166" stroke="currentColor" stroke-width="1.5" marker-end="url(#arr)"/>
+        <rect x="434" y="96" width="180" height="96" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <text x="524" y="118" text-anchor="middle" font-size="12.5" font-weight="600" fill="currentColor">DATOS COMPARTIDOS</text>
+        <text x="524" y="138" text-anchor="middle" font-size="11" fill="currentColor" opacity="0.7">PostgreSQL 16 · Qdrant</text>
+        <text x="524" y="156" text-anchor="middle" font-size="11" fill="currentColor" opacity="0.7">Redis · MinIO</text>
+        <text x="524" y="176" text-anchor="middle" font-size="10.5" fill="currentColor" opacity="0.6">(aislamiento por organización)</text>
+        <rect x="636" y="96" width="104" height="96" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <text x="688" y="120" text-anchor="middle" font-size="11.5" font-weight="600" fill="currentColor">Observabilidad</text>
+        <text x="688" y="139" text-anchor="middle" font-size="10" fill="currentColor" opacity="0.7">Prometheus</text>
+        <text x="688" y="155" text-anchor="middle" font-size="10" fill="currentColor" opacity="0.7">Grafana · alertas</text>
+        <text x="688" y="171" text-anchor="middle" font-size="10" fill="currentColor" opacity="0.7">logs</text>
+        <text x="380" y="272" text-anchor="middle" font-size="11" fill="currentColor" opacity="0.7">Único servicio externo del camino de una consulta: OpenAI (embeddings + generación)</text>
+      </svg>
+      <figcaption><b>Figura 1.</b> Producción y staging son contenedores independientes que comparten las bases de datos (con aislamiento por organización, ver Capítulo 07). Los dominios: <span class="mono">app.intellix.com.ar</span> (producción) y <span class="mono">dev.intellix.com.ar</span> (staging), con certificados TLS de renovación automática.</figcaption>
+    </figure>
+  </section>
+
+  <section id="ambientes">
+    <h2><span class="sn">02</span>Los tres ambientes y el flujo de cambios</h2>
+    <div class="tbl-wrap">
+    <table>
+      <tr><th>Ambiente</th><th>Rama</th><th>Dónde</th><th>Cómo se actualiza</th></tr>
+      <tr><td><b>Desarrollo local</b></td><td><span class="mono">dev-local</span></td><td>máquina del desarrollador</td><td>Todo cambio nace acá; se valida con la suite de calidad (~150 casos) y los tests (350+).</td></tr>
+      <tr><td><b>Staging</b></td><td><span class="mono">dev</span></td><td>VPS · dev.intellix.com.ar</td><td>Pasaje a pedido: <span class="mono">git pull</span> + reinicio del backend (código montado) · el frontend se recompila.</td></tr>
+      <tr><td><b>Producción</b></td><td><span class="mono">main</span></td><td>VPS · app.intellix.com.ar</td><td>Solo con aprobación explícita; existe <span class="mono">scripts/deploy.sh</span> con verificaciones previas y health checks.</td></tr>
+    </table>
+    </div>
+    <p style="color:var(--dim); font-size:14.5px; margin-top:14px">Las funcionalidades no validadas se ocultan con <b>banderas de configuración</b> por ambiente (nunca comentando código): mismo código en las tres ramas, distinta activación. Esto habilita además el <b>rollback instantáneo</b>: apagar una bandera desactiva la función sin tocar código.</p>
+  </section>
+
+  <section id="backups">
+    <h2><span class="sn">03</span>Backups y recuperación</h2>
+    <p class="sub">El esquema vigente y su verificación práctica.</p>
+    <div class="pipe">
+      <div class="step"><div class="dot">1</div><div class="card">
+        <h3>Qué se respalda y cuándo <span class="tag t-ok">automático</span></h3>
+        <p>Backup completo de PostgreSQL (las 4 bases de organización + configuración de la plataforma): <b>diario a las 03:00 UTC</b> (retención 7 días) y <b>semanal los domingos</b> (retención 4 semanas), en formato comprimido de <code>pg_dump</code>. Una alerta avisa por email si el backup se atrasa o su tamaño es sospechoso.</p>
+      </div></div>
+      <div class="step hito"><div class="dot">2</div><div class="card">
+        <h3>Restauración: ensayada y verificada <span class="tag t-info">17/08/2026</span></h3>
+        <p>El procedimiento se probó de verdad: se restauró el backup diario en una base copia y se comparó tabla por tabla contra la base viva — <b>conteos idénticos</b> (documentos, fragmentos, conversaciones, mensajes, usuarios, organizaciones). Un backup solo cuenta si se probó restaurarlo; éste se probó.</p>
+      </div></div>
+      <div class="step"><div class="dot">3</div><div class="card">
+        <h3>Límites conocidos y mejora prioritaria <span class="tag t-llm">pendiente</span></h3>
+        <p>Dos límites documentados: (a) los backups residen <b>en el mismo servidor</b> — la mejora número uno del plan es la copia externa automática diaria (almacenamiento tipo S3, costo de centavos); (b) el índice vectorial (Qdrant) y los archivos originales (MinIO) no se respaldan — mitigado porque el texto vigente de todos los documentos está en PostgreSQL y es reconstruible.</p>
+      </div></div>
+    </div>
+  </section>
+
+  <section id="monitoreo">
+    <h2><span class="sn">04</span>Monitoreo y alertas</h2>
+    <div class="tbl-wrap">
+    <table>
+      <tr><th>Pieza</th><th>Qué vigila</th><th>Adónde llega</th></tr>
+      <tr><td><b>Reglas de alerta</b> (Prometheus → Alertmanager)</td><td>Plataforma caída, backend caído, latencia alta, tasa de errores, bases de datos, disco, memoria, proveedor de IA sin saldo, backup atrasado</td><td>Email del responsable (vía Resend)</td></tr>
+      <tr><td><b>Panel de Monitoreo</b> (superadmin)</td><td>Estado de servicios, errores recientes explicados en lenguaje claro, backups listados, métricas técnicas</td><td>Consola de plataforma</td></tr>
+      <tr><td><b>Health checks</b></td><td>Cada contenedor expone su salud; reinicio automático (<span class="mono">unless-stopped</span>) ante caídas</td><td>Docker + panel</td></tr>
+      <tr><td><b>Instrumentación del motor</b></td><td>Cada consulta registra su camino (transformación, gate, tiempos) en los logs</td><td>Logs del backend</td></tr>
+    </table>
+    </div>
+  </section>
+
+  <section id="procedimientos">
+    <h2><span class="sn">05</span>Procedimientos clave (resumen)</h2>
+    <div class="tbl-wrap">
+    <table>
+      <tr><th>Situación</th><th>Procedimiento</th><th>Tiempo</th></tr>
+      <tr><td>Deploy a producción</td><td><span class="mono">deploy.sh</span>: verifica cambios sin commitear, actualiza, reinicia lo necesario, corre health checks e imprime el comando de rollback</td><td class="mono">~2 min</td></tr>
+      <tr><td>Rollback de código</td><td><span class="mono">git checkout</span> del commit anterior + reinicio del backend</td><td class="mono">~30 s</td></tr>
+      <tr><td>Rollback de una funcionalidad</td><td>Apagar su bandera + recrear el contenedor (un reinicio simple no relee la configuración)</td><td class="mono">~1 min</td></tr>
+      <tr><td>Restaurar un backup</td><td>Restaurar el dump en una base copia, verificar conteos, y recién entonces decidir el paso a la base real — nunca directo</td><td class="mono">~5 min</td></tr>
+    </table>
+    </div>
+    <p style="color:var(--dim); font-size:14.5px; margin-top:14px">El detalle operativo completo (comandos exactos, casos borde) vive en <span class="mono">docs/OPERACIONES.md</span> y <span class="mono">docs/RUNBOOK.md</span> — este capítulo es el mapa; aquéllos, la letra chica.</p>
+  </section>
+
+  <div class="prevnext">
+    <a href="05-panel-roles.html"><span class="lbl">← Capítulo anterior</span>El panel y los roles</a>
+    <a class="der" href="07-seguridad.html"><span class="lbl">Capítulo siguiente →</span>Seguridad y aislamiento</a>
+  </div>
+
+  <footer>Manual técnico de Intellix · Capítulo 06 · Elaborado a partir del código en producción el 17/08/2026.</footer>
+
+</div>
+</body>
+</html>

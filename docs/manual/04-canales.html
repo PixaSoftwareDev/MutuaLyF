@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Los canales</title>
+<style>
+  :root{
+    --bg:#F7F8FA; --panel:#FFFFFF; --ink:#16202E; --dim:#5A6B80;
+    --line:#D8DEE7; --accent:#2563EB; --accent-soft:#E8EEFC;
+    --ok:#0E9F6E; --ok-soft:#E3F5EE; --warn:#B45309; --warn-soft:#FBEEDC;
+    --rail:#C3CCD9; --nav-bg:#FFFFFFF2;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#0E141D; --panel:#161E2A; --ink:#E8EDF4; --dim:#93A2B5;
+      --line:#2A3547; --accent:#5B8DEF; --accent-soft:#1B2A47;
+      --ok:#34C08B; --ok-soft:#12302A; --warn:#E1A055; --warn-soft:#3A2A16;
+      --rail:#3A465A; --nav-bg:#0E141DF2;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0E141D; --panel:#161E2A; --ink:#E8EDF4; --dim:#93A2B5;
+    --line:#2A3547; --accent:#5B8DEF; --accent-soft:#1B2A47;
+    --ok:#34C08B; --ok-soft:#12302A; --warn:#E1A055; --warn-soft:#3A2A16;
+    --rail:#3A465A; --nav-bg:#0E141DF2;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  @media (prefers-reduced-motion: reduce){ html{scroll-behavior:auto} }
+  body{margin:0; background:var(--bg); color:var(--ink); font:16px/1.65 "Segoe UI", system-ui, -apple-system, sans-serif}
+  nav{position:sticky; top:0; z-index:10; background:var(--nav-bg); backdrop-filter:blur(8px); border-bottom:1px solid var(--line)}
+  .nav-in{max-width:920px; margin:0 auto; padding:10px 24px; display:flex; align-items:center; gap:6px; overflow-x:auto; white-space:nowrap}
+  .nav-brand{font-weight:700; font-size:14px; letter-spacing:.02em; margin-right:8px; color:var(--accent); flex-shrink:0; text-decoration:none}
+  nav a{color:var(--dim); text-decoration:none; font-size:13.5px; font-weight:500; padding:5px 11px; border-radius:99px}
+  nav a:hover, nav a:focus-visible{color:var(--ink); background:var(--accent-soft); outline:none}
+  .wrap{max-width:920px; margin:0 auto; padding:52px 24px 96px}
+  section{scroll-margin-top:76px}
+  .eyebrow{font-size:12px; font-weight:600; letter-spacing:.14em; text-transform:uppercase; color:var(--accent); margin:0 0 12px}
+  h1{font-size:clamp(30px,5vw,44px); line-height:1.12; letter-spacing:-.015em; margin:0 0 16px; font-weight:700; text-wrap:balance}
+  .lede{font-size:18px; color:var(--dim); max-width:62ch; margin:0}
+  .meta{font-size:13px; color:var(--dim); margin-top:14px}
+  h2{font-size:23px; letter-spacing:-.01em; margin:64px 0 6px; font-weight:700; text-wrap:balance}
+  h2 .sn{color:var(--accent); font-variant-numeric:tabular-nums; margin-right:10px}
+  h2 + p.sub{margin:0 0 24px; color:var(--dim); max-width:66ch}
+  p{max-width:70ch}
+  code, .mono{font-family:ui-monospace, "Cascadia Code", Consolas, monospace; font-size:.92em}
+  .pipe{margin:26px 0 0}
+  .step{display:grid; grid-template-columns:52px 1fr; gap:0 18px; position:relative; padding-bottom:20px}
+  .step::before{content:""; position:absolute; left:25px; top:34px; bottom:-4px; width:2px; background:var(--rail)}
+  .step:last-child::before{display:none}
+  .dot{width:52px; height:34px; display:flex; align-items:center; justify-content:center; background:var(--panel); border:1.5px solid var(--rail); border-radius:8px; font-family:ui-monospace, Consolas, monospace; font-size:13px; font-weight:700; position:relative; z-index:1}
+  .step.hito .dot{border-color:var(--accent); color:var(--accent); background:var(--accent-soft)}
+  .card{background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:15px 18px}
+  .card h3{margin:0 0 5px; font-size:16.5px; display:flex; align-items:center; gap:10px; flex-wrap:wrap}
+  .card p{margin:0; color:var(--dim); font-size:14.5px; max-width:none}
+  .tag{font-size:11px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; padding:2px 9px; border-radius:99px; white-space:nowrap}
+  .t-ok{background:var(--ok-soft); color:var(--ok)}
+  .t-llm{background:var(--warn-soft); color:var(--warn)}
+  .t-info{background:var(--accent-soft); color:var(--accent)}
+  figure{margin:26px 0; background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:22px; overflow-x:auto}
+  figure svg{display:block; max-width:100%; height:auto; margin:0 auto; color:var(--ink)}
+  figcaption{font-size:13.5px; color:var(--dim); margin-top:14px; max-width:74ch}
+  table{border-collapse:collapse; width:100%; font-size:14.5px; background:var(--panel)}
+  .tbl-wrap{overflow-x:auto; margin-top:16px; border:1px solid var(--line); border-radius:10px}
+  th,td{text-align:left; padding:11px 14px; border-bottom:1px solid var(--line); vertical-align:top}
+  th{font-size:12px; text-transform:uppercase; letter-spacing:.07em; color:var(--dim)}
+  tr:last-child td{border-bottom:none}
+  .prevnext{display:flex; justify-content:space-between; gap:12px; margin-top:64px}
+  .prevnext a{flex:1; background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px 16px; text-decoration:none; color:var(--ink); font-size:14px}
+  .prevnext a:hover{border-color:var(--accent)}
+  .prevnext .lbl{display:block; font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--dim); margin-bottom:3px}
+  .prevnext .der{text-align:right}
+  footer{margin-top:40px; padding-top:18px; border-top:1px solid var(--line); font-size:13px; color:var(--dim); max-width:none}
+</style>
+</head>
+<body>
+
+<nav aria-label="Secciones del capítulo">
+  <div class="nav-in">
+    <a class="nav-brand" href="index.html">Intellix · Manual</a>
+    <a href="index.html">⌂ Portada</a>
+    <a href="#widget">El widget web</a>
+    <a href="#whatsapp">WhatsApp</a>
+    <a href="#convergencia">Un solo motor</a>
+    <a href="#diferencias">Diferencias entre canales</a>
+  </div>
+</nav>
+
+<div class="wrap">
+
+<p class="eyebrow">Manual técnico · Capítulo 04</p>
+  <h1>Los canales</h1>
+  <p class="lede">Las dos puertas de entrada del usuario final — el widget embebido en el sitio web de la organización y WhatsApp — y cómo ambas desembocan en el mismo motor, el mismo historial y el mismo panel de atención.</p>
+  <p class="meta">Versión del 17/08/2026 · Fuentes: <span class="mono">frontend/public/widget/widget.js · api/v1/channels.py · services/whatsapp_inbound.py · core (CORS del widget)</span></p>
+
+  <section id="widget">
+    <h2><span class="sn">01</span>El widget web</h2>
+    <p class="sub">Un fragmento de código que la organización pega en su sitio; el chat aparece con su marca y color.</p>
+    <div class="pipe">
+      <div class="step"><div class="dot">1</div><div class="card">
+        <h3>Instalación de una línea</h3>
+        <p>Desde el panel (Canales → Widget → Instalar) se copia un <code>&lt;script&gt;</code> que se pega antes del cierre de <code>&lt;/body&gt;</code> del sitio. No requiere cambios en el sitio del cliente ni conocimientos técnicos avanzados.</p>
+      </div></div>
+      <div class="step"><div class="dot">2</div><div class="card">
+        <h3>Autenticación por token de widget <span class="tag t-info">JWT · alcance limitado</span></h3>
+        <p>El widget se identifica con un token propio de la organización, de <b>alcance restringido</b> (scope <code>widget</code>): solo permite conversar — no accede al panel, a los documentos ni a la configuración. Validez de 90 días, regenerable desde el panel.</p>
+      </div></div>
+      <div class="step"><div class="dot">3</div><div class="card">
+        <h3>Permisos de origen (CORS) acotados</h3>
+        <p>Solo las rutas públicas del widget aceptan solicitudes desde otros sitios; el resto de la API mantiene su política restrictiva. El botón flotante toma el color de marca configurado por la organización.</p>
+      </div></div>
+      <div class="step"><div class="dot">4</div><div class="card">
+        <h3>Modo de prueba del administrador</h3>
+        <p>El botón «Probar chat» del panel abre el mismo widget en modo prueba: esas conversaciones se marcan (<code>is_test</code>) y quedan <b>excluidas de las métricas</b>, para que las pruebas internas no contaminen los informes.</p>
+      </div></div>
+    </div>
+  </section>
+
+  <section id="whatsapp">
+    <h2><span class="sn">02</span>WhatsApp</h2>
+    <p class="sub">Integración directa con la Cloud API oficial de Meta — sin intermediarios ni revendedores.</p>
+    <div class="pipe">
+      <div class="step"><div class="dot">1</div><div class="card">
+        <h3>Un webhook global, ruteo por número <span class="tag t-info">multi-organización</span></h3>
+        <p>Meta entrega todos los mensajes entrantes a un único punto (<code>/channels/whatsapp/webhook</code>). La plataforma identifica a qué organización pertenece cada mensaje por el <code>phone_number_id</code> del número receptor — un solo webhook sirve a todos los clientes.</p>
+      </div></div>
+      <div class="step"><div class="dot">2</div><div class="card">
+        <h3>Verificación y seguridad</h3>
+        <p>El webhook responde únicamente a solicitudes con el token de verificación de Meta (una solicitud sin token recibe 403, comprobado en la auditoría del 17/08). Meta puede entregar el mismo evento dos veces: un candado por número de teléfono (<i>advisory lock</i>) evita conversaciones duplicadas.</p>
+      </div></div>
+      <div class="step"><div class="dot">3</div><div class="card">
+        <h3>Sesión por número</h3>
+        <p>La conversación se asocia al número del usuario (<code>external_id</code>): si escribe de nuevo dentro de la ventana de actividad, continúa el mismo hilo; si la conversación se cerró, comienza una nueva con selección de sector.</p>
+      </div></div>
+      <div class="step"><div class="dot">4</div><div class="card">
+        <h3>Configuración desde el panel</h3>
+        <p>La pestaña Canales → WhatsApp guía la conexión del número (credenciales de la Cloud API). Cada organización conecta el suyo; el ruteo hace el resto.</p>
+      </div></div>
+    </div>
+  </section>
+
+  <section id="convergencia">
+    <h2><span class="sn">03</span>Un solo motor para ambos canales</h2>
+    <figure>
+      <svg viewBox="0 0 760 220" role="img" aria-label="El widget web y WhatsApp entran por vías distintas pero convergen en la misma capa de conversación, el mismo motor de respuesta y el mismo panel de atención">
+        <defs>
+          <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+          </marker>
+        </defs>
+        <rect x="15" y="30" width="150" height="56" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <text x="90" y="54" text-anchor="middle" font-size="13" font-weight="600" fill="currentColor">Widget web</text>
+        <text x="90" y="72" text-anchor="middle" font-size="11" fill="currentColor" opacity="0.65">token de widget</text>
+        <rect x="15" y="134" width="150" height="56" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <text x="90" y="158" text-anchor="middle" font-size="13" font-weight="600" fill="currentColor">WhatsApp</text>
+        <text x="90" y="176" text-anchor="middle" font-size="11" fill="currentColor" opacity="0.65">webhook de Meta</text>
+        <line x1="165" y1="58" x2="240" y2="98" stroke="currentColor" stroke-width="1.5"/>
+        <line x1="165" y1="162" x2="240" y2="122" stroke="currentColor" stroke-width="1.5"/>
+        <line x1="240" y1="110" x2="255" y2="110" stroke="currentColor" stroke-width="1.5" marker-end="url(#arr)"/>
+        <rect x="260" y="82" width="180" height="56" rx="8" fill="none" stroke="#2563EB" stroke-width="2"/>
+        <text x="350" y="106" text-anchor="middle" font-size="13" font-weight="700" fill="#2563EB">Capa de conversación</text>
+        <text x="350" y="124" text-anchor="middle" font-size="11" fill="currentColor" opacity="0.65">estados · sectores · derivación</text>
+        <line x1="440" y1="110" x2="505" y2="110" stroke="currentColor" stroke-width="1.5" marker-end="url(#arr)"/>
+        <rect x="510" y="30" width="230" height="56" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <text x="625" y="54" text-anchor="middle" font-size="13" font-weight="600" fill="currentColor">Motor de respuesta</text>
+        <text x="625" y="72" text-anchor="middle" font-size="11" fill="currentColor" opacity="0.65">Capítulo 01</text>
+        <rect x="510" y="134" width="230" height="56" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <text x="625" y="158" text-anchor="middle" font-size="13" font-weight="600" fill="currentColor">Panel de atención</text>
+        <text x="625" y="176" text-anchor="middle" font-size="11" fill="currentColor" opacity="0.65">mismo historial, ambos canales</text>
+        <line x1="510" y1="58" x2="470" y2="58" stroke="currentColor" stroke-width="1.5"/>
+        <polyline points="470,58 470,96" fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <line x1="510" y1="162" x2="470" y2="162" stroke="currentColor" stroke-width="1.5"/>
+        <polyline points="470,162 470,124" fill="none" stroke="currentColor" stroke-width="1.5"/>
+      </svg>
+      <figcaption><b>Figura 1.</b> Los canales difieren solo en la puerta de entrada. La conversación, el motor, las reglas de derivación y el panel del operador son exactamente los mismos: un operador atiende un chat de WhatsApp y uno del widget en la misma bandeja, sin distinción de herramienta.</figcaption>
+    </figure>
+  </section>
+
+  <section id="diferencias">
+    <h2><span class="sn">04</span>Diferencias operativas entre canales</h2>
+    <div class="tbl-wrap">
+    <table>
+      <tr><th></th><th>Widget web</th><th>WhatsApp</th></tr>
+      <tr><td><b>Identidad del usuario</b></td><td>Sesión del navegador (anónima hasta que se pide nombre/contacto)</td><td>Número de teléfono (persistente entre conversaciones)</td></tr>
+      <tr><td><b>Apariencia</b></td><td>Color y marca de la organización, configurable</td><td>La interfaz de WhatsApp (sin personalización visual)</td></tr>
+      <tr><td><b>Inicio de conversación</b></td><td>El usuario abre el chat en el sitio</td><td>El usuario escribe al número; selección de sector por menú</td></tr>
+      <tr><td><b>Adjuntos</b></td><td>Imágenes y PDF, con vista previa</td><td>Imágenes y documentos según los tipos de la Cloud API</td></tr>
+      <tr><td><b>Dependencia externa</b></td><td>Ninguna adicional</td><td>Meta (Cloud API): credenciales y webhook registrados ante Meta</td></tr>
+    </table>
+    </div>
+  </section>
+
+  <div class="prevnext">
+    <a href="03-derivacion.html"><span class="lbl">← Capítulo anterior</span>La derivación a humanos</a>
+    <a class="der" href="05-panel-roles.html"><span class="lbl">Capítulo siguiente →</span>El panel y los roles</a>
+  </div>
+
+  <footer>Manual técnico de Intellix · Capítulo 04 · Elaborado a partir del código en producción el 17/08/2026.</footer>
+
+</div>
+</body>
+</html>
