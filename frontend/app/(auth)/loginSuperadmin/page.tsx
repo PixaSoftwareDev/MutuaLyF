@@ -49,7 +49,10 @@ export default function LoginSuperadminPage() {
       document.cookie = `ia_role=${role}; path=/; max-age=${maxAge}; SameSite=strict`;
       document.cookie = `ia_tenant=${resolvedTenant}; path=/; max-age=${maxAge}; SameSite=strict`;
 
-      if (role === "super_admin") router.push("/superadmin");
+      // Navegación completa por el mismo motivo que en login/page.tsx: el
+      // router del cliente puede tener cacheado el redirect de sesión vencida
+      // y un push rebota en silencio (ruedita infinita).
+      if (role === "super_admin") window.location.assign("/superadmin");
       else setError("Esta página es solo para super administradores.");
     } catch (err: any) {
       const detail = err?.response?.data?.detail;
