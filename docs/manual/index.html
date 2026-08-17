@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Manual técnico de Intellix</title>
+<style>
+  :root{
+    --bg:#F7F8FA; --panel:#FFFFFF; --ink:#16202E; --dim:#5A6B80;
+    --line:#D8DEE7; --accent:#2563EB; --accent-2:#7C3AED; --accent-soft:#E8EEFC;
+    --ok:#0E9F6E; --ok-soft:#E3F5EE; --pend:#8A97A8; --pend-soft:#EDF0F4;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#0E141D; --panel:#161E2A; --ink:#E8EDF4; --dim:#93A2B5;
+      --line:#2A3547; --accent:#5B8DEF; --accent-2:#A78BFA; --accent-soft:#1B2A47;
+      --ok:#34C08B; --ok-soft:#12302A; --pend:#7686A0; --pend-soft:#1C2432;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0E141D; --panel:#161E2A; --ink:#E8EDF4; --dim:#93A2B5;
+    --line:#2A3547; --accent:#5B8DEF; --accent-2:#A78BFA; --accent-soft:#1B2A47;
+    --ok:#34C08B; --ok-soft:#12302A; --pend:#7686A0; --pend-soft:#1C2432;
+  }
+  *{box-sizing:border-box}
+  body{margin:0; background:var(--bg); color:var(--ink); font:16px/1.65 "Segoe UI", system-ui, -apple-system, sans-serif}
+  .band{
+    border-bottom:1px solid var(--line); background:var(--panel);
+  }
+  .band-in{max-width:960px; margin:0 auto; padding:14px 24px; display:flex; align-items:baseline; gap:12px}
+  .brand{
+    font-weight:800; font-size:16px; letter-spacing:.01em;
+    background:linear-gradient(90deg, var(--accent), var(--accent-2));
+    -webkit-background-clip:text; background-clip:text; color:transparent;
+  }
+  .band-in span{font-size:13px; color:var(--dim); letter-spacing:.08em; text-transform:uppercase; font-weight:600}
+
+  .wrap{max-width:960px; margin:0 auto; padding:64px 24px 96px}
+  .eyebrow{font-size:12px; font-weight:600; letter-spacing:.16em; text-transform:uppercase; color:var(--accent); margin:0 0 14px}
+  h1{font-size:clamp(32px,5.5vw,50px); line-height:1.08; letter-spacing:-.02em; margin:0 0 18px; font-weight:750; text-wrap:balance}
+  .lede{font-size:18px; color:var(--dim); max-width:64ch; margin:0}
+  .meta{font-size:13px; color:var(--dim); margin-top:16px}
+
+  .stack{margin:36px 0 0; display:flex; flex-wrap:wrap; gap:8px; align-items:center}
+  .stack .lbl{font-size:12px; font-weight:600; letter-spacing:.1em; text-transform:uppercase; color:var(--dim); margin-right:6px}
+  .chip{
+    font-family:ui-monospace, Consolas, monospace; font-size:12.5px;
+    background:var(--panel); border:1px solid var(--line); border-radius:99px; padding:4px 12px; color:var(--dim);
+  }
+
+  h2{font-size:22px; letter-spacing:-.01em; margin:56px 0 8px; font-weight:700}
+  h2 + p.sub{margin:0 0 24px; color:var(--dim); max-width:66ch}
+
+  .caps{display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:14px}
+  .cap{
+    display:block; background:var(--panel); border:1px solid var(--line); border-radius:12px;
+    padding:20px 20px 18px; text-decoration:none; color:var(--ink); position:relative;
+  }
+  a.cap:hover, a.cap:focus-visible{border-color:var(--accent); outline:none; box-shadow:0 2px 14px rgba(37,99,235,.10)}
+  .cap .num{
+    font-family:ui-monospace, Consolas, monospace; font-size:13px; font-weight:700; color:var(--accent);
+    letter-spacing:.05em;
+  }
+  .cap h3{margin:6px 0 6px; font-size:17px; letter-spacing:-.01em; line-height:1.3}
+  .cap p{margin:0; font-size:13.5px; color:var(--dim); line-height:1.55}
+  .estado{
+    position:absolute; top:16px; right:16px; font-size:10.5px; font-weight:700;
+    letter-spacing:.08em; text-transform:uppercase; padding:3px 9px; border-radius:99px;
+  }
+  .e-ok{background:var(--ok-soft); color:var(--ok)}
+  .e-pend{background:var(--pend-soft); color:var(--pend)}
+  .cap.pendiente{opacity:.75}
+  .cap.pendiente h3{color:var(--dim)}
+
+  .principios{margin-top:16px; background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:6px 22px}
+  .principios div{display:grid; grid-template-columns:26px 1fr; gap:12px; padding:14px 0; border-bottom:1px solid var(--line); font-size:14.5px}
+  .principios div:last-child{border-bottom:none}
+  .principios b{display:block; margin-bottom:2px}
+  .principios span.ic{color:var(--accent); font-weight:700; font-size:15px}
+  .principios p{margin:0; color:var(--dim); font-size:13.5px}
+
+  footer{margin-top:72px; padding-top:18px; border-top:1px solid var(--line); font-size:13px; color:var(--dim)}
+  .mono{font-family:ui-monospace, Consolas, monospace; font-size:.92em}
+</style>
+</head>
+<body>
+
+<div class="band"><div class="band-in">
+  <span class="brand">Intellix</span>
+  <span>Manual técnico de la plataforma</span>
+</div></div>
+
+<div class="wrap">
+
+  <p class="eyebrow">Documentación oficial · Interna</p>
+  <h1>Manual técnico de la plataforma</h1>
+  <p class="lede">La referencia formal de cómo funciona Intellix: cada capítulo describe un proceso completo de la plataforma — con las tecnologías utilizadas, los tiempos medidos y las decisiones de diseño que lo respaldan. Elaborado a partir del código en producción, no de memoria.</p>
+  <p class="meta">Iniciado el 17/08/2026 · Se actualiza junto con el código · Complemento técnico-operativo: los documentos <span class="mono">.md</span> de <span class="mono">docs/</span></p>
+
+  <div class="stack">
+    <span class="lbl">Tecnologías centrales</span>
+    <span class="chip">FastAPI</span>
+    <span class="chip">Next.js</span>
+    <span class="chip">PostgreSQL 16</span>
+    <span class="chip">Qdrant</span>
+    <span class="chip">Redis</span>
+    <span class="chip">Celery</span>
+    <span class="chip">OpenAI gpt-4o-mini</span>
+    <span class="chip">Docker</span>
+    <span class="chip">VPS propio</span>
+  </div>
+
+  <h2>Capítulos</h2>
+  <p class="sub">Cada capítulo es un documento navegable e independiente. Los marcados «en preparación» se elaboran con el mismo método: lectura del código real, medición y redacción.</p>
+
+  <div class="caps">
+    <a class="cap" href="01-motor.html">
+      <span class="estado e-ok">Disponible</span>
+      <span class="num">CAPÍTULO 01</span>
+      <h3>El motor de respuesta</h3>
+      <p>De la pregunta del usuario a la respuesta fundamentada: las diez etapas, la ejecución en paralelo, la verificación anti-invención y la distribución de los ~3 segundos.</p>
+    </a>
+    <div class="cap pendiente">
+      <span class="estado e-pend">En preparación</span>
+      <span class="num">CAPÍTULO 02</span>
+      <h3>El conocimiento</h3>
+      <p>El ciclo de vida de un documento: carga, fragmentación, control de calidad, indexación vectorial y por términos, ediciones manuales y reproceso seguro.</p>
+    </div>
+    <div class="cap pendiente">
+      <span class="estado e-pend">En preparación</span>
+      <span class="num">CAPÍTULO 03</span>
+      <h3>La derivación a humanos</h3>
+      <p>Las cinco reglas que deciden cuándo ofrecer un operador, el recorrido de la conversación del lado del equipo y el retorno al asistente.</p>
+    </div>
+    <div class="cap pendiente">
+      <span class="estado e-pend">En preparación</span>
+      <span class="num">CAPÍTULO 04</span>
+      <h3>Los canales</h3>
+      <p>Cómo el widget se integra a cualquier sitio web y cómo WhatsApp se conecta mediante la Cloud API de Meta: tokens, webhook y ruteo por número.</p>
+    </div>
+    <div class="cap pendiente">
+      <span class="estado e-pend">En preparación</span>
+      <span class="num">CAPÍTULO 05</span>
+      <h3>El panel y los roles</h3>
+      <p>Qué puede hacer cada rol — administrador, operador y superadministrador — y cómo se estructura el panel de cada uno.</p>
+    </div>
+    <div class="cap pendiente">
+      <span class="estado e-pend">En preparación</span>
+      <span class="num">CAPÍTULO 06</span>
+      <h3>Operación y respaldo</h3>
+      <p>La infraestructura: qué corre en el VPS, el esquema de backups, el procedimiento de recuperación verificado y el sistema de alertas.</p>
+    </div>
+    <div class="cap pendiente">
+      <span class="estado e-pend">En preparación</span>
+      <span class="num">CAPÍTULO 07</span>
+      <h3>Seguridad y aislamiento</h3>
+      <p>Cómo se garantiza que cada organización accede exclusivamente a sus datos: esquemas por cliente, autenticación por roles y límites de uso.</p>
+    </div>
+  </div>
+
+  <h2>Principios de este manual</h2>
+  <div class="principios">
+    <div><span class="ic">§</span><p><b>El código es la fuente de verdad.</b> Cada afirmación proviene del código en producción o de una medición fechada; si el manual contradice al código, gana el código y el manual se corrige.</p></div>
+    <div><span class="ic">§</span><p><b>Genérico por diseño.</b> Los procesos se describen como plataforma multi-organización; los clientes concretos aparecen solo como ejemplos puntuales.</p></div>
+    <div><span class="ic">§</span><p><b>Vivo junto al código.</b> El manual se versiona en el repositorio: un cambio que altera un proceso documentado actualiza su capítulo en el mismo ciclo de trabajo.</p></div>
+  </div>
+
+  <footer>
+    Plataforma Intellix · Manual técnico interno · Los documentos operativos y de planificación (<span class="mono">CLAUDE.md</span>, runbooks, planes) viven en <span class="mono">docs/</span> en formato Markdown y son complementarios a este manual.
+  </footer>
+
+</div>
+</body>
+</html>
