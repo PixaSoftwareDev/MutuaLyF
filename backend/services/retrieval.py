@@ -166,6 +166,24 @@ def _rrf_fuse_lists(
     sorted_chunks = sorted(chunk_by_id.values(), key=lambda c: c.score, reverse=True)
     return sorted_chunks[:top_k]
 
+
+def fuse_rankings(
+    rankings: list[list[RetrievedChunk]],
+    top_k: int,
+) -> list[RetrievedChunk]:
+    """Fusión RRF entre rankings YA recuperados.
+
+    La usa el orquestador cuando la búsqueda de la consulta original corre en
+    paralelo con el rewriter: cada rama trae su ranking por separado y acá se
+    fusionan — misma RRF que retrieve_multi_query, sin re-buscar nada.
+    """
+    valid = [r for r in rankings if r]
+    if not valid:
+        return []
+    if len(valid) == 1:
+        return valid[0][:top_k]
+    return _rrf_fuse_lists(valid, top_k=top_k)
+
 async def retrieve(
     query: str,
     tenant_id: str,
