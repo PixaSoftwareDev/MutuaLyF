@@ -75,9 +75,15 @@ derivación, branding).
 | **Prod** | `intellix.com.ar` | `main` | `/opt/mutualyf`, bind-mount | horneado (rebuild) |
 
 - SSH VPS: `ssh -i ~/.ssh/mutualyf_vps -p 2251 root@200.58.109.110`
-- **Prod y staging comparten PostgreSQL/Qdrant/Redis** (tenants: `mutualyf`
-  prod real, `nexo` pruebas de staging, `intellix` demo). Los contenedores son
-  independientes.
+- **Prod y staging comparten PostgreSQL/Qdrant/Redis** (tenants reales al
+  2026-08-17: `mutualyf` prod real, `intellix` demo, `galo`; el viejo `nexo`
+  ya no existe). Los contenedores son independientes.
+- ⚠️ **Staging NO tiene worker de Celery propio**: su broker es Redis DB 3 y
+  nadie consume de ahí → los documentos subidos en staging quedan "En cola"
+  para siempre. Workaround 2026-08-17: worker temporal adentro de
+  `ia_backend_staging` (muere con el restart; comando en
+  `docs/AUDITORIA_2026-08-17.md`). Fix permanente pendiente: servicio celery
+  en `docker-compose.staging.yml`.
 - **Regla de trabajo (Alejo, 2026-07-27)**: el desarrollo va SIEMPRE en
   `dev-local`. Los pasajes a staging y prod se hacen **solo cuando Alejo lo
   pide** (prod además con OK explícito).
@@ -120,9 +126,15 @@ NUNCA ocultar features comentando código — siempre flags, mismas ramas.
 medida no se avanza** — cada cambio corre la suite
 (`scripts/run_quality_suite.py`, ~168 casos estratificados: single-turn,
 multi-turno, typos, derivación, preguntas trampa) y lo que empeora se
-revierte. Frentes abiertos: condensación de repreguntas (F2b — casos
-`conv_02_t2/t3` en rojo), datos estructurados de profesionales/nómina,
-calibración del umbral con datos reales (instrumentación ya loguea).
+revierte. ⚠️ La suite cuesta API real: verificar flags/entorno ANTES de
+medir, iterar con `--only-category`, y la corrida completa UNA sola vez
+como validación final. Frentes abiertos (detalle en
+`docs/AUDITORIA_2026-08-17.md`): multi-hop (s_10/s_12), dato numérico en
+tabla (f_19 — la fila pierde su encabezado al chunkear), juez del trust
+gate que rechace menos lo parcialmente respondible (conv_02_t3/conv_08_t2),
+persistir la señal del gate en consultas_log (hoy solo en logs que rotan),
+datos estructurados de profesionales/nómina. La condensación de repreguntas
+se resolvió el 2026-08-17 (en prod).
 
 ## Mapa del código (lo no obvio)
 
