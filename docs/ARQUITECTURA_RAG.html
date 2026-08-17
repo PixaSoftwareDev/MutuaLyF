@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>El camino de una consulta</title>
+<style>
+  :root{
+    --bg:#F7F8FA; --panel:#FFFFFF; --ink:#16202E; --dim:#5A6B80;
+    --line:#D8DEE7; --accent:#2563EB; --accent-soft:#E8EEFC;
+    --ok:#0E9F6E; --ok-soft:#E3F5EE; --warn:#B45309; --warn-soft:#FBEEDC;
+    --rail:#C3CCD9;
+  }
+  :root:not([data-theme="light"]){}
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#0E141D; --panel:#161E2A; --ink:#E8EDF4; --dim:#93A2B5;
+      --line:#2A3547; --accent:#5B8DEF; --accent-soft:#1B2A47;
+      --ok:#34C08B; --ok-soft:#12302A; --warn:#E1A055; --warn-soft:#3A2A16;
+      --rail:#3A465A;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0E141D; --panel:#161E2A; --ink:#E8EDF4; --dim:#93A2B5;
+    --line:#2A3547; --accent:#5B8DEF; --accent-soft:#1B2A47;
+    --ok:#34C08B; --ok-soft:#12302A; --warn:#E1A055; --warn-soft:#3A2A16;
+    --rail:#3A465A;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font:16px/1.6 "Segoe UI", system-ui, -apple-system, sans-serif;
+  }
+  .wrap{max-width:880px; margin:0 auto; padding:48px 24px 96px}
+  .eyebrow{
+    font-size:12px; font-weight:600; letter-spacing:.14em; text-transform:uppercase;
+    color:var(--accent); margin:0 0 10px;
+  }
+  h1{
+    font-size:clamp(30px,5vw,44px); line-height:1.12; letter-spacing:-.015em;
+    margin:0 0 14px; font-weight:700; text-wrap:balance;
+  }
+  .lede{font-size:18px; color:var(--dim); max-width:60ch; margin:0 0 8px}
+  h2{font-size:22px; letter-spacing:-.01em; margin:56px 0 6px; font-weight:700; text-wrap:balance}
+  h2 + p.sub{margin:0 0 22px; color:var(--dim); max-width:62ch}
+  p{max-width:66ch}
+  code, .mono{font-family:ui-monospace, "Cascadia Code", Consolas, monospace; font-size:.92em}
+
+  /* Veredicto */
+  .verdict{
+    display:flex; gap:16px; align-items:flex-start;
+    background:var(--panel); border:1px solid var(--line); border-left:4px solid var(--ok);
+    border-radius:10px; padding:18px 20px; margin:28px 0 8px;
+  }
+  .verdict b{color:var(--ok)}
+  .verdict p{margin:0; max-width:none}
+
+  /* Tarjetas resumen */
+  .facts{display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; margin:24px 0 0}
+  .fact{background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px 16px}
+  .fact .n{font-size:26px; font-weight:700; font-variant-numeric:tabular-nums; letter-spacing:-.02em}
+  .fact .l{font-size:13px; color:var(--dim)}
+
+  /* Pipeline */
+  .pipe{margin:26px 0 0}
+  .step{
+    display:grid; grid-template-columns:52px 1fr; gap:0 18px; position:relative;
+    padding-bottom:22px;
+  }
+  .step::before{
+    content:""; position:absolute; left:25px; top:34px; bottom:-4px;
+    width:2px; background:var(--rail);
+  }
+  .step:last-child::before{display:none}
+  .dot{
+    width:52px; height:34px; display:flex; align-items:center; justify-content:center;
+    background:var(--panel); border:1.5px solid var(--rail); border-radius:8px;
+    font-family:ui-monospace, Consolas, monospace; font-size:13px; font-weight:700;
+    position:relative; z-index:1;
+  }
+  .step.hito .dot{border-color:var(--accent); color:var(--accent); background:var(--accent-soft)}
+  .card{background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px 18px}
+  .card h3{margin:0 0 4px; font-size:16.5px; display:flex; align-items:center; gap:10px; flex-wrap:wrap}
+  .card p{margin:0; color:var(--dim); font-size:14.5px; max-width:none}
+  .tag{
+    font-size:11px; font-weight:600; letter-spacing:.06em; text-transform:uppercase;
+    padding:2px 8px; border-radius:99px; white-space:nowrap;
+  }
+  .t-ok{background:var(--ok-soft); color:var(--ok)}
+  .t-llm{background:var(--warn-soft); color:var(--warn)}
+  .t-info{background:var(--accent-soft); color:var(--accent)}
+  .salida{
+    margin:2px 0 0 70px; padding:8px 14px; border-left:3px solid var(--ok);
+    color:var(--dim); font-size:13.5px; background:var(--ok-soft); border-radius:0 8px 8px 0;
+  }
+  .salida b{color:var(--ok)}
+
+  /* Figura */
+  figure{margin:26px 0; background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:20px; overflow-x:auto}
+  figure svg{display:block; max-width:100%; height:auto; margin:0 auto; color:var(--ink)}
+  figcaption{font-size:13.5px; color:var(--dim); margin-top:12px; max-width:70ch}
+
+  /* Presupuesto de tiempo */
+  .budget{display:flex; height:34px; border-radius:8px; overflow:hidden; border:1px solid var(--line); margin:18px 0 6px; min-width:520px}
+  .budget div{display:flex; align-items:center; justify-content:center; font-size:11.5px; font-weight:600; color:#fff; white-space:nowrap; padding:0 4px}
+  .b-wrap{overflow-x:auto}
+  .b-leyenda{font-size:13px; color:var(--dim); margin:0}
+
+  /* Podado */
+  .grave{display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:12px; margin-top:18px}
+  .gcard{background:var(--panel); border:1px dashed var(--line); border-radius:10px; padding:14px 16px}
+  .gcard h3{margin:0 0 4px; font-size:15px; text-decoration:line-through; text-decoration-color:var(--warn); text-decoration-thickness:2px}
+  .gcard p{margin:0; font-size:13.5px; color:var(--dim); max-width:none}
+  .gcard .cuando{font-size:11.5px; color:var(--warn); font-weight:600; text-transform:uppercase; letter-spacing:.06em}
+
+  table{border-collapse:collapse; width:100%; font-size:14.5px; background:var(--panel); border:1px solid var(--line); border-radius:10px; overflow:hidden}
+  th,td{text-align:left; padding:10px 14px; border-bottom:1px solid var(--line)}
+  th{font-size:12px; text-transform:uppercase; letter-spacing:.07em; color:var(--dim)}
+  tr:last-child td{border-bottom:none}
+  td.num{font-variant-numeric:tabular-nums; font-family:ui-monospace, Consolas, monospace; font-size:13.5px}
+  .tbl-wrap{overflow-x:auto; margin-top:16px}
+
+  footer{margin-top:64px; padding-top:18px; border-top:1px solid var(--line); font-size:13px; color:var(--dim)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <p class="eyebrow">Intellix · Motor RAG · estado real al 17/08/2026</p>
+  <h1>El camino de una consulta</h1>
+  <p class="lede">Qué pasa entre que un afiliado escribe «¿qué días atiende el traumatólogo?» y recibe la respuesta con su fuente — paso por paso, con los tiempos medidos en producción.</p>
+
+  <div class="verdict">
+    <p><b>Veredicto: no es un quilombo.</b> Son <b>6 pasos esenciales</b> (los que cualquier sistema de este tipo necesita) más <b>3 guardianes</b> que existen para que el bot no invente y no moleste con lentitud. Cada pieza tiene un porqué medible — y la mejor prueba de que el sistema no acumula grasa es que ya se le <b>podaron 3 piezas</b> que no la tenían (ver al final).</p>
+  </div>
+
+  <div class="facts">
+    <div class="fact"><div class="n">~3 s</div><div class="l">respuesta típica (mediana)</div></div>
+    <div class="fact"><div class="n">2–4</div><div class="l">llamadas externas a OpenAI por consulta nueva</div></div>
+    <div class="fact"><div class="n">~2 ms</div><div class="l">si la pregunta ya se respondió (cache)</div></div>
+    <div class="fact"><div class="n">0</div><div class="l">alucinaciones en las 130 pruebas de la suite</div></div>
+  </div>
+
+  <h2>Los pasos, en orden</h2>
+  <p class="sub">Verde = gratis e instantáneo (corre en nuestro servidor). Naranja = paga una llamada a la IA de OpenAI. Los pasos 4a–4c corren <b>al mismo tiempo</b> — ese es el truco que mantiene la velocidad.</p>
+
+  <div class="pipe">
+
+    <div class="step">
+      <div class="dot">1</div>
+      <div class="card">
+        <h3>Llega el mensaje <span class="tag t-ok">gratis</span></h3>
+        <p>Por el widget de la web o por WhatsApp. El sistema identifica a qué organización pertenece (mutual, agencia, etc.) y aísla sus datos: cada cliente solo ve lo suyo.</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="dot">2</div>
+      <div class="card">
+        <h3>Normalización <span class="tag t-ok">gratis</span></h3>
+        <p>Limpieza mínima: expandir siglas conocidas («RRHH» → «Recursos Humanos») para que la misma pregunta escrita distinto se trate igual.</p>
+      </div>
+    </div>
+
+    <div class="step hito">
+      <div class="dot">3</div>
+      <div class="card">
+        <h3>Cache: ¿ya la respondimos? <span class="tag t-ok">gratis</span></h3>
+        <p>Si la pregunta es idéntica (o casi idéntica en significado) a una ya respondida, la respuesta sale directo de memoria. Es el atajo que hace que las preguntas repetidas cuesten cero.</p>
+      </div>
+    </div>
+    <div class="salida"><b>→ Si hay acierto, acá termina:</b> respuesta en ~2 milisegundos, sin tocar la IA.</div>
+
+    <div class="step hito">
+      <div class="dot">4</div>
+      <div class="card">
+        <h3>El tramo paralelo <span class="tag t-info">3 tareas a la vez</span></h3>
+        <p>Antes (hasta el 17/08) estas tres tareas corrían una detrás de la otra y sumaban sus tiempos. Hoy arrancan juntas — el diagrama de abajo muestra cómo.</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="dot">4a</div>
+      <div class="card">
+        <h3>Traducir la pregunta a números <span class="tag t-llm">OpenAI · ~0,5–0,9 s</span></h3>
+        <p>El «embedding»: convierte la pregunta en un vector para poder buscar por significado, no solo por palabras exactas.</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="dot">4b</div>
+      <div class="card">
+        <h3>Reescritor de la consulta <span class="tag t-llm">OpenAI · ~0,5–1 s</span></h3>
+        <p>Una IA rápida condensa la pregunta usando la conversación: «¿y los sábados?» se convierte en «¿cuál es el horario de atención los sábados?». También aguanta typos («presio del plan premiun»). Como corre en paralelo, <b>su tiempo no se suma</b> — y si falla, la búsqueda ya está hecha igual.</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="dot">4c</div>
+      <div class="card">
+        <h3>Búsqueda híbrida <span class="tag t-ok">gratis · ~0,6–1 s</span></h3>
+        <p>Dos buscadores a la vez sobre los documentos del cliente: uno por <b>significado</b> (vectores, Qdrant) y uno por <b>palabras</b> (BM25, PostgreSQL). Sus resultados se combinan con una fórmula de consenso (RRF): lo que aparece bien rankeado en ambos, sube.</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="dot">5</div>
+      <div class="card">
+        <h3>Filtro de relevancia <span class="tag t-ok">gratis</span></h3>
+        <p>De todos los fragmentos encontrados, solo pasan los que superan un umbral de parecido configurable por cliente. Basura afuera antes de gastar en la IA.</p>
+      </div>
+    </div>
+
+    <div class="step hito">
+      <div class="dot">6</div>
+      <div class="card">
+        <h3>Trust gate: ¿esto RESPONDE o solo se parece? <span class="tag t-ok">75% gratis</span> <span class="tag t-llm">25% juez · ~0,7 s</span></h3>
+        <p>El guardián anti-invención. Un chequeo léxico gratis resuelve 3 de cada 4 casos; en la zona gris, un juez IA lee los fragmentos y decide. Si el material no responde, el bot dice honestamente «no encontré esa información» en vez de inventar.</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="dot">7</div>
+      <div class="card">
+        <h3>Armado del prompt <span class="tag t-ok">gratis</span></h3>
+        <p>Se ensambla el instructivo para la IA por módulos: la personalidad del cliente, qué es la organización, el alcance, las <b>12 reglas anti-alucinación</b>, los fragmentos aprobados, y el idioma con voseo. Solo entran los módulos que esa consulta necesita.</p>
+      </div>
+    </div>
+
+    <div class="step hito">
+      <div class="dot">8</div>
+      <div class="card">
+        <h3>Generación de la respuesta <span class="tag t-llm">OpenAI · ~0,5–1,5 s</span></h3>
+        <p><code>gpt-4o-mini</code> redacta la respuesta usando <b>únicamente</b> los fragmentos aprobados — con la regla de que si el dato no está ahí, no existe.</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="dot">9</div>
+      <div class="card">
+        <h3>¿Derivar a un humano? <span class="tag t-ok">gratis</span></h3>
+        <p>Cinco reglas deciden si además de responder hay que ofrecer un operador: respuestas insuficientes repetidas, pedido explícito, frustración, inactividad del operador, o palabras clave del cliente (ej.: «turno» → responder <i>y</i> ofrecer derivación).</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="dot">10</div>
+      <div class="card">
+        <h3>Memoria y registro <span class="tag t-ok">gratis · no suma tiempo</span></h3>
+        <p>La respuesta se guarda en cache (la próxima vez es gratis) y la consulta queda registrada para métricas. Corre en segundo plano: el afiliado ya tiene su respuesta.</p>
+      </div>
+    </div>
+
+  </div>
+
+  <h2>El tramo paralelo, dibujado</h2>
+  <p class="sub">El cambio del 17/08: la búsqueda con la pregunta original no espera a nadie. El reescritor aporta su versión mejorada cuando llega, y ambos resultados se fusionan.</p>
+
+  <figure>
+    <svg viewBox="0 0 760 300" role="img" aria-label="Tres tareas paralelas — embedding, reescritor y búsqueda original — convergen en la fusión RRF y siguen al trust gate">
+      <defs>
+        <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+        </marker>
+      </defs>
+      <!-- entrada -->
+      <rect x="10" y="120" width="130" height="56" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+      <text x="75" y="144" text-anchor="middle" font-size="13" font-weight="600" fill="currentColor">Pregunta</text>
+      <text x="75" y="162" text-anchor="middle" font-size="11" fill="currentColor" opacity="0.65">(tras el cache)</text>
+      <!-- bifurcación -->
+      <line x1="140" y1="148" x2="180" y2="148" stroke="currentColor" stroke-width="1.5"/>
+      <line x1="180" y1="45" x2="180" y2="255" stroke="currentColor" stroke-width="1.5"/>
+      <line x1="180" y1="45" x2="215" y2="45" stroke="currentColor" stroke-width="1.5" marker-end="url(#arr)"/>
+      <line x1="180" y1="148" x2="215" y2="148" stroke="currentColor" stroke-width="1.5" marker-end="url(#arr)"/>
+      <line x1="180" y1="255" x2="215" y2="255" stroke="currentColor" stroke-width="1.5" marker-end="url(#arr)"/>
+      <!-- carril 1: embedding -->
+      <rect x="220" y="17" width="180" height="56" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+      <text x="310" y="41" text-anchor="middle" font-size="13" font-weight="600" fill="currentColor">Embedding</text>
+      <text x="310" y="59" text-anchor="middle" font-size="11" fill="currentColor" opacity="0.65">OpenAI · 0,5–0,9 s</text>
+      <!-- carril 2: búsqueda original (accent = la que no espera) -->
+      <rect x="220" y="120" width="180" height="56" rx="8" fill="none" stroke="#2563EB" stroke-width="2.5"/>
+      <text x="310" y="144" text-anchor="middle" font-size="13" font-weight="700" fill="#2563EB">Búsqueda original</text>
+      <text x="310" y="162" text-anchor="middle" font-size="11" fill="currentColor" opacity="0.65">no espera a nadie</text>
+      <!-- carril 3: rewriter -->
+      <rect x="220" y="227" width="180" height="56" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+      <text x="310" y="251" text-anchor="middle" font-size="13" font-weight="600" fill="currentColor">Reescritor</text>
+      <text x="310" y="269" text-anchor="middle" font-size="11" fill="currentColor" opacity="0.65">OpenAI · 0,5–1 s</text>
+      <!-- rewriter → búsqueda variante -->
+      <line x1="400" y1="255" x2="455" y2="255" stroke="currentColor" stroke-width="1.5" marker-end="url(#arr)"/>
+      <text x="427" y="245" text-anchor="middle" font-size="10.5" fill="currentColor" opacity="0.75">su versión</text>
+      <rect x="460" y="227" width="130" height="56" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+      <text x="525" y="251" text-anchor="middle" font-size="12.5" font-weight="600" fill="currentColor">Búsqueda</text>
+      <text x="525" y="268" text-anchor="middle" font-size="11" fill="currentColor" opacity="0.65">de la variante</text>
+      <!-- embedding alimenta la búsqueda -->
+      <line x1="400" y1="45" x2="440" y2="45" stroke="currentColor" stroke-width="1.5"/>
+      <polyline points="440,45 440,120" fill="none" stroke="currentColor" stroke-width="1.5"/>
+      <line x1="440" y1="120" x2="415" y2="138" stroke="currentColor" stroke-width="1.5" marker-end="url(#arr)"/>
+      <text x="472" y="88" text-anchor="middle" font-size="10.5" fill="currentColor" opacity="0.75">el vector</text>
+      <!-- convergencia en fusión -->
+      <line x1="400" y1="148" x2="620" y2="148" stroke="#2563EB" stroke-width="2" marker-end="url(#arr)"/>
+      <line x1="590" y1="255" x2="612" y2="255" stroke="currentColor" stroke-width="1.5"/>
+      <polyline points="612,255 612,170" fill="none" stroke="currentColor" stroke-width="1.5" marker-end="url(#arr)"/>
+      <rect x="625" y="120" width="120" height="56" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+      <text x="685" y="144" text-anchor="middle" font-size="13" font-weight="600" fill="currentColor">Fusión RRF</text>
+      <text x="685" y="162" text-anchor="middle" font-size="11" fill="currentColor" opacity="0.65">→ trust gate</text>
+    </svg>
+    <figcaption>Las tres tareas arrancan juntas al fallar el cache. La búsqueda con la pregunta original (azul) va directa a la fusión; si el reescritor tarda o falla, ella ya llegó — por eso un problema de OpenAI ralentiza pero nunca frena.</figcaption>
+  </figure>
+
+  <h2>¿En qué se van los ~3 segundos?</h2>
+  <p class="sub">Composición típica de una consulta conversacional nueva (medida en staging el 17/08: mediana 2,9 s).</p>
+  <div class="b-wrap">
+    <div class="budget" role="img" aria-label="Barra de tiempos: tramo paralelo 1 segundo, juez del trust gate 0,7 segundos cuando corre, generación 1 a 1,5 segundos">
+      <div style="flex:10; background:var(--accent)">tramo paralelo ~1,0 s</div>
+      <div style="flex:7; background:var(--warn)">juez (solo 25%) ~0,7 s</div>
+      <div style="flex:12; background:var(--ok)">generación ~1,2 s</div>
+    </div>
+  </div>
+  <p class="b-leyenda">Sin el paralelismo, el tramo azul mediría ~2 s (embedding + reescritor + búsqueda en fila). Las preguntas repetidas se saltean la barra entera: ~2 ms.</p>
+
+  <h2>Las llamadas externas, contadas</h2>
+  <p class="sub">Esto es lo que cuesta plata y depende de internet. Todo lo demás corre en el VPS propio.</p>
+  <div class="tbl-wrap">
+  <table>
+    <tr><th>Llamada a OpenAI</th><th>¿Cuándo corre?</th><th>Tiempo</th></tr>
+    <tr><td>Embedding de la pregunta</td><td>Siempre (consulta nueva)</td><td class="num">0,5–0,9 s</td></tr>
+    <tr><td>Reescritor</td><td>Si hay conversación, o pregunta corta/con forma de pregunta</td><td class="num">0,5–1 s (paralelo)</td></tr>
+    <tr><td>Juez del trust gate</td><td>Solo en la zona gris (~25% de las consultas)</td><td class="num">~0,7 s</td></tr>
+    <tr><td>Generación de la respuesta</td><td>Siempre (consulta nueva)</td><td class="num">0,5–1,5 s</td></tr>
+  </table>
+  </div>
+  <p style="color:var(--dim); font-size:14.5px">Total: <b>2 a 4 llamadas</b> por consulta nueva, todas a <code>gpt-4o-mini</code> o embeddings — los modelos baratos. Costo real medido: <b>US$ 6 en 30 días</b> con los 3 clientes.</p>
+
+  <h2>La prueba de que no acumula grasa: lo que se podó</h2>
+  <p class="sub">Un sistema enquilombado es el que solo suma piezas. Este restó tres — cada una con la medición que firmó su salida.</p>
+  <div class="grave">
+    <div class="gcard">
+      <span class="cuando">Eliminado · jul 2026</span>
+      <h3>Reranker</h3>
+      <p>Un modelo que reordenaba resultados. Medido A/B: perfecto en inglés, <b>0.0 en TODO español</b>. Su función la cumple el trust gate.</p>
+    </div>
+    <div class="gcard">
+      <span class="cuando">Eliminado · jul 2026</span>
+      <h3>Clasificador de intenciones</h3>
+      <p>Todo un subsistema de clustering nocturno y clasificación. En datos reales ruteó bien <b>1 de 11</b> consultas. Afuera: ahorró 60 ms y una búsqueda por consulta.</p>
+    </div>
+    <div class="gcard">
+      <span class="cuando">Relegado · ago 2026</span>
+      <h3>Enriquecedor de keywords</h3>
+      <p>Pegaba palabras del historial a la consulta — y en los cambios de tema la envenenaba. Hoy es solo red de seguridad si el reescritor falla.</p>
+    </div>
+  </div>
+
+  <footer>
+    Fuente: código real de <span class="mono">services/orchestrator.py · retrieval.py · trust_gate.py · prompt_builder.py · handoff.py</span> — tiempos medidos en staging y prod el 17/08/2026. Documento hermano: <span class="mono">docs/AUDITORIA_2026-08-17.md</span>.
+  </footer>
+
+</div>
+</body>
+</html>
