@@ -196,30 +196,28 @@ async def handle_query(
     tenant_config = await _get_tenant_config(tenant_id)
     bot_description: str = tenant_config.get("bot_description") or ""
 
-    # ── Step 3a: Conversational query enrichment (legacy keyword merge) ────────
-    # Short/elliptical queries ("¿y para el primer año?", "¿cuánto?", "¿sí?")
-    # are semantically empty out of context. Append the last user question and
-    # last bot topic keywords so the embedding captures the actual intent.
-    # Esto sigue activo como red de seguridad si query rewriting falla.
-    retrieval_question = _enrich_query_with_history(normalized_question, conversation_history)
-    if retrieval_question != normalized_question:
-        logger.debug(
-            "query_enriched original=%r enriched=%r",
-            normalized_question[:80], retrieval_question[:80],
-        )
-
-    # ── Step 3b: Query rewriting con LLM (vocabulary mismatch + follow-ups) ────
-    # Antes del retrieval, un LLM rápido reescribe la query con sinónimos +
-    # contexto del historial y genera N variantes. Multi-query retrieval usa
-    # todas con RRF fusion → mejor recall sin tocar el contenido del KB.
-    # Si feature flag off o LLM falla → fallback a query original (degraded).
+    # ── Step 3: Transformación de la consulta para retrieval ───────────────────
+    # UN SOLO dueño de la contextualización: el rewriter LLM recibe la consulta
+    # LIMPIA + historial y decide qué contexto aplica (sabe distinguir un cambio
+    # de tema). El enriquecedor de keywords (_enrich_query_with_history) queda
+    # SOLO como red de seguridad cuando el rewriter no está (flag off / LLM caído):
+    # es ciego al cambio de tema — encadenarlo ANTES del rewriter arrastraba el
+    # tema anterior a la consulta y traía el chunk equivocado (caso real 13/08,
+    # reproducido en la suite: conv_02_t2/t3, conv_07, conv_08).
     if settings.query_rewriting_enabled:
         from services.query_rewriter import rewrite_query
         rewrite_result = await rewrite_query(
-            retrieval_question,
+            normalized_question,
             conversation_history,
             bot_description=bot_description or None,
         )
+        if rewrite_result.fallback:
+            # LLM caído/timeout → red de seguridad: keywords del historial.
+            retrieval_question = _enrich_query_with_history(normalized_question, conversation_history)
+            transform_path = "enricher_fallback"
+        else:
+            retrieval_question = normalized_question
+            transform_path = "skipped" if rewrite_result.skipped else "rewriter"
         # SIEMPRE incluir la query original primero. El rewriter a veces la reescribe
         # a algo más largo/ruidoso (ej. le agrega el nombre completo de la organización)
         # que DILUYE el embedding y degrada el retrieval: "¿qué cardiólogos atienden?"
@@ -245,8 +243,17 @@ async def handle_query(
             )
         retrieval_task = retrieve_multi_query(all_queries, tenant_id)
     else:
+        # Sin rewriter, el enriquecedor es la única contextualización disponible.
+        retrieval_question = _enrich_query_with_history(normalized_question, conversation_history)
+        transform_path = "enricher_only" if retrieval_question != normalized_question else "none"
         rewriter_expanded = False
         retrieval_task = retrieve(retrieval_question, tenant_id)
+
+    # Instrumentación del camino elegido (auditable en prod, estilo trust_gate).
+    logger.info(
+        "query_transform tenant_id=%s path=%s has_history=%s q_words=%d",
+        tenant_id, transform_path, bool(conversation_history), len(normalized_question.split()),
+    )
 
     try:
         qdrant_chunks = await retrieval_task

@@ -258,3 +258,20 @@ conversations:
     turns:
       - { question: "¿Cuánto es el descuento por referido?",      expect: factual, must_contain: ["10%", "15%"], any_of: true, notes: "Trampa: el doc tiene dos versiones." }
       - { question: "¿Y se puede acumular con bonificación por antigüedad?", expect: factual, must_contain: ["acumul"], notes: "Trampa: el doc contradice. Idealmente reconocer ambiguedad." }
+
+  # conv_07/conv_08 (2026-08-17): patrón real de prod — consulta corta sobre tema
+  # NUEVO tras historial de OTRO tema. El enriquecedor de keywords arrastraba el
+  # tema anterior a la consulta y el retrieval traía el chunk equivocado (caso
+  # "monotributista" de mutualyf, 13/08). La consulta corta dispara el enriquecedor
+  # (≤5 palabras); el historial previo es el veneno.
+  - id: conv_07
+    description: "Cambio de tema con consulta corta (el historial NO debe contaminar)"
+    turns:
+      - { question: "¿Cuántos días de paternidad?",               expect: factual, must_contain: ["5 días"] }
+      - { question: "¿cuánto sale el plan básico?",               expect: factual, must_contain: ["28.500"], notes: "Corta (≤5 palabras) + tema nuevo: el enriquecedor viejo le pegaba 'paternidad licencia días' y traía el chunk equivocado." }
+
+  - id: conv_08
+    description: "Consulta con preámbulo conversacional largo (debe condensarse)"
+    turns:
+      - { question: "¿Qué incluye el Plan Oro?",                  expect: factual, must_contain: ["odontología", "68.000"], any_of: true }
+      - { question: "Perfecto, me quedó claro eso. Ahora decime otra cosa que me olvidé de preguntar, ¿cuántos días de licencia por mudanza hay?", expect: factual, must_contain: ["1", "cada 5"], any_of: true, notes: "Larga y sin arrancar con interrogativo: la heurística vieja del rewriter la salteaba y la frase sucia iba cruda al retrieval." }
