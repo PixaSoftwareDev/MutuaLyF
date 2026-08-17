@@ -108,7 +108,7 @@ queries:
   - { id: h_03, category: 6, question: "¿Cuántas sucursales tiene la mutual en Tucumán?",                     expect: refusal, must_not_contain: ["sucursales"], must_contain: ["no", "información"], any_of: true }
   - { id: h_04, category: 6, question: "¿Cubren cirugía estética cosmética?",                                 expect: refusal, must_contain: ["no", "no cubren", "reconstructivos"], any_of: true }
   - { id: h_05, category: 6, question: "¿Puedo trabajar 100% remoto desde cualquier puesto?",                 expect: refusal, must_contain: ["no", "excepcional", "depende", "3 días"], any_of: true }
-  - { id: h_06, category: 6, question: "¿Cuántos días de licencia por mudanza tengo?",                        expect: factual, must_contain: ["1", "cada 5"], any_of: true, notes: "El doc dice '1 vez cada 5 años', SI está." }
+  - { id: h_06, category: 6, question: "¿Cuántos días de licencia por mudanza tengo?",                        expect: factual, must_contain: ["1", "cada 5", "cada cinco"], any_of: true, notes: "El doc dice '1 vez cada 5 años', SI está. 'cada cinco' en letras es la misma respuesta (2026-08-17: la rúbrica castigaba el número escrito)." }
   - { id: h_07, category: 6, question: "¿Cuánto se paga el adicional por nocturnidad exactamente?",           expect: refusal, must_not_contain: ["%", "$"], must_contain: ["no", "información", "específico"], any_of: true, notes: "El doc menciona 'adicional por nocturnidad' sin %." }
   - { id: h_08, category: 6, question: "¿En qué horario abre la sede de Mar del Plata los sábados?",          expect: refusal, must_not_contain: ["sábados", "hs"], must_contain: ["no", "información"], any_of: true }
   - { id: h_09, category: 6, question: "¿Cuál es el bono de fin de año para un Senior?",                      expect: refusal, must_not_contain: ["$"], must_contain: ["no", "específico"], any_of: true, notes: "Hay rango variable 1 a 3 sueldos, no monto fijo." }
@@ -150,7 +150,7 @@ queries:
   - { id: a_02, category: 7, question: "decime",                           expect: clarify, must_contain: ["consulta", "tema", "específica"], any_of: true }
   - { id: a_03, category: 7, question: "¿cuánto cuesta?",                  expect: clarify, must_contain: ["plan", "específica", "qué", "cuál"], any_of: true }
   - { id: a_04, category: 7, question: "info sobre la mutual",             expect: clarify, must_contain: ["qué", "tema", "específica"], any_of: true }
-  - { id: a_05, category: 7, question: "ayuda",                            expect: clarify, must_contain: ["consulta", "tema", "pregunta"], any_of: true }
+  - { id: a_05, category: 7, question: "ayuda",                            expect: clarify, must_contain: ["consulta", "tema", "pregunta", "ayudar"], any_of: true, notes: "'¿En qué puedo ayudarte?' es una invitación válida a concretar (2026-08-17)." }
   - { id: a_06, category: 7, question: "¿cómo es?",                        expect: clarify, must_contain: ["aclarar", "específica", "ayudarte", "en qué"], any_of: true }
   - { id: a_07, category: 7, question: "necesito información",             expect: clarify, must_contain: ["qué", "tema", "específica"], any_of: true }
   - { id: a_08, category: 7, question: "tengo una duda",                   expect: clarify, must_contain: ["qué", "específica", "cuál", "ayudarte", "contame"], any_of: true }
