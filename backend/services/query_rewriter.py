@@ -79,15 +79,19 @@ _INTERROGATIVE_STARTS = {
 }
 
 
-def should_rewrite(query: str) -> bool:
+def should_rewrite(query: str, has_history: bool = False) -> bool:
     """Decide si vale la pena correr el rewriter para esta query.
 
     Heurística (orden de evaluación):
       1. Query vacía → False (nada que reescribir)
       2. Query muy larga (>max_query_words) → False (ya es específica)
-      3. Query corta (≤short_threshold palabras) → True (vocabulary mismatch típico)
-      4. Empieza con pronombre interrogativo → True (questions abstractas)
-      5. Otro caso → False (skip, ya tiene suficiente contexto)
+      3. Hay historial de conversación → True (regla estructural: dentro de una
+         conversación cualquier consulta puede ser elíptica o traer preámbulo
+         conversacional — "Perfecto, ahora decime…" — que ensucia el retrieval.
+         La detección de qué contexto aplica la hace el LLM, no un patrón acá.)
+      4. Query corta (≤short_threshold palabras) → True (vocabulary mismatch típico)
+      5. Empieza con pronombre interrogativo → True (questions abstractas)
+      6. Otro caso → False (skip, ya tiene suficiente contexto)
 
     Beneficio: queries detalladas evitan los 500-2500ms del LLM call extra.
     Queries cortas/ambiguas siguen recibiendo el rewriting que aporta recall.
@@ -97,6 +101,8 @@ def should_rewrite(query: str) -> bool:
     words = query.strip().split()
     if len(words) > settings.query_rewriting_max_query_words:
         return False
+    if has_history:
+        return True
     if len(words) <= settings.query_rewriting_short_threshold:
         return True
     # Limpiar primera palabra: lowercase + strip puntuación
@@ -230,7 +236,8 @@ async def rewrite_query(
     # Heurística condicional: solo activar rewriter cuando aporta valor.
     # Queries específicas (largas, sin pronombre interrogativo) ya tienen
     # suficiente contexto léxico para el RAG actual — no agregamos latencia.
-    if not should_rewrite(query):
+    # Con historial se reescribe siempre: la consulta puede depender del contexto.
+    if not should_rewrite(query, has_history=bool(history)):
         logger.debug("query_rewrite_skipped (heuristic) query=%r words=%d",
                      query[:60], len(query.split()))
         return RewriteResult(main=query, variants=[], skipped=True)
