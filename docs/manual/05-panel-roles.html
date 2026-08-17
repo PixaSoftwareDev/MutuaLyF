@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>El panel y los roles</title>
+<style>
+  :root{
+    --bg:#F7F8FA; --panel:#FFFFFF; --ink:#16202E; --dim:#5A6B80;
+    --line:#D8DEE7; --accent:#2563EB; --accent-soft:#E8EEFC;
+    --ok:#0E9F6E; --ok-soft:#E3F5EE; --warn:#B45309; --warn-soft:#FBEEDC;
+    --rail:#C3CCD9; --nav-bg:#FFFFFFF2;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#0E141D; --panel:#161E2A; --ink:#E8EDF4; --dim:#93A2B5;
+      --line:#2A3547; --accent:#5B8DEF; --accent-soft:#1B2A47;
+      --ok:#34C08B; --ok-soft:#12302A; --warn:#E1A055; --warn-soft:#3A2A16;
+      --rail:#3A465A; --nav-bg:#0E141DF2;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0E141D; --panel:#161E2A; --ink:#E8EDF4; --dim:#93A2B5;
+    --line:#2A3547; --accent:#5B8DEF; --accent-soft:#1B2A47;
+    --ok:#34C08B; --ok-soft:#12302A; --warn:#E1A055; --warn-soft:#3A2A16;
+    --rail:#3A465A; --nav-bg:#0E141DF2;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  @media (prefers-reduced-motion: reduce){ html{scroll-behavior:auto} }
+  body{margin:0; background:var(--bg); color:var(--ink); font:16px/1.65 "Segoe UI", system-ui, -apple-system, sans-serif}
+  nav{position:sticky; top:0; z-index:10; background:var(--nav-bg); backdrop-filter:blur(8px); border-bottom:1px solid var(--line)}
+  .nav-in{max-width:920px; margin:0 auto; padding:10px 24px; display:flex; align-items:center; gap:6px; overflow-x:auto; white-space:nowrap}
+  .nav-brand{font-weight:700; font-size:14px; letter-spacing:.02em; margin-right:8px; color:var(--accent); flex-shrink:0; text-decoration:none}
+  nav a{color:var(--dim); text-decoration:none; font-size:13.5px; font-weight:500; padding:5px 11px; border-radius:99px}
+  nav a:hover, nav a:focus-visible{color:var(--ink); background:var(--accent-soft); outline:none}
+  .wrap{max-width:920px; margin:0 auto; padding:52px 24px 96px}
+  section{scroll-margin-top:76px}
+  .eyebrow{font-size:12px; font-weight:600; letter-spacing:.14em; text-transform:uppercase; color:var(--accent); margin:0 0 12px}
+  h1{font-size:clamp(30px,5vw,44px); line-height:1.12; letter-spacing:-.015em; margin:0 0 16px; font-weight:700; text-wrap:balance}
+  .lede{font-size:18px; color:var(--dim); max-width:62ch; margin:0}
+  .meta{font-size:13px; color:var(--dim); margin-top:14px}
+  h2{font-size:23px; letter-spacing:-.01em; margin:64px 0 6px; font-weight:700; text-wrap:balance}
+  h2 .sn{color:var(--accent); font-variant-numeric:tabular-nums; margin-right:10px}
+  h2 + p.sub{margin:0 0 24px; color:var(--dim); max-width:66ch}
+  p{max-width:70ch}
+  code, .mono{font-family:ui-monospace, "Cascadia Code", Consolas, monospace; font-size:.92em}
+  .pipe{margin:26px 0 0}
+  .step{display:grid; grid-template-columns:52px 1fr; gap:0 18px; position:relative; padding-bottom:20px}
+  .step::before{content:""; position:absolute; left:25px; top:34px; bottom:-4px; width:2px; background:var(--rail)}
+  .step:last-child::before{display:none}
+  .dot{width:52px; height:34px; display:flex; align-items:center; justify-content:center; background:var(--panel); border:1.5px solid var(--rail); border-radius:8px; font-family:ui-monospace, Consolas, monospace; font-size:13px; font-weight:700; position:relative; z-index:1}
+  .step.hito .dot{border-color:var(--accent); color:var(--accent); background:var(--accent-soft)}
+  .card{background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:15px 18px}
+  .card h3{margin:0 0 5px; font-size:16.5px; display:flex; align-items:center; gap:10px; flex-wrap:wrap}
+  .card p{margin:0; color:var(--dim); font-size:14.5px; max-width:none}
+  .tag{font-size:11px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; padding:2px 9px; border-radius:99px; white-space:nowrap}
+  .t-ok{background:var(--ok-soft); color:var(--ok)}
+  .t-llm{background:var(--warn-soft); color:var(--warn)}
+  .t-info{background:var(--accent-soft); color:var(--accent)}
+  figure{margin:26px 0; background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:22px; overflow-x:auto}
+  figure svg{display:block; max-width:100%; height:auto; margin:0 auto; color:var(--ink)}
+  figcaption{font-size:13.5px; color:var(--dim); margin-top:14px; max-width:74ch}
+  table{border-collapse:collapse; width:100%; font-size:14.5px; background:var(--panel)}
+  .tbl-wrap{overflow-x:auto; margin-top:16px; border:1px solid var(--line); border-radius:10px}
+  th,td{text-align:left; padding:11px 14px; border-bottom:1px solid var(--line); vertical-align:top}
+  th{font-size:12px; text-transform:uppercase; letter-spacing:.07em; color:var(--dim)}
+  tr:last-child td{border-bottom:none}
+  .prevnext{display:flex; justify-content:space-between; gap:12px; margin-top:64px}
+  .prevnext a{flex:1; background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px 16px; text-decoration:none; color:var(--ink); font-size:14px}
+  .prevnext a:hover{border-color:var(--accent)}
+  .prevnext .lbl{display:block; font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--dim); margin-bottom:3px}
+  .prevnext .der{text-align:right}
+  footer{margin-top:40px; padding-top:18px; border-top:1px solid var(--line); font-size:13px; color:var(--dim); max-width:none}
+</style>
+</head>
+<body>
+
+<nav aria-label="Secciones del capítulo">
+  <div class="nav-in">
+    <a class="nav-brand" href="index.html">Intellix · Manual</a>
+    <a href="index.html">⌂ Portada</a>
+    <a href="#roles">Los tres roles</a>
+    <a href="#capacidades">Capacidades por rol</a>
+    <a href="#onboarding">El alta de una organización</a>
+    <a href="#protecciones">Protecciones del panel</a>
+  </div>
+</nav>
+
+<div class="wrap">
+
+<p class="eyebrow">Manual técnico · Capítulo 05</p>
+  <h1>El panel y los roles</h1>
+  <p class="lede">Quién puede hacer qué dentro de la plataforma: los tres roles, el panel que ve cada uno, el recorrido de alta de una organización nueva y las protecciones que evitan acciones accidentales.</p>
+  <p class="meta">Versión del 17/08/2026 · Fuentes: <span class="mono">core/security.py · frontend (paneles admin/operator/superadmin)</span> · Recorrido completo verificado clic por clic en la auditoría del 17/08</p>
+
+  <section id="roles">
+    <h2><span class="sn">01</span>Los tres roles</h2>
+    <p class="sub">La plataforma distingue dos planos: el <b>plano de la plataforma</b> (equipo Intellix) y el <b>plano de cada organización</b> (el cliente). El usuario final no tiene cuenta: conversa por el widget o WhatsApp sin registrarse.</p>
+    <div class="pipe">
+      <div class="step"><div class="dot">SA</div><div class="card">
+        <h3>Superadministrador <span class="tag t-info">plano plataforma</span></h3>
+        <p>El equipo Intellix. Administra las organizaciones (alta, plan, suspensión, baja), monitorea la salud del sistema, gestiona las personalidades y prompts del motor, y consulta la auditoría global. Ingresa por una consola separada (<code>/loginSuperadmin</code>) y su cuenta vive en una tabla propia (<code>platform_users</code>), independiente de los clientes.</p>
+      </div></div>
+      <div class="step"><div class="dot">AD</div><div class="card">
+        <h3>Administrador <span class="tag t-info">plano organización</span></h3>
+        <p>El responsable del cliente. Gestiona el conocimiento (documentos), configura el asistente (descripción, personalidad, derivación, canales), administra su equipo de operadores y lee las métricas. Ve todo lo de su organización — y nada de las demás.</p>
+      </div></div>
+      <div class="step"><div class="dot">OP</div><div class="card">
+        <h3>Operador <span class="tag t-info">plano organización</span></h3>
+        <p>Atiende las conversaciones derivadas: bandeja por sectores, tomar/transferir/soltar, historial completo con las respuestas del asistente. No accede a la configuración ni al conocimiento.</p>
+      </div></div>
+    </div>
+    <p style="color:var(--dim); font-size:14.5px">El ingreso es «email primero»: el sistema deduce la organización a partir del email y luego pide la contraseña. Las sesiones usan tokens JWT con renovación automática (detalle en el Capítulo 07).</p>
+  </section>
+
+  <section id="capacidades">
+    <h2><span class="sn">02</span>Capacidades por rol</h2>
+    <div class="tbl-wrap">
+    <table>
+      <tr><th>Área</th><th>Superadmin</th><th>Administrador</th><th>Operador</th></tr>
+      <tr><td>Organizaciones (alta, plan, suspensión, baja)</td><td>✔</td><td>—</td><td>—</td></tr>
+      <tr><td>Monitoreo del sistema (estado, errores, backups, métricas técnicas)</td><td>✔</td><td>—</td><td>—</td></tr>
+      <tr><td>Personalidades y prompts del motor</td><td>✔</td><td>elige entre las disponibles</td><td>—</td></tr>
+      <tr><td>Auditoría</td><td>global</td><td>—</td><td>—</td></tr>
+      <tr><td>Documentos y base de conocimiento</td><td>—</td><td>✔ (subir, editar, reprocesar, duplicados, exportar)</td><td>—</td></tr>
+      <tr><td>Configuración del asistente (descripción, derivación, canales)</td><td>—</td><td>✔</td><td>—</td></tr>
+      <tr><td>Equipo (crear operadores, sectores)</td><td>—</td><td>✔</td><td>—</td></tr>
+      <tr><td>Métricas de atención y del asistente</td><td>por organización</td><td>✔ (las propias)</td><td>—</td></tr>
+      <tr><td>Conversaciones: ver historial completo</td><td>—</td><td>✔</td><td>✔ (sus sectores)</td></tr>
+      <tr><td>Atender: tomar, responder, transferir, devolver al asistente</td><td>—</td><td>✔</td><td>✔</td></tr>
+      <tr><td>Probar el chat (modo prueba, fuera de métricas)</td><td>—</td><td>✔</td><td>—</td></tr>
+    </table>
+    </div>
+    <p style="color:var(--dim); font-size:14.5px">Los permisos se validan <b>en el servidor</b> en cada solicitud — ocultar un botón en la interfaz nunca es la única barrera.</p>
+  </section>
+
+  <section id="onboarding">
+    <h2><span class="sn">03</span>El alta de una organización nueva</h2>
+    <p class="sub">El recorrido completo, verificado de punta a punta en la auditoría del 17/08/2026 (alta → configuración → primer documento → primera respuesta correcta del asistente: menos de diez minutos).</p>
+    <div class="pipe">
+      <div class="step"><div class="dot">1</div><div class="card">
+        <h3>Creación desde el superadmin</h3>
+        <p>Formulario único: nombre, email y contraseña inicial del administrador, plan y personalidad del asistente. El aprovisionamiento crea el esquema de base de datos propio, las colecciones de búsqueda y el usuario administrador — todo aislado desde el primer segundo.</p>
+      </div></div>
+      <div class="step"><div class="dot">2</div><div class="card">
+        <h3>Asistente de configuración (4 pasos)</h3>
+        <p>En el primer ingreso del administrador: nombre de la organización → descripción del negocio → color de marca (con vista previa del widget) → tono del asistente (formal / amigable / técnico). Con eso, la IA genera la descripción del asistente, editable antes de activar.</p>
+      </div></div>
+      <div class="step"><div class="dot">3</div><div class="card">
+        <h3>Primer conocimiento y prueba</h3>
+        <p>El administrador sube sus documentos (Capítulo 02) y prueba el asistente con el chat de prueba sin salir del panel. La organización queda operativa con widget instalable y WhatsApp conectable.</p>
+      </div></div>
+    </div>
+  </section>
+
+  <section id="protecciones">
+    <h2><span class="sn">04</span>Protecciones del panel</h2>
+    <p class="sub">Las acciones de riesgo tienen fricción proporcional a su gravedad.</p>
+    <div class="tbl-wrap">
+    <table>
+      <tr><th>Acción</th><th>Protección</th></tr>
+      <tr><td>Suspender una organización</td><td>Confirmación con explicación del efecto. <b>Reversible</b>: se reactiva con un clic, sin pérdida de datos.</td></tr>
+      <tr><td>Eliminar una organización</td><td>Requiere <b>escribir el identificador exacto</b> para habilitar el botón; el diálogo enumera todo lo que se borra y recomienda verificar el backup. Irreversible desde el panel.</td></tr>
+      <tr><td>Eliminar o reemplazar un documento</td><td>Confirmación explícita; si tiene correcciones manuales, el aviso incluye el conteo.</td></tr>
+      <tr><td>Operaciones de máximo riesgo (restaurar backups, rotar claves)</td><td><b>Deliberadamente fuera del panel</b>: se ejecutan por consola con sus procedimientos documentados — no deben estar a un clic.</td></tr>
+      <tr><td>Todas las acciones administrativas</td><td>Registradas en la auditoría con autor, fecha y detalle.</td></tr>
+    </table>
+    </div>
+  </section>
+
+  <div class="prevnext">
+    <a href="04-canales.html"><span class="lbl">← Capítulo anterior</span>Los canales</a>
+    <a class="der" href="06-operacion.html"><span class="lbl">Capítulo siguiente →</span>Operación y respaldo</a>
+  </div>
+
+  <footer>Manual técnico de Intellix · Capítulo 05 · Elaborado a partir del código en producción el 17/08/2026.</footer>
+
+</div>
+</body>
+</html>
