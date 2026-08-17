@@ -151,6 +151,24 @@ async def handle_query(
         ))
         return cached
 
+    # ── Lanzamiento temprano del rewriter (paralelización 2026-08-17) ──────────
+    # La reescritura LLM (~0,5-1s) no depende del embedding ni de la búsqueda —
+    # pero corría DESPUÉS del embedding y ANTES de la búsqueda, en fila (diagnóstico
+    # 13/08: tres esperas de red encadenadas, 2,8-3,9s). Arranca acá y se solapa
+    # con el cache semántico y con la búsqueda de la consulta original. Si el
+    # cache semántico pega, se cancela (costo: una llamada barata desperdiciada
+    # en un hit — hoy los hits semánticos son excepcionales en prod).
+    tenant_config = await _get_tenant_config(tenant_id)  # Redis-cached, <5ms
+    bot_description: str = tenant_config.get("bot_description") or ""
+    rewrite_task: asyncio.Task | None = None
+    if settings.query_rewriting_enabled:
+        from services.query_rewriter import rewrite_query
+        rewrite_task = asyncio.create_task(rewrite_query(
+            normalized_question,
+            conversation_history,
+            bot_description=bot_description or None,
+        ))
+
     # ── Step 1b: Semantic cache ────────────────────────────────────────────────
     # Embed the query once here — embed_query_cached is LRU-cached by text,
     # so the subsequent call inside retrieve() costs nothing.
@@ -161,6 +179,8 @@ async def handle_query(
         if query_vector is not None:
             sem_cached = await _check_semantic_cache(query_vector, tenant_id)
             if sem_cached:
+                if rewrite_task is not None:
+                    rewrite_task.cancel()
                 latency_ms = int(time.monotonic() * 1000) - start_ms
                 logger.info("semantic_cache_hit tenant_id=%s latency_ms=%d", tenant_id, latency_ms)
                 from core.metrics import CACHE_HITS_TOTAL, QUERIES_TOTAL, QUERY_DURATION
@@ -188,15 +208,7 @@ async def handle_query(
     # tool-calling). intent_label/intent_confidence quedan como None en la
     # respuesta y en consultas_log para no romper contratos existentes.
 
-    # ── Step 3: Retrieve from Qdrant ──────────────────────────────────────────
-    from services.retrieval import retrieve, retrieve_multi_query
-
-    # Load tenant config early — needed by rewriter (bot_description) and context builder.
-    # Redis-cached: <5ms, safe to load here before retrieval.
-    tenant_config = await _get_tenant_config(tenant_id)
-    bot_description: str = tenant_config.get("bot_description") or ""
-
-    # ── Step 3: Transformación de la consulta para retrieval ───────────────────
+    # ── Step 3: Retrieval con transformación de la consulta ────────────────────
     # UN SOLO dueño de la contextualización: el rewriter LLM recibe la consulta
     # LIMPIA + historial y decide qué contexto aplica (sabe distinguir un cambio
     # de tema). El enriquecedor de keywords (_enrich_query_with_history) queda
@@ -204,62 +216,101 @@ async def handle_query(
     # es ciego al cambio de tema — encadenarlo ANTES del rewriter arrastraba el
     # tema anterior a la consulta y traía el chunk equivocado (caso real 13/08,
     # reproducido en la suite: conv_02_t2/t3, conv_07, conv_08).
-    if settings.query_rewriting_enabled:
-        from services.query_rewriter import rewrite_query
-        rewrite_result = await rewrite_query(
-            normalized_question,
-            conversation_history,
-            bot_description=bot_description or None,
-        )
-        if rewrite_result.fallback:
-            # LLM caído/timeout → red de seguridad: keywords del historial.
-            retrieval_question = _enrich_query_with_history(normalized_question, conversation_history)
-            transform_path = "enricher_fallback"
-        else:
-            retrieval_question = normalized_question
-            transform_path = "skipped" if rewrite_result.skipped else "rewriter"
-        # SIEMPRE incluir la query original primero. El rewriter a veces la reescribe
-        # a algo más largo/ruidoso (ej. le agrega el nombre completo de la organización)
-        # que DILUYE el embedding y degrada el retrieval: "¿qué cardiólogos atienden?"
+    #
+    # Paralelización (2026-08-17): la búsqueda con la consulta original NO espera
+    # al rewriter — la original se busca SIEMPRE tal cual (ver nota abajo), así que
+    # arranca de inmediato; cuando el rewriter devuelve su variante, se busca solo
+    # esa y ambos rankings se fusionan con la misma RRF de retrieve_multi_query.
+    # Si el rewriter falla o tarda, la búsqueda original ya está hecha: la
+    # resiliencia mejora respecto del camino en fila.
+    from services.retrieval import retrieve, fuse_rankings
+
+    if rewrite_task is not None:
+        orig_task = asyncio.create_task(retrieve(normalized_question, tenant_id))
+        try:
+            rewrite_result = await rewrite_task
+        except Exception as exc:  # noqa: BLE001 — cancelación/errores no cubiertos por el rewriter
+            logger.warning("query_rewrite_task_failed error=%s", exc)
+            from services.query_rewriter import RewriteResult
+            rewrite_result = RewriteResult(main=normalized_question, variants=[], fallback=True)
+
+        # SIEMPRE la query original primero. El rewriter a veces la reescribe a algo
+        # más largo/ruidoso (ej. le agrega el nombre completo de la organización) que
+        # DILUYE el embedding y degrada el retrieval: "¿qué cardiólogos atienden?"
         # (cosine 0.52, perfecto) se volvía "¿qué cardiólogos... en la Mutual Provincial
         # de Luz y Fuerza...?" (0.03, basura). La original directa suele ser la que mejor
         # matchea; el RRF combina su resultado con el de las variantes. Robustez genérica.
-        _orig = retrieval_question.strip().lower()
-        all_queries = [retrieval_question] + [
+        _orig = normalized_question.strip().lower()
+        extra_queries = [
             q for q in rewrite_result.all_queries if q.strip().lower() != _orig
         ]
-        rewriter_expanded = not rewrite_result.skipped and not rewrite_result.fallback and len(all_queries) > 1
+        if rewrite_result.fallback:
+            # LLM caído/timeout → red de seguridad: keywords del historial como
+            # búsqueda ADICIONAL (la original limpia ya está corriendo igual).
+            transform_path = "enricher_fallback"
+            _enriched = _enrich_query_with_history(normalized_question, conversation_history)
+            extra_queries = [_enriched] if _enriched.strip().lower() != _orig else []
+        else:
+            transform_path = "skipped" if rewrite_result.skipped else "rewriter"
+        rewriter_expanded = not rewrite_result.skipped and not rewrite_result.fallback and bool(extra_queries)
         if rewrite_result.skipped:
-            logger.debug("query_rewrite_skipped_heuristic query=%r", retrieval_question[:80])
+            logger.debug("query_rewrite_skipped_heuristic query=%r", normalized_question[:80])
         elif rewrite_result.used_cache:
-            logger.debug("query_rewrite_used_cache n_queries=%d", len(all_queries))
+            logger.debug("query_rewrite_used_cache n_extra=%d", len(extra_queries))
         elif rewrite_result.fallback:
-            logger.warning("query_rewrite_fallback_to_original query=%r", retrieval_question[:80])
+            logger.warning("query_rewrite_fallback_to_original query=%r", normalized_question[:80])
         else:
             logger.info(
                 "query_rewrite_applied original=%r main=%r variants=%d expanded=%s",
-                retrieval_question[:60], rewrite_result.main[:80],
+                normalized_question[:60], rewrite_result.main[:80],
                 len(rewrite_result.variants), rewriter_expanded,
             )
-        retrieval_task = retrieve_multi_query(all_queries, tenant_id)
+
+        if extra_queries:
+            # Variantes con top_k reducido — misma proporción que usaba
+            # retrieve_multi_query para las sub-queries.
+            _n = 1 + len(extra_queries)
+            _sub_top_k = max(settings.retrieval_top_k // _n + 10, 20)
+            _sub_rerank = max(settings.rerank_top_k // _n + 5, 10)
+            results = await asyncio.gather(
+                orig_task,
+                *(retrieve(q, tenant_id, top_k=_sub_top_k, rerank_top_k=_sub_rerank)
+                  for q in extra_queries),
+                return_exceptions=True,
+            )
+            rankings = []
+            for idx, r in enumerate(results):
+                if isinstance(r, Exception):
+                    logger.warning("retrieve_branch_failed idx=%d error=%s", idx, r)
+                    continue
+                rankings.append(r)
+            qdrant_chunks = fuse_rankings(
+                rankings, top_k=max(settings.rerank_top_k, 20),
+            )[:settings.rerank_top_k]
+            if not rankings:
+                logger.error("retrieval_failed tenant_id=%s error=all_branches_failed", tenant_id)
+        else:
+            try:
+                qdrant_chunks = await orig_task
+            except Exception as exc:  # noqa: BLE001 — sin retrieval igual respondemos (degradado)
+                logger.error("retrieval_failed tenant_id=%s error=%s", tenant_id, exc)
+                qdrant_chunks = []
     else:
         # Sin rewriter, el enriquecedor es la única contextualización disponible.
         retrieval_question = _enrich_query_with_history(normalized_question, conversation_history)
         transform_path = "enricher_only" if retrieval_question != normalized_question else "none"
         rewriter_expanded = False
-        retrieval_task = retrieve(retrieval_question, tenant_id)
+        try:
+            qdrant_chunks = await retrieve(retrieval_question, tenant_id)
+        except Exception as exc:  # noqa: BLE001 — sin retrieval igual respondemos (degradado)
+            logger.error("retrieval_failed tenant_id=%s error=%s", tenant_id, exc)
+            qdrant_chunks = []
 
     # Instrumentación del camino elegido (auditable en prod, estilo trust_gate).
     logger.info(
         "query_transform tenant_id=%s path=%s has_history=%s q_words=%d",
         tenant_id, transform_path, bool(conversation_history), len(normalized_question.split()),
     )
-
-    try:
-        qdrant_chunks = await retrieval_task
-    except Exception as exc:  # noqa: BLE001 — sin retrieval igual respondemos (degradado)
-        logger.error("retrieval_failed tenant_id=%s error=%s", tenant_id, exc)
-        qdrant_chunks = []
 
     # ── Step 4: Load remaining configs + personality template ────────────────────
     # tenant_config already loaded above (before rewriter). Extract remaining fields.
