@@ -1,6 +1,6 @@
 # CLAUDE.md — Intellix · Plataforma de Conocimiento con IA
 
-> Fuente de verdad del proyecto, actualizada al **2026-07-27**. Si algo acá
+> Fuente de verdad del proyecto, actualizada al **2026-08-17**. Si algo acá
 > contradice al código, gana el código — y avisá para corregir este archivo.
 > La visión original del proyecto (2026) quedó como documento histórico en
 > `docs/PROMPT.md`; varias decisiones de ahí cambiaron en producción.
@@ -43,8 +43,15 @@ derivación, branding).
 ## Flujo de una consulta (real)
 
 1. Widget/WhatsApp → FastAPI → middleware resuelve tenant (`search_path` PG).
-2. Normalización + **query rewriter** (variantes) → retrieval híbrido
-   multi-query con fusión RRF (`services/retrieval.py`).
+2. Normalización + transformación de la consulta (2026-08-17, paralelizada):
+   el **query rewriter** LLM (⚠️ detrás de `QUERY_REWRITING_ENABLED`, hoy
+   **false en staging/prod**) recibe la consulta LIMPIA + historial y corre
+   EN PARALELO con el embedding y con la búsqueda de la consulta original;
+   su variante se busca al llegar y ambos rankings se fusionan con RRF
+   (`retrieval.fuse_rankings`). Con el flag apagado o el LLM caído, la red
+   de seguridad es el enriquecedor de keywords del historial (ciego al
+   cambio de tema — NUNCA volver a encadenarlo ANTES del rewriter: eso
+   causó el bug de repreguntas resuelto el 17/08).
 3. Si `CONNECTORS_ENABLED` y el router de conectores matchea, el turno lo
    maneja el conector (FSM de identificación, tool calling) y NO se evalúa
    handoff.
@@ -90,6 +97,7 @@ derivación, branding).
 | `NEXT_PUBLIC_CONNECTORS_UI` | build-arg frontend (`docker-compose.prod.yml`) | **false** | Oculta "Fuentes de datos" en el panel admin (`frontend/lib/features.ts`). |
 | `NEXT_PUBLIC_ENABLE_DEV_LOGIN` | build-arg frontend | false (solo builds locales en true) | Panel de acceso rápido del login. Doble gate con hostname localhost. |
 | `NEXT_PUBLIC_FEEDBACK_UI` | build-arg frontend (staging y prod en `false`) | **false** | Oculta las caritas al cierre del chat y la cola Feedback del admin hasta validar la feature. |
+| `QUERY_REWRITING_ENABLED` | `.env` backend | **false** | Reescritura LLM de la consulta (condensa repreguntas con el historial). Apagado en jun/2026 por +225ms sin ganancia — pero ese A/B era PRE-cat-10: el A/B del 17/08 (130 casos) mostró multi-turno 85→90% y typos 100% con 0 regresiones. Se prende junto con la medición de latencia en staging (la paralelización de 982aba8 absorbe el costo). En local (`.env.local`) ya está en true. |
 
 Conectores está **oculto en prod hasta validarlo** (decisión 2026-07-26).
 NUNCA ocultar features comentando código — siempre flags, mismas ramas.
