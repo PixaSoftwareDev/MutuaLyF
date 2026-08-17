@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Arquitectura del motor de respuesta</title>
+<title>El motor de respuesta</title>
 <style>
   :root{
     --bg:#F7F8FA; --panel:#FFFFFF; --ink:#16202E; --dim:#5A6B80;
@@ -42,8 +42,8 @@
     display:flex; align-items:center; gap:6px; overflow-x:auto; white-space:nowrap;
   }
   .nav-brand{
-    font-weight:700; font-size:14px; letter-spacing:.02em; margin-right:14px;
-    color:var(--accent); flex-shrink:0;
+    font-weight:700; font-size:14px; letter-spacing:.02em; margin-right:8px;
+    color:var(--accent); flex-shrink:0; text-decoration:none;
   }
   nav a{
     color:var(--dim); text-decoration:none; font-size:13.5px; font-weight:500;
@@ -143,7 +143,8 @@
 
 <nav aria-label="Secciones del documento">
   <div class="nav-in">
-    <span class="nav-brand">Intellix</span>
+    <a class="nav-brand" href="index.html">Intellix · Manual</a>
+    <a href="index.html">⌂ Portada</a>
     <a href="#resumen">Resumen</a>
     <a href="#proceso">El proceso</a>
     <a href="#paralelo">Ejecución en paralelo</a>
@@ -156,7 +157,7 @@
 
 <div class="wrap">
 
-  <p class="eyebrow">Documento técnico · Plataforma Intellix</p>
+  <p class="eyebrow">Manual técnico · Capítulo 01</p>
   <h1>Arquitectura del motor de respuesta</h1>
   <p class="lede">Cómo la plataforma transforma la pregunta de un usuario final en una respuesta fundamentada en los documentos de cada organización: las etapas del proceso, su duración medida y las decisiones de diseño que lo sostienen.</p>
   <p class="meta">Versión del 17/08/2026 · Tiempos medidos en los ambientes de prueba y producción · Fuentes: código de <span class="mono">services/</span></p>
