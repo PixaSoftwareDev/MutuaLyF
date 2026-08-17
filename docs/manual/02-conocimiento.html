@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>El conocimiento</title>
+<style>
+  :root{
+    --bg:#F7F8FA; --panel:#FFFFFF; --ink:#16202E; --dim:#5A6B80;
+    --line:#D8DEE7; --accent:#2563EB; --accent-soft:#E8EEFC;
+    --ok:#0E9F6E; --ok-soft:#E3F5EE; --warn:#B45309; --warn-soft:#FBEEDC;
+    --rail:#C3CCD9; --nav-bg:#FFFFFFF2;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#0E141D; --panel:#161E2A; --ink:#E8EDF4; --dim:#93A2B5;
+      --line:#2A3547; --accent:#5B8DEF; --accent-soft:#1B2A47;
+      --ok:#34C08B; --ok-soft:#12302A; --warn:#E1A055; --warn-soft:#3A2A16;
+      --rail:#3A465A; --nav-bg:#0E141DF2;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0E141D; --panel:#161E2A; --ink:#E8EDF4; --dim:#93A2B5;
+    --line:#2A3547; --accent:#5B8DEF; --accent-soft:#1B2A47;
+    --ok:#34C08B; --ok-soft:#12302A; --warn:#E1A055; --warn-soft:#3A2A16;
+    --rail:#3A465A; --nav-bg:#0E141DF2;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  @media (prefers-reduced-motion: reduce){ html{scroll-behavior:auto} }
+  body{margin:0; background:var(--bg); color:var(--ink); font:16px/1.65 "Segoe UI", system-ui, -apple-system, sans-serif}
+  nav{position:sticky; top:0; z-index:10; background:var(--nav-bg); backdrop-filter:blur(8px); border-bottom:1px solid var(--line)}
+  .nav-in{max-width:920px; margin:0 auto; padding:10px 24px; display:flex; align-items:center; gap:6px; overflow-x:auto; white-space:nowrap}
+  .nav-brand{font-weight:700; font-size:14px; letter-spacing:.02em; margin-right:8px; color:var(--accent); flex-shrink:0; text-decoration:none}
+  nav a{color:var(--dim); text-decoration:none; font-size:13.5px; font-weight:500; padding:5px 11px; border-radius:99px}
+  nav a:hover, nav a:focus-visible{color:var(--ink); background:var(--accent-soft); outline:none}
+  .wrap{max-width:920px; margin:0 auto; padding:52px 24px 96px}
+  section{scroll-margin-top:76px}
+  .eyebrow{font-size:12px; font-weight:600; letter-spacing:.14em; text-transform:uppercase; color:var(--accent); margin:0 0 12px}
+  h1{font-size:clamp(30px,5vw,44px); line-height:1.12; letter-spacing:-.015em; margin:0 0 16px; font-weight:700; text-wrap:balance}
+  .lede{font-size:18px; color:var(--dim); max-width:62ch; margin:0}
+  .meta{font-size:13px; color:var(--dim); margin-top:14px}
+  h2{font-size:23px; letter-spacing:-.01em; margin:64px 0 6px; font-weight:700; text-wrap:balance}
+  h2 .sn{color:var(--accent); font-variant-numeric:tabular-nums; margin-right:10px}
+  h2 + p.sub{margin:0 0 24px; color:var(--dim); max-width:66ch}
+  p{max-width:70ch}
+  code, .mono{font-family:ui-monospace, "Cascadia Code", Consolas, monospace; font-size:.92em}
+  .pipe{margin:26px 0 0}
+  .step{display:grid; grid-template-columns:52px 1fr; gap:0 18px; position:relative; padding-bottom:20px}
+  .step::before{content:""; position:absolute; left:25px; top:34px; bottom:-4px; width:2px; background:var(--rail)}
+  .step:last-child::before{display:none}
+  .dot{width:52px; height:34px; display:flex; align-items:center; justify-content:center; background:var(--panel); border:1.5px solid var(--rail); border-radius:8px; font-family:ui-monospace, Consolas, monospace; font-size:13px; font-weight:700; position:relative; z-index:1}
+  .step.hito .dot{border-color:var(--accent); color:var(--accent); background:var(--accent-soft)}
+  .card{background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:15px 18px}
+  .card h3{margin:0 0 5px; font-size:16.5px; display:flex; align-items:center; gap:10px; flex-wrap:wrap}
+  .card p{margin:0; color:var(--dim); font-size:14.5px; max-width:none}
+  .tag{font-size:11px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; padding:2px 9px; border-radius:99px; white-space:nowrap}
+  .t-ok{background:var(--ok-soft); color:var(--ok)}
+  .t-llm{background:var(--warn-soft); color:var(--warn)}
+  .t-info{background:var(--accent-soft); color:var(--accent)}
+  figure{margin:26px 0; background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:22px; overflow-x:auto}
+  figure svg{display:block; max-width:100%; height:auto; margin:0 auto; color:var(--ink)}
+  figcaption{font-size:13.5px; color:var(--dim); margin-top:14px; max-width:74ch}
+  table{border-collapse:collapse; width:100%; font-size:14.5px; background:var(--panel)}
+  .tbl-wrap{overflow-x:auto; margin-top:16px; border:1px solid var(--line); border-radius:10px}
+  th,td{text-align:left; padding:11px 14px; border-bottom:1px solid var(--line); vertical-align:top}
+  th{font-size:12px; text-transform:uppercase; letter-spacing:.07em; color:var(--dim)}
+  tr:last-child td{border-bottom:none}
+  .prevnext{display:flex; justify-content:space-between; gap:12px; margin-top:64px}
+  .prevnext a{flex:1; background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px 16px; text-decoration:none; color:var(--ink); font-size:14px}
+  .prevnext a:hover{border-color:var(--accent)}
+  .prevnext .lbl{display:block; font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--dim); margin-bottom:3px}
+  .prevnext .der{text-align:right}
+  footer{margin-top:40px; padding-top:18px; border-top:1px solid var(--line); font-size:13px; color:var(--dim); max-width:none}
+</style>
+</head>
+<body>
+
+<nav aria-label="Secciones del capítulo">
+  <div class="nav-in">
+    <a class="nav-brand" href="index.html">Intellix · Manual</a>
+    <a href="index.html">⌂ Portada</a>
+    <a href="#recorrido">El recorrido</a>
+    <a href="#estructura">La estructura</a>
+    <a href="#despues">Después de publicado</a>
+    <a href="#salvaguardas">Salvaguardas</a>
+  </div>
+</nav>
+
+<div class="wrap">
+
+  <p class="eyebrow">Manual técnico · Capítulo 02</p>
+  <h1>El conocimiento</h1>
+  <p class="lede">El ciclo de vida de un documento dentro de la plataforma: desde que un administrador lo sube hasta que el asistente lo usa para responder — y todo lo que puede pasarle después: ediciones, reprocesos, duplicados y bajas.</p>
+  <p class="meta">Versión del 17/08/2026 · Fuentes: <span class="mono">api/v1/ingest.py · services/chunker.py · services/quality_gate.py · workers/ingest_tasks.py</span></p>
+
+  <section id="recorrido">
+    <h2><span class="sn">01</span>El recorrido de un documento nuevo</h2>
+    <p class="sub">Desde el panel de Conocimiento, un administrador arrastra un archivo. La subida responde al instante (202) y el procesamiento continúa en segundo plano en un worker dedicado (Celery); el panel muestra el avance: <i>En cola → Procesando → Listo</i>.</p>
+
+    <div class="pipe">
+      <div class="step">
+        <div class="dot">1</div>
+        <div class="card">
+          <h3>Validaciones de entrada <span class="tag t-ok">interno</span></h3>
+          <p>Formatos aceptados: PDF, DOCX, TXT, HTML y JSON, hasta 200 MB. El tipo de archivo se verifica contra su <b>contenido real</b> (librería <code>libmagic</code>), no contra lo que declara el navegador — un ejecutable renombrado como PDF se rechaza. Los JSON se validan sintácticamente al subir, con línea y columna del error si están rotos.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="dot">2</div>
+        <div class="card">
+          <h3>Control de duplicados <span class="tag t-ok">interno</span></h3>
+          <p>Se calculan dos huellas digitales (hash): una del archivo byte a byte y otra de su texto. Si el documento ya existe —mismo archivo, mismo contenido en otro formato, o mismo nombre— el panel lo informa y ofrece <b>reemplazar el anterior</b>, avisando cuántas de sus partes tienen correcciones manuales.</p>
+        </div>
+      </div>
+      <div class="step hito">
+        <div class="dot">3</div>
+        <div class="card">
+          <h3>Fragmentación jerárquica <span class="tag t-info">estructura padre-hijo</span></h3>
+          <p>El texto se divide en dos niveles: <b>fragmentos padre</b> (hasta ~700 palabras, alineados a los títulos y secciones reales del documento) y <b>fragmentos hijo</b> (hasta ~150 palabras, subdivisiones de cada padre). El hijo es preciso para buscar; el padre da el contexto completo para responder. El detalle en la sección 02.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="dot">4</div>
+        <div class="card">
+          <h3>Control de calidad por fragmento <span class="tag t-llm">juez IA</span></h3>
+          <p>Cada fragmento pasa por un juez que evalúa su coherencia: <b>aprobado</b> participa de las búsquedas; <b>descartado</b> queda fuera; <b>pendiente</b> (si el juez no pudo evaluarlo) se reintenta automáticamente y, además, queda visible en el panel para revisión humana. El documento hereda un estado agregado a partir de sus fragmentos.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="dot">5</div>
+        <div class="card">
+          <h3>Indexación doble <span class="tag t-llm">embeddings</span></h3>
+          <p>Cada fragmento hijo se convierte en vector (embedding de OpenAI) y se indexa en <b>Qdrant</b> para la búsqueda por significado. Los padres se guardan en <b>PostgreSQL</b> con un índice de texto (BM25) para la búsqueda por términos exactos. El archivo original queda resguardado en MinIO.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="dot">6</div>
+        <div class="card">
+          <h3>Listo <span class="tag t-ok">disponible para el asistente</span></h3>
+          <p>El documento aparece «Listo» con su cantidad de fragmentos. Desde ese momento el motor de respuesta (Capítulo 01) puede recuperarlo. Un archivo de texto típico se procesa en menos de 30 segundos.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="estructura">
+    <h2><span class="sn">02</span>La estructura padre-hijo (small-to-big)</h2>
+    <p class="sub">La técnica que equilibra precisión y contexto: se busca con piezas chicas, se responde con piezas grandes.</p>
+    <figure>
+      <svg viewBox="0 0 760 250" role="img" aria-label="Un documento se divide en fragmentos padre; cada padre en fragmentos hijo; los hijos se indexan en Qdrant como vectores y los padres en PostgreSQL para búsqueda por términos">
+        <defs>
+          <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+          </marker>
+        </defs>
+        <rect x="10" y="95" width="120" height="60" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <text x="70" y="120" text-anchor="middle" font-size="13" font-weight="600" fill="currentColor">Documento</text>
+        <text x="70" y="138" text-anchor="middle" font-size="11" fill="currentColor" opacity="0.65">PDF · DOCX · TXT…</text>
+        <line x1="130" y1="125" x2="180" y2="125" stroke="currentColor" stroke-width="1.5" marker-end="url(#arr)"/>
+        <text x="155" y="115" text-anchor="middle" font-size="10.5" fill="currentColor" opacity="0.75">divide</text>
+        <rect x="185" y="30" width="170" height="82" rx="8" fill="none" stroke="#2563EB" stroke-width="2"/>
+        <text x="270" y="55" text-anchor="middle" font-size="13" font-weight="700" fill="#2563EB">Fragmento padre</text>
+        <text x="270" y="73" text-anchor="middle" font-size="11" fill="currentColor" opacity="0.65">≤ 700 palabras</text>
+        <text x="270" y="89" text-anchor="middle" font-size="11" fill="currentColor" opacity="0.65">alineado a títulos reales</text>
+        <rect x="185" y="140" width="170" height="82" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <text x="270" y="165" text-anchor="middle" font-size="13" font-weight="600" fill="currentColor">Fragmentos hijo</text>
+        <text x="270" y="183" text-anchor="middle" font-size="11" fill="currentColor" opacity="0.65">≤ 150 palabras c/u</text>
+        <text x="270" y="199" text-anchor="middle" font-size="11" fill="currentColor" opacity="0.65">subdivisión del padre</text>
+        <line x1="270" y1="112" x2="270" y2="140" stroke="currentColor" stroke-width="1.5" marker-end="url(#arr)"/>
+        <line x1="355" y1="181" x2="430" y2="181" stroke="currentColor" stroke-width="1.5" marker-end="url(#arr)"/>
+        <text x="392" y="171" text-anchor="middle" font-size="10.5" fill="currentColor" opacity="0.75">vectores</text>
+        <rect x="435" y="150" width="140" height="62" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <text x="505" y="176" text-anchor="middle" font-size="13" font-weight="600" fill="currentColor">Qdrant</text>
+        <text x="505" y="194" text-anchor="middle" font-size="11" fill="currentColor" opacity="0.65">búsqueda por significado</text>
+        <line x1="355" y1="71" x2="430" y2="71" stroke="currentColor" stroke-width="1.5" marker-end="url(#arr)"/>
+        <text x="392" y="61" text-anchor="middle" font-size="10.5" fill="currentColor" opacity="0.75">texto + BM25</text>
+        <rect x="435" y="40" width="140" height="62" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <text x="505" y="66" text-anchor="middle" font-size="13" font-weight="600" fill="currentColor">PostgreSQL</text>
+        <text x="505" y="84" text-anchor="middle" font-size="11" fill="currentColor" opacity="0.65">búsqueda por términos</text>
+        <line x1="575" y1="71" x2="640" y2="115" stroke="currentColor" stroke-width="1.5"/>
+        <line x1="575" y1="181" x2="640" y2="137" stroke="currentColor" stroke-width="1.5"/>
+        <line x1="640" y1="126" x2="655" y2="126" stroke="currentColor" stroke-width="1.5" marker-end="url(#arr)"/>
+        <text x="708" y="122" text-anchor="middle" font-size="12.5" font-weight="600" fill="currentColor">Motor de</text>
+        <text x="708" y="138" text-anchor="middle" font-size="12.5" font-weight="600" fill="currentColor">respuesta</text>
+      </svg>
+      <figcaption><b>Figura 1.</b> La búsqueda encuentra por el hijo (chico y preciso) pero entrega al motor el padre completo (contexto suficiente para redactar bien). Esta expansión hijo→padre es la razón por la que las respuestas citan secciones coherentes y no oraciones sueltas.</figcaption>
+    </figure>
+  </section>
+
+  <section id="despues">
+    <h2><span class="sn">03</span>Después de publicado: la vida del documento</h2>
+    <p class="sub">El conocimiento no es estático: se corrige, se reprocesa y se depura. Estas operaciones se endurecieron tras el incidente de agosto de 2026, en el que un reproceso pisó correcciones manuales.</p>
+    <div class="tbl-wrap">
+    <table>
+      <tr><th>Operación</th><th>Qué hace</th><th>Protección incorporada</th></tr>
+      <tr>
+        <td><b>Edición manual</b></td>
+        <td>El administrador corrige el texto de un fragmento desde el panel. Se re-vectoriza al instante y ambos índices quedan coherentes.</td>
+        <td>La auditoría guarda el texto <b>antes y después</b> de cada edición: cualquier corrección es recuperable sin depender de un backup.</td>
+      </tr>
+      <tr>
+        <td><b>Reproceso</b></td>
+        <td>Rehace la fragmentación y la indexación del documento (botón en el panel).</td>
+        <td>Parte de la <b>versión vigente</b> (con las correcciones incluidas), nunca del archivo original. El original no se toca y queda una copia fechada del texto reprocesado.</td>
+      </tr>
+      <tr>
+        <td><b>Reemplazo</b></td>
+        <td>Sube una versión nueva del mismo documento.</td>
+        <td>Antes de confirmar, el panel informa cuántas partes del documento existente tienen correcciones manuales.</td>
+      </tr>
+      <tr>
+        <td><b>Duplicados de contenido</b></td>
+        <td>Una detección automática señala pares de fragmentos casi idénticos entre documentos, para depurar la base.</td>
+        <td>Las decisiones ya tomadas se comparan por <b>contenido</b>, no por identificador: un reproceso no las revive como pendientes.</td>
+      </tr>
+      <tr>
+        <td><b>Exportación</b></td>
+        <td>Descarga la base de conocimiento completa de la organización.</td>
+        <td>La descarga y el reproceso comparten la misma definición de «versión vigente»: nunca pueden diferir.</td>
+      </tr>
+      <tr>
+        <td><b>Eliminación</b></td>
+        <td>Borra el documento y todas sus partes, en todos los índices.</td>
+        <td>Confirmación explícita; si el documento tiene correcciones manuales, el diálogo lo advierte con el conteo.</td>
+      </tr>
+    </table>
+    </div>
+  </section>
+
+  <section id="salvaguardas">
+    <h2><span class="sn">04</span>Qué garantiza este diseño</h2>
+    <p class="sub">Cuatro propiedades que el proceso asegura, verificadas en la auditoría del 17/08/2026.</p>
+    <div class="pipe">
+      <div class="step"><div class="dot">a</div><div class="card"><h3>Ningún archivo malicioso entra</h3><p>La validación por contenido real (magic bytes) frena archivos disfrazados antes de que toquen el procesamiento.</p></div></div>
+      <div class="step"><div class="dot">b</div><div class="card"><h3>Ninguna corrección se pierde</h3><p>Reproceso desde la versión vigente + auditoría con texto completo + avisos en borrado/reemplazo. La combinación que faltaba en el incidente de agosto, hoy en producción.</p></div></div>
+      <div class="step"><div class="dot">c</div><div class="card"><h3>El material dudoso no responde</h3><p>El control de calidad por fragmento deja fuera de las búsquedas lo incoherente, y lo pendiente queda visible para decisión humana.</p></div></div>
+      <div class="step"><div class="dot">d</div><div class="card"><h3>Todo es trazable</h3><p>Cada subida, edición, revisión y borrado queda en la auditoría con autor, fecha y detalle — consultable desde el panel del superadministrador.</p></div></div>
+    </div>
+  </section>
+
+  <div class="prevnext">
+    <a href="01-motor.html"><span class="lbl">← Capítulo anterior</span>El motor de respuesta</a>
+    <a class="der" href="03-derivacion.html"><span class="lbl">Capítulo siguiente →</span>La derivación a humanos</a>
+  </div>
+
+  <footer>Manual técnico de Intellix · Capítulo 02 · Elaborado a partir del código en producción el 17/08/2026.</footer>
+
+</div>
+</body>
+</html>

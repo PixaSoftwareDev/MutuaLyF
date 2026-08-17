@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>La derivación a humanos</title>
+<style>
+  :root{
+    --bg:#F7F8FA; --panel:#FFFFFF; --ink:#16202E; --dim:#5A6B80;
+    --line:#D8DEE7; --accent:#2563EB; --accent-soft:#E8EEFC;
+    --ok:#0E9F6E; --ok-soft:#E3F5EE; --warn:#B45309; --warn-soft:#FBEEDC;
+    --rail:#C3CCD9; --nav-bg:#FFFFFFF2;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#0E141D; --panel:#161E2A; --ink:#E8EDF4; --dim:#93A2B5;
+      --line:#2A3547; --accent:#5B8DEF; --accent-soft:#1B2A47;
+      --ok:#34C08B; --ok-soft:#12302A; --warn:#E1A055; --warn-soft:#3A2A16;
+      --rail:#3A465A; --nav-bg:#0E141DF2;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0E141D; --panel:#161E2A; --ink:#E8EDF4; --dim:#93A2B5;
+    --line:#2A3547; --accent:#5B8DEF; --accent-soft:#1B2A47;
+    --ok:#34C08B; --ok-soft:#12302A; --warn:#E1A055; --warn-soft:#3A2A16;
+    --rail:#3A465A; --nav-bg:#0E141DF2;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  @media (prefers-reduced-motion: reduce){ html{scroll-behavior:auto} }
+  body{margin:0; background:var(--bg); color:var(--ink); font:16px/1.65 "Segoe UI", system-ui, -apple-system, sans-serif}
+  nav{position:sticky; top:0; z-index:10; background:var(--nav-bg); backdrop-filter:blur(8px); border-bottom:1px solid var(--line)}
+  .nav-in{max-width:920px; margin:0 auto; padding:10px 24px; display:flex; align-items:center; gap:6px; overflow-x:auto; white-space:nowrap}
+  .nav-brand{font-weight:700; font-size:14px; letter-spacing:.02em; margin-right:8px; color:var(--accent); flex-shrink:0; text-decoration:none}
+  nav a{color:var(--dim); text-decoration:none; font-size:13.5px; font-weight:500; padding:5px 11px; border-radius:99px}
+  nav a:hover, nav a:focus-visible{color:var(--ink); background:var(--accent-soft); outline:none}
+  .wrap{max-width:920px; margin:0 auto; padding:52px 24px 96px}
+  section{scroll-margin-top:76px}
+  .eyebrow{font-size:12px; font-weight:600; letter-spacing:.14em; text-transform:uppercase; color:var(--accent); margin:0 0 12px}
+  h1{font-size:clamp(30px,5vw,44px); line-height:1.12; letter-spacing:-.015em; margin:0 0 16px; font-weight:700; text-wrap:balance}
+  .lede{font-size:18px; color:var(--dim); max-width:62ch; margin:0}
+  .meta{font-size:13px; color:var(--dim); margin-top:14px}
+  h2{font-size:23px; letter-spacing:-.01em; margin:64px 0 6px; font-weight:700; text-wrap:balance}
+  h2 .sn{color:var(--accent); font-variant-numeric:tabular-nums; margin-right:10px}
+  h2 + p.sub{margin:0 0 24px; color:var(--dim); max-width:66ch}
+  p{max-width:70ch}
+  code, .mono{font-family:ui-monospace, "Cascadia Code", Consolas, monospace; font-size:.92em}
+  .pipe{margin:26px 0 0}
+  .step{display:grid; grid-template-columns:52px 1fr; gap:0 18px; position:relative; padding-bottom:20px}
+  .step::before{content:""; position:absolute; left:25px; top:34px; bottom:-4px; width:2px; background:var(--rail)}
+  .step:last-child::before{display:none}
+  .dot{width:52px; height:34px; display:flex; align-items:center; justify-content:center; background:var(--panel); border:1.5px solid var(--rail); border-radius:8px; font-family:ui-monospace, Consolas, monospace; font-size:13px; font-weight:700; position:relative; z-index:1}
+  .step.hito .dot{border-color:var(--accent); color:var(--accent); background:var(--accent-soft)}
+  .card{background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:15px 18px}
+  .card h3{margin:0 0 5px; font-size:16.5px; display:flex; align-items:center; gap:10px; flex-wrap:wrap}
+  .card p{margin:0; color:var(--dim); font-size:14.5px; max-width:none}
+  .tag{font-size:11px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; padding:2px 9px; border-radius:99px; white-space:nowrap}
+  .t-ok{background:var(--ok-soft); color:var(--ok)}
+  .t-llm{background:var(--warn-soft); color:var(--warn)}
+  .t-info{background:var(--accent-soft); color:var(--accent)}
+  figure{margin:26px 0; background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:22px; overflow-x:auto}
+  figure svg{display:block; max-width:100%; height:auto; margin:0 auto; color:var(--ink)}
+  figcaption{font-size:13.5px; color:var(--dim); margin-top:14px; max-width:74ch}
+  table{border-collapse:collapse; width:100%; font-size:14.5px; background:var(--panel)}
+  .tbl-wrap{overflow-x:auto; margin-top:16px; border:1px solid var(--line); border-radius:10px}
+  th,td{text-align:left; padding:11px 14px; border-bottom:1px solid var(--line); vertical-align:top}
+  th{font-size:12px; text-transform:uppercase; letter-spacing:.07em; color:var(--dim)}
+  tr:last-child td{border-bottom:none}
+  .prevnext{display:flex; justify-content:space-between; gap:12px; margin-top:64px}
+  .prevnext a{flex:1; background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px 16px; text-decoration:none; color:var(--ink); font-size:14px}
+  .prevnext a:hover{border-color:var(--accent)}
+  .prevnext .lbl{display:block; font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--dim); margin-bottom:3px}
+  .prevnext .der{text-align:right}
+  footer{margin-top:40px; padding-top:18px; border-top:1px solid var(--line); font-size:13px; color:var(--dim); max-width:none}
+</style>
+</head>
+<body>
+
+<nav aria-label="Secciones del capítulo">
+  <div class="nav-in">
+    <a class="nav-brand" href="index.html">Intellix · Manual</a>
+    <a href="index.html">⌂ Portada</a>
+    <a href="#estados">Estados de la conversación</a>
+    <a href="#reglas">Las cinco reglas</a>
+    <a href="#equipo">Del lado del equipo</a>
+    <a href="#retorno">El retorno al asistente</a>
+  </div>
+</nav>
+
+<div class="wrap">
+
+<p class="eyebrow">Manual técnico · Capítulo 03</p>
+  <h1>La derivación a humanos</h1>
+  <p class="lede">El asistente no está diseñado para retener conversaciones a toda costa: cuando corresponde, ofrece una persona. Este capítulo describe las reglas que disparan esa oferta, el recorrido de la conversación del lado del equipo y el retorno al asistente.</p>
+  <p class="meta">Versión del 17/08/2026 · Fuentes: <span class="mono">services/handoff.py · api/v1/widget_conversation.py · workers (tareas de inactividad y cierre)</span></p>
+
+  <section id="estados">
+    <h2><span class="sn">01</span>Los estados de una conversación</h2>
+    <p class="sub">Toda conversación —del widget o de WhatsApp— vive en uno de cuatro estados. Las transiciones están acotadas: no hay caminos imprevistos.</p>
+    <figure>
+      <svg viewBox="0 0 760 210" role="img" aria-label="Máquina de estados: asistente activo pasa a en espera cuando se acepta la derivación; un operador la toma y pasa a atención humana; puede volver al asistente o cerrarse; el cierre por inactividad aplica en cualquier estado">
+        <defs>
+          <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+          </marker>
+        </defs>
+        <rect x="15" y="60" width="160" height="58" rx="10" fill="none" stroke="#2563EB" stroke-width="2"/>
+        <text x="95" y="85" text-anchor="middle" font-size="13" font-weight="700" fill="#2563EB">Asistente activo</text>
+        <text x="95" y="103" text-anchor="middle" font-size="11" fill="currentColor" opacity="0.65">bot_active</text>
+        <line x1="175" y1="89" x2="245" y2="89" stroke="currentColor" stroke-width="1.5" marker-end="url(#arr)"/>
+        <text x="210" y="79" text-anchor="middle" font-size="10.5" fill="currentColor" opacity="0.75">acepta derivación</text>
+        <rect x="250" y="60" width="160" height="58" rx="10" fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <text x="330" y="85" text-anchor="middle" font-size="13" font-weight="600" fill="currentColor">En espera</text>
+        <text x="330" y="103" text-anchor="middle" font-size="11" fill="currentColor" opacity="0.65">handoff_requested</text>
+        <line x1="410" y1="89" x2="480" y2="89" stroke="currentColor" stroke-width="1.5" marker-end="url(#arr)"/>
+        <text x="445" y="79" text-anchor="middle" font-size="10.5" fill="currentColor" opacity="0.75">operador la toma</text>
+        <rect x="485" y="60" width="170" height="58" rx="10" fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <text x="570" y="85" text-anchor="middle" font-size="13" font-weight="600" fill="currentColor">Atención humana</text>
+        <text x="570" y="103" text-anchor="middle" font-size="11" fill="currentColor" opacity="0.65">human_attending</text>
+        <polyline points="570,118 570,165 95,165 95,118" fill="none" stroke="currentColor" stroke-width="1.5" marker-end="url(#arr)"/>
+        <text x="333" y="157" text-anchor="middle" font-size="10.5" fill="currentColor" opacity="0.75">el operador devuelve la conversación al asistente</text>
+        <line x1="655" y1="89" x2="700" y2="89" stroke="currentColor" stroke-width="1.5" marker-end="url(#arr)"/>
+        <rect x="703" y="66" width="50" height="46" rx="10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="4 3"/>
+        <text x="728" y="93" text-anchor="middle" font-size="11.5" font-weight="600" fill="currentColor">Cierre</text>
+        <text x="380" y="30" text-anchor="middle" font-size="11" fill="currentColor" opacity="0.7">· El cierre por inactividad (30 minutos sin mensajes) aplica desde cualquier estado ·</text>
+      </svg>
+      <figcaption><b>Figura 1.</b> El estado indica quién conduce la conversación en cada momento. «En espera» significa que el usuario aceptó la derivación y está en la fila; el asistente ya no interviene hasta que un operador la devuelva o la conversación se cierre.</figcaption>
+    </figure>
+  </section>
+
+  <section id="reglas">
+    <h2><span class="sn">02</span>Las cinco reglas de derivación</h2>
+    <p class="sub">Se evalúan en cada turno, después de generar la respuesta. Todas producen una <b>oferta</b> («¿querés que te derive con una persona?») que el usuario acepta o declina — la derivación nunca es forzada.</p>
+    <div class="pipe">
+      <div class="step"><div class="dot">R1</div><div class="card">
+        <h3>Respuestas insuficientes consecutivas <span class="tag t-info">configurable</span></h3>
+        <p>Si el asistente responde «no encontré esa información» N veces seguidas (N configurable por organización; 3 por defecto), ofrece la derivación. Un mecanismo de enfriamiento evita repetir la oferta si acaba de hacerse.</p>
+      </div></div>
+      <div class="step"><div class="dot">R2</div><div class="card">
+        <h3>Pedido explícito</h3>
+        <p>El usuario pide hablar con una persona («quiero un humano», «pasame con alguien»): la oferta es inmediata.</p>
+      </div></div>
+      <div class="step"><div class="dot">R3</div><div class="card">
+        <h3>Señales de frustración</h3>
+        <p>Expresiones de malestar o insistencia detectadas en el mensaje disparan la oferta antes de que la experiencia se deteriore.</p>
+      </div></div>
+      <div class="step"><div class="dot">R4</div><div class="card">
+        <h3>Inactividad del operador <span class="tag t-info">tarea programada</span></h3>
+        <p>Si una conversación en atención humana queda sin respuesta del operador, una tarea periódica (cada minuto) la detecta y alerta — el usuario no queda hablando al vacío.</p>
+      </div></div>
+      <div class="step"><div class="dot">R5</div><div class="card">
+        <h3>Palabras clave de la organización <span class="tag t-info">responder y ofrecer</span></h3>
+        <p>Cada organización define temas que ameritan atención humana. El asistente <b>responde igual</b> con la información disponible y, además, ofrece la derivación. Ejemplo real: en una mutual de salud, la palabra «turno» activa esta regla — el usuario recibe los canales de turnos y la opción de hablar con una persona.</p>
+      </div></div>
+    </div>
+  </section>
+
+  <section id="equipo">
+    <h2><span class="sn">03</span>Del lado del equipo</h2>
+    <p class="sub">Lo que ve y hace el operador cuando una conversación entra en la fila.</p>
+    <div class="tbl-wrap">
+    <table>
+      <tr><th>Momento</th><th>Qué ocurre</th></tr>
+      <tr><td><b>Oferta aceptada</b></td><td>La conversación pasa a «En espera». Si no hay operadores conectados, el usuario recibe un aviso honesto: su consulta queda en la fila y le responden a la brevedad.</td></tr>
+      <tr><td><b>Ruteo por sectores</b></td><td>Las conversaciones se organizan por sectores definidos por la organización (p. ej. «Consultas Generales», «Afiliaciones»); cada operador ve los sectores que tiene asignados.</td></tr>
+      <tr><td><b>Tomar la conversación</b></td><td>El operador la toma desde su bandeja: pasa a «Atención humana» y ve el historial completo — incluido todo lo que respondió el asistente, con sus fuentes. Contexto completo, sin repreguntar desde cero.</td></tr>
+      <tr><td><b>Transferir o soltar</b></td><td>Puede transferirla a otro sector u operador, o soltarla de vuelta a la fila. Cada participación queda en un registro histórico inmutable: quién atendió qué, aunque después se reasigne.</td></tr>
+      <tr><td><b>Adjuntos</b></td><td>Usuario y operador pueden intercambiar imágenes y PDF; los archivos se almacenan en MinIO y se previsualizan en el panel.</td></tr>
+    </table>
+    </div>
+  </section>
+
+  <section id="retorno">
+    <h2><span class="sn">04</span>El retorno al asistente y el cierre</h2>
+    <p class="sub">El ciclo se completa en ambas direcciones.</p>
+    <div class="pipe">
+      <div class="step"><div class="dot">a</div><div class="card">
+        <h3>Devolver al asistente</h3>
+        <p>Resuelto el tema humano, el operador devuelve la conversación al asistente con un clic; el usuario sigue consultando con normalidad en el mismo hilo.</p>
+      </div></div>
+      <div class="step"><div class="dot">b</div><div class="card">
+        <h3>Cierre por inactividad</h3>
+        <p>Una tarea programada cierra las conversaciones sin actividad (30 minutos), con un mensaje que invita a iniciar una nueva consulta. Caso real del 15/08/2026: un usuario consultó horarios y cómo sacar turno, declinó la derivación («No, sigo así») y la conversación se cerró sola media hora después — el ciclo completo sin intervención manual.</p>
+      </div></div>
+      <div class="step"><div class="dot">c</div><div class="card">
+        <h3>Métricas</h3>
+        <p>Cada derivación, atención y cierre alimenta los informes del panel (tiempos de atención, volumen por sector, desempeño del asistente), visibles para el administrador.</p>
+      </div></div>
+    </div>
+  </section>
+
+  <div class="prevnext">
+    <a href="02-conocimiento.html"><span class="lbl">← Capítulo anterior</span>El conocimiento</a>
+    <a class="der" href="04-canales.html"><span class="lbl">Capítulo siguiente →</span>Los canales</a>
+  </div>
+
+  <footer>Manual técnico de Intellix · Capítulo 03 · Elaborado a partir del código en producción el 17/08/2026.</footer>
+
+</div>
+</body>
+</html>
