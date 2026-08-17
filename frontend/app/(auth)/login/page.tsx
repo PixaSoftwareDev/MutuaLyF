@@ -189,9 +189,16 @@ function LoginForm() {
       document.cookie = `ia_role=${role}; path=/; max-age=${COOKIE_MAX_AGE}; SameSite=strict`;
       document.cookie = `ia_tenant=${resolvedTenant}; path=/; max-age=${COOKIE_MAX_AGE}; SameSite=strict`;
 
-      if (role === "super_admin")      router.push("/superadmin");
-      else if (role === "operator")    router.push("/operator");
-      else                             router.push("/admin/documents");
+      // Navegación COMPLETA (no router.push): si el usuario llegó al login
+      // rebotado de una sesión vencida, el router del cliente cacheó ese
+      // redirect 307 (~30s) y un push a la misma ruta rebota en silencio al
+      // login — cero red, la ruedita queda girando y "se arregla" refrescando
+      // (trazado en nginx el 17/08: login_success y después NADA hasta el
+      // refresh manual). window.location ignora todo cache del router y
+      // garantiza panel fresco con las cookies recién seteadas.
+      if (role === "super_admin")      window.location.assign("/superadmin");
+      else if (role === "operator")    window.location.assign("/operator");
+      else                             window.location.assign("/admin/documents");
     } catch (err: any) {
       const status = err?.response?.status;
       const detail = err?.response?.data?.detail;
