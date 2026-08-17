@@ -206,6 +206,31 @@ def _module_content(inp: PromptInputs, module: str) -> str:
     return (inp.templates.get(module) or "").strip() or _registry_default(module)
 
 
+# El caller pasa códigos ("es", "pt-BR"); al prompt va el nombre — antes el
+# código iba crudo y la instrucción quedaba "Respondé en es.". Código sin
+# mapear → va tal cual (un hint imperfecto sigue siendo hint).
+_LANGUAGE_NAMES = {"es": "español", "en": "English", "pt": "português"}
+
+
+def _idioma_module(language: str) -> str:
+    code = (language or "es").strip().lower()
+    base = code.split("-")[0]
+    out = f"Respondé en {_LANGUAGE_NAMES.get(base, language)}."
+    if base == "es":
+        # La voz de la plataforma es voseo rioplatense en TODAS las superficies
+        # (mensajes de sistema y widget: "Contame", "Recordá") para todos los
+        # tenants. Sin esta línea el modelo cae al tuteo neutro ("puedes") y
+        # desentona con el resto del producto (visto en prod, 15/08). El trato
+        # es configurable per tenant por el mecanismo existente: si la
+        # personalidad (módulo "tono") define otro (p. ej. "usted"), prevalece.
+        out += (
+            " Tratá al usuario de «vos» (voseo rioplatense), de manera "
+            "consistente en toda la respuesta, salvo que tu personalidad "
+            "indique otro tratamiento."
+        )
+    return out
+
+
 def build_system_prompt(inp: PromptInputs) -> tuple[str, list[str]]:
     """Devuelve (system_prompt, módulos_incluidos). Los módulos incluidos se
     loguean en el caller — ante un turno con respuesta rara, el log reconstruye
@@ -239,6 +264,6 @@ def build_system_prompt(inp: PromptInputs) -> tuple[str, list[str]]:
     if inp.has_tools and not small:
         add("tools", _module_content(inp, "tools_rules"))
 
-    add("idioma", f"Respondé en {inp.language}.")
+    add("idioma", _idioma_module(inp.language))
 
     return "\n\n".join(parts), modules
