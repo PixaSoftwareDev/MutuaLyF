@@ -44,8 +44,8 @@ derivación, branding).
 
 1. Widget/WhatsApp → FastAPI → middleware resuelve tenant (`search_path` PG).
 2. Normalización + transformación de la consulta (2026-08-17, paralelizada):
-   el **query rewriter** LLM (⚠️ detrás de `QUERY_REWRITING_ENABLED`, hoy
-   **false en staging/prod**) recibe la consulta LIMPIA + historial y corre
+   el **query rewriter** LLM (detrás de `QUERY_REWRITING_ENABLED`, **true en
+   los 3 ambientes desde el 17/08**) recibe la consulta LIMPIA + historial y corre
    EN PARALELO con el embedding y con la búsqueda de la consulta original;
    su variante se busca al llegar y ambos rankings se fusionan con RRF
    (`retrieval.fuse_rankings`). Con el flag apagado o el LLM caído, la red
@@ -97,7 +97,7 @@ derivación, branding).
 | `NEXT_PUBLIC_CONNECTORS_UI` | build-arg frontend (`docker-compose.prod.yml`) | **false** | Oculta "Fuentes de datos" en el panel admin (`frontend/lib/features.ts`). |
 | `NEXT_PUBLIC_ENABLE_DEV_LOGIN` | build-arg frontend | false (solo builds locales en true) | Panel de acceso rápido del login. Doble gate con hostname localhost. |
 | `NEXT_PUBLIC_FEEDBACK_UI` | build-arg frontend (staging y prod en `false`) | **false** | Oculta las caritas al cierre del chat y la cola Feedback del admin hasta validar la feature. |
-| `QUERY_REWRITING_ENABLED` | `.env` backend | **false** | Reescritura LLM de la consulta (condensa repreguntas con el historial). Apagado en jun/2026 por +225ms sin ganancia — pero ese A/B era PRE-cat-10: el A/B del 17/08 (130 casos) mostró multi-turno 85→90% y typos 100% con 0 regresiones. Se prende junto con la medición de latencia en staging (la paralelización de 982aba8 absorbe el costo). En local (`.env.local`) ya está en true. |
+| `QUERY_REWRITING_ENABLED` | `.env` backend | **true** (desde 2026-08-17) | Reescritura LLM de la consulta (condensa repreguntas con el historial). Estuvo apagado jun→ago/2026 por un A/B PRE-cat-10 (+225ms sin ganancia). Reactivado con datos: A/B 130 casos (multi-turno 85→90%, typos 100%, 0 regresiones) + medición en staging (conversacional p50 2,9s ≈ la mediana histórica: la paralelización esconde su costo). Apagarlo = rollback instantáneo del rewriter sin tocar código (force-recreate, no restart: el restart no relee el .env). |
 
 Conectores está **oculto en prod hasta validarlo** (decisión 2026-07-26).
 NUNCA ocultar features comentando código — siempre flags, mismas ramas.
