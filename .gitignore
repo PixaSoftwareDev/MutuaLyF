@@ -139,3 +139,10 @@ backend/ground_truth.json
 # Capturas y artefactos de sesiones de browser automatizado (Playwright MCP)
 .playwright-mcp/
 /*.png
+
+# Datos del incidente 2026-08-10 y material sensible: NUNCA al repo
+# (dumps de la base con datos de afiliados, corpus del cliente, material comercial)
+docs/recuperacion_2026-08-10/
+docs/ediciones_perdidas_mutualyf.*
+docs/comercial/
+*.dump
