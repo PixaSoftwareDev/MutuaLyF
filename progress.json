@@ -1,6 +1,6 @@
 {
   "version": "1.9",
-  "last_updated": "2026-07-27",
+  "last_updated": "2026-08-18",
   "current_stage": "etapa_3",
   "current_step": "Post-deploy a prod (2026-07-26/27): paquete completo en produccion; desarrollo continua en dev-local",
   "overall_status": "etapa_3_complete",
@@ -414,5 +414,26 @@
     ],
     "validacion": "237/237 tests local, 66/66 staging, 70/70 prod en contenedor; smoke E2E en los 3 ambientes; mutual sin downtime de backend (solo restarts breves)",
     "regla_flujo": "Desarrollo SIEMPRE en dev-local; pasajes a staging/prod SOLO a pedido de Alejo (prod con OK explicito)"
+  },
+  "session_2026_08_18_observacion_prod": {
+    "fecha": "2026-08-18",
+    "contexto": "Primera validación real del query rewriter en prod: afiliada Naty (WhatsApp) preguntó por plan materno + repregunta post-nacimiento; el rewriter condensó bien y respondió correcto.",
+    "mejoras_pendientes_finde": [
+      "Warmup del modelo de embeddings en el startup del backend: hoy carga lazy con la primera consulta (torch_threads_configured a los ~2.9s) y el primer turno tras restart/idle paga ~3s extra (5.9s vs ~3s). Fix: inferencia dummy en el evento startup de FastAPI.",
+      "WhatsApp: enviar indicador 'escribiendo...' (typing) mientras el motor procesa, para que la espera se sienta menor.",
+      "Rewriter en camino crítico: en el turno 2 tardó 2.1s (variabilidad OpenAI) y dominó la latencia (4.3s). Revisar timeout/presupuesto del rewriter o degradar a keywords si excede N ms."
+    ],
+    "plan": "Trabajarlo el fin de semana (22-23/08) en dev-local; pasa a staging/prod solo con OK de Alejo.",
+    "auditoria_base_conocimiento": {
+      "regla": "NO crear ni partir documentos del tenant: el panel es de la mutual, los fixes van por codigo",
+      "hallazgos": [
+        "PRIORIDAD 1: chunker estrategia FAQ no aplica tope de tamano a bloques de prosa (_faq_split) -> parent de 8258 chars con 12 tramites en conocimiento_chats_autorizaciones; 'ferulas' (2.7) irrecuperable (2 consultas reales sin respuesta en julio). Fix: bloques no-Q&A por _structural_split. Tras deploy: un Reprocesar lo arregla sin tocar contenido.",
+        "_texto_vigente reconstruye desde hijos con overlap de 15 palabras -> cada Reprocesar duplica frases (medido: 161 secuencias repetidas). Fix: reconstruir desde parent_chunks.",
+        "edit_chunk_text pisa el parent entero con el texto del hijo editado -> destructivo en parents multi-hijo. Hoy inocuo (8 ediciones, todas en docs FAQ 1:1).",
+        "Falta re-ingesta/alerta de parents anomalos tras mejoras del chunker.",
+        "Persistir senal del trust gate en consultas_log (subio de prioridad)."
+      ],
+      "reproceso_18_08": "Inocuo: resultado identico, respaldo en /root/backup_parents_autorizaciones_20260818.csv del VPS, cache invalidado."
+    }
   }
 }
