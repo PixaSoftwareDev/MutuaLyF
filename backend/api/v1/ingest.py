@@ -228,12 +228,64 @@ def _sin_prefijos_del_indexador(texto: str) -> str:
     return "\n".join(lineas).strip()
 
 
+def _cuerpo_del_fragmento(texto: str) -> str:
+    """Texto del fragmento SIN sus líneas de prefijo del indexador.
+
+    A diferencia de _sin_prefijos_del_indexador (que conserva el encabezado sin
+    corchetes, porque reconstruye el documento completo), acá el encabezado
+    repetido se descarta: para ubicar el fragmento DENTRO de su parent hay que
+    comparar solo el contenido — el parent ya trae su encabezado una única vez.
+    """
+    texto = _PREFIJO_CONTACTO_RE.sub("", texto)
+    lineas = texto.split("\n")
+    i = 0
+    while i < len(lineas) and _PREFIJO_INDEXADO_RE.fullmatch(lineas[i].strip()):
+        i += 1
+    return "\n".join(lineas[i:]).strip()
+
+
+def _parent_con_fragmento_editado(parent_text: str, old_child: str, new_child: str) -> str | None:
+    """Parent actualizado tras editar UNO de sus fragmentos, o None si el
+    fragmento anterior no se puede ubicar dentro del parent.
+
+    El parent NUNCA se reemplaza entero por el texto del fragmento: cuando el
+    parent tiene varios fragmentos, eso descartaba el resto de su contenido
+    para la búsqueda BM25 y para el contexto del LLM (bug hallado 2026-08-18).
+    Solo el caso 1 parent = 1 fragmento equivale al reemplazo total.
+    """
+    viejo = _cuerpo_del_fragmento(old_child)
+    nuevo = _cuerpo_del_fragmento(new_child)
+    if not viejo:
+        return None
+    limpio_parent = parent_text.strip()
+    # Caso 1 parent = 1 fragmento: el fragmento ES el parent (con su encabezado
+    # o solo el cuerpo). El texto nuevo conserva el encabezado si lo trae.
+    if limpio_parent in (viejo, _sin_prefijos_del_indexador(old_child)):
+        return _sin_prefijos_del_indexador(new_child)
+    # Fragmento dentro de un parent con más contenido: reemplazo puntual.
+    if viejo in parent_text:
+        return parent_text.replace(viejo, nuevo, 1)
+    return None
+
+
 async def _texto_vigente(document_id: str, tenant_id: str) -> str:
     """Documento tal como lo usa el asistente hoy: las partes en uso, en orden,
     CON las correcciones hechas a mano y sin las marcadas "sin usar".
 
     Es la única representación completa y al día del documento: el archivo
     original no tiene las correcciones del panel.
+
+    Se reconstruye desde los PARENTS (PostgreSQL), no desde los fragmentos de
+    búsqueda en Qdrant: los fragmentos se guardan con solapamiento entre sí
+    (child_chunk_overlap_words) y unirlos repetía esas palabras en cada
+    costura — y cada reproceso volvía a partir y solapar, acumulando
+    repeticiones (bug hallado 2026-08-18). Los parents no se solapan y
+    reciben las correcciones del panel (edit_chunk_text los actualiza).
+
+    Un parent cuenta como "sin usar" solo si TODOS sus fragmentos en Qdrant
+    están marcados 'skipped'. (Antes se excluía fragmento por fragmento; el
+    costo de este cambio es que un fragmento suelto marcado "sin usar" dentro
+    de un parent con otros vigentes reaparece al reprocesar.)
     """
     qdrant = get_qdrant_client()
     results, _ = await qdrant.scroll(
@@ -242,18 +294,30 @@ async def _texto_vigente(document_id: str, tenant_id: str) -> str:
             must=[FieldCondition(key="document_id", match=MatchValue(value=str(document_id)))]
         ),
         limit=1000,
-        with_payload=True,
+        with_payload=["parent_id", "quality_gate_status"],
         with_vectors=False,
     )
-    partes = sorted(
-        (
-            (p.payload.get("chunk_index", 0), _sin_prefijos_del_indexador(p.payload.get("text", "")))
-            for p in results
-            if p.payload.get("quality_gate_status") != "skipped"
-        ),
-        key=lambda t: t[0],
+    parent_en_uso: dict[str, bool] = {}
+    for p in results:
+        payload = p.payload or {}
+        pid = str(payload.get("parent_id") or "")
+        en_uso = payload.get("quality_gate_status") != "skipped"
+        parent_en_uso[pid] = parent_en_uso.get(pid, False) or en_uso
+
+    async with get_pg_session(tenant_id) as session:
+        rows = (await session.execute(
+            text("SELECT id, text FROM parent_chunks WHERE document_id = :d ORDER BY chunk_index"),
+            {"d": str(document_id)},
+        )).fetchall()
+
+    partes = (
+        _sin_prefijos_del_indexador(r[1] or "")
+        for r in rows
+        # Un parent sin fragmentos en Qdrant no debería existir; si aparece,
+        # conservarlo es lo seguro (perder texto es peor que texto de más).
+        if parent_en_uso.get(str(r[0]), True)
     )
-    return "\n\n".join(t.strip() for _, t in partes if t.strip())
+    return "\n\n".join(t.strip() for t in partes if t.strip())
 
 
 @router.post("/documents/{document_id}/reprocess", status_code=status.HTTP_202_ACCEPTED)
@@ -605,14 +669,39 @@ async def edit_chunk_text(
         points=[PointStruct(id=chunk_id, vector=vector, payload=payload)],
     )
 
-    # 4. Update parent_chunks si aplica (afecta BM25 + small-to-big retrieval)
+    # 4. Update parent_chunks si aplica (afecta BM25 + small-to-big retrieval).
+    #    Reemplazo PUNTUAL del fragmento dentro del parent: pisar el parent
+    #    entero descartaba el resto de su contenido cuando tiene varios
+    #    fragmentos (bug 2026-08-18; no explotó porque las ediciones históricas
+    #    fueron todas en docs FAQ donde parent y fragmento coinciden 1:1).
     parent_id = payload.get("parent_id")
+    parent_actualizado = False
     if parent_id:
         async with get_pg_session(tenant_id) as session:
-            await session.execute(
-                text("UPDATE parent_chunks SET text = :t WHERE id = :pid AND document_id = :did"),
-                {"t": new_text, "pid": parent_id, "did": document_id},
+            parent_text = (await session.execute(
+                text("SELECT text FROM parent_chunks WHERE id = :pid AND document_id = :did"),
+                {"pid": parent_id, "did": document_id},
+            )).scalar()
+            actualizado = (
+                _parent_con_fragmento_editado(parent_text, old_text, new_text)
+                if parent_text is not None else None
             )
+            if actualizado is not None:
+                await session.execute(
+                    text("UPDATE parent_chunks SET text = :t WHERE id = :pid AND document_id = :did"),
+                    {"t": actualizado, "pid": parent_id, "did": document_id},
+                )
+                parent_actualizado = True
+            else:
+                # No ubicamos el texto anterior dentro del parent (p.ej. una
+                # edición previa ya lo había desincronizado). Dejar el parent
+                # intacto: la búsqueda semántica ya usa el texto nuevo del
+                # fragmento; perder contenido del parent sería peor.
+                logger.warning(
+                    "chunk_edit_parent_no_ubicado chunk_id=%s parent_id=%s document_id=%s: "
+                    "el parent queda sin modificar",
+                    chunk_id, parent_id, document_id,
+                )
 
     # 5. Invalidar respuestas cacheadas del tenant. Sin esto, una respuesta vieja
     # cacheada antes de la edición (p.ej. "no encontré ese dato") se seguiría
@@ -648,7 +737,7 @@ async def edit_chunk_text(
         # de una corrección manual hasta que el archivo original se actualiza.
         detail={
             "len": len(new_text),
-            "parent_updated": bool(parent_id),
+            "parent_updated": parent_actualizado,
             "text_before": old_text[:8000],
             "text_after": new_text[:8000],
         },
