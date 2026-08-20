@@ -59,6 +59,22 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("model_warmup_failed", error=str(exc))
 
+    # Precarga de services.retrieval EN CADA WORKER: su import a nivel de módulo
+    # arrastra torch (~3 s de import). Sin esto, ese costo lo paga la PRIMERA
+    # consulta que cae en cada worker (con --workers 4, los primeros 4 afiliados
+    # tras un restart) — visto en prod el 18 y 20/08 como latencias de 5-6 s.
+    # Con EMBEDDING_PROVIDER=openai el warmup de arriba se saltea (no hay modelo
+    # local), así que este import es el único frío que queda.
+    def _preload_retrieval() -> None:
+        import services.retrieval  # noqa: F401
+
+    try:
+        logger.info("retrieval_preload_start")
+        await loop.run_in_executor(None, _preload_retrieval)
+        logger.info("retrieval_preload_complete")
+    except Exception as exc:
+        logger.warning("retrieval_preload_failed", error=str(exc))
+
     logger.info("startup_complete")
     yield
     logger.info("shutdown_begin")
