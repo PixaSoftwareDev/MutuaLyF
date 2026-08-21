@@ -79,37 +79,74 @@ _INTERROGATIVE_STARTS = {
 }
 
 
-def should_rewrite(query: str, has_history: bool = False) -> bool:
-    """Decide si vale la pena correr el rewriter para esta query.
+# Arranques de continuación conversacional — señal de que la consulta depende
+# del turno anterior ("y los horarios?", "pero cómo lo pido", "bien, y después?").
+# Propiedad del ESPAÑOL, no del dominio: el gate NUNCA debe contener vocabulario
+# de negocio (regla multi-tenant — lo específico del cliente vive en su corpus).
+_CONTINUATION_STARTS = {
+    "y", "e", "pero", "entonces", "bien", "bueno", "ok", "dale", "ademas",
+    "además", "tambien", "también", "igual", "aparte", "ahora", "despues",
+    "después", "no", "si", "sí", "ah", "ah,", "listo", "perfecto",
+}
+
+# Anáforas/deixis — referencias a algo dicho antes que la búsqueda sola no
+# resuelve ("eso cuánto cuesta", "ahí mismo atienden?", "y el anterior?").
+# Solo formas de alta precisión: los clíticos ultra comunes ("lo", "le") NO van
+# porque aparecen en consultas autosuficientes ("lo que necesito para afiliarme").
+_DEIXIS_WORDS = {
+    "eso", "esa", "ese", "esto", "aquel", "aquella", "aquello",
+    "ahí", "ahi", "allí", "alli", "allá", "alla",
+    "mismo", "misma", "anterior", "anteriores", "dicho", "dicha",
+    "él", "ella", "ellos", "ellas", "ésta", "éste", "ése", "ésa",
+}
+
+
+def _gate_reason(query: str, has_history: bool = False) -> str | None:
+    """Motivo por el que la consulta merece rewriting, o None para saltearlo.
 
     Heurística (orden de evaluación):
-      1. Query vacía → False (nada que reescribir)
-      2. Query muy larga (>max_query_words) → False (ya es específica)
-      3. Hay historial de conversación → True (regla estructural: dentro de una
-         conversación cualquier consulta puede ser elíptica o traer preámbulo
-         conversacional — "Perfecto, ahora decime…" — que ensucia el retrieval.
-         La detección de qué contexto aplica la hace el LLM, no un patrón acá.)
-      4. Query corta (≤short_threshold palabras) → True (vocabulary mismatch típico)
-      5. Empieza con pronombre interrogativo → True (questions abstractas)
-      6. Otro caso → False (skip, ya tiene suficiente contexto)
+      1. Query vacía → skip
+      2. Query muy larga (>max_query_words) → skip (ya es específica)
+      3. Query corta (≤short_threshold palabras) → "corta" (vocabulary mismatch
+         típico; calibrado 2026-05)
+      4. Empieza con pronombre interrogativo → "interrogativa"
+      5. Con historial y arranca con conector de continuación → "continuacion"
+      6. Con historial y contiene anáfora/deixis → "anafora"
+      7. Otro caso → skip
 
-    Beneficio: queries detalladas evitan los 500-2500ms del LLM call extra.
-    Queries cortas/ambiguas siguen recibiendo el rewriting que aporta recall.
+    Hasta el 2026-08-20 la regla con historial era "reescribir SIEMPRE": dentro
+    de una conversación, TODA consulta pagaba el LLM del rewriter + la búsqueda
+    de su variante (~2 s en serie) aunque fuera autosuficiente ("Quisiera
+    conocer qué debo presentar para el plan materno"). Medido en prod ese día:
+    3,7-4,6 s por consulta contra 2-3 s sin rewriter. Las reglas 5-6 conservan
+    la ganancia real del multi-turno (repreguntas elípticas, A/B 17/08:
+    85→90%) sin cobrarle el peaje a las consultas que no la necesitan.
     """
     if not query or not query.strip():
-        return False
+        return None
     words = query.strip().split()
     if len(words) > settings.query_rewriting_max_query_words:
-        return False
-    if has_history:
-        return True
+        return None
     if len(words) <= settings.query_rewriting_short_threshold:
-        return True
-    # Limpiar primera palabra: lowercase + strip puntuación
-    first = words[0].lower().strip("¿?¡!.,;:\"'()[]")
-    if first in _INTERROGATIVE_STARTS:
-        return True
-    return False
+        return "corta"
+    # Primera palabra REAL: tokenizar con puntuación incluida — los afiliados
+    # escriben "Bien,una vez que nazca..." (sin espacio tras la coma).
+    tokens = [t.lower() for t in re.split(r"[\s,;:.!?¿¡\"'()\[\]]+", query.strip()) if t]
+    if not tokens:
+        return None
+    if tokens[0] in _INTERROGATIVE_STARTS:
+        return "interrogativa"
+    if has_history:
+        if tokens[0] in _CONTINUATION_STARTS:
+            return "continuacion"
+        if set(tokens) & _DEIXIS_WORDS:
+            return "anafora"
+    return None
+
+
+def should_rewrite(query: str, has_history: bool = False) -> bool:
+    """Decide si vale la pena correr el rewriter para esta query."""
+    return _gate_reason(query, has_history) is not None
 
 
 # ── Prompt template (genérico, multi-tenant, multi-idioma) ─────────────────
@@ -131,6 +168,9 @@ Reglas:
 - Mantené el idioma de la consulta original.
 - No inventes datos que no estén en la consulta ni en el historial.
 - No respondas la pregunta, solo reformulala.
+- Las palabras que no reconozcas (apellidos, nombres propios, siglas, marcas)
+  copialas EXACTAMENTE como están — NUNCA las "corrijas" a una palabra parecida
+  ni las reemplaces por un término genérico. Ante la duda, la palabra queda igual.
 - Si la consulta ya es específica y autosuficiente (>20 palabras), la main = query original.
 - Para las variantes: usá sinónimos naturales del ámbito de la consulta; si abajo
   hay contexto de la organización, aprovechalo para elegirlos.{org_context}
@@ -237,10 +277,15 @@ async def rewrite_query(
     # Queries específicas (largas, sin pronombre interrogativo) ya tienen
     # suficiente contexto léxico para el RAG actual — no agregamos latencia.
     # Con historial se reescribe siempre: la consulta puede depender del contexto.
-    if not should_rewrite(query, has_history=bool(history)):
-        logger.debug("query_rewrite_skipped (heuristic) query=%r words=%d",
-                     query[:60], len(query.split()))
+    reason = _gate_reason(query, has_history=bool(history))
+    if reason is None:
+        # info (no debug): en prod auditamos qué porcentaje se saltea y si
+        # alguna decisión del gate fue mala (comparando con la conversación).
+        logger.info("query_rewrite_gate decision=skip words=%d query=%r",
+                    len(query.split()), query[:60])
         return RewriteResult(main=query, variants=[], skipped=True)
+    logger.info("query_rewrite_gate decision=rewrite reason=%s query=%r",
+                reason, query[:60])
 
     # Cache hit
     cached = await _get_cached(query, history)
