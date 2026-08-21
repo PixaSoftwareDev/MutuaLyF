@@ -1,6 +1,6 @@
 {
   "version": "1.9",
-  "last_updated": "2026-08-18",
+  "last_updated": "2026-08-20",
   "current_stage": "etapa_3",
   "current_step": "Post-deploy a prod (2026-07-26/27): paquete completo en produccion; desarrollo continua en dev-local",
   "overall_status": "etapa_3_complete",
@@ -435,5 +435,17 @@
       ],
       "reproceso_18_08": "Inocuo: resultado identico, respaldo en /root/backup_parents_autorizaciones_20260818.csv del VPS, cache invalidado."
     }
+  },
+  "session_2026_08_20_latencia": {
+    "fecha": "2026-08-20",
+    "resumen": "Jornada de latencia: de 5-8s reales a 3-4s medidos en prod (ambos tenants).",
+    "deploys_prod": [
+      "6614758 perf(startup): precarga de services.retrieval (torch) por worker — elimina ~3s de frio en la primera consulta de cada worker (prod usa EMBEDDING_PROVIDER=openai; el warmup del modelo local se salteaba)",
+      "a92a3cd perf(rewriter): gate selectivo — con historial ya no se reescribe siempre; solo corta/interrogativa/continuacion/anafora. + prompt: prohibido corregir nombres propios (bug gitron->ginecologo). Log query_rewrite_gate para auditar."
+    ],
+    "validacion": "13 tests nuevos del gate + suite cat 7/9/10 (typos 100%, multi-turno 90% = baseline, 0 alucinaciones x3 corridas). Gotcha: cache qrw:* (Redis DB1, 24h) reusa reescrituras en re-corridas de la suite.",
+    "mediciones_prod": "intellix: declarativas 4,5->3,2-3,4s (skip), corta 2,7s. mutualyf: 3,0/3,9/3,7s (antes 5,0-8,1s).",
+    "pendiente_finde": "typing WhatsApp, streaming widget, señal OOV-vs-corpus, timeout rewriter con datos, chunker FAQ (ferulas), modelo nano para rewriter/juez (evaluar).",
+    "nota": "test_cross_tenant email domains 403 falla preexistente en dev-local (deuda rama conectores). Drift conocido en VPS prod: docker-compose.yml y nginx.prod.conf modificados localmente (previo a hoy)."
   }
 }
