@@ -296,7 +296,11 @@ class Settings(BaseSettings):
     # para la verificación de grounding post-generación (F2 del plan).
     trust_gate_lex_strong: float = 0.5   # cobertura léxica para pasar directo sin juez
     trust_gate_judge_max_chunks: int = 10  # fragmentos que ve el juez
-    trust_gate_judge_chunk_chars: int = 600  # chars por fragmento para el juez
+    # 600→1500 (2026-08-22): con 600 los parents largos (nómina por día,
+    # ~2000 chars) quedaban cortados ANTES del profesional preguntado y el
+    # juez rechazaba con razón ("no se menciona") mirando un fragmento mutilado.
+    # Costo: ~2k tokens más por llamada al juez — solo corre en zona gris.
+    trust_gate_judge_chunk_chars: int = 1500
 
     # ── Conversation history ───────────────────────────────────────────────────
     history_recent_turns: int = 6       # last N turns sent as full messages
