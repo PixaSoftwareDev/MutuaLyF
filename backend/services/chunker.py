@@ -415,6 +415,21 @@ def chunk_document_hierarchical(
     is_json_records = False
     if doc_type == "faq":
         sections = _faq_split(text)
+        # Docs MIXTOS (secciones de prosa + FAQ) clasifican como FAQ, y
+        # _faq_split trata un encabezado numerado ("2. PROCEDIMIENTOS") como
+        # "pregunta" con TODA su sección como "respuesta" — sin tope de tamaño.
+        # Caso real (hallado 2026-08-20): parent de 8.258 chars con 12 trámites
+        # → "férulas" (sección 2.7) irrecuperable para el retrieval. Las
+        # secciones que exceden el tope de parent se re-parten con el splitter
+        # estructural, que respeta los subtítulos internos (2.1, 2.2, …).
+        refined: list[tuple[str, str]] = []
+        for header, body in sections:
+            if _count_tokens(body) > _MAX_PARENT_WORDS:
+                for sh, sb in _structural_split(body, doc_type="structured"):
+                    refined.append((sh or header, sb))
+            else:
+                refined.append((header, body))
+        sections = refined
     elif doc_type == "entity_list":
         # Lista de entidades: una sección por ítem (no agrupar por tamaño).
         sections = _entity_split(text)
