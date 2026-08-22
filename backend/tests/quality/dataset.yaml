@@ -84,6 +84,13 @@ queries:
   - { id: s_11, category: 4, question: "¿Cuál es la diferencia entre urgencia y emergencia?",                                         expect: factual, must_contain: ["vital", "vida", "riesgo"], any_of: true }
   - { id: s_12, category: 4, question: "Si soy junior recién ingresado, ¿en cuánto tiempo me promueven?",                             expect: factual, must_contain: ["enero", "julio", "evaluación", "Sobresaliente"], any_of: true }
 
+  # Respuesta POR DESCARTE (2026-08-22, caso real "¿atienden los sábados?" en
+  # mutualyf): un conjunto documentado completo (lista de planes, días de
+  # atención) responde en negativo la pregunta por un elemento ausente,
+  # citando lo documentado — sin inventar y sin el "no encontré" evasivo.
+  - { id: pd_01, category: 4, question: "¿Tienen un Plan Diamante?",                          expect: factual, must_contain: ["no", "Básico", "Plata", "Oro", "Premium"], any_of: true, must_not_contain: ["el Plan Diamante cuesta", "el Plan Diamante incluye"], notes: "Plan inexistente; los planes reales son un conjunto cerrado documentado. Ideal: 'no existe ese plan; los planes son...'" }
+  - { id: pd_02, category: 4, question: "¿Puedo pagar la cuota con criptomonedas?",           expect: factual, must_contain: ["no", "débito", "transferencia", "efectivo", "medios"], any_of: true, must_not_contain: ["sí, aceptamos cripto", "bitcoin es"], notes: "Medio de pago fuera del conjunto documentado de medios habilitados." }
+
   # ─────────────────────────── 5. FUERA DE SCOPE ────────────────────────────
   - { id: o_01, category: 5, question: "¿Qué clima hace hoy en Buenos Aires?",                expect: refusal, must_not_contain: ["soleado", "nublado", "lluvia", "grados"], must_contain: ["no", "información", "fuera", "consultá", "no tengo"], any_of: true }
   - { id: o_02, category: 5, question: "¿Quién ganó el Mundial de 2022?",                     expect: refusal, must_not_contain: ["Argentina", "Francia"], must_contain: ["no", "información", "fuera"], any_of: true }
