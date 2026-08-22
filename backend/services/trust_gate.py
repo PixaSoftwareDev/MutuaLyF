@@ -178,7 +178,12 @@ async def _judge(question: str, chunk_texts: list[str], tenant_id: str) -> dict 
     user = (
         f"Pregunta del usuario: {question[:500]}\n\n"
         f"Fragmentos recuperados:\n{numbered}\n\n"
-        '¿Cuáles fragmentos CONTIENEN la respuesta? JSON: {"responden": [...], "motivo": "..."}'
+        # OJO: este cierre NO debe decir "CONTIENEN la respuesta" a secas — esa
+        # última instrucción re-imponía el marco literal y el modelo ignoraba
+        # la regla 3c (por descarte) del system prompt (hallado 2026-08-22:
+        # la última orden le gana al system).
+        "¿Cuáles fragmentos contienen la información para responder — en forma "
+        'directa o POR DESCARTE (regla 3c)? JSON: {"responden": [...], "motivo": "..."}'
     )
     try:
         # Override-aware: el super-admin puede pisar el texto del juez desde el
