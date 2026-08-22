@@ -212,9 +212,12 @@ async def edit_duplicate_chunk(
       4. Update chunk_duplicate_pairs.text_a or text_b snapshot
 
     Notes:
-      - Parent_chunks (PG) NO se actualizan: el par usa child chunks, los parents
-        son agrupaciones distintas. Si el admin quiere afectar BM25 sobre el
-        parent, tiene que editar el documento original.
+      - Parent_chunks (PG) SÍ se actualizan (2026-08-22): la política anterior
+        de "no tocar parents" dejaba el índice y el parent diciendo cosas
+        distintas — el escaneo de ese día encontró 4 chunks derivados así en
+        prod (BM25 y el contexto del LLM servían texto viejo). Se aplica el
+        mismo reemplazo PUNTUAL de edit_chunk_text: si el texto anterior no se
+        ubica dentro del parent, el parent queda intacto y se loguea warning.
       - El cosine_score del par queda stale (el vector A cambio) pero no es
         critico porque el admin esta a punto de resolver el par.
     """
@@ -255,7 +258,10 @@ async def edit_duplicate_chunk(
         if not points:
             raise HTTPException(status_code=404, detail="Chunk no existe en Qdrant")
         current_payload = points[0].payload or {}
+        old_text = current_payload.get("text") or ""
         current_payload["text"] = new_text
+        current_payload["manually_edited"] = True
+        current_payload["edited_by"] = getattr(current_user, "email", None) or str(current_user.user_id)
 
         from qdrant_client.models import PointStruct
         await qdrant.upsert(
@@ -276,6 +282,34 @@ async def edit_duplicate_chunk(
             text(f"UPDATE chunk_duplicate_pairs SET {text_col} = :t WHERE id = :pid"),
             {"t": new_text, "pid": pair_id},
         )
+
+    # 5. Update parent_chunks — mismo reemplazo puntual que edit_chunk_text.
+    #    Sin esto, BM25 y el contexto del LLM siguen sirviendo el texto viejo
+    #    (deriva silenciosa hallada en prod el 2026-08-22: 4 chunks).
+    parent_id = current_payload.get("parent_id")
+    document_id = current_payload.get("document_id")
+    if parent_id:
+        from api.v1.ingest import _parent_con_fragmento_editado
+        async with get_pg_session(tenant_id) as session:
+            parent_text = (await session.execute(
+                text("SELECT text FROM parent_chunks WHERE id = :pid"),
+                {"pid": parent_id},
+            )).scalar()
+            actualizado = (
+                _parent_con_fragmento_editado(parent_text, old_text, new_text)
+                if parent_text is not None else None
+            )
+            if actualizado is not None:
+                await session.execute(
+                    text("UPDATE parent_chunks SET text = :t WHERE id = :pid"),
+                    {"t": actualizado, "pid": parent_id},
+                )
+            else:
+                logger.warning(
+                    "duplicate_edit_parent_no_ubicado chunk_id=%s parent_id=%s document_id=%s: "
+                    "el parent queda sin modificar",
+                    chunk_id, parent_id, document_id,
+                )
 
     logger.info(
         "duplicate_chunk_edited pair_id=%s which=%s chunk_id=%s tenant_id=%s user=%s len=%d",
