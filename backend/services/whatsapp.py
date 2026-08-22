@@ -195,6 +195,11 @@ async def send_typing_indicator(account: WhatsAppAccount, message_id: str) -> No
                 "whatsapp_typing_skipped tenant=%s status=%s body=%s",
                 account.tenant_id, resp.status_code, resp.text[:160],
             )
+        else:
+            # Éxito también se loguea: sin esto no hay forma server-side de saber
+            # si el afiliado ve el "escribiendo…" (la función es fire-and-forget
+            # y nadie mira su resultado).
+            logger.info("whatsapp_typing_sent tenant=%s", account.tenant_id)
     except Exception as exc:
         logger.info("whatsapp_typing_error tenant=%s error=%s", account.tenant_id, exc)
 
