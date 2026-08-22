@@ -323,3 +323,48 @@ class TestDeleteDocumentOrphans:
         assert exc.value.status_code == 502
         # El registro del documento NO se borró → el borrado se puede reintentar
         assert not any("DELETE FROM documentos" in e for e in session.executed)
+
+
+class TestFAQMixtoConProsa:
+    """Docs mixtos (prosa + FAQ) clasificados como FAQ (bug férulas 2026-08-22):
+    las secciones de prosa que exceden el tope de parent deben re-partirse por
+    sus subtítulos internos en vez de quedar como un solo parent gigante."""
+
+    def _doc_mixto(self):
+        tramites = "\n\n".join(
+            f"2.{i} Trámite número {i}\n\nDescripción: " + ("detalle del procedimiento paso a paso " * 30)
+            for i in range(1, 9)
+        )
+        return (
+            "1. INFORMACIÓN GENERAL\n\nDatos de la organización de ejemplo.\n\n"
+            f"2. PROCEDIMIENTOS\n\n{tramites}\n\n"
+            "4. PREGUNTAS FRECUENTES\n\n"
+            "¿Cómo inicio un trámite?\nPresentando el formulario en mesa de entrada.\n\n"
+            "¿Tiene costo?\nNo, es gratuito.\n"
+        )
+
+    def test_prosa_gigante_se_reparte_por_subtitulos(self):
+        from services.chunker import chunk_document_hierarchical
+        from services.doc_classifier import ClassificationResult, DocType
+
+        cls = ClassificationResult(
+            doc_type=DocType.FAQ, confidence=0.98,
+            chunking_strategy="faq", features={},
+        )
+        parents, children = chunk_document_hierarchical(
+            self._doc_mixto(), "doc-test", "tenant-test", classification=cls,
+        )
+        assert parents, "debe producir parents"
+        # Ningún parent puede superar (con margen) el tope configurado
+        from core.config import settings
+        tope_chars = settings.max_parent_words * 8  # margen holgado chars/palabra
+        gigantes = [p for p in parents if len(p.text) > tope_chars]
+        assert not gigantes, f"parents gigantes: {[len(p.text) for p in gigantes]}"
+        # Los trámites internos deben quedar en parents distintos (recuperables)
+        con_t3 = [p for p in parents if "2.3 Trámite número 3" in p.text]
+        con_t7 = [p for p in parents if "2.7 Trámite número 7" in p.text]
+        assert con_t3 and con_t7
+        assert con_t3[0].id != con_t7[0].id, "trámites distintos no deben compartir parent"
+        # Las FAQ siguen atómicas
+        faq = [p for p in parents if "¿Tiene costo?" in p.text]
+        assert faq and len(faq[0].text) < 200
