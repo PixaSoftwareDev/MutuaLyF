@@ -225,6 +225,11 @@ async def handle_query(
     # resiliencia mejora respecto del camino en fila.
     from services.retrieval import retrieve, fuse_rankings
 
+    # Pregunta contra la que se evalúa el trust gate (léxico + juez). Por
+    # defecto la normalizada; si el rewriter produjo una versión autosuficiente,
+    # se reemplaza más abajo — el gate debe juzgar lo que el retrieval sirvió.
+    judge_question = normalized_question
+
     if rewrite_task is not None:
         orig_task = asyncio.create_task(retrieve(normalized_question, tenant_id))
         try:
@@ -253,6 +258,13 @@ async def handle_query(
         else:
             transform_path = "skipped" if rewrite_result.skipped else "rewriter"
         rewriter_expanded = not rewrite_result.skipped and not rewrite_result.fallback and bool(extra_queries)
+        # El trust gate debe juzgar la pregunta AUTOSUFICIENTE, no la elíptica:
+        # con "y los sábados atienden?" el juez no puede conectar los fragmentos
+        # de dermatología aunque el retrieval (que sí buscó la reescrita) los
+        # haya traído — rechazaba con "no se menciona sábados" (caso real
+        # 2026-08-22). La reescrita es la pregunta que el retrieval sirvió.
+        if rewriter_expanded and rewrite_result.main.strip():
+            judge_question = rewrite_result.main.strip()
         if rewrite_result.skipped:
             logger.debug("query_rewrite_skipped_heuristic query=%r", normalized_question[:80])
         elif rewrite_result.used_cache:
@@ -482,7 +494,7 @@ async def handle_query(
     ):
         try:
             from services.trust_gate import coverage_note, evaluate_coverage
-            _tg = await evaluate_coverage(normalized_question, context_parts, tenant_id)
+            _tg = await evaluate_coverage(judge_question, context_parts, tenant_id)
             # F2a (plan de calidad): scores crudos junto al veredicto — cada
             # consulta real acumula datos para calibrar la señal de confianza
             # única (best_rrf vs best_cosine vs lex vs veredicto del juez).
