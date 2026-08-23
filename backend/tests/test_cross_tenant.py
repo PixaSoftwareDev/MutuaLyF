@@ -15,6 +15,20 @@ from core.database import _validate_tenant_id
 client = TestClient(app, raise_server_exceptions=False)
 
 
+@pytest.fixture(autouse=True)
+def _tenant_siempre_activo():
+    """Anula _assert_tenant_active en TODO el archivo: valida EXISTENCIA del
+    tenant contra la base (+cache Redis 60s) y estos tests usan tenants
+    ficticios — contaminaba los veredictos con 403 "Tenant no encontrado" y
+    volvía los resultados dependientes del orden/cache (flaky, 2026-08-23).
+    Acá se prueban los guards de AUTORIZACIÓN, no la existencia."""
+    async def _ok(tenant_id):
+        return None
+    with patch("core.security._assert_tenant_active", _ok):
+        yield
+
+
+
 def _auth_header(tenant_id: str, role: Role = Role.OPERATOR) -> dict:
     token = create_access_token(f"user-{tenant_id}", tenant_id, role)
     return {"Authorization": f"Bearer {token}", "X-Tenant-ID": tenant_id}
@@ -186,6 +200,21 @@ class TestTenantWidgetTokenIsolation:
 
 
 class TestEmailDomainsCrossTenant:
+    """Guard de autorización cross-tenant de email-domains.
+
+    _assert_tenant_active se anula acá (fixture autouse): valida EXISTENCIA
+    del tenant contra la base y los tenants de estos tests son ficticios —
+    devolvía 403 "Tenant no encontrado" antes de llegar al guard bajo prueba,
+    haciendo pasar los tests negativos por el motivo equivocado y fallar el
+    positivo (bug del test hallado 2026-08-23)."""
+
+    @pytest.fixture(autouse=True)
+    def _tenant_siempre_activo(self):
+        async def _ok(tenant_id):
+            return None
+        with patch("core.security._assert_tenant_active", _ok):
+            yield
+
     """IDOR fix: un admin no puede leer/agregar/borrar email-domains de OTRO
     tenant cambiando el tenant_id en la URL. El guard corre antes de tocar la
     DB, así que el 403 se verifica sin base real. Super-admin y el uso legítimo

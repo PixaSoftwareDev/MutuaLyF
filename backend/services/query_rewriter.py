@@ -191,8 +191,11 @@ def _build_history_block(history: list[tuple[str, str]] | None, max_turns: int =
     role_label = {"user": "Usuario", "bot": "Asistente"}
     for sender, content in recent:
         label = role_label.get(sender, sender)
-        excerpt = content[:300].replace("\n", " ")
-        if len(content) > 300:
+        # 300→500 (auditoría de truncados 2026-08-23): una respuesta larga del
+        # bot (p.ej. la lista de documentación del plan materno) cortada a 300
+        # podía perder justo el dato que la repregunta necesita condensar.
+        excerpt = content[:500].replace("\n", " ")
+        if len(content) > 500:
             excerpt += "…"
         lines.append(f"{label}: {excerpt}")
     return "\n".join(lines)
