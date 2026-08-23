@@ -169,6 +169,34 @@ def coverage_note(missing: list[str]) -> str:
     )
 
 
+# Meta-preguntas: sobre el PROPIO ASISTENTE, no sobre los documentos. El gate
+# documental no aplica — "¿con quién estoy hablando?" no depende del corpus y
+# rechazarla producía "no encontré esa información" en vez de "soy un
+# asistente" (caso id_06 de la suite, 2026-08-22). Patrones de LENGUAJE en
+# segunda persona / sobre la conversación misma — nunca vocabulario de
+# dominio (contrato multi-tenant). "¿Quién es el traumatólogo?" o "¿con quién
+# me comunico para afiliaciones?" NO matchean: son preguntas documentales.
+_META_QUESTION_RE = re.compile(
+    r"(?:"
+    r"qui[eé]n\s+(?:sos|eres)\b"
+    r"|qui[eé]n\s+te\s+(?:cre[oó]|hizo|program[oó]|entren[oó])"
+    r"|con\s+qui[eé]n\s+(?:estoy\s+)?(?:hablo|hablando|chateo|chateando)"
+    r"|qu[eé]\s+(?:sos|eres)\b"
+    r"|(?:sos|eres)\s+(?:un[a]?\s+)?(?:bot|robot|humano|persona|m[aá]quina|ia\b|inteligencia\s+artificial)"
+    r"|c[oó]mo\s+te\s+llam[aá]s?\b"
+    r"|cu[aá]l\s+es\s+tu\s+nombre"
+    r"|qu[eé]\s+pod[eé]s\s+hacer\s*\??$"
+    r"|en\s+qu[eé]\s+(?:me\s+)?pod[eé]s\s+ayudar"
+    r")",
+    re.IGNORECASE,
+)
+
+
+def es_meta_pregunta(question: str) -> bool:
+    """La pregunta es sobre el asistente mismo (identidad/capacidades)."""
+    return bool(_META_QUESTION_RE.search(question or ""))
+
+
 async def _judge(question: str, chunk_texts: list[str], tenant_id: str) -> dict | None:
     """Juez LLM listwise. None = no pudo decidir (fail-open)."""
     from services.groq_client import complete
