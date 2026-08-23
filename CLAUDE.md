@@ -28,7 +28,7 @@ derivación, branding).
 | Rol | Tecnología | Notas |
 |---|---|---|
 | LLM | **OpenAI `gpt-4o-mini`** | Detrás de nombres históricos "groq" (`groq_client.py`, env `GROQ_*`) — es legacy de naming, NO es Groq. Nada de modelos LLM locales. |
-| Embeddings | `multilingual-e5-large` (1024 dims) | Corre local (CPU). Compartido por RAG y clasificador. |
+| Embeddings | **OpenAI** (`EMBEDDING_PROVIDER=openai` en staging y prod) | El modelo local `multilingual-e5-large` (1024 dims, CPU) quedó solo para dev-local; en el VPS nada corre local. Descubierto el 20/08 al diagnosticar latencia — el "warmup del modelo" en prod no calienta nada, lo que pesa es el import de torch (resuelto con la precarga por worker). |
 | Reranker | **NO HAY** | `bge-reranker-base` era ciego al español (probado A/B: 0.0 en TODO español) y se eliminó (2026-07-23). Su función la cumple el trust gate. NO reintroducir sin medición contra la suite. |
 | Retrieval | Híbrido: Qdrant (vectores) + BM25 (`parent_chunks.ts_body` en PG) + RRF | Small-to-Big: hijos (~150 tokens) en Qdrant, padres (~700) en PG. |
 | Anti-alucinación | **Trust gate** (`services/trust_gate.py`) | Cobertura léxica gratis (~75% de consultas) + juez LLM selectivo en zona gris. Fail-open. Validado 33/33 en corpus real. |
