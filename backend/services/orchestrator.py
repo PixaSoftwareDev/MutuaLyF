@@ -483,6 +483,8 @@ async def handle_query(
             min_score,
         )
 
+    trust_signal: dict | None = None  # veredicto del gate para consultas_log (055)
+
     # ── Step 5b: Trust gate — ¿el contexto RESPONDE o solo se parece? ─────────
     # Si nada responde, activa la rama determinística de no-info (hard_fallback)
     # en vez de dejar que el LLM invente. Si responde a medias, filtra el
@@ -507,6 +509,17 @@ async def handle_query(
                 tenant_id, _tg["action"], _tg["judge_used"], _tg["lex_coverage"],
                 _best_rrf, _best_cos, _tg["reason"],
             )
+            # Migración 055: el veredicto viaja hasta consultas_log — el KPI de
+            # rechazos y los datos de calibración dejan de vivir solo en logs
+            # que rotan.
+            trust_signal = {
+                "trust_action": _tg["action"],
+                "trust_lex": round(float(_tg["lex_coverage"]), 3),
+                "trust_best_cos": round(float(_best_cos), 3),
+                "trust_best_rrf": round(float(_best_rrf), 3),
+                "trust_judge": bool(_tg["judge_used"]),
+                "trust_reason": str(_tg["reason"])[:300],
+            }
             if _tg["action"] == "refuse":
                 hard_fallback = True
                 context_parts, sources = [], []
@@ -753,6 +766,7 @@ async def handle_query(
             intent_label=response["intent_label"],
             intent_confidence=response["intent_confidence"],
             latency_ms=latency_ms,
+            trust_signal=trust_signal,
         )
     )
 
@@ -891,11 +905,14 @@ async def _log_query(
     intent_confidence: float | None,
     latency_ms: int,
     from_cache: bool = False,
+    trust_signal: dict | None = None,
 ) -> None:
     """Persist query log to consultas_log. Non-fatal on failure.
 
     intent_label/intent_confidence quedan por compatibilidad de schema (columnas
     nullable); el clasificador de intenciones ya no corre en el camino de consulta.
+    trust_signal (055): veredicto del trust gate — None cuando la consulta no
+    pasó por el gate (cache hit, small talk, gate apagado).
     """
     from core.database import get_pg_session
     from sqlalchemy import text
@@ -911,9 +928,11 @@ async def _log_query(
                 text(
                     "INSERT INTO consultas_log "
                     "(user_id, question_hash, question_text, intent_label, intent_confidence, "
-                    "latency_ms, from_cache, auto_learning_blocked) "
+                    "latency_ms, from_cache, auto_learning_blocked, "
+                    "trust_action, trust_lex, trust_best_cos, trust_best_rrf, trust_judge, trust_reason) "
                     "VALUES (:user_id, :question_hash, :question_text, :intent_label, "
-                    ":intent_confidence, :latency_ms, :from_cache, :auto_learning_blocked)"
+                    ":intent_confidence, :latency_ms, :from_cache, :auto_learning_blocked, "
+                    ":trust_action, :trust_lex, :trust_best_cos, :trust_best_rrf, :trust_judge, :trust_reason)"
                 ),
                 {
                     "user_id": user_id,
@@ -924,6 +943,13 @@ async def _log_query(
                     "latency_ms": latency_ms,
                     "from_cache": from_cache,
                     "auto_learning_blocked": False,
+                    **{
+                        k: (trust_signal or {}).get(k)
+                        for k in (
+                            "trust_action", "trust_lex", "trust_best_cos",
+                            "trust_best_rrf", "trust_judge", "trust_reason",
+                        )
+                    },
                 },
             )
     except Exception as exc:
