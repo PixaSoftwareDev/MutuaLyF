@@ -75,6 +75,27 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("retrieval_preload_failed", error=str(exc))
 
+    # Warmup de la conexión a OpenAI EN CADA WORKER: la primera llamada real
+    # paga TLS + handshake + pool (~1-3 s) y hacía timeoutear al rewriter.
+    # Medido en prod (20-22/08): 3 de 13 rewrites timeoutearon y los 3 eran
+    # "primera consulta tras restart/idle". Un completion de 1 token por
+    # worker por arranque cuesta fracciones de centavo y lo elimina.
+    async def _warm_openai() -> None:
+        from services.groq_client import complete, QueryComplexity
+        await complete(
+            messages=[{"role": "user", "content": "ok"}],
+            complexity=QueryComplexity.SIMPLE,
+            temperature=0.0,
+            max_tokens=1,
+        )
+
+    try:
+        logger.info("openai_warmup_start")
+        await asyncio.wait_for(_warm_openai(), timeout=10)
+        logger.info("openai_warmup_complete")
+    except Exception as exc:
+        logger.warning("openai_warmup_failed", error=str(exc))
+
     logger.info("startup_complete")
     yield
     logger.info("shutdown_begin")

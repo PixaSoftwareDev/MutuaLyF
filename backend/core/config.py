@@ -238,7 +238,11 @@ class Settings(BaseSettings):
     # están en el texto) y reformulaciones (mismo intent, palabras distintas).
     # Cache en Redis 24h. Sin LLM disponible → fallback a query original.
     query_rewriting_enabled: bool = True
-    query_rewriting_timeout_ms: int = 2500     # tope para el LLM call
+    # 2500→2000 (2026-08-23): medido en prod, los únicos timeouts eran por
+    # conexión fría a OpenAI (resuelto con openai_warmup en el startup); en
+    # caliente el rewriter tarda 0,8-1,7 s típico. 2 s recorta el peor caso
+    # sin cortar rewrites útiles; el fallback a la consulta original es bueno.
+    query_rewriting_timeout_ms: int = 2000     # tope para el LLM call
     query_rewriting_num_variants: int = 1      # main + 1 variant = 2 queries total (calibrado 2026-05-25)
     query_rewriting_cache_ttl: int = 86400     # 24h en Redis
     query_rewriting_max_query_words: int = 30  # skip rewriting si query ya es muy específica
