@@ -557,21 +557,34 @@ def extract_text_from_bytes(content: bytes, mime_type: str, filename: str) -> st
     """Extract plain text from uploaded file bytes.
 
     Supports: text/plain, application/pdf, .docx, text/html.
+
+    El texto extraído pasa por repair_mojibake (2026-08-23): un archivo
+    doble-encodeado ("dÃ­as" por "días") vuelve invisible su contenido para
+    la búsqueda — "¿recargo de 16 a 30 días?" no matchea "16 a 30 dÃ­as"
+    (caso f_19 de la suite: la tabla existía, el encoding la escondía).
+    Los clientes exportan archivos así más seguido de lo que uno querría.
     """
+    from core.text_utils import repair_mojibake
+
     if mime_type == "text/plain":
-        return content.decode("utf-8", errors="replace")
-    if mime_type == "application/pdf":
-        return _extract_pdf(content, filename)
-    if mime_type in (
+        texto = content.decode("utf-8", errors="replace")
+    elif mime_type == "application/pdf":
+        texto = _extract_pdf(content, filename)
+    elif mime_type in (
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     ):
-        return _extract_docx(content, filename)
-    if mime_type == "text/html":
-        return _extract_html(content, filename)
-    if mime_type == "application/json":
-        return _extract_json(content, filename)
-    logger.warning("unsupported_mime_type mime=%s filename=%s", mime_type, filename)
-    return content.decode("utf-8", errors="replace")
+        texto = _extract_docx(content, filename)
+    elif mime_type == "text/html":
+        texto = _extract_html(content, filename)
+    elif mime_type == "application/json":
+        texto = _extract_json(content, filename)
+    else:
+        logger.warning("unsupported_mime_type mime=%s filename=%s", mime_type, filename)
+        texto = content.decode("utf-8", errors="replace")
+    # Los BOM (U+FEFF) — a veces regados por TODO el archivo en exports rotos —
+    # no son codificables en latin-1 y hacían abortar la reparación completa.
+    texto = texto.replace("﻿", "")
+    return repair_mojibake(texto) or texto
 
 
 # ── Hierarchical splitting helpers ────────────────────────────────────────────
