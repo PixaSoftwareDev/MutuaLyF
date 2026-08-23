@@ -77,6 +77,16 @@ class ConsultaLog(Base):
     quality_gate_status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
     latency_ms: Mapped[int] = mapped_column(Integer, nullable=False)
     from_cache: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Señal del trust gate (migración 055, 2026-08-23): el veredicto de cada
+    # consulta queda consultable — % de rechazos, huecos de conocimiento y
+    # datos de calibración (F2a) sin arqueología de logs. NULL = gate apagado,
+    # respuesta cacheada o small talk (no pasó por el gate).
+    trust_action: Mapped[str | None] = mapped_column(String(10), nullable=True)   # answer | refuse
+    trust_lex: Mapped[float | None] = mapped_column(Float, nullable=True)
+    trust_best_cos: Mapped[float | None] = mapped_column(Float, nullable=True)
+    trust_best_rrf: Mapped[float | None] = mapped_column(Float, nullable=True)
+    trust_judge: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    trust_reason: Mapped[str | None] = mapped_column(String(300), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_now)
 
     __table_args__ = (
