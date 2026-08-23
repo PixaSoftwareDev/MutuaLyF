@@ -879,6 +879,10 @@ def _hash_question(question: str) -> str:
 def _sanitize_input(question: str) -> str:
     """Strip control characters and truncate before sending to LLM."""
     sanitized = "".join(c for c in question if c.isprintable() or c in ("\n", "\t"))
+    if len(sanitized) > 2000:
+        # Auditoría de truncados (2026-08-23): ningún corte de datos vuelve a
+        # ser silencioso — el del juez a 600 chars costó horas de diagnóstico.
+        logger.warning("input_truncado len=%d -> 2000", len(sanitized))
     return sanitized[:2000]
 
 
