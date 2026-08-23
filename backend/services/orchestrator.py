@@ -490,7 +490,16 @@ async def handle_query(
     # en vez de dejar que el LLM invente. Si responde a medias, filtra el
     # contexto y fuerza la respuesta parcial honesta. Fail-open ante errores.
     # Ver services/trust_gate.py (validado en staging 2026-07-23, 33/33).
-    if (
+    from services.trust_gate import es_meta_pregunta
+    if es_meta_pregunta(normalized_question):
+        # Pregunta sobre el PROPIO asistente ("¿con quién estoy hablando?"):
+        # el gate documental no aplica — la identidad/capacidades las responde
+        # el prompt, no el corpus. Sin este bypass, el juez rechazaba con
+        # razón documental y salía "no encontré esa información" (id_06).
+        logger.info("trust_gate_skip_meta tenant_id=%s q=%r", tenant_id, normalized_question[:60])
+        trust_signal = {"trust_action": "answer", "trust_judge": False,
+                        "trust_reason": "meta_pregunta_sin_gate"}
+    elif (
         settings.trust_gate_enabled
         and context_parts and not hard_fallback and not low_confidence_fallback
     ):
