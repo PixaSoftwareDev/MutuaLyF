@@ -18,14 +18,14 @@ Idempotente (ADD COLUMN IF NOT EXISTS) y por tenant: los schemas nuevos ya
 nacen con las columnas vía el template de provisión cuando corresponda.
 
 Revision ID: 055
-Revises: 054
+Revises: 051 (lo común a main/dev/dev-local — las 052-054 son de conectores y viven solo en dev-local)
 """
 
 from alembic import op
 from sqlalchemy import text
 
 revision = "055"
-down_revision = "054"
+down_revision = "051"
 branch_labels = None
 depends_on = None
 
