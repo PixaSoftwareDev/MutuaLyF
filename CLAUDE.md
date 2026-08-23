@@ -82,10 +82,17 @@ derivación, branding).
   siempre en staging" (broker sin consumer) quedó resuelto de raíz — el
   workaround del worker temporal adentro de `ia_backend_staging` ya no aplica.
   ⚠️ Consecuencia para migraciones: `alembic_version` ya NO es global entre
-  ambientes — cada base tiene la suya. La regla de mantener las cadenas
-  idénticas entre `main` y `dev` sigue vigente por sanidad, pero el riesgo de
-  pisarse mutuamente desapareció. Los datos de staging arrancan de cero o de
-  un clon (verificar tenants antes de probar).
+  ambientes — cada base tiene la suya. Los datos de staging arrancan de un
+  clon (verificar tenants antes de probar).
+  ⚠️⚠️ CADENAS DE MIGRACIÓN DIVERGENTES (desde la 055, 2026-08-23): las
+  migraciones 052-054 son de conectores y viven SOLO en dev-local. Cadena en
+  `main`/`dev`: …→051→055. Cadena en `dev-local`: 051→055→052→053→054.
+  Una migración NUEVA debe encadenar desde el último común (hoy 055) y al
+  cherry-pickearla verificar que su down_revision exista en la rama destino.
+  ⚠️⚠️⚠️ El backend corre `alembic upgrade` EN EL STARTUP: una cadena rota
+  (down_revision inexistente) = crash-loop = AMBIENTE CAÍDO. El 23/08 esto
+  tumbó prod ~6 minutos. Ante crash-loop tras deploy: mirar KeyError de
+  alembic en los logs y verificar la cadena ANTES de reintentar.
 - Tenants reales en prod al 2026-08-17: `mutualyf` (cliente real), `intellix`
   (demo), `galo`. El viejo `nexo` ya no existe.
 - El VPS también aloja otros proyectos Pixs (crm-pixs, ecuestre, handicapp,
