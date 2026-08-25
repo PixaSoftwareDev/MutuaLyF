@@ -293,7 +293,10 @@ async def rewrite_query(
     # Cache hit
     cached = await _get_cached(query, history)
     if cached is not None:
-        logger.debug("query_rewrite_cache_hit query=%r", query[:60])
+        # info, no debug: sin esto una reescritura cacheada era invisible en los
+        # logs y un mal rewrite parecía un bug del motor (incidente 25/08).
+        logger.info("query_rewrite_cache_hit query=%r main=%r",
+                    query[:60], cached.main[:70])
         return cached
 
     # LLM rewrite

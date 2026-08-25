@@ -247,7 +247,15 @@ class Settings(BaseSettings):
     # sin cortar rewrites útiles; el fallback a la consulta original es bueno.
     query_rewriting_timeout_ms: int = 2000     # tope para el LLM call
     query_rewriting_num_variants: int = 1      # main + 1 variant = 2 queries total (calibrado 2026-05-25)
-    query_rewriting_cache_ttl: int = 86400     # 24h en Redis
+    # 86400 (24h) → 900 (15 min), 2026-08-25. Una reescritura desafortunada
+    # quedaba CONGELADA un día entero: el incidente del 25/08 ("¿puedo elegir
+    # libremente mi médico?" respondía sobre odontología 8/8 veces) no era del
+    # motor — era una reescritura tóxica cacheada. Al vaciar qrw:* la misma
+    # consulta pasó a 8/8 correctas sin tocar código. El beneficio del cache
+    # (≈1 s cuando pega) solo aplica a repeticiones exactas de la misma
+    # pregunta con el mismo historial: eso ocurre en ráfagas de minutos, no de
+    # días. 15 min conserva la ganancia real y acota el daño de un mal rewrite.
+    query_rewriting_cache_ttl: int = 900
     query_rewriting_max_query_words: int = 30  # skip rewriting si query ya es muy específica
     # Mejora 2 — Conditional rewriting: solo correr el rewriter cuando aporta valor.
     # Queries cortas o que empiezan con pronombre interrogativo son las que tienen
