@@ -556,6 +556,24 @@ async def handle_query(
                 # de síntesis necesitan combinar varios y el filtro las rompía
                 # (medido: síntesis 92%→58% con filtro). El veredicto decide
                 # responder/rechazar; la nota maneja la cobertura parcial.
+                #
+                # REORDENAR sí (2026-08-25): los aprobados por el juez van
+                # PRIMERO. El juez ya distingue con criterio cuál fragmento
+                # responde de verdad (en el caso "elegir médico" identificó
+                # correctamente cuál hablaba de médicos y cuál de odontólogos),
+                # pero ese criterio se desperdiciaba: el orden seguía siendo el
+                # del retrieval y el modelo redacta con lo que ve primero.
+                # Reordenar conserva TODO el contexto (síntesis intacta) y solo
+                # cambia la prioridad de lectura.
+                _kept = [i for i in _tg["kept"] if 0 <= i < len(context_parts)]
+                if _kept and len(_kept) < len(context_parts):
+                    _aprobados = [context_parts[i] for i in _kept]
+                    _resto = [c for i, c in enumerate(context_parts) if i not in set(_kept)]
+                    context_parts = _aprobados + _resto
+                    logger.info(
+                        "trust_gate_reordenado tenant_id=%s aprobados=%d total=%d",
+                        tenant_id, len(_aprobados), len(context_parts),
+                    )
                 if _tg.get("missing"):
                     context_parts.append(coverage_note(_tg["missing"]))
         except Exception as exc:  # noqa: BLE001 — el gate nunca tira la consulta
