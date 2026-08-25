@@ -253,8 +253,27 @@ async def handle_query(
             # LLM caído/timeout → red de seguridad: keywords del historial como
             # búsqueda ADICIONAL (la original limpia ya está corriendo igual).
             transform_path = "enricher_fallback"
-            _enriched = _enrich_query_with_history(normalized_question, conversation_history)
-            extra_queries = [_enriched] if _enriched.strip().lower() != _orig else []
+            # El enriquecedor es CIEGO AL CAMBIO DE TEMA: pega keywords del turno
+            # anterior a la consulta actual. Solo se aplica cuando la consulta
+            # NECESITA contexto (elíptica: corta, continuación o anáfora — las
+            # mismas señales del gate del rewriter). Con una consulta
+            # autosuficiente, arrastrar el tema viejo SESGA el retrieval:
+            # incidente 2026-08-25 — "¿Puedo ir a cualquier clínica?" tras hablar
+            # del Centro Médico trajo 15 chunks del Centro Médico y el bot
+            # afirmó "la única clínica a la que podés ir", contradiciendo el
+            # corpus (que documenta libre elección del 99% del padrón).
+            from services.query_rewriter import _gate_reason
+            _necesita_contexto = _gate_reason(
+                normalized_question, has_history=bool(conversation_history)
+            ) in ("corta", "continuacion", "anafora")
+            if _necesita_contexto:
+                _enriched = _enrich_query_with_history(normalized_question, conversation_history)
+                extra_queries = [_enriched] if _enriched.strip().lower() != _orig else []
+            else:
+                logger.info(
+                    "enricher_skipped_autosuficiente query=%r", normalized_question[:60]
+                )
+                extra_queries = []
         else:
             transform_path = "skipped" if rewrite_result.skipped else "rewriter"
         rewriter_expanded = not rewrite_result.skipped and not rewrite_result.fallback and bool(extra_queries)

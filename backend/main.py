@@ -96,9 +96,30 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("openai_warmup_failed", error=str(exc))
 
+    # Keep-alive: el warmup del startup NO alcanza — tras horas idle la conexión
+    # se enfría igual y la PRIMERA consulta del día vuelve a pagar el handshake.
+    # No es solo latencia: el 25/08 ese timeout encadenó un error de CONTENIDO
+    # (rewriter caído → fallback del enriquecedor → retrieval sesgado → el bot
+    # afirmó algo contrario al corpus). Costo: ~1 token cada 10 min por worker.
+    async def _keepalive_openai() -> None:
+        while True:
+            await asyncio.sleep(settings.openai_keepalive_seconds)
+            try:
+                await asyncio.wait_for(_warm_openai(), timeout=10)
+                logger.debug("openai_keepalive_ok")
+            except Exception as exc:  # noqa: BLE001 — nunca debe tumbar el loop
+                logger.warning("openai_keepalive_failed error=%s", exc)
+
+    keepalive_task = (
+        asyncio.create_task(_keepalive_openai())
+        if settings.openai_keepalive_seconds > 0 else None
+    )
+
     logger.info("startup_complete")
     yield
     logger.info("shutdown_begin")
+    if keepalive_task is not None:
+        keepalive_task.cancel()
     from services.whatsapp import aclose_client
     await aclose_client()
     await disconnect_all()

@@ -249,6 +249,9 @@ class Settings(BaseSettings):
     # están en el texto) y reformulaciones (mismo intent, palabras distintas).
     # Cache en Redis 24h. Sin LLM disponible → fallback a query original.
     query_rewriting_enabled: bool = True
+    # Keep-alive de la conexión a OpenAI (0 = desactivado). 600s mantiene el
+    # pool caliente sin costo real (~1 token por ping por worker).
+    openai_keepalive_seconds: int = 600
     # 2500→2000 (2026-08-23): medido en prod, los únicos timeouts eran por
     # conexión fría a OpenAI (resuelto con openai_warmup en el startup); en
     # caliente el rewriter tarda 0,8-1,7 s típico. 2 s recorta el peor caso
