@@ -1,14 +1,17 @@
-# docker-compose.staging.yml — ambiente de pruebas (dev), AISLADO de producción.
+# docker-compose.staging.yml — ambiente dev/staging con STACK COMPLETO PROPIO.
 #
-# Levanta SOLO un frontend y un backend nuevos. Reusa las bases pesadas que ya
-# corren en prod (Postgres, Neo4j, Qdrant, Redis, TEI reranker, MinIO) a través
-# de la red `mutualyf_internal`. No se duplica ninguna base.
+# Desde 2026-08-20 (Fase 1 del plan de consolidación) staging NO comparte
+# ninguna base con prod: tiene su propio Postgres, Qdrant, Redis, MinIO y
+# Celery (worker + beat), con datos clonados de prod (runbook en
+# docs/OPERACIONES.md). La red `mutualyf_internal` queda SOLO para que el
+# nginx de prod siga ruteando dev.intellix.com.ar hacia este backend/frontend.
 #
-# Aislamiento respecto del cliente (mutualyf):
-#   - Tenant de pruebas: nexo (el tenant lo fuerza nginx en el server block de dev).
-#   - Redis en DBs 3/4/5 (prod usa 0/1/2) → el Celery de staging no toca jobs de prod.
-#   - Caps de CPU/RAM → prod siempre tiene prioridad, el cliente no siente el staging.
-#   - El prompt del sistema es global y compartido: NO se toca en staging.
+# Paridad con prod (decisión 2026-08-20): mismas imágenes de bases, mismos
+# tunings, 4 workers uvicorn y Celery --concurrency=4. Los techos de recursos
+# son cinturones de seguridad contra bugs, no reservas de capacidad.
+#
+# Esto también cierra el bug de la auditoría 2026-08-17: staging encolaba
+# Celery en Redis DB 3 de prod y ningún worker consumía de ahí.
 #
 # Uso (desde /opt/mutualyf-staging, rama dev):
 #   docker compose -f docker-compose.staging.yml up -d --build
@@ -24,27 +27,136 @@ x-logging: &default-logging
     max-size: "10m"
     max-file: "3"
 
+# Overrides de conexión: pisan los hosts del .env (que históricamente
+# apuntaban a las bases de prod). Centralizados acá para que el .env quede
+# solo con credenciales; las DBs de Redis vuelven a ser 0/1/2 porque el
+# Redis ya es propio (los 3/4/5 de la época compartida quedan obsoletos).
+x-staging-datastores: &staging-datastores
+  ENVIRONMENT: staging
+  POSTGRES_HOST: postgres_staging
+  QDRANT_HOST: qdrant_staging
+  MINIO_ENDPOINT: minio_staging:9000
+  REDIS_URL_BROKER: redis://redis_staging:6379/0
+  REDIS_URL_CACHE: redis://redis_staging:6379/1
+  REDIS_URL_RATELIMIT: redis://redis_staging:6379/2
+
 services:
 
-  # ── Backend de pruebas ─────────────────────────────────────────────────────
+  # ── Bases de datos propias (imágenes idénticas a prod: el clon de datos
+  #    es binario-compatible) ─────────────────────────────────────────────────
+
+  postgres_staging:
+    image: pgvector/pgvector:pg16
+    container_name: ia_postgres_staging
+    restart: unless-stopped
+    # Mismo tuning que prod: 4 workers uvicorn (4x30 pool) + celery + admin.
+    command:
+      - "postgres"
+      - "-c"
+      - "max_connections=200"
+      - "-c"
+      - "shared_buffers=512MB"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - staging_postgres_data:/var/lib/postgresql/data
+      - /opt/mutualyf-staging/backend/db/init:/docker-entrypoint-initdb.d:ro
+    ports:
+      # Solo loopback, para debug/restore por túnel SSH (prod usa 5433).
+      - "127.0.0.1:5434:5432"
+    networks:
+      - staging_internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *default-logging
+    mem_limit: 4g
+    cpus: 4
+
+  qdrant_staging:
+    image: qdrant/qdrant:v1.9.2
+    container_name: ia_qdrant_staging
+    restart: unless-stopped
+    volumes:
+      - staging_qdrant_data:/qdrant/storage
+    ports:
+      # Solo loopback (prod usa 6333). Necesario para el restore de snapshots.
+      - "127.0.0.1:6334:6333"
+    networks:
+      - staging_internal
+    # Mismo ulimit que prod: sin esto, "Too many open files" tras re-ingestas.
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/6333' 2>/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *default-logging
+    mem_limit: 2g
+    cpus: 2
+
+  redis_staging:
+    image: redis:7.2-alpine
+    container_name: ia_redis_staging
+    restart: unless-stopped
+    command: redis-server --maxmemory 512mb --maxmemory-policy allkeys-lru
+    volumes:
+      - staging_redis_data:/data
+    networks:
+      - staging_internal
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *default-logging
+    mem_limit: 768m
+    cpus: 1
+
+  minio_staging:
+    image: minio/minio:RELEASE.2024-05-10T01-41-38Z
+    container_name: ia_minio_staging
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - staging_minio_data:/data
+    ports:
+      # Solo loopback (prod usa 9002/9003).
+      - "127.0.0.1:9004:9000"
+      - "127.0.0.1:9005:9001"
+    networks:
+      - staging_internal
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9000/minio/health/live"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    logging: *default-logging
+    mem_limit: 512m
+    cpus: 1
+
+  # ── Backend (paridad con prod: 4 workers uvicorn) ──────────────────────────
+
   backend_staging:
     build:
       context: /opt/mutualyf-staging/backend
       dockerfile: Dockerfile
     container_name: ia_backend_staging
     restart: unless-stopped
-    # 1 worker alcanza para pruebas; mantiene el consumo bajo. Prod usa 4.
-    command: uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1 --log-level info --timeout-keep-alive 30 --timeout-graceful-shutdown 30
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4 --log-level info --timeout-keep-alive 30 --timeout-graceful-shutdown 30
     env_file: /opt/mutualyf-staging/.env
     environment:
-      ENVIRONMENT: staging
-      # Redis en DBs separadas de prod (0/1/2). Evita colisión de broker/cache/ratelimit.
-      REDIS_URL_BROKER: redis://redis:6379/3
-      REDIS_URL_CACHE: redis://redis:6379/4
-      REDIS_URL_RATELIMIT: redis://redis:6379/5
-      # Mismo reranker TEI que prod (read-only, sin estado por tenant).
-      RERANKER_PROVIDER: ${RERANKER_PROVIDER:-tei}
-      TEI_RERANKER_URL: ${TEI_RERANKER_URL:-http://tei-reranker:80}
+      <<: *staging-datastores
     ports:
       # Solo loopback, para debug por túnel SSH. No se expone público (eso lo hace nginx).
       - "127.0.0.1:8002:8000"
@@ -52,17 +164,25 @@ services:
       # Ruta ABSOLUTA al worktree dev: con `./backend` relativo, un recreate desde
       # otro cwd lo resolvía a /opt/mutualyf (prod) y staging servía código de prod.
       - /opt/mutualyf-staging/backend:/app
-      # Cache de modelos HF compartido con prod (read-mostly, content-addressed e
-      # inmutable) → staging arranca sin re-descargar ~2.5GB ni esperar el warmup.
+      # Cache de modelos HF compartido con prod (read-mostly, content-addressed).
       - mutualyf_models_data:/root/.cache/huggingface
-      # Uploads y branding PROPIOS de staging (no mezcla archivos con prod).
+      # Uploads y branding PROPIOS de staging. uploads se comparte con el
+      # celery worker de staging (la ingesta lee lo que el backend guardó).
       - staging_uploads:/tmp/ia_ingest
       - staging_branding:/uploads
       # Solo lectura: monitor de backups en el panel super-admin (mismo
       # repositorio que prod — el backup es global de la plataforma).
       - mutualyf_pgbackrest_data:/backups:ro
     networks:
+      - staging_internal
       - mutualyf_internal
+    depends_on:
+      postgres_staging:
+        condition: service_healthy
+      qdrant_staging:
+        condition: service_healthy
+      redis_staging:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
       interval: 30s
@@ -70,13 +190,61 @@ services:
       retries: 10
       start_period: 180s
     logging: *default-logging
-    mem_limit: 1500m
-    cpus: 2
-    deploy:
-      resources:
-        limits:
-          cpus: "2"
-          memory: 1500M
+    mem_limit: 6g
+    cpus: 6
+
+  # ── Celery propio (cierra el bug: antes encolaba en Redis de prod DB 3
+  #    y NADIE consumía — auditoría 2026-08-17) ──────────────────────────────
+
+  celery_worker_staging:
+    build:
+      context: /opt/mutualyf-staging/backend
+      dockerfile: Dockerfile
+    container_name: ia_celery_worker_staging
+    restart: unless-stopped
+    command: celery -A workers.celery_app worker --loglevel=info --concurrency=4 -Q ingest,clustering,training,default
+    env_file: /opt/mutualyf-staging/.env
+    environment:
+      <<: *staging-datastores
+      PYTHONPATH: /app
+    volumes:
+      - /opt/mutualyf-staging/backend:/app
+      - mutualyf_models_data:/root/.cache/huggingface
+      - staging_uploads:/tmp/ia_ingest
+    networks:
+      - staging_internal
+    depends_on:
+      redis_staging:
+        condition: service_healthy
+      postgres_staging:
+        condition: service_healthy
+    logging: *default-logging
+    mem_limit: 4g
+    cpus: 4
+
+  celery_beat_staging:
+    build:
+      context: /opt/mutualyf-staging/backend
+      dockerfile: Dockerfile
+    container_name: ia_celery_beat_staging
+    restart: unless-stopped
+    command: celery -A workers.celery_app beat --loglevel=info
+    env_file: /opt/mutualyf-staging/.env
+    environment:
+      <<: *staging-datastores
+      PYTHONPATH: /app
+    volumes:
+      - /opt/mutualyf-staging/backend:/app
+    networks:
+      - staging_internal
+    depends_on:
+      redis_staging:
+        condition: service_healthy
+      postgres_staging:
+        condition: service_healthy
+    logging: *default-logging
+    mem_limit: 512m
+    cpus: 1
 
   # ── Frontend de pruebas (BUILD DE PRODUCCIÓN) ──────────────────────────────
   # Antes corría en modo dev (next dev), pero el cache de chunks del navegador
@@ -108,23 +276,26 @@ services:
     logging: *default-logging
     mem_limit: 1500m
     cpus: 2
-    deploy:
-      resources:
-        limits:
-          cpus: "2"
-          memory: 1500M
 
 networks:
-  # La red ya existe (la crea el compose de prod). Acá solo nos enganchamos.
+  # Red propia de staging: acá viven sus bases, aisladas de prod.
+  staging_internal:
+    name: staging_internal
+  # La red de prod ya existe (la crea el compose de prod). Solo nos enganchamos
+  # para que su nginx rutee dev.intellix.com.ar → backend/frontend de staging.
   mutualyf_internal:
     external: true
 
 volumes:
+  staging_postgres_data:
+  staging_qdrant_data:
+  staging_redis_data:
+  staging_minio_data:
+  staging_uploads:
+  staging_branding:
   # Volumen de modelos de prod, reusado para no duplicar el cache de HF en disco.
   mutualyf_models_data:
     external: true
   # Repositorio de backups de prod (read-only en el backend de staging).
   mutualyf_pgbackrest_data:
     external: true
-  staging_uploads:
-  staging_branding:

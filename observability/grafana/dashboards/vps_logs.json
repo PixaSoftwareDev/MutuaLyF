@@ -1,0 +1,42 @@
+{
+  "uid": "vps-logs",
+  "title": "Logs por contenedor",
+  "tags": ["vps"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "refresh": "30s",
+  "time": { "from": "now-1h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "proyecto", "label": "Aplicación", "type": "query", "multi": false, "includeAll": true,
+        "current": {"text": "All", "value": "$__all"},
+        "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+        "query": "label_values(project)", "refresh": 2
+      },
+      {
+        "name": "contenedor", "label": "Contenedor", "type": "query", "multi": false, "includeAll": true,
+        "current": {"text": "All", "value": "$__all"},
+        "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+        "query": "label_values({project=~\"$proyecto\"}, container)", "refresh": 2
+      },
+      {
+        "name": "buscar", "label": "Buscar texto", "type": "textbox", "current": {"text": "", "value": ""}
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "timeseries", "title": "Volumen de logs por contenedor", "gridPos": {"x": 0, "y": 0, "w": 24, "h": 6},
+      "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+      "targets": [{"refId": "A", "expr": "sum by (container) (count_over_time({project=~\"$proyecto\", container=~\"$contenedor\"} [$__auto]))", "legendFormat": "{{container}}"}],
+      "fieldConfig": {"defaults": {"unit": "none", "custom": {"drawStyle": "bars", "fillOpacity": 60, "stacking": {"mode": "normal"}}}, "overrides": []}
+    },
+    {
+      "type": "logs", "title": "Logs (cada contenedor bien separado por el selector de arriba)", "gridPos": {"x": 0, "y": 6, "w": 24, "h": 18},
+      "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+      "options": {"showLabels": false, "showCommonLabels": true, "showTime": true, "wrapLogMessage": true, "sortOrder": "Descending", "enableLogDetails": true},
+      "targets": [{"refId": "A", "expr": "{project=~\"$proyecto\", container=~\"$contenedor\"} |~ \"$buscar\""}]
+    }
+  ]
+}

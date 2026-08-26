@@ -323,23 +323,25 @@ services:
 
   # ─── Reverse proxy ────────────────────────────────────────────────────────────
 
-  nginx:
-    image: nginx:1.25-alpine
-    container_name: ia_nginx
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx/certs:/etc/nginx/certs:ro
-    depends_on:
-      - backend
-      - frontend
-    networks:
-      - internal
-    logging: *default-logging
-
+  # nginx MOVIDO a /opt/edge/docker-compose.yml (Fase 2, 2026-08-20).
+  # El edge es infra compartida del servidor; no levantarlo desde aca.
+  #   nginx:
+  #     image: nginx:1.25-alpine
+  #     container_name: ia_nginx
+  #     restart: unless-stopped
+  #     ports:
+  #       - "80:80"
+  #       - "443:443"
+  #     volumes:
+  #       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+  #       - ./nginx/certs:/etc/nginx/certs:ro
+  #     depends_on:
+  #       - backend
+  #       - frontend
+  #     networks:
+  #       - internal
+  #     logging: *default-logging
+  #
   # ─── Backup ───────────────────────────────────────────────────────────────────
 
   pgbackrest:
@@ -392,7 +394,7 @@ services:
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--storage.tsdb.path=/prometheus"
-      - "--storage.tsdb.retention.time=15d"
+      - "--storage.tsdb.retention.time=90d"
       - "--web.enable-lifecycle"
     volumes:
       - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
@@ -413,7 +415,9 @@ services:
       # Fail-fast: si GRAFANA_PASSWORD no esta seteado en .env, `docker compose up`
       # aborta en vez de arrancar Grafana con el admin/admin por defecto.
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:?Defina GRAFANA_PASSWORD en .env}
-      GF_SERVER_ROOT_URL: http://localhost:3001
+      # Servido detrás del edge en /grafana (panel del servidor, 2026-08-20)
+      GF_SERVER_ROOT_URL: http://200.58.109.110/grafana/
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_AUTH_ANONYMOUS_ENABLED: "false"
     volumes:
@@ -520,24 +524,26 @@ services:
       - internal
     logging: *default-logging
 
-  # cAdvisor: métricas por container (CPU, mem, network) para correlacionar
-  # con alertas. Sin esto, sabés "RAM al 90%" pero no qué container.
-  cadvisor:
-    image: gcr.io/cadvisor/cadvisor:v0.49.1
-    container_name: ia_cadvisor
+  # Telegraf: métricas POR CONTENEDOR (cpu/mem/red) leyendo la API de Docker.
+  # Reemplaza a cAdvisor, que no soporta el containerd-snapshotter de este host
+  # y descartaba todos los contenedores (0 series desde siempre, 2026-08-20).
+  docker-exporter:
+    image: telegraf:1.31-alpine
+    container_name: ia_docker_exporter
     restart: unless-stopped
-    privileged: true
+    # El entrypoint de la imagen baja root→telegraf: hay que darle el GID del
+    # grupo dueño del socket (988 = docker en este host) para que pueda conectar.
+    user: "telegraf:988"
     volumes:
-      - /:/rootfs:ro
-      - /var/run:/var/run:ro
-      - /sys:/sys:ro
-      - /var/lib/docker/:/var/lib/docker:ro
-      - /dev/disk/:/dev/disk:ro
-    devices:
-      - /dev/kmsg:/dev/kmsg
+      # SIN :ro — conectar a un socket unix exige escritura sobre el inode;
+      # el bind read-only bloquea el connect() aunque seas root.
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./observability/telegraf/telegraf.conf:/etc/telegraf/telegraf.conf:ro
     networks:
       - internal
     logging: *default-logging
+    mem_limit: 256m
+    cpus: 1
 
   # Node exporter: métricas del host (disco, RAM total, load avg).
   # Para alerts DiskAlmostFull, LowMemory, HighCpuLoad.
@@ -547,6 +553,9 @@ services:
     restart: unless-stopped
     command:
       - "--path.rootfs=/host"
+      # Expone /var/lib/node_exporter/textfile_collector del host: ahi el script
+      # de backup deja mutualyf_backup.prom (alerta BackupDesactualizado).
+      - "--collector.textfile.directory=/host/var/lib/node_exporter/textfile_collector"
     pid: host
     volumes:
       - /:/host:ro,rslave

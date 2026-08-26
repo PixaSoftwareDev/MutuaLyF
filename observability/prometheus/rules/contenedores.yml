@@ -1,0 +1,18 @@
+# Saturación de contenedores (2026-08-20). "Tocó su techo" = quedó registrado
+# en la métrica ALERTS, que los dashboards vps-estado/vps-historico muestran.
+groups:
+  - name: contenedores
+    rules:
+      - alert: ContenedorEnTechoDeRAM
+        # mem_limit < 30GB filtra los contenedores sin límite (heredan el total del host)
+        expr: (docker_container_mem_usage / docker_container_mem_limit) > 0.9 and docker_container_mem_limit < 30e9
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "{{ $labels.container_name }} lleva 5m usando >90% de su límite de RAM"
+      - alert: ContenedorCPUEstrangulado
+        expr: (rate(docker_container_cpu_throttling_throttled_periods[5m]) / rate(docker_container_cpu_throttling_periods[5m])) > 0.5
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "{{ $labels.container_name }} pasa >50% del tiempo frenado por su límite de CPU"
