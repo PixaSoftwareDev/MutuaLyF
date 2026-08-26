@@ -13,9 +13,8 @@ scrape_configs:
     docker_sd_configs:
       - host: unix:///var/run/docker.sock
         refresh_interval: 5s
-        filters:
-          - name: label
-            values: ["com.docker.compose.project=mutualyf"]
+        # Sin filtro de proyecto desde 2026-08-20: se centralizan los logs de
+        # TODOS los stacks (intellix prod/dev + apps satelite migradas).
     relabel_configs:
       - source_labels: ["__meta_docker_container_name"]
         target_label: container

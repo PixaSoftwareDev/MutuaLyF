@@ -1,0 +1,68 @@
+{
+  "uid": "vps-historico",
+  "title": "Histórico comparado",
+  "tags": ["vps"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "refresh": "1m",
+  "time": { "from": "now-24h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "app", "label": "Aplicación", "type": "query", "multi": true, "includeAll": true,
+        "current": {"text": ["All"], "value": ["$__all"]},
+        "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+        "query": {"query": "label_values(docker_container_mem_usage, com_docker_compose_project)", "refId": "var"},
+        "refresh": 2
+      }
+    ]
+  },
+  "annotations": {
+    "list": [
+      {
+        "name": "Saturaciones", "enable": true, "iconColor": "red",
+        "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+        "expr": "ALERTS{alertstate=\"firing\"}",
+        "titleFormat": "{{alertname}}", "textFormat": "{{container_name}}"
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "timeseries", "title": "RAM por aplicación", "gridPos": {"x": 0, "y": 0, "w": 12, "h": 9},
+      "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+      "targets": [{"refId": "A", "expr": "sum by (com_docker_compose_project) (docker_container_mem_usage{com_docker_compose_project=~\"$app\"})", "legendFormat": "{{com_docker_compose_project}}"}],
+      "fieldConfig": {"defaults": {"unit": "bytes", "custom": {"fillOpacity": 8}}, "overrides": []}
+    },
+    {
+      "type": "timeseries", "title": "CPU por aplicación", "gridPos": {"x": 12, "y": 0, "w": 12, "h": 9},
+      "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+      "targets": [{"refId": "A", "expr": "sum by (com_docker_compose_project) (docker_container_cpu_usage_percent{com_docker_compose_project=~\"$app\"})", "legendFormat": "{{com_docker_compose_project}}"}],
+      "fieldConfig": {"defaults": {"unit": "percent", "custom": {"fillOpacity": 8}}, "overrides": []}
+    },
+    {
+      "type": "timeseries", "title": "Red por aplicación (bajada + subida)", "gridPos": {"x": 0, "y": 9, "w": 12, "h": 9},
+      "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+      "targets": [
+        {"refId": "A", "expr": "sum by (com_docker_compose_project) (rate(docker_container_net_rx_bytes{com_docker_compose_project=~\"$app\"}[5m]))", "legendFormat": "{{com_docker_compose_project}} ↓"},
+        {"refId": "B", "expr": "sum by (com_docker_compose_project) (rate(docker_container_net_tx_bytes{com_docker_compose_project=~\"$app\"}[5m]))", "legendFormat": "{{com_docker_compose_project}} ↑"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "Bps", "custom": {"fillOpacity": 8}}, "overrides": []}
+    },
+    {
+      "type": "timeseries", "title": "El servidor entero (CPU % y load)", "gridPos": {"x": 12, "y": 9, "w": 12, "h": 9},
+      "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+      "targets": [
+        {"refId": "A", "expr": "100 * (1 - avg(rate(node_cpu_seconds_total{mode=\"idle\"}[5m])))", "legendFormat": "CPU %"},
+        {"refId": "B", "expr": "node_load5", "legendFormat": "load 5m"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "none", "custom": {"fillOpacity": 5}}, "overrides": []}
+    },
+    {
+      "type": "timeseries", "title": "RAM libre del servidor", "gridPos": {"x": 0, "y": 18, "w": 24, "h": 7},
+      "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+      "targets": [{"refId": "A", "expr": "node_memory_MemAvailable_bytes", "legendFormat": "RAM disponible"}],
+      "fieldConfig": {"defaults": {"unit": "bytes", "custom": {"fillOpacity": 15}}, "overrides": []}
+    }
+  ]
+}
