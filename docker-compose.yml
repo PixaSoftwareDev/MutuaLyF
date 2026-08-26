@@ -347,31 +347,11 @@ services:
   #     logging: *default-logging
   #
   # ─── Backup ───────────────────────────────────────────────────────────────────
-
-  pgbackrest:
-    # Cambio de woblerr/pgbackrest → postgres:16-alpine para usar pg_dump.
-    # pgBackRest requiere repo-host mode con SSH o instalar binary en el container
-    # postgres (custom image). Para nuestra escala (DB chica, piloto controlado),
-    # pg_dump es mas simple y suficiente: full daily/weekly con retencion + rotacion
-    # via cron. Cuando la DB crezca >5GB o necesitemos PITR, migramos a pgBackRest
-    # real con imagen postgres custom.
-    image: postgres:16-alpine
-    container_name: ia_pgbackrest
-    restart: unless-stopped
-    entrypoint: ["/bin/sh", "/usr/local/bin/entrypoint.sh"]
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-    volumes:
-      - pgbackrest_data:/var/lib/pgbackrest
-      - ./pgbackrest/entrypoint.sh:/usr/local/bin/entrypoint.sh:ro
-    depends_on:
-      postgres:
-        condition: service_healthy
-    networks:
-      - internal
-    logging: *default-logging
+  # Desde 2026-08-26 NO hay contenedor de backup: lo hace el cron del host
+  # (/usr/local/bin/mutualyf-pg-backup.sh, en el repo scripts/). Escribe en el
+  # volumen `pgbackrest_data` (daily/, weekly/, globals/), que montan postgres
+  # (para validar y restaurar) y el backend (tarjeta Backups del super admin).
+  # Ver docs/OPERACIONES.md §8 y docs/RUNBOOK.md §8.
 
   # ─── Tracing ──────────────────────────────────────────────────────────────────
 
@@ -569,6 +549,8 @@ services:
 
 volumes:
   postgres_data:
+  # Nombre histórico del contenedor que ya no existe; es EL volumen de backups.
+  # No renombrar: lo referencian el cron del host y docker-compose.staging.yml.
   pgbackrest_data:
   qdrant_data:
   redis_data:
