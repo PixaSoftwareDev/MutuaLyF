@@ -3,7 +3,7 @@ global:
   evaluation_interval: 15s
 
 # Reglas de alerta — todas las queries corren cada 15s; las que disparan se
-# envian a Alertmanager (notificacion Telegram, configurada abajo).
+# envian a Alertmanager (notificacion por email via Resend, ver alertmanager/).
 rule_files:
   - /etc/prometheus/rules/*.yml
 
@@ -31,10 +31,10 @@ scrape_configs:
     static_configs:
       - targets: ["postgres-exporter:9187"]
 
-  # Cadvisor — métricas de containers Docker (CPU, mem por container).
-  - job_name: "cadvisor"
+  # Docker exporter — métricas POR CONTENEDOR con nombre real (cpu/mem/red).
+  - job_name: "docker"
     static_configs:
-      - targets: ["cadvisor:8080"]
+      - targets: ["docker-exporter:9273"]
 
   # Node exporter — métricas del host (disco, RAM total, load).
   - job_name: "node"
@@ -50,6 +50,39 @@ scrape_configs:
     static_configs:
       - targets:
           - https://intellix.com.ar/health
+          - https://dev.intellix.com.ar/health
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+
+  # Blackbox — apps satélite que conviven en el VPS (consolidación 2026-08-20).
+  # Job aparte para que sus alertas sean warning y no se mezclen con las de
+  # Intellix. Se sondean por IP y path, igual que las usan sus usuarios.
+  # Handicapp falta a propósito: responde solo con Host app.handicapp.com.ar,
+  # se agrega cuando el DNS apunte acá y tenga cert.
+  - job_name: "blackbox_satelites"
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      # /login y no /: la raíz es un redirect prerenderizado (307 sin Location,
+      # lo resuelve el navegador por el HTML) y blackbox lo cuenta como caída.
+      - targets:
+          - http://200.58.109.110/login
+        labels:
+          app: lasmarias
+      - targets:
+          - http://200.58.109.110/crmpixs
+        labels:
+          app: crmpixs
+      - targets:
+          - http://200.58.109.110/ecuestre/
+        labels:
+          app: ecuestre
     relabel_configs:
       - source_labels: [__address__]
         target_label: __param_target

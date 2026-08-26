@@ -26,7 +26,7 @@ inhibit_rules:
 receivers:
   - name: email
     email_configs:
-      - to: "alemaros20@gmail.com"
+      - to: "alemaros20@gmail.com, guille.fernandeeez@gmail.com"
         send_resolved: true
         headers:
           Subject: '{{ if eq .Status "firing" }}🚨 [Intellix] {{ .CommonLabels.alertname }} ({{ .Alerts.Firing | len }}){{ else }}✅ [Intellix] RESUELTA: {{ .CommonLabels.alertname }}{{ end }}'

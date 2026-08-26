@@ -97,7 +97,7 @@ if echo "$CHANGED" | grep -q "nginx/nginx.prod.conf"; then
     log "Validando y recreando nginx"
     docker cp "$DIR/nginx/nginx.prod.conf" ia_nginx:/tmp/new_nginx.conf
     docker exec ia_nginx nginx -t -c /tmp/new_nginx.conf || die "nginx config inválida — NO se recreó."
-    $COMPOSE up -d --no-deps --force-recreate nginx >/dev/null
+    docker compose -f /opt/edge/docker-compose.yml up -d --force-recreate nginx >/dev/null
     ok "nginx recreado (config validada)"
 fi
 
