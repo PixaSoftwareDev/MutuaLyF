@@ -101,6 +101,15 @@ _DEIXIS_WORDS = {
 }
 
 
+# Deixis normalizada (sin tildes) para el control de deriva del rewriter: estos
+# términos DEBEN desaparecer al reescribir (se reemplazan por su referente).
+_DEIXIS_NORM = {
+    "eso", "esa", "ese", "esto", "aquel", "aquella", "aquello",
+    "ahi", "alli", "alla", "mismo", "misma", "anterior", "anteriores",
+    "dicho", "dicha", "ella", "ellos", "ellas", "esta", "este",
+}
+
+
 def _gate_reason(query: str, has_history: bool = False) -> str | None:
     """Motivo por el que la consulta merece rewriting, o None para saltearlo.
 
@@ -147,6 +156,49 @@ def _gate_reason(query: str, has_history: bool = False) -> str | None:
 def should_rewrite(query: str, has_history: bool = False) -> bool:
     """Decide si vale la pena correr el rewriter para esta query."""
     return _gate_reason(query, has_history) is not None
+
+
+def rewrite_conserva_tema(original: str, reescrita: str) -> bool:
+    """La reescritura, ¿sigue hablando de lo mismo que preguntó el usuario?
+
+    El rewriter es un LLM y a veces DERIVA de tema: el 25/08 reescribió
+    "¿puedo elegir libremente mi médico?" hacia el terreno odontológico, y el
+    retrieval trajo el circuito de odontólogos (asignación por domicilio) en
+    lugar de la libre elección de médico documentada. La respuesta salía
+    contradiciendo el corpus.
+
+    Regla: TODOS los términos distintivos de la ORIGINAL deben sobrevivir en la
+    reescritura, con dos excepciones:
+
+    - Las anáforas y deícticos ("eso", "ahí", "el mismo") se EXCLUYEN del
+      control: reemplazarlos por su referente es justamente para lo que sirve
+      reescribir ("¿y eso?" → "¿y el plan materno?").
+    - Un término se da por conservado si aparece como prefijo de otra palabra
+      ("turno" en "turnos"), así la flexión no cuenta como pérdida.
+
+    Sin tolerancia a pérdidas: probado con el caso real del incidente, tolerar
+    aunque sea un término dejaba pasar la deriva médico→odontólogo (perdía
+    exactamente "medico", el sujeto). Y descartar de más es barato: se sigue
+    con la consulta original, que es lo que el usuario escribió.
+
+    Barato y determinista: reutiliza _distinctive_terms del trust gate, que ya
+    filtra stopwords y verbos de trámite. NO llama a ningún modelo.
+    """
+    from services.trust_gate import _distinctive_terms, _norm
+
+    terms = {
+        t for t in _distinctive_terms(original)
+        if t not in _DEIXIS_NORM
+    }
+    if not terms:
+        return True
+    blob = _norm(reescrita)
+    palabras = set(re.findall(r"[a-z0-9]+", blob))
+    faltantes = [
+        t for t in terms
+        if (t not in blob if len(t) >= 4 else t not in palabras)
+    ]
+    return not faltantes
 
 
 # ── Prompt template (genérico, multi-tenant, multi-idioma) ─────────────────
@@ -293,11 +345,20 @@ async def rewrite_query(
     # Cache hit
     cached = await _get_cached(query, history)
     if cached is not None:
-        # info, no debug: sin esto una reescritura cacheada era invisible en los
-        # logs y un mal rewrite parecía un bug del motor (incidente 25/08).
-        logger.info("query_rewrite_cache_hit query=%r main=%r",
-                    query[:60], cached.main[:70])
-        return cached
+        # Validar TAMBIÉN lo que viene del cache: una entrada tóxica escrita
+        # antes de este control (o por una versión anterior) queda desactivada
+        # sin esperar a que expire.
+        if not rewrite_conserva_tema(query, cached.main):
+            logger.warning(
+                "query_rewrite_cache_descartado query=%r main=%r (perdió el tema)",
+                query[:60], cached.main[:70],
+            )
+        else:
+            # info, no debug: sin esto una reescritura cacheada era invisible en
+            # los logs y un mal rewrite parecía un bug del motor (incidente 25/08).
+            logger.info("query_rewrite_cache_hit query=%r main=%r",
+                        query[:60], cached.main[:70])
+            return cached
 
     # LLM rewrite
     n_variants = settings.query_rewriting_num_variants
@@ -356,6 +417,17 @@ async def rewrite_query(
     # Si por alguna razón el main vino vacío, fallback
     if not result.main:
         result.main = query
+
+    # Control de deriva temática: si la reescritura perdió el tema de la
+    # pregunta, se descarta y se sigue con la original — y NO se cachea (una
+    # reescritura mala guardada arrastraba el error a todas las consultas
+    # equivalentes hasta que expiraba; incidente 25/08).
+    if not rewrite_conserva_tema(query, result.main):
+        logger.warning(
+            "query_rewrite_descartado query=%r main=%r (perdió el tema)",
+            query[:60], result.main[:80],
+        )
+        return RewriteResult(main=query, variants=[], fallback=True)
 
     # Cache the result fire-and-forget (no bloquea response)
     asyncio.create_task(_set_cached(query, history, result))

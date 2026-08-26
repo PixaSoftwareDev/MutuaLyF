@@ -93,3 +93,70 @@ class TestReglaMultiTenant:
         # nada de sustantivos largos.
         for palabra in _CONTINUATION_STARTS | _DEIXIS_WORDS:
             assert len(palabra) <= 10, f"sospechosa de ser dominio: {palabra}"
+
+
+class TestConservaTema:
+    """Control de deriva temática del rewriter (incidente 2026-08-25): una
+    reescritura que pierde el tema de la pregunta se descarta y no se cachea."""
+
+    def _conserva(self, original, reescrita):
+        from services.query_rewriter import rewrite_conserva_tema
+        return rewrite_conserva_tema(original, reescrita)
+
+    # --- Reescrituras VÁLIDAS (deben pasar) ---
+    def test_expansion_legitima(self):
+        assert self._conserva(
+            '¿puedo elegir libremente mi médico?',
+            '¿Puedo elegir libremente a mi médico dentro de la Mutual Provincial de Luz y Fuerza?',
+        )
+
+    def test_repregunta_con_contexto_agregado(self):
+        # El rewriter agrega contexto: los términos de la original sobreviven
+        assert self._conserva(
+            'y los sábados atienden?',
+            '¿Los dermatólogos atienden los sábados en el Centro Médico?',
+        )
+
+    def test_sinonimo_tolerado(self):
+        # Pierde "saco" pero conserva "turno": 2 términos, tolerancia 0 → debe
+        # conservar el término principal
+        assert self._conserva('turnos odontologia', 'turnos de odontología en el Centro Médico')
+
+    def test_flexion_no_cuenta_como_perdida(self):
+        # "turno" sobrevive dentro de "turnos": la flexión no es deriva
+        assert self._conserva('turno kinesiología', 'turnos de kinesiología en el Centro')
+
+    def test_sin_tolerancia_a_perder_terminos(self):
+        # Perder un término distintivo YA es señal: con tolerancia, la deriva
+        # médico→odontólogo del incidente se colaba (perdía exactamente uno).
+        assert not self._conserva(
+            'necesito solicitar una férula',
+            'necesito una prótesis ortopédica',   # pierde "solicitar" y "ferula"
+        )
+
+    # --- Reescrituras que DERIVAN de tema (deben descartarse) ---
+    def test_deriva_medico_a_odontologo(self):
+        # EL CASO REAL del incidente
+        assert not self._conserva(
+            '¿puedo elegir libremente mi médico?',
+            '¿Puedo elegir libremente cualquier odontólogo de la provincia?',
+        )
+
+    def test_deriva_tema_completo(self):
+        assert not self._conserva(
+            '¿cuánto cuesta el plan materno?',
+            '¿Cuáles son los horarios del Centro Médico?',
+        )
+
+    def test_pierde_el_sujeto(self):
+        assert not self._conserva(
+            '¿qué días atiende el traumatólogo?',
+            '¿Cuáles son los días de atención?',
+        )
+
+    # --- Casos borde ---
+    def test_pregunta_sin_terminos_distintivos(self):
+        assert self._conserva('¿y eso?', 'cualquier cosa')
+
+    def test_reescritura_identica(self):
+        assert self._conserva('turno para kinesiología', 'turno para kinesiología')
