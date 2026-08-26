@@ -214,37 +214,65 @@ Resultado esperado: `sources >= 1` y `answer` con texto coherente.
 
 > **PROCEDIMIENTO DESTRUCTIVO.** Esto sobreescribe la DB actual. Solo usar si la DB está corrupta o se perdió.
 
+Los dumps son formato custom de `pg_dump` (`-Fc`), generados por el cron del host
+(ver OPERACIONES.md §8). El volumen está montado en `ia_postgres` en
+`/var/lib/pgbackrest`, así que `pg_restore` corre desde ese contenedor.
+
 ### 8.1 Listar backups disponibles
 
 ```bash
-ssh ... 'ls -lht /var/lib/docker/volumes/mutualyf_pgbackrest_data/_data/daily/ | head -10'
-ssh ... 'ls -lht /var/lib/docker/volumes/mutualyf_pgbackrest_data/_data/weekly/ | head -10'
+V=/var/lib/docker/volumes/mutualyf_pgbackrest_data/_data
+ls -lht $V/daily/ | head -10      # últimos 7 días
+ls -lht $V/weekly/ | head -10     # últimos domingos (8 semanas)
+ls -lht $V/globals/ | head -3     # roles del cluster
 ```
 
-### 8.2 Restore en producción (¡destructivo!)
+### 8.2 Restore completo en producción (¡destructivo!)
 
 ```bash
-# 1. Frenar tráfico
-docker compose -f docker-compose.yml -f docker-compose.prod.yml stop backend celery_worker nginx
+# 1. Frenar tráfico (nginx vive en /opt/edge, no en este compose)
+docker compose -f docker-compose.yml -f docker-compose.prod.yml stop backend celery_worker celery_beat
 
-# 2. Elegir el backup más reciente
-BACKUP=/var/lib/pgbackrest/daily/daily-YYYYMMDD-HHMM.dump
+# 2. Elegir el backup
+BACKUP=/var/lib/pgbackrest/daily/daily-YYYYMMDD-HHMM.dump   # ruta DENTRO de ia_postgres
 
-# 3. Drop y recrear DB (pg_restore --clean lo hace pero con esto es atómico)
+# 3. Recrear la base vacía
 docker exec ia_postgres psql -U platform_user -d postgres -c "DROP DATABASE platform WITH (FORCE);"
 docker exec ia_postgres psql -U platform_user -d postgres -c "CREATE DATABASE platform;"
 
-# 4. Restaurar
-docker exec ia_pgbackrest sh -c "PGPASSWORD=\$POSTGRES_PASSWORD pg_restore \
-  -h postgres -U \$POSTGRES_USER -d \$POSTGRES_DB --no-owner --no-acl $BACKUP"
+# 4. Restaurar (sin --clean: la base ya está vacía)
+docker exec ia_postgres pg_restore -U platform_user -d platform --no-owner --no-acl $BACKUP
 
 # 5. Verificar
 docker exec ia_postgres psql -U platform_user -d platform -c \
   "SELECT id, status, created_at FROM tenants ORDER BY created_at;"
 
-# 6. Levantar tráfico
-docker compose -f docker-compose.yml -f docker-compose.prod.yml start backend celery_worker nginx
+# 6. Levantar tráfico (el backend corre alembic al arrancar: la base restaurada
+#    debe estar en la misma revisión que el código, ver alembic_version)
+docker compose -f docker-compose.yml -f docker-compose.prod.yml start backend celery_worker celery_beat
 ```
+
+Si el rol `platform_user` no existe (cluster nuevo), primero los globals:
+`zcat $V/globals/globals-*.sql.gz | docker exec -i ia_postgres psql -U postgres -d postgres`.
+
+### 8.2b Restore de UN solo tenant (los demás siguen andando)
+
+Caso típico: un admin borró documentos de `tenant_galo` y hay que volver a ayer.
+`pg_restore -n` NO crea el schema (esa entrada queda fuera del filtro): hay que
+crearlo antes. Probado el 2026-08-26.
+
+```bash
+BACKUP=/var/lib/pgbackrest/daily/daily-YYYYMMDD-HHMM.dump
+T=tenant_galo
+docker compose -f docker-compose.yml -f docker-compose.prod.yml stop backend celery_worker
+docker exec ia_postgres psql -U platform_user -d platform -c "DROP SCHEMA $T CASCADE; CREATE SCHEMA $T;"
+docker exec ia_postgres pg_restore -U platform_user -d platform --no-owner --no-acl -n $T $BACKUP
+docker exec ia_postgres psql -U platform_user -d platform -c "SELECT count(*) FROM $T.documentos;"
+docker compose -f docker-compose.yml -f docker-compose.prod.yml start backend celery_worker
+```
+
+Después: la colección `galo_docs` de Qdrant queda con vectores de documentos
+que quizá ya no existen (o faltan los restaurados) → reingestar ese tenant.
 
 ### 8.3 Validación post-restore
 

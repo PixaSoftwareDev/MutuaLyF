@@ -209,7 +209,7 @@ docker system prune -a -f    # limpia imágenes/containers no usados
 
 ### 7.3 Backups viejos
 
-Se rotan solos (7 días daily, 28 días weekly). Verificar:
+Se rotan solos (7 días daily, 56 días weekly, 7 días globals). Verificar:
 
 ```bash
 ls -lh /var/lib/docker/volumes/mutualyf_pgbackrest_data/_data/daily/
@@ -218,27 +218,51 @@ ls -lh /var/lib/docker/volumes/mutualyf_pgbackrest_data/_data/weekly/
 
 ## 8. Backup y restore
 
-Desde el 2026-08-12 el backup de Postgres lo hace un script del host
-(`/usr/local/bin/mutualyf-pg-backup.sh`, cron 03:30 -3, `pg_dumpall` a
-`/backups/pg/`, retención 7 días) y publica una métrica para node_exporter:
-si pasan 36 h sin un dump validado, o la métrica desaparece, salta la alerta
-`BackupDesactualizado` / `BackupMetricaAusente` (dead-man switch). El
-contenedor `ia_pgbackrest` sigue arriba pero ya no es la fuente de verdad.
+**Un solo backup** desde el 2026-08-26: el script del host
+`/usr/local/bin/mutualyf-pg-backup.sh` (en el repo: `scripts/mutualyf-pg-backup.sh`),
+cron `30 3 * * *` (**03:30 UTC** = 00:30 Argentina; el host está en UTC). Absorbió
+al contenedor `ia_pgbackrest`, que hacía un segundo dump en paralelo sin alerta
+— dos backups que no se conocían entre sí. Qué hace cada noche:
+
+1. `pg_dump -Fc` (formato custom: permite restaurar **un solo tenant**) →
+   `daily/daily-AAAAMMDD-HHMM.dump`. Retención 7 días.
+2. Valida ANTES de dar nada por bueno: tamaño mínimo 100 KB, `pg_restore -l`
+   lee el TOC entero, y tienen que aparecer schemas `tenant_*`.
+3. Roles del cluster (`pg_dumpall --globals-only`, que el formato custom no
+   trae) → `globals/`. Retención 7 días.
+4. Los domingos copia el diario a `weekly/`. Retención 8 semanas.
+5. Recién después purga los viejos (si el dump de hoy falló, no se toca nada).
+6. Publica métricas para node_exporter: `mutualyf_backup_last_success_timestamp_seconds`
+   (diario), `..._weekly_last_success_timestamp_seconds`, `..._last_size_bytes`,
+   `mutualyf_backup_count{kind}`. Alertas: `BackupDesactualizado` (>36 h, critical),
+   `BackupMetricaAusente` (dead-man, critical), `BackupSemanalDesactualizado`
+   (>9 días, warning), `BackupDemasiadoChico` (<100 KB, warning).
+
+Todo va al volumen `mutualyf_pgbackrest_data` (nombre histórico), que montan
+`ia_postgres` en `/var/lib/pgbackrest` y el backend (prod y staging) en
+`/backups` → es lo que muestra la tarjeta **Backups** del super admin.
+
+**Pendiente (importante):** copia fuera del VPS. Backup y datos viven en el
+mismo NVMe. El script invoca `/usr/local/bin/mutualyf-backup-offsite.sh` si
+existe (recibe la ruta del dump); falta elegir destino (B2/R2/S3) y credenciales.
 
 ### 8.1 Verificar que el cron de backup corre
 
 ```bash
-tail -5 /var/log/mutualyf-backup.log      # "Backup OK: ..." cada noche
-ls -lh /backups/pg/ | tail -3
+tail -8 /var/log/mutualyf-backup.log      # "Backup diario OK: ..." cada noche
+ls -lh /var/lib/docker/volumes/mutualyf_pgbackrest_data/_data/{daily,weekly,globals}/ | tail
 ```
 
 ### 8.2 Forzar backup manual ahora
 
 ```bash
-/usr/local/bin/mutualyf-pg-backup.sh
+/usr/local/bin/mutualyf-pg-backup.sh      # imprime y loguea; sale 1 si falló
 ```
 
 ### 8.3 Restore — ver `RUNBOOK.md` sección "Restore desde backup"
+
+Probado el 2026-08-26 en contenedor descartable: restore completo idéntico a
+prod (3 tenants, 6.766 mensajes, 2.838 consultas) y restore de un tenant solo.
 
 ### 8.4 Backups de las apps satélite (2026-08-21)
 
@@ -369,7 +393,7 @@ done
 docker compose -f docker-compose.staging.yml restart backend_staging
 ```
 
-Staging es DESCARTABLE: no se respalda (pgbackrest cubre solo prod); si se
+Staging es DESCARTABLE: no se respalda (el backup del host cubre solo prod); si se
 rompe, se reclona con lo de arriba.
 
 ### Pendientes conocidos (2026-08-20)

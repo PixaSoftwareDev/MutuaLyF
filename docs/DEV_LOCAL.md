@@ -28,8 +28,8 @@ sin ningún riesgo para el cliente.
 
 ## Qué NO corre en local (a propósito, para no fundir la PC)
 
-Observability (Prometheus/Grafana/Loki/Jaeger/exporters/cadvisor), pgbackrest
-y nginx. El LLM sale por API externa (OpenAI) y los embeddings corren locales
+Observability (Prometheus/Grafana/Loki/Jaeger/exporters/Telegraf), el backup
+(cron del host) y nginx. El LLM sale por API externa (OpenAI) y los embeddings corren locales
 en CPU. (El reranker fue ELIMINADO del pipeline el 2026-07-23 — no existe en
 ningún ambiente.)
 
