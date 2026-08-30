@@ -75,18 +75,32 @@ derivación, branding).
 | **Prod** | `intellix.com.ar` | `main` | `/opt/mutualyf`, bind-mount | horneado (rebuild) |
 
 - SSH VPS: `ssh -i ~/.ssh/mutualyf_vps -p 2251 root@200.58.109.110`
-- **Prod y staging comparten PostgreSQL/Qdrant/Redis** (tenants reales al
-  2026-08-17: `mutualyf` prod real, `intellix` demo, `galo`; el viejo `nexo`
-  ya no existe). Los contenedores son independientes.
-- ⚠️ **Staging NO tiene worker de Celery propio**: su broker es Redis DB 3 y
-  nadie consume de ahí → los documentos subidos en staging quedan "En cola"
-  para siempre. Workaround 2026-08-17: worker temporal adentro de
-  `ia_backend_staging` (muere con el restart; comando en
-  `docs/AUDITORIA_2026-08-17.md`). Fix permanente pendiente: servicio celery
-  en `docker-compose.staging.yml`.
-- **Regla de trabajo (Alejo, 2026-07-27)**: el desarrollo va SIEMPRE en
-  `dev-local`. Los pasajes a staging y prod se hacen **solo cuando Alejo lo
-  pide** (prod además con OK explícito).
+- **Staging tiene stack COMPLETO propio desde el 2026-08-20** (reorganización
+  del VPS): `ia_postgres_staging`, `ia_qdrant_staging`, `ia_redis_staging`,
+  `ia_minio_staging`, `ia_celery_worker_staging` y `ia_celery_beat_staging`.
+  Ya NO comparte bases con prod, y el viejo problema "documentos En cola para
+  siempre en staging" (broker sin consumer) quedó resuelto de raíz — el
+  workaround del worker temporal adentro de `ia_backend_staging` ya no aplica.
+  ⚠️ Consecuencia para migraciones: `alembic_version` ya NO es global entre
+  ambientes — cada base tiene la suya. Los datos de staging arrancan de un
+  clon (verificar tenants antes de probar).
+  ⚠️⚠️ CADENAS DE MIGRACIÓN DIVERGENTES (desde la 055, 2026-08-23): las
+  migraciones 052-054 son de conectores y viven SOLO en dev-local. Cadena en
+  `main`/`dev`: …→051→055. Cadena en `dev-local`: 051→055→052→053→054.
+  Una migración NUEVA debe encadenar desde el último común (hoy 055) y al
+  cherry-pickearla verificar que su down_revision exista en la rama destino.
+  ⚠️⚠️⚠️ El backend corre `alembic upgrade` EN EL STARTUP: una cadena rota
+  (down_revision inexistente) = crash-loop = AMBIENTE CAÍDO. El 23/08 esto
+  tumbó prod ~6 minutos. Ante crash-loop tras deploy: mirar KeyError de
+  alembic en los logs y verificar la cadena ANTES de reintentar.
+- Tenants reales en prod al 2026-08-17: `mutualyf` (cliente real), `intellix`
+  (demo), `galo`. El viejo `nexo` ya no existe.
+- El VPS también aloja otros proyectos Pixs (crm-pixs, ecuestre, handicapp,
+  lasmarias) — no tocar; solo `ia_*` es de esta plataforma.
+- **Regla de trabajo (equipo, 2026-07-27)**: el desarrollo va SIEMPRE en
+  `dev-local`. Los pasajes a staging y prod se hacen **solo cuando los dos
+  integrantes del equipo acuerdan la subida** (prod además con OK explícito
+  de ambos). Nunca deployar por iniciativa propia.
 - **Regla de oro de migraciones**: la base comparte `alembic_version` global →
   ambas ramas deben tener el archivo de una revisión ANTES de avanzar la base.
   Cadena convergida e idéntica en `main` y `dev` desde la revisión 044

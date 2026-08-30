@@ -38,9 +38,10 @@ export function AuthShell({ children }: { children: React.ReactNode }) {
         style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")" }}
       />
 
-      {/* Logo: ícono + wordmark (versión oscura). En mobile en flujo centrado
-          (absoluto se superpone con cards altas); desde sm en la esquina. */}
-      <div className="relative z-20 mb-7 flex items-center gap-2.5 sm:absolute sm:left-16 sm:top-14 sm:mb-0 lg:left-20 lg:top-16">
+      {/* Logo: ícono + wordmark (versión oscura). En flujo centrado hasta lg:
+          en 640–1023px el absoluto de la esquina no tiene lugar y pisa la card
+          centrada de 420px (mismo criterio que el login). */}
+      <div className="relative z-20 mb-7 flex items-center gap-2.5 lg:absolute lg:left-20 lg:top-16 lg:mb-0">
         <Image
           src="/brand/intellix-mark.png"
           alt=""

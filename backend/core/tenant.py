@@ -118,10 +118,10 @@ def _extract_from_subdomain(request: Request) -> str | None:
 
 
 def _extract_from_jwt(request: Request) -> str | None:
-    """Extract tenant_id from Authorization JWT claim, without verifying signature here.
+    """Extract tenant_id from Authorization JWT claim (signature verified).
 
-    The full signature verification happens in the auth dependency.
-    We only decode to read the claim for routing purposes.
+    The auth dependency re-verifies later; here we validate too so a forged
+    token can't steer tenant resolution.
 
     Falls back to `?token=` query param for endpoints that can't send headers
     (e.g. EventSource/SSE).
