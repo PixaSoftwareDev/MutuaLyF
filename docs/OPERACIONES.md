@@ -344,8 +344,8 @@ docker exec -w /app ia_backend alembic -c db/alembic.ini upgrade head
 > `RERANKER_PROVIDER`, son restos históricos: no hay nada que levantar.
 >
 > **Deploy con red**: existe `scripts/deploy.sh` (pre-flight de drift, deploy
-> selectivo según diff, health checks). Los pasajes se coordinan con Alejo —
-> no deployar por iniciativa propia.
+> selectivo según diff, health checks). Los pasajes se acuerdan entre los dos
+> integrantes del equipo — no deployar por iniciativa propia.
 
 ## 13. Tabla rápida — "qué hago si..."
 

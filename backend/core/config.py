@@ -163,6 +163,10 @@ class Settings(BaseSettings):
     # cuenta hasta verificar dominio). Ignorado SIEMPRE en environment=production
     # (doble gate en services/otp.py::_dev_fixed_code). Vacío = OTP real por email.
     otp_dev_fixed_code: str = ""
+    # Retención de logs. Sin purga, tool_call_audit y consultas_log crecen sin
+    # techo (~180 GB/año a 100 tenants × 10k consultas/día).
+    connector_audit_retention_days: int = 90
+    query_log_retention_days: int = 180
     connector_auth_lockout_window_s: int = 900  # ventana de 15 min
     # Timeout y circuit breaker del executor HTTP hacia terceros.
     connector_http_timeout_ms: int = 4000

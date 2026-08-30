@@ -71,6 +71,12 @@ _beat_schedule = {
         "task": "workers.cleanup_tasks.delete_expired_attachments",
         "schedule": crontab(hour=1, minute=30),  # diario, antes del ciclo nocturno
     },
+    "purge-old-logs": {
+        "task": "workers.cleanup_tasks.purge_old_logs",
+        # Después de los adjuntos y lejos del pico: borra por lotes chicos para
+        # no tomar locks largos sobre tablas que el chat sigue escribiendo.
+        "schedule": crontab(hour=2, minute=15),
+    },
 }
 
 app.conf.update(
