@@ -413,7 +413,7 @@
       "AuthShell nuevo (bienvenida/reset) + login mobile sin superposicion + Probar chat compatible iOS"
     ],
     "validacion": "237/237 tests local, 66/66 staging, 70/70 prod en contenedor; smoke E2E en los 3 ambientes; mutual sin downtime de backend (solo restarts breves)",
-    "regla_flujo": "Desarrollo SIEMPRE en dev-local; pasajes a staging/prod SOLO a pedido de Alejo (prod con OK explicito)"
+    "regla_flujo": "Desarrollo SIEMPRE en dev-local; pasajes a staging/prod SOLO con acuerdo de los dos integrantes del equipo (prod con OK explicito de ambos)"
   },
   "session_2026_08_18_observacion_prod": {
     "fecha": "2026-08-18",
@@ -423,7 +423,7 @@
       "WhatsApp: enviar indicador 'escribiendo...' (typing) mientras el motor procesa, para que la espera se sienta menor.",
       "Rewriter en camino crítico: en el turno 2 tardó 2.1s (variabilidad OpenAI) y dominó la latencia (4.3s). Revisar timeout/presupuesto del rewriter o degradar a keywords si excede N ms."
     ],
-    "plan": "Trabajarlo el fin de semana (22-23/08) en dev-local; pasa a staging/prod solo con OK de Alejo.",
+    "plan": "Trabajarlo el fin de semana (22-23/08) en dev-local; pasa a staging/prod solo con acuerdo del equipo.",
     "auditoria_base_conocimiento": {
       "regla": "NO crear ni partir documentos del tenant: el panel es de la mutual, los fixes van por codigo",
       "hallazgos": [

@@ -97,9 +97,10 @@ derivación, branding).
   (demo), `galo`. El viejo `nexo` ya no existe.
 - El VPS también aloja otros proyectos Pixs (crm-pixs, ecuestre, handicapp,
   lasmarias) — no tocar; solo `ia_*` es de esta plataforma.
-- **Regla de trabajo (Alejo, 2026-07-27)**: el desarrollo va SIEMPRE en
-  `dev-local`. Los pasajes a staging y prod se hacen **solo cuando Alejo lo
-  pide** (prod además con OK explícito).
+- **Regla de trabajo (equipo, 2026-07-27)**: el desarrollo va SIEMPRE en
+  `dev-local`. Los pasajes a staging y prod se hacen **solo cuando los dos
+  integrantes del equipo acuerdan la subida** (prod además con OK explícito
+  de ambos). Nunca deployar por iniciativa propia.
 - **Regla de oro de migraciones**: la base comparte `alembic_version` global →
   ambas ramas deben tener el archivo de una revisión ANTES de avanzar la base.
   Cadena convergida e idéntica en `main` y `dev` desde la revisión 044
