@@ -2,7 +2,7 @@
 
 from celery import Celery
 from celery.schedules import crontab
-from celery.signals import worker_process_init
+from celery.signals import setup_logging, worker_init, worker_process_init
 from core.config import settings
 
 app = Celery(
@@ -16,6 +16,30 @@ app = Celery(
         "workers.maintenance_tasks",
     ],
 )
+
+@setup_logging.connect
+def on_setup_logging(**kwargs):
+    """Celery NO toma el logging raíz: usa el mismo configure_logging que el
+    backend (JSON en prod, con contexto de structlog). Hasta 2026-09-03 el
+    worker escribía en el formato de texto de Celery y Loki lo descartaba."""
+    from core.logging_config import configure_logging
+
+    configure_logging(settings.log_level, settings.is_production)
+
+
+@worker_init.connect
+def on_worker_init(**kwargs):
+    """Una vez en el proceso principal, ANTES del fork del pool: expone
+    /metrics del worker (puerto 9808, red interna). Las métricas de ingesta
+    (ia_ingest_total, ia_pipeline_duration_ms, ia_quality_gate_total) se
+    incrementan acá y hasta 2026-09-03 no las leía nadie."""
+    try:
+        from core.metrics import celery_metrics_server
+
+        celery_metrics_server()
+    except Exception:  # sin métricas el worker igual tiene que trabajar
+        pass
+
 
 @worker_process_init.connect
 def on_worker_process_init(**kwargs):
@@ -80,6 +104,7 @@ _beat_schedule = {
 }
 
 app.conf.update(
+    worker_hijack_root_logger=False,  # el logging lo configura on_setup_logging
     task_serializer="json",
     accept_content=["json"],
     result_serializer="json",

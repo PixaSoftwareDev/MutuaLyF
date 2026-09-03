@@ -249,7 +249,22 @@ async def _judge(question: str, chunk_texts: list[str], tenant_id: str) -> dict 
 
 async def evaluate_coverage(question: str, chunk_texts: list[str], tenant_id: str) -> dict:
     """Devuelve {"action": "answer"|"refuse", "kept": list[int]|None,
-    "missing": list[str], "reason": str, "judge_used": bool, "lex_coverage": float}."""
+    "missing": list[str], "reason": str, "judge_used": bool, "lex_coverage": float}.
+
+    Registra cada veredicto en `ia_trust_gate_total` (tenant, action, etapa):
+    hasta 2026-09-03 la señal del gate vivía solo en logs que rotaban."""
+    result = await _evaluate_coverage(question, chunk_texts, tenant_id)
+    try:
+        from core.metrics import TRUST_GATE_TOTAL
+        reason = result.get("reason", "")
+        stage = "judge_failed" if reason.startswith("judge_failed") else reason.split("_", 1)[0]
+        TRUST_GATE_TOTAL.labels(tenant_id=tenant_id, action=result["action"], stage=stage).inc()
+    except Exception:  # la métrica nunca puede voltear una consulta
+        pass
+    return result
+
+
+async def _evaluate_coverage(question: str, chunk_texts: list[str], tenant_id: str) -> dict:
     # Smalltalk / entradas mínimas ("chau", "ok perfecto", "gracias", "?"):
     # no hay consulta informacional que evaluar — el gate no opina y deja que
     # la personalidad conteste. Sin este guard, "chau" terminaba en "no encontré".

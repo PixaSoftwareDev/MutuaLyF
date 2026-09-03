@@ -31,6 +31,12 @@ scrape_configs:
     static_configs:
       - targets: ["postgres-exporter:9187"]
 
+  # Celery worker — ingesta (ia_ingest_total, ia_pipeline_duration_ms,
+  # ia_quality_gate_total). Hasta 2026-09-03 esas métricas no las leía nadie.
+  - job_name: "ia_celery"
+    static_configs:
+      - targets: ["celery_worker:9808"]
+
   # Docker exporter — métricas POR CONTENEDOR con nombre real (cpu/mem/red).
   - job_name: "docker"
     static_configs:

@@ -39,6 +39,8 @@ x-staging-datastores: &staging-datastores
   REDIS_URL_BROKER: redis://redis_staging:6379/0
   REDIS_URL_CACHE: redis://redis_staging:6379/1
   REDIS_URL_RATELIMIT: redis://redis_staging:6379/2
+  # Métricas agregadas de los 4 workers uvicorn / prefork de Celery.
+  PROMETHEUS_MULTIPROC_DIR: /tmp/prometheus_multiproc
 
 services:
 

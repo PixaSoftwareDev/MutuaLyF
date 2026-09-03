@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from core.config import settings
-from core.logging_config import configure_logging
+from core.logging_config import bind_log_context, configure_logging
 from core.database import connect_all, disconnect_all
 from core.tenant import TenantMiddleware
 from core.metrics import setup_metrics
@@ -151,7 +151,13 @@ setup_tracing(app)
 async def request_id_middleware(request: Request, call_next):
     request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
     structlog.contextvars.clear_contextvars()
-    structlog.contextvars.bind_contextvars(request_id=request_id)
+    # tenant_id lo resolvió TenantMiddleware (más externo, corre antes) y lo
+    # dejó en request.state. Sin esto no había forma de filtrar logs por
+    # tenant en Loki (auditoría 2026-09-03).
+    bind_log_context(
+        request_id=request_id,
+        tenant_id=getattr(request.state, "tenant_id", None),
+    )
     response = await call_next(request)
     response.headers["X-Request-ID"] = request_id
     return response

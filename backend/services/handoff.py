@@ -181,6 +181,15 @@ def _norm_kw(s: str) -> str:
     return f" {s.strip()} "
 
 
+def _count_handoff(tenant_id: str, trigger: "HandoffTrigger") -> None:
+    """Métrica ia_handoff_total. Best-effort: nunca interrumpe la derivación."""
+    try:
+        from core.metrics import HANDOFF_TOTAL
+        HANDOFF_TOTAL.labels(tenant_id=tenant_id, trigger=trigger.value).inc()
+    except Exception:
+        pass
+
+
 def match_keyword_trigger(user_message: str, groups: list) -> dict | None:
     """Primer grupo cuyo words matchea el mensaje como palabra/frase completa,
     insensible a tildes y mayúsculas. None si ninguno."""
@@ -307,6 +316,7 @@ async def evaluate_handoff(
         # keep_answer solo si el bot tiene algo que decir: cuando la respuesta
         # es "no encontré esa información", mostrarla arriba del cartel es puro
         # ruido ("no sé" + "¿querés un operador?") — va el cartel solo.
+        _count_handoff(tenant_id, HandoffTrigger.KEYWORD)
         return HandoffSignal(
             trigger=HandoffTrigger.KEYWORD,
             auto_activate=False,
@@ -333,6 +343,7 @@ async def evaluate_handoff(
             # aunque luego no hubiera operadores y el cartel nunca se mostrara,
             # bloqueando re-ofrecer incluso si aparece un operador en esos 90s.
             await _reset_insufficient(conversation_id)
+            _count_handoff(tenant_id, HandoffTrigger.INSUFFICIENT)
             return HandoffSignal(
                 trigger=HandoffTrigger.INSUFFICIENT,
                 auto_activate=False,

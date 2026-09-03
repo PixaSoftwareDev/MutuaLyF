@@ -138,6 +138,9 @@ services:
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4 --log-level info --timeout-keep-alive 30 --timeout-graceful-shutdown 30
     env_file: .env
     environment:
+      # Métricas agregadas de los 4 workers (ver core/metrics.py). El
+      # entrypoint limpia el directorio en cada arranque.
+      PROMETHEUS_MULTIPROC_DIR: /tmp/prometheus_multiproc
       # F2 Opcion A: solo el reranker se mueve a TEI. Embeddings siguen via
       # OpenAI (text-embedding-3-small, ~80ms via API, sin GIL en uvicorn).
       # Si tei-reranker no arranca, el reranker se skipea y chunks se ordenan
@@ -276,6 +279,8 @@ services:
     env_file: .env
     environment:
       PYTHONPATH: /app
+      # Expone /metrics del worker en :9808 (red interna, lo scrapea Prometheus).
+      PROMETHEUS_MULTIPROC_DIR: /tmp/prometheus_multiproc
     volumes:
       - ./backend:/app
       - models_data:/root/.cache/huggingface

@@ -64,6 +64,11 @@ def process_document(
     filename: str,
 ) -> dict:
     """Full ingestion pipeline. Runs async work in a single asyncio.run() call."""
+    from core.logging_config import bind_log_context, clear_log_context
+
+    # Toda línea de esta tarea lleva tenant y documento (filtrable en Loki).
+    clear_log_context()
+    bind_log_context(tenant_id=tenant_id, document_id=document_id, task_id=self.request.id)
     logger.info("ingest_start document_id=%s tenant_id=%s", document_id, tenant_id)
     try:
         result = asyncio.run(
@@ -76,6 +81,8 @@ def process_document(
         if self.request.retries >= self.max_retries:
             _safe_unlink(file_path)
         raise
+    finally:
+        clear_log_context()
     _safe_unlink(file_path)  # éxito: limpiar el temporal
     return result
 

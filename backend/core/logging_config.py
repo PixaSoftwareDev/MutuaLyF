@@ -10,7 +10,11 @@ Third-party loggers that are silenced to WARNING:
   - httpx / httpcore                     (every Groq/Qdrant call)
   - sentence_transformers / transformers (model loading chatter)
   - groq._base_client                    (internal retry noise)
-  - uvicorn.access /health               (Docker healthcheck spam)
+  - uvicorn.access /health y /metrics    (healthcheck + scrape de Prometheus)
+
+uvicorn y Celery se enrutan por el MISMO handler raíz (JSON en prod), así
+Loki recibe todo con el mismo formato y etiquetas (level, request_id,
+tenant_id). Ver bind_log_context().
 """
 
 import logging
@@ -20,11 +24,31 @@ from typing import Any
 import structlog
 
 
-class _HealthCheckFilter(logging.Filter):
-    """Drop GET /health access log lines — Docker pings every 30s."""
+# Rutas que NO van al access log: el healthcheck de Docker cada 30 s y el
+# scrape de Prometheus cada 15 s eran 11.000 líneas cada dos días, el 99% del
+# log del backend (auditoría 2026-09-03).
+_ACCESS_LOG_SILENCED = ("GET /health", "GET /metrics")
+
+
+class _AccessLogFilter(logging.Filter):
+    """Drop access log lines of health checks and metrics scrapes."""
 
     def filter(self, record: logging.LogRecord) -> bool:
-        return "GET /health" not in record.getMessage()
+        msg = record.getMessage()
+        return not any(path in msg for path in _ACCESS_LOG_SILENCED)
+
+
+_HealthCheckFilter = _AccessLogFilter  # nombre histórico
+
+
+def bind_log_context(**fields: Any) -> None:
+    """Agrega campos al contexto de structlog del hilo/tarea actual (request o
+    tarea Celery): toda línea posterior los lleva. Ignora valores None."""
+    structlog.contextvars.bind_contextvars(**{k: v for k, v in fields.items() if v is not None})
+
+
+def clear_log_context() -> None:
+    structlog.contextvars.clear_contextvars()
 
 
 def configure_logging(log_level: str, is_production: bool) -> None:
@@ -90,5 +114,15 @@ def configure_logging(log_level: str, is_production: bool) -> None:
         lg.setLevel(logging.WARNING)
         lg.propagate = False  # stop records from surfacing to any stale root handler
 
-    # Drop /health from access logs (Docker healthcheck every 30s)
-    logging.getLogger("uvicorn.access").addFilter(_HealthCheckFilter())
+    # ── uvicorn: TODO por el handler raíz (JSON en prod) ──────────────────────
+    # uvicorn instala sus propios handlers de texto plano en "uvicorn",
+    # "uvicorn.error" y "uvicorn.access" con propagate=False: hasta 2026-09-03
+    # el 99,7% del log del backend salía en texto plano y Promtail lo
+    # descartaba. Se le quitan los handlers y se propaga al raíz.
+    for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+        lg = logging.getLogger(name)
+        lg.handlers.clear()
+        lg.propagate = True
+
+    # Drop /health y /metrics del access log (healthcheck + scrape)
+    logging.getLogger("uvicorn.access").addFilter(_AccessLogFilter())
