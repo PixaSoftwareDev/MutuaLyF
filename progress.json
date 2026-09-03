@@ -224,6 +224,14 @@
       "decision": "Documentacion normalizada: CLAUDE.md reescrito al stack real (OpenAI, sin reranker, trust gate, ambientes/flags), README como punto de entrada, PROMPT.md marcado historico, ALERTAS_TELEGRAM.md eliminado (alertas van por email Resend), runbooks corregidos."
     },
     {
+      "date": "2026-09-02",
+      "decision": "Separación prod/staging: staging tenía los secretos de prod (JWT, cifrado de canal, PG, SMTP) y las cuentas de WhatsApp clonadas con token. Aplicado en staging: JWT y PG propias, CHANNEL_ENCRYPTION_KEY explícita (= la derivada de prod, para que los widget tokens clonados sigan legibles), whatsapp_accounts borradas, APP_BASE_URL/EMAIL_FROM de staging. OPENAI_API_KEY se sigue compartiendo por decisión. Runbook de reclonado con paso de saneamiento."
+    },
+    {
+      "date": "2026-09-03",
+      "decision": "Observabilidad, ejecutada en una sola tanda a pedido explícito: (A) en prod/staging vía overlay compose — Jaeger/cAdvisor/pgAdmin/Portainer a demanda, Promtail sin drop_malformed (Loki pasa de 2 a 16 contenedores), techos de RAM, logs 5x50MB, /metrics privado; (B) backend en dev-local — métricas multiproceso (los 4 workers se sumaban mal), ia_trust_gate_total, ia_handoff_total, /metrics del worker Celery, tenant_id en logs, uvicorn/celery por structlog; (C) tableros alineados. Jaeger queda como herramienta de diagnóstico puntual (profile diagnostico). Descartado mover crons: los picos de load son ráfagas de docker exec, no trabajo real. Pendiente: pasaje de los 3 commits a dev/main, Grafana con subdominio+TLS, consulta malformada '\"select' que llega a ambos Postgres (origen externo al repo)."
+    },
+    {
       "date": "2026-09-05",
       "decision": "Consolidacion del grounding: 12 reglas (1,1bis,2,2b,3,2c,3bis,4-8) -> 9 en orden, sin duplicar la excepcion por descarte con el modulo horarios (1133 -> 1009 tokens; horarios 115 -> 106). Metodo: primero 9 casos nuevos en la suite de regresion del corpus real para las reglas que nadie protegia; baseline en staging (prompt viejo); candidata probada en staging por override en DB sin tocar codigo. La v2 (3bis fundida en la 5) hizo caer el caso del cliente de 9/10 a 7/10 y se descarto; la v3 (3bis como regla propia) dio 10/10 y 30/30 casos en la suite completa, igual al baseline. Hallazgos colaterales: el caso OSFATLYF tenia premisa falsa (el telefono SI esta en el corpus) y el bot lo niega 2/3 (evasividad, xfail documentado); 'que horario tienen ustedes' atribuye el horario de la sede al Centro Medico (xfail documentado). Pendiente: pasaje a staging/prod con OK de Alejo."
     },
