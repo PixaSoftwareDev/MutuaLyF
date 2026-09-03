@@ -172,7 +172,19 @@ Banderas rojas:
 
 ### 4.4 Dashboard de Grafana
 
-Túnel + http://localhost:3001 → dashboard "IA Platform". Mirás en tiempo real:
+Sin túnel: **http://200.58.109.110/grafana/** (bloque por IP del nginx de borde;
+NO está bajo intellix.com.ar, ahí la ruta la agarra el frontend). Usuario
+`admin`, contraseña `GRAFANA_PASSWORD` del `.env`. ⚠️ Va por HTTP sin TLS hasta
+que tenga subdominio propio (pendiente C4, lista 2026-09-03).
+
+Cuatro tableros en la carpeta "IA Platform":
+- **Estado del VPS** — la foto de ahora: CPU/RAM/disco, alertas activas, ranking de RAM por contenedor.
+- **Histórico comparado** — lo mismo en el tiempo (hasta 90 días); "RAM libre" es el que delata fugas.
+- **IA Platform — Overview** — el bot. ⚠️ Hasta que el backend emita contadores
+  multiproceso (B1), los números son los de UN worker de los 4, al azar.
+- **Logs por contenedor** — Loki. Rango por defecto 1h; con 2 consultas/día, ampliar a 24h o 7d.
+
+Mirás en tiempo real:
 - **Request rate** — picos vs normal
 - **p95 latency** — si crece sostenido, algo se atascó
 - **Error rate (5xx)** — debe estar cerca de 0
@@ -194,17 +206,33 @@ docker logs ia_backend --since 30m 2>&1 | grep -i "groq\|timeout\|tenant_id"
 
 ### 5.3 En Grafana (Loki)
 
-Túnel + http://localhost:3001 → Explore → datasource Loki:
+http://200.58.109.110/grafana/ → Explore → datasource Loki:
 ```logql
-{container="ia_backend"} |= "ERROR" | json
-{container="ia_backend"} |~ "tenant=.*nexo" | json
+{container="ia_backend"} |= "ERROR"
+{container="ia_backend"} |= "trust_gate" | json
+{container=~"ia_celery.*"} |= "Traceback"
 ```
 
-Loki retiene 30 días (Fase 2).
+Desde 2026-09-03 entran TODAS las líneas de TODOS los contenedores (antes
+Promtail descartaba las que no eran JSON: el 99,7% del backend). Las líneas
+JSON de structlog traen `level` y `request_id` como etiquetas; `tenant_id`
+recién existirá cuando el middleware lo bindee (B2). Loki retiene 90 días.
 
-### 5.4 Trazas en Jaeger
+### 5.4 Trazas en Jaeger (apagado desde 2026-09-03)
 
-http://localhost:16686 → Service `ia-platform-backend` → query por tag (ej. `http.target=/api/v1/widget/...`). Cada request muestra el árbol de spans con timings. **OTEL_SAMPLE_RATIO=0.1** → solo 10% de las requests están en Jaeger.
+Jaeger NO corre en prod ni en staging: ocupaba 2,1 GB de RAM sin límite y con
+2 consultas/día y sample 10% guardaba una traza cada 5 días. Es herramienta de
+diagnóstico puntual. Para encenderlo:
+
+```bash
+cd /opt/mutualyf
+sed -i 's/^OTEL_ENABLED=.*/OTEL_ENABLED=true/' .env
+docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile diagnostico up -d jaeger
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --no-deps --force-recreate backend
+# túnel: ssh -L 16686:127.0.0.1:16686 ... → http://localhost:16686
+```
+Al terminar: `OTEL_ENABLED=false`, force-recreate del backend, `docker rm -f ia_jaeger`.
+Lo mismo para pgAdmin y Portainer, con `--profile admin-tools`.
 
 ## 6. Comandos de reset (por nivel de violencia)
 
@@ -221,10 +249,21 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml restart backend
 ### 6.2 Medio — recrear container (re-leer .env)
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --force-recreate backend
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --no-deps --force-recreate backend
 ```
 
 **Cuándo usarlo:** cambiaste `.env` y querés que el backend lo recoja, container tiene estado corrupto.
+
+⚠️ SIEMPRE con nombre de servicio y `--no-deps`. Un `up -d` pelado levanta
+todo lo que el compose declare y no esté corriendo. Desde 2026-09-03 jaeger,
+pgadmin, portainer y tei-* están detrás de profiles y ya no se cuelan, pero la
+costumbre queda.
+
+⚠️ Hasta que `main` reciba el commit de observabilidad del 2026-09-03, el
+proyecto de prod en el VPS se levanta con DOS overlays extra:
+`-f _drift_20260830/nginx-off.yml -f _drift_20260830/observabilidad-20260903.yml`
+(sin el primero el compose es inválido; el segundo trae límites de RAM, logs
+de 50 MB y los profiles). Después del pasaje, los overlays sobran y se borran.
 
 ### 6.3 Fuerte — rebuild de imagen
 
@@ -445,6 +484,13 @@ cd /opt/mutualyf-staging
 docker exec ia_postgres pg_dump -U platform_user -Fc platform > /root/staging_clone/platform.dump
 docker exec -i ia_postgres_staging pg_restore -U platform_user -d platform \
   --clean --if-exists --no-owner < /root/staging_clone/platform.dump
+# 1b. SANEAR el clon (2026-09-02): el dump trae las cuentas de WhatsApp REALES
+#     con sus tokens. Staging tiene CHANNEL_ENCRYPTION_KEY = la clave que usa
+#     prod (para que los tokens de widget clonados sigan legibles), así que
+#     podría descifrarlos y ESCRIBIRLE A AFILIADOS desde los crons de cierre
+#     e inactividad. Borrarlas SIEMPRE, antes de reiniciar el backend.
+docker exec ia_postgres_staging psql -U platform_user -d platform \
+  -c "DELETE FROM public.whatsapp_accounts"
 # 2. Qdrant (snapshot por colección; prod expone 6333, staging 6334 en loopback)
 for c in mutualyf_docs intellix_docs galo_docs; do
   SNAP=$(curl -s -X POST "http://127.0.0.1:6333/collections/$c/snapshots" | sed -n 's/.*"name":"\([^"]*\)".*/\1/p')
@@ -461,6 +507,15 @@ docker compose -f docker-compose.staging.yml restart backend_staging
 
 Staging es DESCARTABLE: no se respalda (el backup del host cubre solo prod); si se
 rompe, se reclona con lo de arriba.
+
+Secretos de staging (desde 2026-09-02): `JWT_SECRET_KEY`, `POSTGRES_PASSWORD`,
+`APP_BASE_URL` y `EMAIL_FROM` son PROPIOS de staging (un token de sesión de dev
+ya no vale en prod; los mails de prueba salen como "Intellix Staging" con link a
+dev.intellix.com.ar). `CHANNEL_ENCRYPTION_KEY` se fijó explícita con el valor
+que prod deriva de su JWT, por eso los datos cifrados clonados siguen
+legibles — y por eso el paso 1b es obligatorio. Siguen compartidos con prod:
+`OPENAI_API_KEY` (decisión del equipo) y el SMTP de Resend. Copia previa del
+`.env` en `/opt/mutualyf-staging/.env.bak-20260902`.
 
 ### Pendientes conocidos (2026-08-20)
 

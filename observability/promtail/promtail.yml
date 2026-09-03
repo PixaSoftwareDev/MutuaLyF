@@ -25,7 +25,10 @@ scrape_configs:
         target_label: project
     pipeline_stages:
       - docker: {}
-      # Parsear JSON de structlog (backend y workers)
+      # Parsear JSON de structlog (backend y workers). SIN drop_malformed
+      # (2026-09-03): el 99,7% del log del backend es texto plano (uvicorn,
+      # librerías, tracebacks) y se descartaba entero — Loki tenía 24 líneas/día.
+      # Las líneas no-JSON entran sin etiquetas de nivel/tenant; las JSON, con ellas.
       - json:
           expressions:
             level: level

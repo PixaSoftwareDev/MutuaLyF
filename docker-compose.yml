@@ -6,6 +6,19 @@ x-logging: &default-logging
     max-size: "10m"
     max-file: "3"
 
+# Backend y worker: 30 MB se pisaban en días (2026-09-03). 250 MB por
+# contenedor da semanas de historia para `docker logs`; Loki guarda 90 días.
+x-logging-app: &app-logging
+  driver: "json-file"
+  options:
+    max-size: "50m"
+    max-file: "5"
+
+# Techos de memoria (2026-09-03): sin ellos la RAM libre bajaba ~300 MB/día
+# sin poder atribuirlo, y la alerta ContenedorEnTechoDeRAM no aplicaba a
+# ningún servicio de base. Son cinturones contra fugas, no reservas: cada uno
+# es ~4-10x el uso real medido en prod.
+
 services:
   # ─── Databases ────────────────────────────────────────────────────────────────
 
@@ -41,6 +54,7 @@ services:
       timeout: 5s
       retries: 5
     logging: *default-logging
+    mem_limit: 4g
 
   qdrant:
     image: qdrant/qdrant:v1.9.2
@@ -67,6 +81,7 @@ services:
       timeout: 5s
       retries: 5
     logging: *default-logging
+    mem_limit: 2g
 
   minio:
     image: minio/minio:RELEASE.2024-05-10T01-41-38Z
@@ -89,6 +104,7 @@ services:
       timeout: 5s
       retries: 5
     logging: *default-logging
+    mem_limit: 1g
 
   redis:
     image: redis:7.2-alpine
@@ -105,6 +121,7 @@ services:
       timeout: 5s
       retries: 5
     logging: *default-logging
+    mem_limit: 768m
 
   # ─── Backend ──────────────────────────────────────────────────────────────────
 
@@ -152,7 +169,7 @@ services:
       timeout: 30s
       retries: 10
       start_period: 180s
-    logging: *default-logging
+    logging: *app-logging
     # F1.2-3: subido de 6/10G → 12/14G. Cada worker uvicorn consume ~700MB
     # (modelos locales como fallback). Con 4 workers + TEI out-of-process,
     # el backend usa ~5GB. Margen para picos hasta 14G. CPU: 4 workers x 3
@@ -185,7 +202,12 @@ services:
   # TEI no maneja bien los redirects relativos que devuelve HF Hub → falla con
   # "relative URL without a base". huggingface-cli (Python) SI los maneja.
   # Una vez descargado el modelo, este container exitea y TEI lo usa del cache.
+  #
+  # 2026-09-03: el reranker se eliminó del motor (2026-07-23, ciego al español).
+  # Los dos servicios quedan detrás del profile `eliminado` para que un
+  # `docker compose up -d` sin nombres NO los levante (4 GB al pedo).
   tei-model-init:
+    profiles: ["eliminado"]
     image: python:3.11-slim
     container_name: ia_tei_model_init
     restart: "no"
@@ -213,6 +235,7 @@ services:
     logging: *default-logging
 
   tei-reranker:
+    profiles: ["eliminado"]
     image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.5
     container_name: ia_tei_reranker
     restart: unless-stopped
@@ -264,7 +287,7 @@ services:
         condition: service_healthy
     networks:
       - internal
-    logging: *default-logging
+    logging: *app-logging
     deploy:
       resources:
         limits:
@@ -291,6 +314,7 @@ services:
     networks:
       - internal
     logging: *default-logging
+    mem_limit: 512m
 
   # ─── Frontend ─────────────────────────────────────────────────────────────────
 
@@ -350,9 +374,16 @@ services:
   # Ver docs/OPERACIONES.md §8 y docs/RUNBOOK.md §8.
 
   # ─── Tracing ──────────────────────────────────────────────────────────────────
+  # Jaeger es una herramienta de DIAGNÓSTICO puntual, no un servicio permanente
+  # (2026-09-03): corría desde mayo con 2,1 GB de RAM sin límite, nadie lo
+  # abría, y con 2 consultas/día y sample 10% guardaba una traza cada 5 días.
+  # Para usarlo: OTEL_ENABLED=true en .env + `--profile diagnostico up -d jaeger`
+  # + force-recreate del backend. Después, el camino inverso.
 
   jaeger:
+    profiles: ["diagnostico"]
     image: jaegertracing/all-in-one:1.57
+    mem_limit: 1g
     container_name: ia_jaeger
     restart: unless-stopped
     environment:
@@ -385,6 +416,7 @@ services:
     networks:
       - internal
     logging: *default-logging
+    mem_limit: 1g
 
   grafana:
     image: grafana/grafana:10.4.3
@@ -412,6 +444,7 @@ services:
     networks:
       - internal
     logging: *default-logging
+    mem_limit: 512m
 
   loki:
     image: grafana/loki:3.0.0
@@ -426,6 +459,7 @@ services:
     networks:
       - internal
     logging: *default-logging
+    mem_limit: 1g
 
   promtail:
     image: grafana/promtail:3.0.0
@@ -436,11 +470,15 @@ services:
       - ./observability/promtail/promtail.yml:/etc/promtail/promtail.yml:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      # positions.yaml vivía en /tmp del contenedor: cada recreate releía TODOS
+      # los logs desde cero y Loki rechazaba miles de líneas viejas (2026-09-03).
+      - promtail_positions:/tmp
     depends_on:
       - loki
     networks:
       - internal
     logging: *default-logging
+    mem_limit: 512m
 
   redis-exporter:
     image: oliver006/redis_exporter:v1.62.0
@@ -493,6 +531,7 @@ services:
     networks:
       - internal
     logging: *default-logging
+    mem_limit: 256m
 
   # Blackbox: probe HTTP externo del endpoint público — cubre el caso
   # "backend OK pero nginx caído" que las métricas internas no detectan.
@@ -559,6 +598,7 @@ volumes:
   alertmanager_data:
   grafana_data:
   loki_data:
+  promtail_positions:
   frontend_nm:
 
 networks:

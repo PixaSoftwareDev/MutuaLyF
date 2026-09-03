@@ -28,27 +28,26 @@ services:
     command: []
     volumes: []
 
-  # ── Nginx con conf de prod (HTTPS Let's Encrypt + redirect HTTP→HTTPS) ────
-  nginx:
-    volumes:
-      - ./nginx/nginx.prod.conf:/etc/nginx/nginx.conf:ro
-      # Webroot para el ACME HTTP-01 challenge de Let's Encrypt
-      - /var/www/certbot:/var/www/certbot:ro
-      # Certificados reales (renovados por certbot en el host)
-      - /etc/letsencrypt:/etc/letsencrypt:ro
-    ports:
-      - "80:80"
-      - "443:443"
+  # ── Nginx: MOVIDO a /opt/edge/docker-compose.yml (2026-08-20) ─────────────
+  # El bloque de override que vivía acá dejaba el proyecto INVÁLIDO sin el
+  # overlay `_drift_20260830/nginx-off.yml` del VPS ("nginx has neither an
+  # image nor a build context"), porque en docker-compose.yml el servicio está
+  # comentado. Se elimina; la conf (nginx/nginx.prod.conf) la sigue montando el
+  # compose del edge.
 
   # ── Grafana queda en 127.0.0.1:3001 (acceso via SSH tunnel o nginx proxy) ──
   # No se redeclara aqui porque compose hace merge aditivo de ports y
   # genera conflicto. Para abrir externamente: nginx proxy /grafana/ -> :3000
 
   # ─────────────────────────────────────────────────────────────────────────
-  # Paneles de administracion
+  # Paneles de administracion — detrás del profile `admin-tools` (2026-09-03):
+  # corrían desde mayo sin que nadie los abriera. Se levantan a demanda con
+  #   docker compose ... --profile admin-tools up -d portainer pgadmin
+  # y se bajan al terminar. Los volúmenes persisten.
   # ─────────────────────────────────────────────────────────────────────────
 
   portainer:
+    profiles: ["admin-tools"]
     image: portainer/portainer-ce:2.21.4
     container_name: ia_portainer
     restart: unless-stopped
@@ -76,6 +75,7 @@ services:
         max-file: "3"
 
   pgadmin:
+    profiles: ["admin-tools"]
     image: dpage/pgadmin4:8.12
     container_name: ia_pgadmin
     restart: unless-stopped
