@@ -57,8 +57,9 @@ derivación, branding).
    handoff.
 4. **Trust gate**: ¿el contexto RESPONDE o solo se parece? Léxico → juez LLM
    selectivo → rechazo honesto/filtrado de chunks.
-5. Generación con `gpt-4o-mini` (prompt anti-alucinación de 12 reglas, incluye
-   URLs textuales — regla 12).
+5. Generación con `gpt-4o-mini` (grounding de 9 reglas consolidadas el
+   2026-09-05 en `prompt_registry.py`, más módulos condicionales: nombres,
+   horarios y URLs textuales).
 6. **Handoff** (`services/handoff.py`), 5 reglas: insuficiente xN, pedido de
    humano, frustración, inactividad del operador, y **Regla 5: palabras clave
    por tenant** (responder-y-ofrecer; configurable en el panel Derivación).

@@ -779,7 +779,7 @@ async def handle_query(
     # La señal autoritativa es del RAG (low_confidence_fallback / sin sources de
     # confianza), no string matching — genérico, sin keywords.
     # Saludos cortos (<60 chars) con respuesta normal sí se cachean.
-    # El LLM, cuando no encuentra info (regla 6 del prompt anti-alucinación), responde
+    # El LLM, cuando no encuentra info (regla 8 del grounding, "SIN INFORMACIÓN"), responde
     # "No encontré esa información...". El marker viejo ("No tengo información sobre ese
     # tema...") NUNCA coincidía → esas respuestas de "no sé" se cacheaban por error y se
     # servían repetidas. Alineado con el texto real que emite el bot.
