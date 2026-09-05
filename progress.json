@@ -226,6 +226,10 @@
     {
       "date": "2026-09-05",
       "decision": "Consolidacion del grounding: 12 reglas (1,1bis,2,2b,3,2c,3bis,4-8) -> 9 en orden, sin duplicar la excepcion por descarte con el modulo horarios (1133 -> 1009 tokens; horarios 115 -> 106). Metodo: primero 9 casos nuevos en la suite de regresion del corpus real para las reglas que nadie protegia; baseline en staging (prompt viejo); candidata probada en staging por override en DB sin tocar codigo. La v2 (3bis fundida en la 5) hizo caer el caso del cliente de 9/10 a 7/10 y se descarto; la v3 (3bis como regla propia) dio 10/10 y 30/30 casos en la suite completa, igual al baseline. Hallazgos colaterales: el caso OSFATLYF tenia premisa falsa (el telefono SI esta en el corpus) y el bot lo niega 2/3 (evasividad, xfail documentado); 'que horario tienen ustedes' atribuye el horario de la sede al Centro Medico (xfail documentado). Pendiente: pasaje a staging/prod con OK de Alejo."
+    },
+    {
+      "date": "2026-09-05",
+      "decision": "Tarde: dos hallazgos de la suite del corpus real. (1) Rewriter: los pronombres que refieren a la organizacion (ustedes, usted, vos, nosotros, suyo...) ya no cuentan como tema en el control de deriva; 'que horario tienen ustedes' paso de 0/3 a 3/3. (2) OSFATLYF (telefono de otra organizacion presente en el corpus como contacto de facturacion): NO era la clausula del tenant (sin ella sigue 0/4) ni una regla puntual (ablacion); se decidio NO forzar la respuesta ni tocar el texto del cliente; queda como limite conocido con umbral 0. Regla de producto reafirmada por Alejo: la plataforma interpreta al tenant, no lo pisa. Staging (rama dev) al dia con todo: 30/30 casos, 89/92 corridas. Prod pendiente de OK."
     }
   ],
   "blockers": [],
