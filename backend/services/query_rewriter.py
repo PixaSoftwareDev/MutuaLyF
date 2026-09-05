@@ -107,6 +107,15 @@ _DEIXIS_NORM = {
     "eso", "esa", "ese", "esto", "aquel", "aquella", "aquello",
     "ahi", "alli", "alla", "mismo", "misma", "anterior", "anteriores",
     "dicho", "dicha", "ella", "ellos", "ellas", "esta", "este",
+    # Pronombres que refieren a la ORGANIZACIÓN o al propio usuario: "¿qué
+    # horario tienen ustedes?" se reescribe bien como "horario de atención de
+    # <organización>", y sin esta excepción el control descartaba esa
+    # reescritura por "perder" ustedes (2026-09-05: el bot terminaba
+    # atribuyendo el horario de la sede al sujeto que más aparecía en el
+    # contexto). Resolver el pronombre por su referente es exactamente lo
+    # que el rewriter debe hacer.
+    "ustedes", "usted", "vos", "vosotros", "vosotras", "nosotros", "nosotras",
+    "suyo", "suya", "suyos", "suyas", "vuestro", "vuestra", "tuyo", "tuya",
 }
 
 

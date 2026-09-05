@@ -154,6 +154,29 @@ class TestConservaTema:
             '¿Cuáles son los días de atención?',
         )
 
+    # --- Pronombres que refieren a la organización (2026-09-05) ---
+    # "ustedes" no es tema: resolverlo por su referente es el trabajo del
+    # rewriter. Antes esta reescritura se descartaba y el bot terminaba
+    # atribuyendo el horario de la sede al sujeto que más aparecía en el
+    # contexto.
+    def test_ustedes_se_resuelve_a_la_organizacion(self):
+        assert self._conserva(
+            '¿Qué horario de atención tienen ustedes?',
+            '¿Cuál es el horario de atención de la Mutual Provincial de Luz y Fuerza?',
+        )
+
+    def test_su_direccion_se_resuelve(self):
+        assert self._conserva(
+            '¿cuál es su dirección?',
+            '¿Cuál es la dirección de la organización?',
+        )
+
+    def test_resolver_el_pronombre_no_habilita_cambiar_el_tema(self):
+        assert not self._conserva(
+            '¿Qué horario de atención tienen ustedes?',
+            '¿Cuál es la dirección de la organización?',
+        )
+
     # --- Casos borde ---
     def test_pregunta_sin_terminos_distintivos(self):
         assert self._conserva('¿y eso?', 'cualquier cosa')
