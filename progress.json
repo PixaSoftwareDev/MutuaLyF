@@ -1,6 +1,6 @@
 {
   "version": "1.9",
-  "last_updated": "2026-08-20",
+  "last_updated": "2026-09-05",
   "current_stage": "etapa_3",
   "current_step": "Post-deploy a prod (2026-07-26/27): paquete completo en produccion; desarrollo continua en dev-local",
   "overall_status": "etapa_3_complete",
@@ -222,6 +222,10 @@
     {
       "date": "2026-07-27",
       "decision": "Documentacion normalizada: CLAUDE.md reescrito al stack real (OpenAI, sin reranker, trust gate, ambientes/flags), README como punto de entrada, PROMPT.md marcado historico, ALERTAS_TELEGRAM.md eliminado (alertas van por email Resend), runbooks corregidos."
+    },
+    {
+      "date": "2026-09-05",
+      "decision": "Consolidacion del grounding: 12 reglas (1,1bis,2,2b,3,2c,3bis,4-8) -> 9 en orden, sin duplicar la excepcion por descarte con el modulo horarios (1133 -> 1009 tokens; horarios 115 -> 106). Metodo: primero 9 casos nuevos en la suite de regresion del corpus real para las reglas que nadie protegia; baseline en staging (prompt viejo); candidata probada en staging por override en DB sin tocar codigo. La v2 (3bis fundida en la 5) hizo caer el caso del cliente de 9/10 a 7/10 y se descarto; la v3 (3bis como regla propia) dio 10/10 y 30/30 casos en la suite completa, igual al baseline. Hallazgos colaterales: el caso OSFATLYF tenia premisa falsa (el telefono SI esta en el corpus) y el bot lo niega 2/3 (evasividad, xfail documentado); 'que horario tienen ustedes' atribuye el horario de la sede al Centro Medico (xfail documentado). Pendiente: pasaje a staging/prod con OK de Alejo."
     }
   ],
   "blockers": [],
