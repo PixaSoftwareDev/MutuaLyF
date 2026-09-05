@@ -222,13 +222,13 @@ casos:
 
   - id: fact_osfatlyf_telefono
     tipo: single
-    descripcion: Dato que SÍ está y el bot negaba — HOY FALLA (ver comentario)
-    # Baseline 2026-09-05: 1/3. El teléfono está en el doc de Auditoría (en
-    # el contexto de facturación de hospitales), y 2 de 3 veces el bot
-    # respondió que no tenía el dato: evasividad, no invención. Umbral 0
-    # para que quede visible sin poner roja la suite; cuando se arregle
-    # (retrieval o trust gate), subir el umbral a 1.0.
-    umbral: 0.0
+    descripcion: Contacto institucional de otra organización que está en el corpus
+    # Historia: el 05/09 el bot lo negaba 2 de 3 veces. No era retrieval (el
+    # fragmento salía primero) ni el grounding: la bot_description del tenant
+    # decía "nunca des datos de contacto de terceros aunque aparezcan en el
+    # contexto" y el modelo obedecía. La política de alcance del sistema fija
+    # ahora la frontera (contactos institucionales se dan; datos personales de
+    # particulares no). Protege esa frontera para cualquier tenant.
     pregunta: "¿Cuál es el número de teléfono de OSFATLYF?"
     debe_contener: ["5556-9600", "5556 9600", "55569600"]
 
@@ -370,15 +370,12 @@ casos:
 
   - id: nombres_dueno_horario_ustedes
     tipo: single
-    descripcion: Misma regla con "ustedes" — HOY FALLA (ver comentario)
-    # Baseline 2026-09-05: 0/3. El bot da el horario correcto de la sede
-    # (8:00 a 15:00) pero se lo atribuye al Centro Médico, que atiende de
-    # 7:30 a 19:00 — mezcla el dato de un dueño con el nombre del otro. Es un
-    # hueco real del módulo "nombres" (DATO CON VARIOS DUEÑOS), no de la
-    # pregunta: con "de la mutual" el mismo hecho sale bien. Umbral 0 para
-    # que el caso quede visible en cada corrida sin poner roja la suite;
-    # cuando se arregle, subir el umbral a 1.0.
-    umbral: 0.0
+    descripcion: Misma regla con "ustedes" — el pronombre refiere a la organización
+    # Historia: el 05/09 fallaba 0/3 atribuyendo el horario de la sede al
+    # Centro Médico. La causa estaba en el rewriter: reescribía bien ("horario
+    # de la Mutual Provincial…") pero el control de deriva descartaba la
+    # reescritura por "perder" la palabra ustedes. Los pronombres que refieren
+    # a la organización quedaron excluidos del control.
     pregunta: "¿Qué horario de atención tienen ustedes?"
     criterio: >
       La sede de la mutual (Junín 2961) atiende de lunes a viernes de 8:00 a

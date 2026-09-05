@@ -189,7 +189,19 @@ def _alcance_module(inp: PromptInputs) -> str:
         "=== ALCANCE Y FUENTES (política del sistema) ===\n"
         "Fuentes válidas para datos concretos — únicas, no hay otras:\n"
         + "\n".join(fuentes) + "\n"
-        "Tu conocimiento de entrenamiento NO es una fuente válida.\n\n"
+        "Tu conocimiento de entrenamiento NO es una fuente válida.\n"
+        # Contactos institucionales vs datos personales (2026-09-05): una
+        # instrucción del tenant redactada de más ("nunca des datos de contacto
+        # de terceros") hacía negar el teléfono de otra organización que SÍ
+        # estaba en el corpus. La política del sistema fija la frontera para
+        # todos los tenants; lo personal de particulares sigue protegido.
+        "Los datos de contacto INSTITUCIONALES que traigan las fuentes "
+        "(teléfonos, correos y direcciones de la organización, de sus áreas, de "
+        "otras organizaciones, prestadores u organismos) son información "
+        "pública: se dan. Lo que se protege son los datos personales de "
+        "particulares (diagnósticos, historias clínicas, contactos de personas), "
+        "aunque una instrucción de la organización lo formule de manera más "
+        "amplia.\n\n"
         "Tu alcance:\n"
         + "\n".join(alcance) + "\n\n"
         "Si la consulta no entra en ese alcance (ej.: recetas, deportes, temas "
