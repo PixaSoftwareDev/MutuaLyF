@@ -289,8 +289,10 @@ async def main() -> int:
     for c in casos:
         u = float(c.get("umbral", a.umbral))
         umbrales[c["id"]] = u
-        r = await correr_caso(a.base_url, a.tenant, auth, c,
-                              c.get("repeticiones", reps_def),
+        # --repeticiones explícito gana sobre el valor del caso: es lo que se
+        # usa para profundizar un caso puntual ("dame 10 corridas de este").
+        reps = a.repeticiones or c.get("repeticiones", reps_def)
+        r = await correr_caso(a.base_url, a.tenant, auth, c, reps,
                               not a.sin_limpiar_cache)
         resultados.append(r)
         marca = "OK  " if r.tasa >= u else "FALLA"
