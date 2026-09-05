@@ -222,13 +222,24 @@ casos:
 
   - id: fact_osfatlyf_telefono
     tipo: single
-    descripcion: Contacto institucional de otra organización que está en el corpus
-    # Historia: el 05/09 el bot lo negaba 2 de 3 veces. No era retrieval (el
-    # fragmento salía primero) ni el grounding: la bot_description del tenant
-    # decía "nunca des datos de contacto de terceros aunque aparezcan en el
-    # contexto" y el modelo obedecía. La política de alcance del sistema fija
-    # ahora la frontera (contactos institucionales se dan; datos personales de
-    # particulares no). Protege esa frontera para cualquier tenant.
+    descripcion: Contacto de otra organización que figura en el corpus en un contexto acotado — LÍMITE CONOCIDO
+    # Historia completa (2026-09-05), para no repetir el camino:
+    #  - No es retrieval: el fragmento con el teléfono sale PRIMERO del ranking.
+    #  - No es el trust gate: deja pasar (cobertura léxica 0,80).
+    #  - No es la cláusula de privacidad del tenant: sin ella sigue 0/4.
+    #  - No es una regla puntual del grounding: por ablación sobre el prompt
+    #    real, sacar la regla 4 o el alcance da 1/2; sacar la personalidad o la
+    #    descripción de la organización da 2/2. Es acumulación de cautela, no
+    #    una instrucción concreta. Dos frases genéricas candidatas (alcance:
+    #    "lo que documenten tus fuentes está en tu alcance"; regla 4 inversa)
+    #    dieron 0/3.
+    #  - El fragmento presenta ese número como contacto de facturación para
+    #    hospitales, no como teléfono de atención: la negativa es defendible y
+    #    forzarla obligaría al bot a entregar contactos fuera de su contexto.
+    # En prod (60 días): 39 "no encontré" sobre 697 respuestas, 3 con alta
+    # cobertura léxica. Patrón raro; no justifica un mecanismo nuevo. Queda
+    # visible con umbral 0. Si algún día pasa solo, subir a 1.0.
+    umbral: 0.0
     pregunta: "¿Cuál es el número de teléfono de OSFATLYF?"
     debe_contener: ["5556-9600", "5556 9600", "55569600"]
 

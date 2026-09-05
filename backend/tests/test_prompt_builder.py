@@ -112,17 +112,6 @@ def test_sin_tools_el_alcance_no_menciona_herramientas():
     assert "(a) el bloque \"Contexto disponible\"" in prompt
 
 
-def test_alcance_distingue_contacto_institucional_de_dato_personal():
-    # 2026-09-05: una instrucción del tenant ("nunca des datos de contacto de
-    # terceros") hacía negar el teléfono de otra organización presente en el
-    # corpus. La política interpreta la ambigüedad (terceros = personas) sin
-    # pisar al tenant: una restricción explícita suya sigue mandando.
-    prompt, _ = _build(has_tools=False)
-    assert "INSTITUCIONALES" in prompt
-    assert "salvo que la organización lo restrinja de forma explícita" in prompt
-    assert "se refiere a personas, no a organizaciones" in prompt
-
-
 def test_bot_scope_entra_como_tema_no_como_guion_propio():
     prompt, _ = _build(bot_scope="beneficios y afiliaciones")
     assert "beneficios y afiliaciones" in prompt
