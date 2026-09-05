@@ -230,6 +230,10 @@
     {
       "date": "2026-09-05",
       "decision": "Tarde: dos hallazgos de la suite del corpus real. (1) Rewriter: los pronombres que refieren a la organizacion (ustedes, usted, vos, nosotros, suyo...) ya no cuentan como tema en el control de deriva; 'que horario tienen ustedes' paso de 0/3 a 3/3. (2) OSFATLYF (telefono de otra organizacion presente en el corpus como contacto de facturacion): NO era la clausula del tenant (sin ella sigue 0/4) ni una regla puntual (ablacion); se decidio NO forzar la respuesta ni tocar el texto del cliente; queda como limite conocido con umbral 0. Regla de producto reafirmada por Alejo: la plataforma interpreta al tenant, no lo pisa. Staging (rama dev) al dia con todo: 30/30 casos, 89/92 corridas. Prod pendiente de OK."
+    },
+    {
+      "date": "2026-09-05",
+      "decision": "EN PROD (main 28b3a1b, con OK de Alejo): grounding consolidado (9 reglas) + fix del rewriter (pronombres de la organizacion) + suite de regresion del corpus real. Validacion previa: staging 30/30 casos con corpus real y texto del cliente intacto; suite historica completa 149/155 con los mismos fallos que la referencia del 26/08 (+h_08, previo). Pasaje manual por drift en prod (nginx/observabilidad, no se toca), restart solo backend, smoke en intellix. Mejora futura: control de deriva del rewriter no reconoce flexiones verbales (contacto/contactar)."
     }
   ],
   "blockers": [],
