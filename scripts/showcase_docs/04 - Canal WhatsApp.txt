@@ -1,0 +1,39 @@
+INTELLIX — CANAL WHATSAPP
+
+1. Requisitos
+
+¿Qué necesito para conectar WhatsApp?
+Una cuenta de WhatsApp Business Platform en Meta (la API oficial de WhatsApp Cloud) con un número verificado a nombre de la organización. Intellix no usa WhatsApp Web ni aplicaciones no oficiales: la conexión es directa con la API de Meta.
+
+¿Puedo usar el número que ya tenemos?
+Sí, siempre que el número no esté activo en la aplicación WhatsApp o WhatsApp Business del celular. Meta pide migrarlo a la plataforma. Si preferís, podés usar un número nuevo para el asistente.
+
+¿En qué plan está disponible?
+El canal de WhatsApp está incluido desde el plan Profesional. El plan Enterprise permite conectar varias líneas a la misma organización.
+
+2. Puesta en marcha
+
+¿Cómo conecto la línea?
+Desde el panel, en Canales, cargás el identificador del número de teléfono, el identificador de la cuenta de WhatsApp Business y el token de acceso del sistema. Intellix genera la dirección del webhook y un token de verificación para configurar en la aplicación de Meta. El proceso completo lleva menos de 20 minutos y el equipo de Onboarding puede acompañarlo en una llamada.
+
+¿Cómo sé que quedó bien configurado?
+Al guardar, Intellix verifica la línea contra la API de Meta y muestra el nombre verificado, el estado de la cuenta y la calidad del número. Después, un mensaje de prueba desde cualquier celular debe aparecer en el panel en segundos.
+
+3. Funcionamiento
+
+¿Cómo atiende el asistente por WhatsApp?
+Igual que en el widget: cada persona que escribe al número tiene su conversación, el asistente responde desde la base de conocimiento y, si hace falta, deriva a un operador. El operador responde desde el panel y el mensaje llega al WhatsApp de la persona.
+
+¿Muestra el indicador de "escribiendo"?
+Sí. Mientras el asistente prepara la respuesta, la persona ve el indicador de escritura, igual que en una conversación normal.
+
+¿Se pueden recibir audios o imágenes?
+Se reciben imágenes y documentos, que quedan adjuntos en la conversación para el operador. Los audios no se transcriben en esta versión.
+
+¿Qué pasa fuera del horario de atención?
+El asistente responde las 24 horas. Si la consulta requiere un operador fuera del horario configurado, la conversación queda en la fila y la persona recibe un mensaje con el horario de atención.
+
+4. Seguridad
+
+¿Cómo se protege el webhook?
+Cada mensaje entrante se verifica con la firma que envía Meta y con el token de verificación de la organización. Los mensajes que no pasan la verificación se descartan. El token de acceso se guarda cifrado.

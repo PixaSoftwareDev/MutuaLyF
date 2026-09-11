@@ -1,0 +1,36 @@
+INTELLIX — SEGURIDAD, PRIVACIDAD Y AISLAMIENTO DE DATOS
+
+1. Aislamiento por organización
+
+¿Los datos de mi organización se mezclan con los de otros clientes?
+No. Cada organización tiene su propio esquema de base de datos, sus propios índices de búsqueda y su propio espacio de archivos. Ningún documento, conversación o usuario de una organización es visible desde otra. La identidad de la organización se resuelve en el servidor a partir de la sesión, nunca a partir de lo que declara el cliente.
+
+¿Dónde se alojan los datos?
+En servidores dedicados administrados por Intellix, con copias de seguridad diarias de la base de datos y monitoreo permanente de disponibilidad. Para el plan Enterprise se puede acordar una ubicación específica.
+
+2. Documentos
+
+¿Qué controles tienen los archivos que subo?
+Cada archivo se verifica por su contenido real, no por la extensión: un ejecutable renombrado como PDF no entra. Los documentos se procesan en fragmentos y cada fragmento pasa por un filtro de calidad que descarta ruido (encabezados repetidos, páginas en blanco, texto ilegible). El administrador ve el resultado y puede corregir cualquier fragmento a mano sin perder la corrección en reprocesos.
+
+¿Puedo borrar un documento?
+Sí. Al eliminarlo, se quitan sus fragmentos del índice y el asistente deja de usarlo de inmediato. El archivo original se elimina del almacenamiento.
+
+3. Conversaciones y datos personales
+
+¿Quién puede ver las conversaciones?
+Los operadores ven las conversaciones de los sectores a los que están asignados. Los administradores ven todas las de su organización. Nadie fuera de la organización tiene acceso, y todas las acciones sobre usuarios y configuración quedan en un registro de auditoría.
+
+¿El asistente revela datos sensibles?
+El asistente responde solo con lo que está en los documentos de la organización. Cada organización puede indicar en su configuración qué tipo de información no debe entregarse. Los datos personales de particulares que aparezcan en documentos no se exponen como respuesta.
+
+¿Usan mis datos para entrenar modelos?
+No. Los documentos y las conversaciones no se usan para entrenar ningún modelo. El proveedor de modelos de lenguaje que utiliza Intellix no retiene los datos enviados para entrenamiento.
+
+4. Accesos
+
+¿Cómo se protegen las cuentas?
+Ingreso con correo y contraseña, con verificación previa de la organización a la que pertenece el correo. Restablecimiento de contraseña por enlace temporal enviado por correo. Los administradores pueden desactivar usuarios en cualquier momento.
+
+¿Hay registro de auditoría?
+Sí. Altas, bajas y cambios de configuración quedan registrados con usuario, fecha y detalle, consultables desde el panel de administración.
