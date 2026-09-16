@@ -73,8 +73,20 @@ derivación, branding).
 |---|---|---|---|---|
 | **dev-local** | `localhost:3010` (front) / `:8010` (back) | `dev-local` | bind-mount, restart aplica | imagen o `next dev` |
 | **Staging** | `dev.intellix.com.ar` | `dev` | `/opt/mutualyf-staging`, bind-mount | horneado (rebuild) |
-| **Prod** | `intellix.com.ar` | `main` | `/opt/mutualyf`, bind-mount | horneado (rebuild) |
+| **Prod** | `app.intellix.com.ar` | `main` | `/opt/mutualyf`, bind-mount | horneado (rebuild) |
 
+- **Dominio de la app en prod: `app.intellix.com.ar`**. `intellix.com.ar`
+  quedó como landing y redirige (301 en nginx) `/login`, `/reset-password`,
+  `/forgot-password`, `/admin`, `/operator`, etc. al dominio nuevo — NO
+  quitar esos 301: los mails viejos de reset/invitación dependen de ellos.
+  `APP_BASE_URL` (arma los links de reset e invitación) apunta a
+  `https://app.intellix.com.ar` desde el 2026-09-16. `PUBLIC_BASE_URL`
+  sigue en `intellix.com.ar` a propósito: solo muestra en el panel la URL
+  del webhook de WhatsApp registrada en Meta (la API responde en ambos
+  dominios). `app.intellix.com` (sin `.ar`) NO existe.
+- Recrear el backend de prod: usar los MISMOS compose files con que se
+  levantó (label `com.docker.compose.project.config_files`; hoy incluye
+  dos de `_drift_20260830/`) + `--no-deps --no-build --force-recreate`.
 - SSH VPS: `ssh -i ~/.ssh/mutualyf_vps -p 2251 root@200.58.109.110`
 - **Staging tiene stack COMPLETO propio desde el 2026-08-20** (reorganización
   del VPS): `ia_postgres_staging`, `ia_qdrant_staging`, `ia_redis_staging`,
