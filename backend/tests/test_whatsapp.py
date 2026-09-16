@@ -5,9 +5,13 @@ que maneja PII y gasta el token del tenant. La firma HMAC es la barrera
 anti-spoofing; el normalizador decide a qué número real se entrega la respuesta.
 """
 
+import asyncio
 import hashlib
 import hmac
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+from services import whatsapp as wa
 from services.whatsapp import verify_signature, _normalize_recipient
 
 
@@ -59,3 +63,42 @@ class TestNormalizeRecipient:
     def test_549_but_wrong_length_untouched(self):
         # Empieza con 549 pero no son 13 dígitos → no aplica la regla AR
         assert _normalize_recipient("549123") == "549123"
+
+
+class _KeepAliveHandler(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"  # keep-alive: el pool de httpx retiene la conexión
+
+    def do_POST(self):
+        self.rfile.read(int(self.headers.get("Content-Length", 0)))
+        self.send_response(200)
+        self.send_header("Content-Length", "2")
+        self.end_headers()
+        self.wfile.write(b"{}")
+
+    def log_message(self, *args):
+        pass
+
+
+class TestClienteEntreEventLoops:
+    """Las tareas Celery corren cada una en su propio asyncio.run(). El cliente
+    compartido no puede arrastrar conexiones de un loop ya cerrado: fallaba con
+    "Event loop is closed" una tarea sí y otra no (avisos de cierre perdidos)."""
+
+    def test_envios_en_asyncio_run_sucesivos_no_fallan(self):
+        srv = ThreadingHTTPServer(("127.0.0.1", 0), _KeepAliveHandler)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        url = f"http://127.0.0.1:{srv.server_address[1]}/"
+
+        async def tarea():
+            return (await wa._get_client().post(url, json={})).status_code
+
+        try:
+            assert [asyncio.run(tarea()) for _ in range(4)] == [200] * 4
+        finally:
+            srv.shutdown()
+
+    def test_mismo_loop_reusa_el_cliente(self):
+        async def dos_pedidos():
+            return wa._get_client() is wa._get_client()
+
+        assert asyncio.run(dos_pedidos())
