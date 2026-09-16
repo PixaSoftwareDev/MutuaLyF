@@ -34,13 +34,22 @@ _SEND_TIMEOUT_S = 15.0
 
 # Cliente httpx compartido: reutiliza conexiones keep-alive a graph.facebook.com
 # en vez de abrir un socket TLS nuevo por mensaje. Lazy + auto-recrea si se cerró.
+# Queda atado al event loop que lo creó: las tareas Celery corren cada una en su
+# propio asyncio.run(), y reusar el pool de un loop ya cerrado fallaba con
+# "Event loop is closed" una tarea sí y otra no (avisos de cierre por WhatsApp
+# perdidos, 2026-09-16). Si cambió el loop, cliente nuevo; en la API (un solo
+# loop) se sigue reusando siempre el mismo.
 _client: httpx.AsyncClient | None = None
+_client_loop: asyncio.AbstractEventLoop | None = None
 
 
 def _get_client() -> httpx.AsyncClient:
-    global _client
-    if _client is None or _client.is_closed:
+    global _client, _client_loop
+    loop = asyncio.get_running_loop()
+    if _client is None or _client.is_closed or _client_loop is not loop:
+        # El cliente viejo no se puede cerrar: su loop ya no existe.
         _client = httpx.AsyncClient(timeout=_SEND_TIMEOUT_S)
+        _client_loop = loop
     return _client
 
 
