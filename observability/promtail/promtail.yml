@@ -32,7 +32,6 @@ scrape_configs:
             event: event
             tenant_id: tenant_id
             request_id: request_id
-          drop_malformed: true
       - labels:
           level:
           tenant_id:
