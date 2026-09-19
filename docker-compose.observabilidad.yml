@@ -1,0 +1,31 @@
+# Overlay de observabilidad (2026-09-03). Se suma a docker-compose.yml + docker-compose.prod.yml.
+# - Jaeger/pgAdmin/Portainer quedan detrás de un profile: no arrancan salvo que se pida.
+# - tei-* (reranker eliminado 2026-07-23) también, para que un `up -d` sin nombres no los levante.
+# - Techos de memoria para lo que no tenía (la RAM libre caía 300 MB/día sin poder atribuirlo).
+# - Logs de Docker más grandes en backend y worker (30 MB se pisaban en días).
+services:
+  jaeger:         { profiles: ["diagnostico"] }
+  pgadmin:        { profiles: ["admin-tools"] }
+  portainer:      { profiles: ["admin-tools"] }
+  tei-reranker:   { profiles: ["eliminado"] }
+  tei-model-init: { profiles: ["eliminado"] }
+  backend:
+    logging: { driver: json-file, options: { max-size: "50m", max-file: "5" } }
+  celery_worker:
+    logging: { driver: json-file, options: { max-size: "50m", max-file: "5" } }
+  celery_beat:  { mem_limit: 512m }
+  postgres:     { mem_limit: 4g }
+  qdrant:       { mem_limit: 2g }
+  redis:        { mem_limit: 768m }
+  minio:        { mem_limit: 1g }
+  prometheus:   { mem_limit: 1g }
+  loki:         { mem_limit: 1g }
+  promtail:
+    mem_limit: 512m
+    # positions.yaml vivía en /tmp del contenedor: cada recreate releía TODOS los logs.
+    volumes: ["promtail_positions:/tmp"]
+  grafana:      { mem_limit: 512m }
+  alertmanager: { mem_limit: 256m }
+
+volumes:
+  promtail_positions:
