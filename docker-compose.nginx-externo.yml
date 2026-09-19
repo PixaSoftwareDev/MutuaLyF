@@ -1,0 +1,9 @@
+# El nginx que sirve el VPS NO lo maneja este compose: corre aparte
+# (/opt/edge) y atiende también a los otros proyectos del servidor.
+# Sin este overlay, un `docker compose up -d` levanta un SEGUNDO nginx que
+# pelea por los puertos 80/443 con el que está sirviendo el sitio.
+# Origen: _drift_20260830/nginx-off.yml (2026-08-30), incorporado el 2026-09-18.
+services:
+  nginx:
+    image: nginx:1.25-alpine
+    profiles: ["desactivado"]
