@@ -33,16 +33,82 @@ cd /opt/mutualyf
 
 ## 2. URLs públicas
 
+> **La app vive en `app.intellix.com.ar`** desde la mudanza. `intellix.com.ar`
+> quedó como landing y redirige (301) `/login`, `/reset-password`, `/admin`,
+> `/operator`, etc. **No quitar esos 301**: los mails de reset e invitación
+> que ya salieron dependen de ellos. `app.intellix.com` (sin `.ar`) no existe.
+
 | Para | URL |
 |---|---|
-| Plataforma (cliente) | https://intellix.com.ar |
-| Chat público | https://intellix.com.ar/chat |
-| Login admin | https://intellix.com.ar/login |
-| Health (liveness) | https://intellix.com.ar/health |
-| Health (ready) | https://intellix.com.ar/health/ready |
-| Metrics Prometheus | https://intellix.com.ar/metrics |
+| Plataforma (cliente) | https://app.intellix.com.ar |
+| Chat público | https://app.intellix.com.ar/chat |
+| Login admin | https://app.intellix.com.ar/login |
+| Health (liveness) | https://app.intellix.com.ar/health |
+| Health (ready) | https://app.intellix.com.ar/health/ready |
+| Metrics Prometheus | https://app.intellix.com.ar/metrics |
+| Landing | https://intellix.com.ar |
+| Staging | https://dev.intellix.com.ar |
+
+Ojo al verificar un deploy: `intellix.com.ar/` responde **200 con la landing
+aunque el panel esté caído**. Chequear siempre `app.intellix.com.ar/login`.
 
 `/health` solo dice "el proceso está vivo". `/health/ready` chequea PG + Redis + Qdrant y devuelve `{checks:{postgres:"ok",...}}`. Si algo no está OK te das cuenta acá primero.
+
+## 2 bis. Cómo se levanta prod (CUATRO archivos de compose)
+
+Prod **no** se levanta con `docker-compose.yml` + `docker-compose.prod.yml`
+solamente. Son cuatro:
+
+| Archivo | Qué aporta |
+|---|---|
+| `docker-compose.yml` | Base |
+| `docker-compose.prod.yml` | Ajustes de producción |
+| `docker-compose.nginx-externo.yml` | Deja el servicio `nginx` **apagado**: el nginx real corre aparte (`/opt/edge`) y sirve también a los satélites |
+| `docker-compose.observabilidad.yml` | Techos de memoria, rotación de logs y perfiles que mantienen apagados jaeger/pgadmin/portainer/tei-* |
+
+**Con menos archivos, un `docker compose up -d` levanta un segundo nginx que
+pelea por los puertos 80/443 = sitio caído**, arranca las herramientas de
+diagnóstico y el init que baja ~2,5 GB de modelos ya eliminados, y pierde los
+techos de memoria (ver [RUNBOOK #14](RUNBOOK.md)).
+
+Por eso el `.env` de prod define:
+
+```
+COMPOSE_FILE=docker-compose.yml:docker-compose.prod.yml:docker-compose.nginx-externo.yml:docker-compose.observabilidad.yml
+```
+
+Con esa línea, **cualquier** `docker compose ...` ejecutado dentro de
+`/opt/mutualyf` usa la configuración correcta sin tener que nombrarlos.
+`scripts/deploy.sh` los pasa explícitamente. **No borrar esa línea del `.env`.**
+
+Antes de tocar el arranque, la verificación que lo vuelve seguro:
+
+```bash
+cd /opt/mutualyf
+docker compose config > /tmp/antes.yml     # antes del cambio
+# ... cambio ...
+docker compose config > /tmp/despues.yml
+diff /tmp/antes.yml /tmp/despues.yml       # debe ser idéntico (o solo COMPOSE_FILE)
+```
+
+Respaldos archivados del servidor: `/opt/mutualyf/_archivo/<fecha>/` (ignorado
+por git). Nada se borra, se archiva.
+
+## 2 ter. Latencia esperada del bot (medido 2026-09-18, prod)
+
+| Etapa | Tiempo |
+|---|---|
+| Embedding de la consulta | ~0,45 s |
+| Reescritura LLM (cuando se dispara) | ~1,4 s |
+| Búsqueda híbrida (Qdrant + BM25) | 0,02-0,13 s |
+| Trust gate (léxico) | 0,07 s — con juez, +1-2 s |
+| Generación | 1,6 s (rango 1,2-2,1) |
+
+**Total típico 3-4 s** (p50 histórico 3,7 s; p90 5,9 s). Son 3-4 llamadas a
+OpenAI encadenadas: la red al proveedor son 28 ms y la búsqueda propia 30 ms,
+así que **el tiempo es del LLM, no de la infraestructura**. Una consulta de 8 s
+es la cola alta, no una anomalía. Si el p95 supera 8 s de forma sostenida salta
+`HighRagLatencyP95` (ver [RUNBOOK #5](RUNBOOK.md)).
 
 ## 3. URLs internas (vía SSH tunnel)
 

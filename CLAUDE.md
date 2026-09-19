@@ -208,6 +208,7 @@ scripts/run_quality_suite.py  # LA suite — correr antes de tocar el motor
 | `KNOWLEDGE_BASE_GUIDE.md` | Formato de documentos para la base de conocimiento |
 | `OPERACION_OPENAI_KEYS_Y_SALDO.md` | Gestión de API keys y saldo del LLM |
 | `ESTRATEGIA_INTEGRACION.md`, `FSM_LOGIN_DISENO.md`, `MIGRACION_031_CONECTORES_DISENO.md`, `PANTALLA_CONECTORES_PLAN.md`, `PLAN_EVOLUCION_TOOL_CALLING_v1.md` | Diseño del framework de conectores (feature en validación) |
+| `LIMITES_CONOCIDOS.md` | Qué sabemos que el bot NO responde bien + límites operativos medidos |
 | `STATUS_PAGE.md` | Guía opcional de status page (UptimeRobot) |
 | `PROMPT.md` | **Histórico** — visión original; no refleja el estado actual |
 | `design/referencia-text-app.md` | Referencia visual del rediseño |
