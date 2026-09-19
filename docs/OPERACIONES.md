@@ -146,7 +146,7 @@ Cuatro chequeos en este orden:
 ### 4.1 Health rápido (5 seg)
 
 ```bash
-curl -s https://intellix.com.ar/health/ready
+curl -s https://app.intellix.com.ar/health/ready
 ```
 
 Debe devolver `{"status":"ok","checks":{"postgres":"ok","redis":"ok","qdrant":"ok"}}`. Si alguno dice `error` ya sabés a dónde apuntar.

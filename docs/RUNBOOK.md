@@ -28,7 +28,7 @@
 ### Diagnóstico
 
 ```bash
-curl -sk https://intellix.com.ar/health/ready
+curl -sk https://app.intellix.com.ar/health/ready
 docker ps --filter name=ia_backend
 docker logs ia_backend --tail 50
 ```
@@ -281,7 +281,7 @@ que quizá ya no existen (o faltan los restaurados) → reingestar ese tenant.
 ### 8.3 Validación post-restore
 
 ```bash
-curl -s https://intellix.com.ar/health/ready
+curl -s https://app.intellix.com.ar/health/ready
 # y luego smoke query del paso 7
 ```
 
