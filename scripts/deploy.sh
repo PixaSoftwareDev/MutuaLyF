@@ -26,7 +26,10 @@ BRANCH="main"
 # techos de memoria. El .env de prod repite la lista en COMPOSE_FILE para que
 # un `docker compose` escrito a mano también tome la configuración correcta.
 COMPOSE="docker compose -f $DIR/docker-compose.yml -f $DIR/docker-compose.prod.yml -f $DIR/docker-compose.nginx-externo.yml -f $DIR/docker-compose.observabilidad.yml"
-SITE_HOST="intellix.com.ar"
+# La APP vive en app.intellix.com.ar desde la mudanza; intellix.com.ar quedó
+# como landing y responde 200 aunque la app esté caída — chequear ese host
+# daba un verde falso.
+SITE_HOST="app.intellix.com.ar"
 
 cd "$DIR"
 
@@ -121,8 +124,8 @@ if [ "$HEALTHY" != "1" ]; then
     die "health check del backend falló."
 fi
 ok "backend healthy"
-CODE="$(curl -sk -o /dev/null -w '%{http_code}' --resolve "$SITE_HOST:443:127.0.0.1" "https://$SITE_HOST/" || echo 000)"
-[ "$CODE" = "200" ] && ok "sitio $SITE_HOST → 200" || warn "sitio devolvió $CODE (revisar)"
+CODE="$(curl -sk -o /dev/null -w '%{http_code}' --resolve "$SITE_HOST:443:127.0.0.1" "https://$SITE_HOST/login" || echo 000)"
+[ "$CODE" = "200" ] && ok "sitio $SITE_HOST/login → 200" || warn "sitio devolvió $CODE (revisar)"
 
 # ── Resumen ─────────────────────────────────────────────────────────────────────
 log "DEPLOY OK  ${ROLLBACK_SHA:0:7} → ${NEW_SHA:0:7}"
