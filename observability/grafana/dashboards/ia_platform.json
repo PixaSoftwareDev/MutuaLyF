@@ -1,7 +1,10 @@
 {
   "title": "IA Platform — Overview",
   "uid": "ia-platform-overview",
-  "tags": ["ia", "platform"],
+  "tags": [
+    "ia",
+    "platform"
+  ],
   "timezone": "browser",
   "refresh": "30s",
   "panels": [
@@ -9,18 +12,30 @@
       "id": 1,
       "title": "Queries por minuto",
       "type": "timeseries",
-      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
-      "targets": [{
-        "expr": "rate(ia_queries_total[1m]) * 60",
-        "legendFormat": "{{tenant_id}} / {{complexity}}",
-        "datasource": "Prometheus"
-      }]
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "rate(ia_queries_total[1m]) * 60",
+          "legendFormat": "{{tenant_id}} / {{complexity}}",
+          "datasource": "Prometheus"
+        }
+      ]
     },
     {
       "id": 2,
       "title": "Latencia p50 / p95 / p99 (ms)",
       "type": "timeseries",
-      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
       "targets": [
         {
           "expr": "histogram_quantile(0.50, rate(ia_query_duration_ms_bucket[5m]))",
@@ -43,82 +58,210 @@
       "id": 3,
       "title": "Cache hit rate (%)",
       "type": "gauge",
-      "gridPos": {"h": 6, "w": 6, "x": 0, "y": 8},
-      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "minVizValue": 0, "maxVizValue": 100},
-      "targets": [{
-        "expr": "rate(ia_cache_hits_total[5m]) / rate(ia_queries_total[5m]) * 100",
-        "legendFormat": "Cache hit %",
-        "datasource": "Prometheus"
-      }]
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 0,
+        "y": 8
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "minVizValue": 0,
+        "maxVizValue": 100
+      },
+      "targets": [
+        {
+          "expr": "rate(ia_cache_hits_total[5m]) / rate(ia_queries_total[5m]) * 100",
+          "legendFormat": "Cache hit %",
+          "datasource": "Prometheus"
+        }
+      ]
     },
     {
       "id": 4,
-      "title": "Groq — requests por modelo",
+      "title": "LLM — requests por modelo",
       "type": "piechart",
-      "gridPos": {"h": 6, "w": 6, "x": 6, "y": 8},
-      "targets": [{
-        "expr": "increase(ia_groq_requests_total[1h])",
-        "legendFormat": "{{model}} / {{status}}",
-        "datasource": "Prometheus"
-      }]
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 6,
+        "y": 8
+      },
+      "targets": [
+        {
+          "expr": "increase(ia_groq_requests_total[1h])",
+          "legendFormat": "{{model}} / {{status}}",
+          "datasource": "Prometheus"
+        }
+      ]
     },
     {
       "id": 5,
-      "title": "Quality Gate — distribución",
+      "title": "Quality gate de ingesta — chunks (rango)",
       "type": "piechart",
-      "gridPos": {"h": 6, "w": 6, "x": 12, "y": 8},
-      "targets": [{
-        "expr": "increase(ia_quality_gate_total[24h])",
-        "legendFormat": "{{status}}",
-        "datasource": "Prometheus"
-      }]
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 12,
+        "y": 8
+      },
+      "targets": [
+        {
+          "expr": "sum by (status) (increase(ia_quality_gate_total[$__range]))",
+          "legendFormat": "{{status}}",
+          "datasource": "Prometheus"
+        }
+      ]
     },
     {
       "id": 6,
-      "title": "Documentos ingestados por día",
+      "title": "Documentos ingestados (rango)",
       "type": "stat",
-      "gridPos": {"h": 6, "w": 6, "x": 18, "y": 8},
-      "targets": [{
-        "expr": "increase(ia_ingest_total[24h])",
-        "legendFormat": "{{tenant_id}}",
-        "datasource": "Prometheus"
-      }]
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 18,
+        "y": 8
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(ia_ingest_total[$__range]))",
+          "legendFormat": "{{tenant_id}}",
+          "datasource": "Prometheus"
+        }
+      ]
     },
     {
       "id": 7,
-      "title": "HTTP — error rate (5xx)",
+      "title": "HTTP — errores 5xx por minuto",
       "type": "timeseries",
-      "gridPos": {"h": 6, "w": 12, "x": 0, "y": 14},
-      "targets": [{
-        "expr": "rate(http_requests_total{status=~\"5..\"}[5m]) * 60",
-        "legendFormat": "{{handler}} {{status}}",
-        "datasource": "Prometheus"
-      }]
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 0,
+        "y": 14
+      },
+      "targets": [
+        {
+          "expr": "rate(http_requests_total{status=~\"5..\"}[5m]) * 60",
+          "legendFormat": "{{handler}} {{status}}",
+          "datasource": "Prometheus"
+        }
+      ]
     },
     {
       "id": 8,
       "title": "Pipeline de ingesta — duración (ms)",
       "type": "timeseries",
-      "gridPos": {"h": 6, "w": 12, "x": 12, "y": 14},
-      "targets": [{
-        "expr": "histogram_quantile(0.95, rate(ia_pipeline_duration_ms_bucket[5m]))",
-        "legendFormat": "p95 {{tenant_id}}",
-        "datasource": "Prometheus"
-      }]
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 12,
+        "y": 14
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, rate(ia_pipeline_duration_ms_bucket[5m]))",
+          "legendFormat": "p95 {{tenant_id}}",
+          "datasource": "Prometheus"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "title": "Trust gate — veredictos (rango)",
+      "type": "piechart",
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 0,
+        "y": 20
+      },
+      "targets": [
+        {
+          "expr": "sum by (action, stage) (increase(ia_trust_gate_total[$__range]))",
+          "legendFormat": "{{action}} · {{stage}}",
+          "datasource": "Prometheus"
+        }
+      ],
+      "description": "Anti-alucinación por consulta: answer/refuse y qué etapa decidió (léxica gratis, juez LLM, juez caído = fail-open)."
+    },
+    {
+      "id": 11,
+      "title": "Derivaciones ofrecidas (rango)",
+      "type": "stat",
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 8,
+        "y": 20
+      },
+      "targets": [
+        {
+          "expr": "sum by (trigger) (increase(ia_handoff_total[$__range]))",
+          "legendFormat": "{{trigger}}",
+          "datasource": "Prometheus"
+        }
+      ],
+      "description": "Carteles de derivación a operador: insufficient (N respuestas sin info) o keyword (regla 5 del tenant)."
+    },
+    {
+      "id": 12,
+      "title": "Consultas (rango)",
+      "type": "stat",
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 16,
+        "y": 20
+      },
+      "targets": [
+        {
+          "expr": "sum by (from_cache) (increase(ia_queries_total[$__range]))",
+          "legendFormat": "cache={{from_cache}}",
+          "datasource": "Prometheus"
+        }
+      ],
+      "description": "Total del rango elegido, separado por servidas desde cache."
     },
     {
       "id": 9,
       "title": "Logs del backend",
       "type": "logs",
-      "gridPos": {"h": 10, "w": 24, "x": 0, "y": 20},
-      "targets": [{
-        "expr": "{service=\"backend\"} |= ``",
-        "legendFormat": "",
-        "datasource": "Loki"
-      }],
-      "options": {"showTime": true, "sortOrder": "Descending"}
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 26
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{container=\"ia_backend\"}"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "sortOrder": "Descending",
+        "showCommonLabels": true,
+        "wrapLogMessage": true,
+        "enableLogDetails": true
+      },
+      "description": "Todas las líneas del backend de prod (Loki). Desde 2026-09-03 entran también las de texto plano. Filtrá con Explore para tenant/nivel.",
+      "datasource": {
+        "type": "loki",
+        "uid": "P8E80F9AEF21F6940"
+      }
     }
   ],
   "schemaVersion": 38,
-  "version": 1
+  "version": 1,
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  }
 }
