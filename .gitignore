@@ -146,3 +146,6 @@ docs/recuperacion_2026-08-10/
 docs/ediciones_perdidas_mutualyf.*
 docs/comercial/
 *.dump
+
+# Respaldos archivados en el VPS (ver docs/OPERACIONES.md)
+_archivo/

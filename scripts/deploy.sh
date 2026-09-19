@@ -20,7 +20,12 @@ set -euo pipefail
 
 DIR="/opt/mutualyf"
 BRANCH="main"
-COMPOSE="docker compose -f $DIR/docker-compose.yml -f $DIR/docker-compose.prod.yml"
+# Los CUATRO archivos con los que se levanta prod. Con menos, compose arranca
+# un segundo nginx (puertos 80/443 ocupados = sitio caído), jaeger/pgadmin/
+# portainer y el init que baja ~2,5GB de modelos ya eliminados, y pierde los
+# techos de memoria. El .env de prod repite la lista en COMPOSE_FILE para que
+# un `docker compose` escrito a mano también tome la configuración correcta.
+COMPOSE="docker compose -f $DIR/docker-compose.yml -f $DIR/docker-compose.prod.yml -f $DIR/docker-compose.nginx-externo.yml -f $DIR/docker-compose.observabilidad.yml"
 SITE_HOST="intellix.com.ar"
 
 cd "$DIR"
