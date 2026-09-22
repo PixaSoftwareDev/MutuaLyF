@@ -72,6 +72,33 @@ En algunos turnos el contexto responde **parte** de la pregunta y el juez lo
 descarta entero, y el bot se ve evasivo. Casos `conv_02_t3` y `conv_08_t2` del
 dataset sintético.
 
+## 6. Vocabulario del usuario ≠ vocabulario del corpus (medido 2026-09-22)
+
+Caso real del evaluador de la mutual (21/09): "¿qué planes existen?" → "no
+encontré". El corpus documenta las modalidades como "afiliado titular con
+convenio" / "afiliado con aportes sin convenio"; con "tipos de afiliación" el
+bot las encuentra y responde, con "planes" o "modalidades" no. Casos en la
+suite: `vocab_planes`, `vocab_modalidades`, `vocab_tipos_control`,
+`real_descuento_haberes`, `real_prestador_alta`.
+
+Diagnóstico (staging, corpus idéntico a prod):
+- Los fragmentos correctos NO llegan al contexto con "planes" (0 de 15) y sí
+  con "tipos de afiliación" (2 de 15). Falla de BÚSQUEDA por vocabulario.
+- **Probado y descartado: `text-embedding-3-large`.** Suite completa con el
+  corpus re-vectorizado: los 4 casos objetivo dieron idéntico (0/3, 0/3, 0/3,
+  1/3) y los 30 históricos se mantuvieron. Matiz: con el grande, "modalidades"
+  sí trae los fragmentos (0→2) y el modelo igual responde "no encontré" —
+  ahí el freno es la redacción, no la búsqueda.
+- Probado y descartado: afinar el prompt del reescritor por caso (parche; el
+  control de deriva temática además descarta la reescritura que cambia la
+  palabra del usuario).
+
+Camino propuesto (no parche): indexación por preguntas generadas en la
+ingesta, ver plan en progress.json. Regla operativa: al cambiar el modelo de
+embeddings hay que vaciar `emb:*` en Redis (la caché de vectores de consultas
+no distingue el modelo) y re-vectorizar el corpus — si no, la búsqueda queda
+mezclando modelos en silencio.
+
 ---
 
 ## Límites operativos (no son del motor)

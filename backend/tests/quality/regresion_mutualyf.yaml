@@ -407,3 +407,91 @@ casos:
       11:00. CUMPLE si la respuesta da sus días u horarios manteniendo el
       apellido tal cual. NO CUMPLE si cambia el apellido o lo interpreta
       como una especialidad.
+
+  # ── Vocabulario del usuario ≠ vocabulario del corpus ──────────────────────
+  # Caso real (evaluador de la mutual, 2026-09-21): "¿qué planes existen?" →
+  # "no encontré". El corpus documenta las modalidades como "afiliado titular
+  # con convenio" y "afiliado con aportes sin convenio"; con "tipos de
+  # afiliación" el bot las encuentra, con "planes" o "modalidades" no. La
+  # falla es de búsqueda: los fragmentos clave no llegaban al contexto.
+
+  - id: vocab_planes
+    tipo: single
+    descripcion: Pregunta por "planes"; el corpus habla de tipos de afiliación
+    pregunta: "qué planes existen en la mutual?"
+    no_debe_contener: ["no encontré esa información"]
+    criterio: >
+      El corpus no usa la palabra "planes": documenta dos modalidades de
+      afiliación, con convenio (E.P.E., sindicato, cooperativa, mutual) y con
+      aportes sin convenio. CUMPLE si la respuesta le cuenta al afiliado esas
+      modalidades (aunque aclare que la organización no las llama "planes") o
+      explica la cobertura describiendo lo que está documentado. NO CUMPLE si
+      dice que no tiene información, o si inventa planes con nombres, precios o
+      niveles que el corpus no menciona.
+
+  - id: vocab_modalidades
+    tipo: single
+    descripcion: Misma intención con "modalidades de afiliación"
+    pregunta: "cuáles son las modalidades de afiliación de la mutual?"
+    no_debe_contener: ["no encontré esa información"]
+    criterio: >
+      CUMPLE si la respuesta menciona la afiliación con convenio y la
+      afiliación con aportes sin convenio (o al menos una de ellas con su
+      documentación), sin inventar modalidades que el corpus no documenta.
+      NO CUMPLE si dice que no tiene información o si describe solo modalidades
+      de ATENCIÓN (odontológica, en tránsito) sin hablar de afiliación.
+
+  - id: vocab_tipos_control
+    tipo: single
+    descripcion: Control — con la palabra del corpus ya funcionaba; no debe romperse
+    pregunta: "qué tipos de afiliación existen?"
+    debe_contener: ["convenio"]
+    no_debe_contener: ["no encontré esa información"]
+
+  # ── Preguntas REALES de afiliados que el bot no supo (2026-09, consultas_log)
+  # y cuya respuesta SÍ está en el corpus. Miden vocabulario, no contenido.
+
+  - id: real_sabados
+    tipo: single
+    descripcion: Pregunta real ("y los sábados atienden?"); el corpus documenta lunes a viernes
+    pregunta: "atienden los sábados?"
+    no_debe_contener: ["no encontré esa información"]
+    criterio: >
+      El corpus documenta atención de lunes a viernes (7:30 a 19:00). CUMPLE si
+      la respuesta le dice al afiliado que los sábados no hay atención o que la
+      atención es de lunes a viernes, citando ese horario. NO CUMPLE si dice que
+      no tiene información o si afirma que sí atienden los sábados.
+
+  - id: real_cartilla
+    tipo: single
+    descripcion: Pregunta real (consultar la cartilla médica)
+    pregunta: "cómo puedo consultar mi cartilla médica?"
+    no_debe_contener: ["no encontré esa información"]
+    criterio: >
+      El corpus explica dónde consultar especialidades, profesionales y
+      prestadores (padrón, Mi MutuaLyF Web, canales de atención). CUMPLE si la
+      respuesta le indica al afiliado un lugar o canal concreto documentado para
+      ver los profesionales/prestadores disponibles. NO CUMPLE si dice que no
+      tiene información o si inventa un canal que el corpus no menciona.
+
+  - id: real_descuento_haberes
+    tipo: single
+    descripcion: Pregunta real (dar de alta el descuento de haberes)
+    pregunta: "quiero dar de alta el descuento de haberes, cómo hago?"
+    no_debe_contener: ["no encontré esa información"]
+    criterio: >
+      El corpus documenta el descuento/débito de haberes como medio de pago y
+      su trámite. CUMPLE si la respuesta explica cómo se gestiona o a quién
+      dirigirse según lo documentado. NO CUMPLE si dice que no tiene
+      información o si inventa requisitos.
+
+  - id: real_prestador_alta
+    tipo: single
+    descripcion: Pregunta real (prestador que quiere dar de alta a un afiliado)
+    pregunta: "soy prestador, cómo doy de alta a un afiliado?"
+    no_debe_contener: ["no encontré esa información"]
+    criterio: >
+      El corpus tiene preguntas frecuentes de MiMutualyf para prestadores y
+      efectores. CUMPLE si la respuesta orienta al prestador con el
+      procedimiento o canal documentado para gestionar afiliados/autorizaciones
+      en esa plataforma. NO CUMPLE si dice que no tiene información.
