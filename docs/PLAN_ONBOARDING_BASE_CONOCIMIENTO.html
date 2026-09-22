@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Plan: Onboarding y Base de Conocimiento — Intellix</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm 18mm 16mm; }
+  :root { --ink:#1f2937; --muted:#6b7280; --line:#e5e7eb; --accent:#4338ca; --soft:#eef2ff; --ok:#047857; --warn:#b45309; }
+  * { box-sizing: border-box; }
+  body { font-family: "Segoe UI", Inter, Arial, sans-serif; color: var(--ink); font-size: 10.5pt; line-height: 1.45; margin: 0; }
+  h1 { font-size: 22pt; margin: 0 0 4px; letter-spacing: -0.01em; }
+  h2 { font-size: 14pt; margin: 26px 0 8px; padding-bottom: 4px; border-bottom: 1.5px solid var(--line); color: var(--accent); break-after: avoid; }
+  h3 { font-size: 11.5pt; margin: 16px 0 6px; break-after: avoid; }
+  p { margin: 6px 0; }
+  .sub { color: var(--muted); font-size: 10pt; margin-bottom: 14px; }
+  .meta { display:flex; gap:18px; color: var(--muted); font-size: 9.5pt; margin-bottom: 18px; }
+  .box { background: var(--soft); border-left: 3px solid var(--accent); padding: 8px 12px; margin: 10px 0; break-inside: avoid; }
+  .num { font-weight: 600; color: var(--accent); }
+  table { width: 100%; border-collapse: collapse; margin: 8px 0 12px; font-size: 9.6pt; break-inside: avoid; }
+  th, td { text-align: left; padding: 5px 7px; vertical-align: top; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 600; font-size: 9pt; text-transform: uppercase; letter-spacing: .03em; }
+  ul, ol { margin: 4px 0 8px; padding-left: 20px; }
+  li { margin: 2px 0; }
+  .ok { color: var(--ok); font-weight: 600; } .warn { color: var(--warn); font-weight: 600; }
+  .tag { display:inline-block; font-size: 8.5pt; padding: 1px 6px; border-radius: 3px; background:#f3f4f6; color:#374151; margin-right: 4px; }
+  .pb { break-before: page; }
+  .small { font-size: 9pt; color: var(--muted); }
+  .step { display:flex; gap:10px; margin: 8px 0; break-inside: avoid; }
+  .step .n { min-width: 26px; height: 26px; border-radius: 13px; background: var(--accent); color:#fff; font-weight:700; display:flex; align-items:center; justify-content:center; font-size: 10pt; }
+</style>
+</head>
+<body>
+
+<h1>Onboarding y Base de Conocimiento</h1>
+<p class="sub">Plan para cerrar el circuito de contenido y poder vender la plataforma sin semanas de curación manual por cliente.</p>
+<div class="meta"><span>Intellix · Plataforma de conocimiento con IA</span><span>Versión 1 · 22 de septiembre de 2026</span><span>Para: equipo (Alejo, Guille)</span></div>
+
+<div class="box">
+<p><strong>En una frase:</strong> hoy el bot responde bien lo que está en los documentos y, cuando algo no está, lo dice. Lo que falta no es motor: es que el <em>cliente</em> sepa qué le falta y pueda completarlo desde su panel, y que pueda subir sus archivos tal como los tiene. Eso es lo que vende.</p>
+</div>
+
+<h2>1. Por qué: el diagnóstico con números</h2>
+<p>Todo lo que sigue sale de mediciones sobre el cliente real (MutuaLyF), no de suposiciones.</p>
+<table>
+<tr><th>Hallazgo</th><th>Dato</th><th>Qué significa</th></tr>
+<tr><td>Todo el corpus del cliente fue convertido a mano</td><td><span class="num">18 de 18</span> documentos son <code>.txt</code></td><td>El pipeline acepta PDF, Word, HTML y JSON, pero la guía pide texto plano con plantilla. Ahí están las semanas por cliente.</td></tr>
+<tr><td>El bot no sabe una parte relevante de lo que le preguntan</td><td><span class="num">15 %</span> de las respuestas son “no encontré esa información” (123 de 802, 90 días)</td><td>Es un backlog de contenido concreto y con nombre. Hoy nadie lo ve: nos enteramos leyendo conversaciones a mano.</td></tr>
+<tr><td>Conversaciones que terminan en un humano</td><td><span class="num">11 %</span> (22 de 207)</td><td>Segunda señal de hueco, tampoco visible.</td></tr>
+<tr><td>Los casos que investigamos a fondo eran de contenido, no del motor</td><td>4 de 4 (“qué planes hay”, “modalidades”, “descuento de haberes”, “alta por prestador”)</td><td>Ningún fragmento los respondía. Probamos dos mejoras de motor (reescritor, modelo de embeddings grande): cero cambio. El motor está bien; falta contenido y visibilidad.</td></tr>
+<tr><td>Calidad del motor sobre el corpus real</td><td><span class="num">30/30</span> casos de la suite</td><td>Datos duros, multi-turno, premisas falsas, trampas, nombres: todo pasa. No hay que reconstruir nada.</td></tr>
+<tr><td>El motor de ingesta ya es sofisticado</td><td>6 tipos de documento, control de calidad por IA, duplicados, contradicciones, edición que sobrevive al reproceso</td><td>Hay que abrirle la puerta a más formatos y cerrarle el circuito, no rehacerlo.</td></tr>
+</table>
+
+<h2>2. Qué ve el cliente: la sección “Base de conocimiento”</h2>
+<p>Una sola feature, con nombre, en el panel del administrador del cliente. Cuatro pestañas que siguen el recorrido natural: <strong>cargar → revisar → completar → probar</strong>. Reusa los patrones que ya existen en el panel (lista con detalle, formularios laterales, la pantalla de Documentos).</p>
+
+<div class="step"><div class="n">1</div><div><strong>Documentos — cargar.</strong> Arrastra lo que tenga: Excel, CSV, PDF (con tablas o escaneado), Word, PowerPoint, Markdown, o un link a su sitio. Antes de confirmar ve una <strong>vista previa</strong>: cómo lo entendió el sistema (“una planilla de 120 filas”, “un documento de preguntas y respuestas”, “un reglamento”), cuántos fragmentos va a generar y advertencias en lenguaje claro (“la tabla de la página 3 puede perder sus encabezados”, “esta sección no tiene preguntas; el bot la va a entender peor”). Botón <em>Procesar</em>. Hoy se sube a ciegas y se descubre después.</div></div>
+
+<div class="step"><div class="n">2</div><div><strong>Salud — revisar.</strong> Un tablero simple, en filas: documentos, fragmentos, cuántos quedaron para revisar, duplicados, contradicciones, con semáforo. Casi todo existe hoy como piezas separadas; acá se junta en una vista. Sin números inventados: son los que el sistema ya calcula.</div></div>
+
+<div class="step"><div class="n">3</div><div><strong>Preguntas sin respuesta — completar.</strong> <em>La pestaña nueva, la que cierra el circuito.</em> Lo que la gente preguntó y el bot no supo, agrupado por tema y ordenado por frecuencia (“Planes / modalidades de afiliación — 4 veces — última: ayer”). Cada ítem tiene estado (pendiente, en curso, resuelto, descartado) y tres acciones: <strong>ver la conversación</strong> real donde falló; <strong>documento relacionado</strong> donde probablemente debería estar la respuesta; y <strong>crear respuesta</strong>, que abre un editor con un <strong>borrador propuesto por la IA armado solo con los documentos del propio cliente</strong>, indicando de dónde salió cada dato. El administrador lo edita, corrige o descarta, y <strong>guarda</strong>. Al guardar, se convierte en un documento suyo (origen “Panel”), entra por la ingesta normal, y el sistema <strong>vuelve a hacer la pregunta original</strong>: si ahora responde, el ítem pasa a resuelto con ✓; si no, queda en curso y avisa.</div></div>
+
+<div class="step"><div class="n">4</div><div><strong>Probar — evaluar.</strong> Botón <em>Evaluar mi base</em>: el sistema hace 20 preguntas típicas del rubro y devuelve un puntaje y la lista de las que no respondió, que caen directo en la pestaña 3. Es el informe del día uno para el cliente nuevo y el chequeo periódico para el existente.</div></div>
+
+<p>Para el cliente es una sola cosa: <em>“ahora la plataforma me dice qué le falta y me ayuda a completarlo”</em>.</p>
+
+<h2>3. Principios que rigen el diseño</h2>
+<table>
+<tr><th>Principio</th><th>Qué implica</th></tr>
+<tr><td><strong>El contenido es del cliente.</strong> Nosotros nunca cargamos, redactamos ni editamos en su base.</td><td>La IA <em>propone</em> a partir de lo que el cliente ya tiene; el administrador lee, edita y guarda con su clic. Aprobación <strong>siempre manual</strong>. Nada se publica solo.</td></tr>
+<tr><td><strong>Lo que el cliente escribe en el panel es tan suyo como lo que sube.</strong></td><td>Ya perdimos ediciones manuales una vez (agosto). Por eso: la descarga trae siempre la versión vigente con las correcciones; las respuestas creadas en el panel tienen origen “Panel” visible, son exportables y están en el backup diario; borrar pide confirmación y va a una papelera de 30 días; botón <em>Exportar toda mi base</em>. El conocimiento no es rehén nuestro: también es argumento de venta.</td></tr>
+<tr><td><strong>Genérico, multitenant.</strong></td><td>Nada específico de un rubro en código ni prompts. Las preguntas típicas para “Probar” salen de la descripción del negocio de cada tenant.</td></tr>
+<tr><td><strong>Sin modelos locales en el servidor.</strong></td><td>La lectura de PDF complejo o escaneado se hace con el modelo con visión por API (el mismo que ya usamos). Rápido y son centavos.</td></tr>
+<tr><td><strong>Sin mejora medida no se avanza.</strong></td><td>Cada pieza tiene criterio de aceptación. Lo que toque el motor corre la suite completa antes y después.</td></tr>
+</table>
+
+<h2 class="pb">4. El plan por bloques</h2>
+<p class="small">Esfuerzos estimados en días de desarrollo. El orden dentro de cada bloque es el propuesto; entre bloques, el 1 va primero porque es lo que cierra la venta.</p>
+
+<h3>Bloque 1 — Cerrar el circuito (lo que vende)</h3>
+<table>
+<tr><th>#</th><th>Pieza</th><th>Esfuerzo</th><th>Criterio de aceptación</th></tr>
+<tr><td>1</td><td><strong>Pestaña “Preguntas sin respuesta”</strong>: lista agrupada por tema, frecuencia, estado, ver conversación, documento relacionado. Se alimenta de la señal que ya se guarda en <code>consultas_log</code> (trust gate), de las respuestas “no encontré” y de las derivaciones. <span class="tag">solo admin</span> <span class="tag">aviso por mail semanal, con interruptor por tenant</span></td><td>2–3 d</td><td>Con datos reales del tenant, un admin identifica en menos de un minuto qué le falta. Cero cambios en el motor.</td></tr>
+<tr><td>2</td><td><strong>Crear respuesta con borrador asistido</strong>: editor con propuesta de la IA a partir de los documentos del cliente, fuentes citadas, guardar → documento origen “Panel” → re-test automático de la pregunta original.</td><td>3–4 d</td><td>El re-test marca resuelto solo si el bot responde la pregunta original. La respuesta guardada aparece en la descarga y en el backup.</td></tr>
+<tr><td>3</td><td><strong>Evaluar mi base</strong>: 20 preguntas típicas generadas desde la descripción del tenant, puntaje, huecos a la pestaña 1.</td><td>3–4 d</td><td>Corre en menos de 2 minutos y no repite preguntas cacheadas (purga cache antes).</td></tr>
+<tr><td>4</td><td><strong>Propiedad del contenido</strong>: descarga = versión vigente siempre; origen “Panel” visible; exportar toda la base; papelera de 30 días con confirmación al borrar.</td><td>2–3 d</td><td>Un documento editado a mano y borrado se recupera íntegro desde la papelera; la exportación incluye lo del panel.</td></tr>
+</table>
+
+<h3>Bloque 2 — Formatos (la puerta de entrada)</h3>
+<p>Decisión tomada: <strong>todos en la primera tanda</strong>.</p>
+<table>
+<tr><th>#</th><th>Pieza</th><th>Esfuerzo</th><th>Criterio de aceptación</th></tr>
+<tr><td>5</td><td><strong>Excel y CSV</strong>: una fila = un registro con sus encabezados repetidos (lo que la evidencia de 2026 muestra como mejor estrategia para planillas); se enchufa en la estrategia de listados que ya existe en el chunker (extracción automática de “Campo: valor”).</td><td>3 d</td><td>Una nómina de 200 filas: “¿qué horario tiene X?” responde con la fila correcta en 5 de 5 pruebas.</td></tr>
+<tr><td>6</td><td><strong>PDF con tablas y PDF escaneado</strong> vía modelo con visión por API: cada página se convierte a texto estructurado que conserva las tablas; resuelve los dos casos con una sola herramienta, en la ingesta (asincrónica: que tarde 30–60 s por documento no afecta al bot).</td><td>5–7 d</td><td>El caso <code>f_19</code> (dato numérico en tabla que pierde el encabezado) pasa. Un PDF escaneado entra con texto, no vacío.</td></tr>
+<tr><td>7</td><td><strong>PowerPoint y Markdown</strong>.</td><td>2 d</td><td>Un .pptx de capacitación genera fragmentos por diapositiva con su título.</td></tr>
+<tr><td>8</td><td><strong>Sitio web por URL</strong>: rastreo acotado al dominio, un fragmento por sección de página.</td><td>3–4 d</td><td>Un sitio institucional de 30 páginas queda cargado en menos de 5 minutos. Es el alta de demo.</td></tr>
+</table>
+
+<h3>Bloque 3 — Que el cliente sepa antes de subir</h3>
+<table>
+<tr><th>#</th><th>Pieza</th><th>Esfuerzo</th><th>Criterio de aceptación</th></tr>
+<tr><td>9</td><td><strong>Vista previa al subir</strong>: tipo detectado, cantidad de fragmentos, advertencias concretas (tablas que pierden encabezado, secciones sin pregunta, texto escaneado ilegible), antes de procesar.</td><td>5 d</td><td>Las advertencias corresponden a fallas reales conocidas del chunker; ninguna es genérica.</td></tr>
+<tr><td>10</td><td><strong>Guía nueva</strong>: de “reescribí todo a .txt con plantilla” a “subí lo que tengas; el sistema te dice qué mejorar”.</td><td>1 d</td><td>Un cliente nuevo carga su material sin hablar con nosotros.</td></tr>
+</table>
+
+<h3>Bloque 4 — Motor (solo con medición)</h3>
+<table>
+<tr><th>#</th><th>Pieza</th><th>Esfuerzo</th><th>Criterio</th></tr>
+<tr><td>11</td><td><strong>Clasificar las 123 preguntas sin respuesta reales</strong>: vocabulario (la respuesta estaba y no se encontró) vs. contenido (no estaba) vs. fuera de alcance. Solo lectura.</td><td>½ d</td><td>Un número por categoría. Decide el punto 12.</td></tr>
+<tr><td>12</td><td><strong>Indexación por preguntas</strong> (doc2query / HyPE): generar 3–5 preguntas en lenguaje de usuario por fragmento, con filtro de fidelidad, y usarlas para encontrar el fragmento. <strong>Solo si el punto 11 muestra que el vocabulario pesa</strong>, y coordinada con el reescritor para no tener dos mecanismos para lo mismo.</td><td>4–5 d</td><td>Los casos de vocabulario de la suite pasan sin escribir sus palabras en ningún lado; los 30 históricos no empeoran.</td></tr>
+</table>
+
+<h2>5. Decisiones tomadas</h2>
+<table>
+<tr><th>Tema</th><th>Decisión</th></tr>
+<tr><td>Aprobación de borradores</td><td>Siempre manual: el administrador del cliente lee, edita y guarda. Nunca automático.</td></tr>
+<tr><td>Quién ve “Preguntas sin respuesta”</td><td>Solo el administrador del cliente (no el operador, por ahora).</td></tr>
+<tr><td>Aviso por mail de huecos nuevos</td><td>Sí, resumen semanal, con interruptor de encendido/apagado por tenant.</td></tr>
+<tr><td>Contenido creado en el panel</td><td>Origen “Panel” visible, exportable, en el backup, papelera de 30 días.</td></tr>
+<tr><td>Lectura de PDF complejo / escaneado</td><td>Modelo con visión por API. No modelos locales en el VPS.</td></tr>
+<tr><td>Formatos</td><td>Todos en la primera tanda: Excel/CSV, PDF con visión, PowerPoint, Markdown, URL.</td></tr>
+<tr><td>Lista inicial de la mutual</td><td>No se precarga con las 123 preguntas históricas (venían de un motor en construcción). Se define aparte cómo arranca.</td></tr>
+<tr><td>Indexación por preguntas</td><td>Diferida: se decide con la clasificación del punto 11.</td></tr>
+</table>
+
+<h2>6. Lo que NO hacemos, y por qué</h2>
+<ul>
+<li><strong>Agentes en el bot de consultas.</strong> La evidencia de 2026 es consistente: multiplican el costo 3–10× y llevan la latencia de 1–2 s a 4–15 s; solo se justifican en preguntas de varios saltos o dominios de alto riesgo. Para “¿cuál es el horario de pediatría?” es pagar de más para responder peor. Descartado.</li>
+<li><strong>Parches de prompt por caso.</strong> Seis arreglos al reescritor en agosto, cada uno por un caso. Probamos uno más para “planes” y lo descartamos: resolvía ese caso y dejaba el próximo. Solo cambios de arquitectura medidos contra toda la suite.</li>
+<li><strong>Cambiar el modelo de embeddings.</strong> Probado en staging con el corpus re-vectorizado: los casos objetivo dieron idéntico. Descartado con medición.</li>
+<li><strong>Cargar contenido en la base del cliente.</strong> Prohibido. Proponemos; ellos aprueban.</li>
+<li><strong>Construir la indexación por preguntas antes de medir cuánto arregla.</strong> Los cuatro casos investigados eran de contenido. Primero el número.</li>
+</ul>
+
+<h2>7. Riesgos y cómo se contienen</h2>
+<table>
+<tr><th>Riesgo</th><th>Contención</th></tr>
+<tr><td>El borrador de la IA propone algo que el cliente aprueba sin leer</td><td>Aprobación manual con las fuentes citadas al lado; el re-test automático muestra si la respuesta quedó bien; origen “Panel” visible para auditar después.</td></tr>
+<tr><td>La lectura por visión de un PDF interpreta mal una tabla</td><td>La vista previa muestra el resultado antes de procesar; el control de calidad por IA que ya existe marca fragmentos dudosos; el cliente puede editar cualquier fragmento.</td></tr>
+<tr><td>Costo de API en la ingesta</td><td>Centavos por documento; se hace una vez. Un PDF de 30 páginas por visión ≈ 30 llamadas. Se registra el consumo por tenant (ya existe <code>usage_events</code>).</td></tr>
+<tr><td>Más complejidad en el motor</td><td>Los bloques 1–3 no tocan el motor de respuesta. El bloque 4 va detrás de flag y solo con medición.</td></tr>
+<tr><td>Pérdida de trabajo del cliente</td><td>Bloque 1, pieza 4: versión vigente en la descarga, backup, papelera, exportación.</td></tr>
+</table>
+
+<h2>8. Calendario propuesto</h2>
+<table>
+<tr><th>Cuándo</th><th>Qué</th><th>Producción</th></tr>
+<tr><td>Semana del 22/09</td><td>Pruebas del cliente. Sin cambios. Clasificación de las 123 preguntas (solo lectura). Cerrar el aislamiento de red entre staging y producción.</td><td>No se toca</td></tr>
+<tr><td>Semanas del 29/09 y 6/10</td><td>Bloque 1 completo (pestañas Preguntas sin respuesta, Crear respuesta, Evaluar, Propiedad del contenido) en <code>dev-local</code>; medición en staging.</td><td>No se toca</td></tr>
+<tr><td>Semanas del 13/10 y 20/10</td><td>Bloque 2 (formatos) y Bloque 3 (vista previa, guía).</td><td>Pasaje del Bloque 1 con OK de ambos</td></tr>
+<tr><td>Semana del 27/10</td><td>Estabilización, suite completa, límites de consultas reactivados, token del widget renovado (vence 02/11), guardia definida.</td><td>Pasaje de Bloques 2–3 con OK de ambos</td></tr>
+<tr><td>1 de noviembre</td><td>Go-live con onboarding vendible.</td><td>—</td></tr>
+<tr><td>Noviembre</td><td>Bloque 4 según el número de la clasificación.</td><td>Solo con medición</td></tr>
+</table>
+
+<div class="box">
+<p><strong>Cómo sabremos que funcionó:</strong> el porcentaje de respuestas “no encontré” del cliente (hoy 15 %) baja mes a mes, y cada baja tiene un ítem “resuelto” en la pestaña de huecos que la explica. Un cliente nuevo carga su material sin hablar con nosotros, y el informe de <em>Evaluar mi base</em> le dice el día uno qué tiene y qué le falta.</p>
+</div>
+
+<p class="small">Fuentes de las afirmaciones externas: Intercom Fin (huecos de contenido como backlog desde conversaciones no resueltas); “Structure-Aware Chunking for Tabular Data in RAG” (2026) para la estrategia fila-como-registro; comparativas de agentic RAG vs. RAG tradicional (2026) para costo y latencia; benchmarks de parsers de PDF (Docling, Marker, LlamaParse) para la decisión de lectura por visión. Las mediciones internas están en <code>docs/LIMITES_CONOCIDOS.md</code> y en la suite <code>tests/quality/regresion_mutualyf.yaml</code>.</p>
+
+</body>
+</html>
