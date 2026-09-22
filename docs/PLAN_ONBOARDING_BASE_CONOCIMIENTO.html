@@ -2,162 +2,288 @@
 <html lang="es">
 <head>
 <meta charset="utf-8">
-<title>Plan: Onboarding y Base de Conocimiento — Intellix</title>
+<title>Documento funcional — Base de Conocimiento</title>
 <style>
   @page { size: A4; margin: 18mm 16mm 18mm 16mm; }
-  :root { --ink:#1f2937; --muted:#6b7280; --line:#e5e7eb; --accent:#4338ca; --soft:#eef2ff; --ok:#047857; --warn:#b45309; }
+  :root { --ink:#1f2937; --muted:#6b7280; --line:#e5e7eb; --accent:#4338ca; --soft:#eef2ff; }
   * { box-sizing: border-box; }
   body { font-family: "Segoe UI", Inter, Arial, sans-serif; color: var(--ink); font-size: 10.5pt; line-height: 1.45; margin: 0; }
-  h1 { font-size: 22pt; margin: 0 0 4px; letter-spacing: -0.01em; }
-  h2 { font-size: 14pt; margin: 26px 0 8px; padding-bottom: 4px; border-bottom: 1.5px solid var(--line); color: var(--accent); break-after: avoid; }
+  h1 { font-size: 21pt; margin: 0 0 4px; }
+  h2 { font-size: 14pt; margin: 24px 0 8px; padding-bottom: 4px; border-bottom: 1.5px solid var(--line); color: var(--accent); break-after: avoid; }
   h3 { font-size: 11.5pt; margin: 16px 0 6px; break-after: avoid; }
+  h4 { font-size: 10.5pt; margin: 10px 0 4px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; break-after: avoid; }
   p { margin: 6px 0; }
-  .sub { color: var(--muted); font-size: 10pt; margin-bottom: 14px; }
-  .meta { display:flex; gap:18px; color: var(--muted); font-size: 9.5pt; margin-bottom: 18px; }
-  .box { background: var(--soft); border-left: 3px solid var(--accent); padding: 8px 12px; margin: 10px 0; break-inside: avoid; }
-  .num { font-weight: 600; color: var(--accent); }
-  table { width: 100%; border-collapse: collapse; margin: 8px 0 12px; font-size: 9.6pt; break-inside: avoid; }
+  .sub { color: var(--muted); font-size: 10pt; margin-bottom: 12px; }
+  .meta { color: var(--muted); font-size: 9.5pt; margin-bottom: 16px; }
+  .meta span { margin-right: 16px; }
+  table { width: 100%; border-collapse: collapse; margin: 6px 0 12px; font-size: 9.6pt; break-inside: avoid; }
   th, td { text-align: left; padding: 5px 7px; vertical-align: top; border-bottom: 1px solid var(--line); }
-  th { color: var(--muted); font-weight: 600; font-size: 9pt; text-transform: uppercase; letter-spacing: .03em; }
+  th { color: var(--muted); font-weight: 600; font-size: 9pt; text-transform: uppercase; letter-spacing: .03em; width: 22%; }
+  table.cols th { width: auto; }
   ul, ol { margin: 4px 0 8px; padding-left: 20px; }
   li { margin: 2px 0; }
-  .ok { color: var(--ok); font-weight: 600; } .warn { color: var(--warn); font-weight: 600; }
-  .tag { display:inline-block; font-size: 8.5pt; padding: 1px 6px; border-radius: 3px; background:#f3f4f6; color:#374151; margin-right: 4px; }
+  .rule { background: var(--soft); border-left: 3px solid var(--accent); padding: 6px 10px; margin: 8px 0; break-inside: avoid; }
+  .id { font-family: Consolas, monospace; font-size: 9pt; color: var(--accent); }
   .pb { break-before: page; }
   .small { font-size: 9pt; color: var(--muted); }
-  .step { display:flex; gap:10px; margin: 8px 0; break-inside: avoid; }
-  .step .n { min-width: 26px; height: 26px; border-radius: 13px; background: var(--accent); color:#fff; font-weight:700; display:flex; align-items:center; justify-content:center; font-size: 10pt; }
+  code { font-family: Consolas, monospace; font-size: 9.2pt; background: #f3f4f6; padding: 0 3px; }
 </style>
 </head>
 <body>
 
-<h1>Onboarding y Base de Conocimiento</h1>
-<p class="sub">Plan para cerrar el circuito de contenido y poder vender la plataforma sin semanas de curación manual por cliente.</p>
-<div class="meta"><span>Intellix · Plataforma de conocimiento con IA</span><span>Versión 1 · 22 de septiembre de 2026</span><span>Para: equipo (Alejo, Guille)</span></div>
+<h1>Base de Conocimiento — Documento funcional</h1>
+<p class="sub">Mejora del panel de administración: carga de archivos en cualquier formato, detección de preguntas sin respuesta y completado asistido del contenido por parte del cliente.</p>
+<div class="meta"><span>Intellix</span><span>Versión 1.0 · 22/09/2026</span><span>Autor: Alejo Maros</span><span>Estado: para revisión del equipo</span></div>
 
-<div class="box">
-<p><strong>En una frase:</strong> hoy el bot responde bien lo que está en los documentos y, cuando algo no está, lo dice. Lo que falta no es motor: es que el <em>cliente</em> sepa qué le falta y pueda completarlo desde su panel, y que pueda subir sus archivos tal como los tiene. Eso es lo que vende.</p>
-</div>
+<h2>1. Objetivo</h2>
+<p>Que un cliente pueda dar de alta y mantener su base de conocimiento por sí mismo, desde su panel, sin intervención del equipo de Intellix: subir sus archivos tal como los tiene, ver qué preguntas de sus usuarios el asistente no pudo responder, y completar ese contenido con ayuda de la plataforma.</p>
 
-<h2>1. Por qué: el diagnóstico con números</h2>
-<p>Todo lo que sigue sale de mediciones sobre el cliente real (MutuaLyF), no de suposiciones.</p>
-<table>
-<tr><th>Hallazgo</th><th>Dato</th><th>Qué significa</th></tr>
-<tr><td>Todo el corpus del cliente fue convertido a mano</td><td><span class="num">18 de 18</span> documentos son <code>.txt</code></td><td>El pipeline acepta PDF, Word, HTML y JSON, pero la guía pide texto plano con plantilla. Ahí están las semanas por cliente.</td></tr>
-<tr><td>El bot no sabe una parte relevante de lo que le preguntan</td><td><span class="num">15 %</span> de las respuestas son “no encontré esa información” (123 de 802, 90 días)</td><td>Es un backlog de contenido concreto y con nombre. Hoy nadie lo ve: nos enteramos leyendo conversaciones a mano.</td></tr>
-<tr><td>Conversaciones que terminan en un humano</td><td><span class="num">11 %</span> (22 de 207)</td><td>Segunda señal de hueco, tampoco visible.</td></tr>
-<tr><td>Los casos que investigamos a fondo eran de contenido, no del motor</td><td>4 de 4 (“qué planes hay”, “modalidades”, “descuento de haberes”, “alta por prestador”)</td><td>Ningún fragmento los respondía. Probamos dos mejoras de motor (reescritor, modelo de embeddings grande): cero cambio. El motor está bien; falta contenido y visibilidad.</td></tr>
-<tr><td>Calidad del motor sobre el corpus real</td><td><span class="num">30/30</span> casos de la suite</td><td>Datos duros, multi-turno, premisas falsas, trampas, nombres: todo pasa. No hay que reconstruir nada.</td></tr>
-<tr><td>El motor de ingesta ya es sofisticado</td><td>6 tipos de documento, control de calidad por IA, duplicados, contradicciones, edición que sobrevive al reproceso</td><td>Hay que abrirle la puerta a más formatos y cerrarle el circuito, no rehacerlo.</td></tr>
-</table>
-
-<h2>2. Qué ve el cliente: la sección “Base de conocimiento”</h2>
-<p>Una sola feature, con nombre, en el panel del administrador del cliente. Cuatro pestañas que siguen el recorrido natural: <strong>cargar → revisar → completar → probar</strong>. Reusa los patrones que ya existen en el panel (lista con detalle, formularios laterales, la pantalla de Documentos).</p>
-
-<div class="step"><div class="n">1</div><div><strong>Documentos — cargar.</strong> Arrastra lo que tenga: Excel, CSV, PDF (con tablas o escaneado), Word, PowerPoint, Markdown, o un link a su sitio. Antes de confirmar ve una <strong>vista previa</strong>: cómo lo entendió el sistema (“una planilla de 120 filas”, “un documento de preguntas y respuestas”, “un reglamento”), cuántos fragmentos va a generar y advertencias en lenguaje claro (“la tabla de la página 3 puede perder sus encabezados”, “esta sección no tiene preguntas; el bot la va a entender peor”). Botón <em>Procesar</em>. Hoy se sube a ciegas y se descubre después.</div></div>
-
-<div class="step"><div class="n">2</div><div><strong>Salud — revisar.</strong> Un tablero simple, en filas: documentos, fragmentos, cuántos quedaron para revisar, duplicados, contradicciones, con semáforo. Casi todo existe hoy como piezas separadas; acá se junta en una vista. Sin números inventados: son los que el sistema ya calcula.</div></div>
-
-<div class="step"><div class="n">3</div><div><strong>Preguntas sin respuesta — completar.</strong> <em>La pestaña nueva, la que cierra el circuito.</em> Lo que la gente preguntó y el bot no supo, agrupado por tema y ordenado por frecuencia (“Planes / modalidades de afiliación — 4 veces — última: ayer”). Cada ítem tiene estado (pendiente, en curso, resuelto, descartado) y tres acciones: <strong>ver la conversación</strong> real donde falló; <strong>documento relacionado</strong> donde probablemente debería estar la respuesta; y <strong>crear respuesta</strong>, que abre un editor con un <strong>borrador propuesto por la IA armado solo con los documentos del propio cliente</strong>, indicando de dónde salió cada dato. El administrador lo edita, corrige o descarta, y <strong>guarda</strong>. Al guardar, se convierte en un documento suyo (origen “Panel”), entra por la ingesta normal, y el sistema <strong>vuelve a hacer la pregunta original</strong>: si ahora responde, el ítem pasa a resuelto con ✓; si no, queda en curso y avisa.</div></div>
-
-<div class="step"><div class="n">4</div><div><strong>Probar — evaluar.</strong> Botón <em>Evaluar mi base</em>: el sistema hace 20 preguntas típicas del rubro y devuelve un puntaje y la lista de las que no respondió, que caen directo en la pestaña 3. Es el informe del día uno para el cliente nuevo y el chequeo periódico para el existente.</div></div>
-
-<p>Para el cliente es una sola cosa: <em>“ahora la plataforma me dice qué le falta y me ayuda a completarlo”</em>.</p>
-
-<h2>3. Principios que rigen el diseño</h2>
-<table>
-<tr><th>Principio</th><th>Qué implica</th></tr>
-<tr><td><strong>El contenido es del cliente.</strong> Nosotros nunca cargamos, redactamos ni editamos en su base.</td><td>La IA <em>propone</em> a partir de lo que el cliente ya tiene; el administrador lee, edita y guarda con su clic. Aprobación <strong>siempre manual</strong>. Nada se publica solo.</td></tr>
-<tr><td><strong>Lo que el cliente escribe en el panel es tan suyo como lo que sube.</strong></td><td>Ya perdimos ediciones manuales una vez (agosto). Por eso: la descarga trae siempre la versión vigente con las correcciones; las respuestas creadas en el panel tienen origen “Panel” visible, son exportables y están en el backup diario; borrar pide confirmación y va a una papelera de 30 días; botón <em>Exportar toda mi base</em>. El conocimiento no es rehén nuestro: también es argumento de venta.</td></tr>
-<tr><td><strong>Genérico, multitenant.</strong></td><td>Nada específico de un rubro en código ni prompts. Las preguntas típicas para “Probar” salen de la descripción del negocio de cada tenant.</td></tr>
-<tr><td><strong>Sin modelos locales en el servidor.</strong></td><td>La lectura de PDF complejo o escaneado se hace con el modelo con visión por API (el mismo que ya usamos). Rápido y son centavos.</td></tr>
-<tr><td><strong>Sin mejora medida no se avanza.</strong></td><td>Cada pieza tiene criterio de aceptación. Lo que toque el motor corre la suite completa antes y después.</td></tr>
-</table>
-
-<h2 class="pb">4. El plan por bloques</h2>
-<p class="small">Esfuerzos estimados en días de desarrollo. El orden dentro de cada bloque es el propuesto; entre bloques, el 1 va primero porque es lo que cierra la venta.</p>
-
-<h3>Bloque 1 — Cerrar el circuito (lo que vende)</h3>
-<table>
-<tr><th>#</th><th>Pieza</th><th>Esfuerzo</th><th>Criterio de aceptación</th></tr>
-<tr><td>1</td><td><strong>Pestaña “Preguntas sin respuesta”</strong>: lista agrupada por tema, frecuencia, estado, ver conversación, documento relacionado. Se alimenta de la señal que ya se guarda en <code>consultas_log</code> (trust gate), de las respuestas “no encontré” y de las derivaciones. <span class="tag">solo admin</span> <span class="tag">aviso por mail semanal, con interruptor por tenant</span></td><td>2–3 d</td><td>Con datos reales del tenant, un admin identifica en menos de un minuto qué le falta. Cero cambios en el motor.</td></tr>
-<tr><td>2</td><td><strong>Crear respuesta con borrador asistido</strong>: editor con propuesta de la IA a partir de los documentos del cliente, fuentes citadas, guardar → documento origen “Panel” → re-test automático de la pregunta original.</td><td>3–4 d</td><td>El re-test marca resuelto solo si el bot responde la pregunta original. La respuesta guardada aparece en la descarga y en el backup.</td></tr>
-<tr><td>3</td><td><strong>Evaluar mi base</strong>: 20 preguntas típicas generadas desde la descripción del tenant, puntaje, huecos a la pestaña 1.</td><td>3–4 d</td><td>Corre en menos de 2 minutos y no repite preguntas cacheadas (purga cache antes).</td></tr>
-<tr><td>4</td><td><strong>Propiedad del contenido</strong>: descarga = versión vigente siempre; origen “Panel” visible; exportar toda la base; papelera de 30 días con confirmación al borrar.</td><td>2–3 d</td><td>Un documento editado a mano y borrado se recupera íntegro desde la papelera; la exportación incluye lo del panel.</td></tr>
-</table>
-
-<h3>Bloque 2 — Formatos (la puerta de entrada)</h3>
-<p>Decisión tomada: <strong>todos en la primera tanda</strong>.</p>
-<table>
-<tr><th>#</th><th>Pieza</th><th>Esfuerzo</th><th>Criterio de aceptación</th></tr>
-<tr><td>5</td><td><strong>Excel y CSV</strong>: una fila = un registro con sus encabezados repetidos (lo que la evidencia de 2026 muestra como mejor estrategia para planillas); se enchufa en la estrategia de listados que ya existe en el chunker (extracción automática de “Campo: valor”).</td><td>3 d</td><td>Una nómina de 200 filas: “¿qué horario tiene X?” responde con la fila correcta en 5 de 5 pruebas.</td></tr>
-<tr><td>6</td><td><strong>PDF con tablas y PDF escaneado</strong> vía modelo con visión por API: cada página se convierte a texto estructurado que conserva las tablas; resuelve los dos casos con una sola herramienta, en la ingesta (asincrónica: que tarde 30–60 s por documento no afecta al bot).</td><td>5–7 d</td><td>El caso <code>f_19</code> (dato numérico en tabla que pierde el encabezado) pasa. Un PDF escaneado entra con texto, no vacío.</td></tr>
-<tr><td>7</td><td><strong>PowerPoint y Markdown</strong>.</td><td>2 d</td><td>Un .pptx de capacitación genera fragmentos por diapositiva con su título.</td></tr>
-<tr><td>8</td><td><strong>Sitio web por URL</strong>: rastreo acotado al dominio, un fragmento por sección de página.</td><td>3–4 d</td><td>Un sitio institucional de 30 páginas queda cargado en menos de 5 minutos. Es el alta de demo.</td></tr>
-</table>
-
-<h3>Bloque 3 — Que el cliente sepa antes de subir</h3>
-<table>
-<tr><th>#</th><th>Pieza</th><th>Esfuerzo</th><th>Criterio de aceptación</th></tr>
-<tr><td>9</td><td><strong>Vista previa al subir</strong>: tipo detectado, cantidad de fragmentos, advertencias concretas (tablas que pierden encabezado, secciones sin pregunta, texto escaneado ilegible), antes de procesar.</td><td>5 d</td><td>Las advertencias corresponden a fallas reales conocidas del chunker; ninguna es genérica.</td></tr>
-<tr><td>10</td><td><strong>Guía nueva</strong>: de “reescribí todo a .txt con plantilla” a “subí lo que tengas; el sistema te dice qué mejorar”.</td><td>1 d</td><td>Un cliente nuevo carga su material sin hablar con nosotros.</td></tr>
-</table>
-
-<h3>Bloque 4 — Motor (solo con medición)</h3>
-<table>
-<tr><th>#</th><th>Pieza</th><th>Esfuerzo</th><th>Criterio</th></tr>
-<tr><td>11</td><td><strong>Clasificar las 123 preguntas sin respuesta reales</strong>: vocabulario (la respuesta estaba y no se encontró) vs. contenido (no estaba) vs. fuera de alcance. Solo lectura.</td><td>½ d</td><td>Un número por categoría. Decide el punto 12.</td></tr>
-<tr><td>12</td><td><strong>Indexación por preguntas</strong> (doc2query / HyPE): generar 3–5 preguntas en lenguaje de usuario por fragmento, con filtro de fidelidad, y usarlas para encontrar el fragmento. <strong>Solo si el punto 11 muestra que el vocabulario pesa</strong>, y coordinada con el reescritor para no tener dos mecanismos para lo mismo.</td><td>4–5 d</td><td>Los casos de vocabulario de la suite pasan sin escribir sus palabras en ningún lado; los 30 históricos no empeoran.</td></tr>
-</table>
-
-<h2>5. Decisiones tomadas</h2>
-<table>
-<tr><th>Tema</th><th>Decisión</th></tr>
-<tr><td>Aprobación de borradores</td><td>Siempre manual: el administrador del cliente lee, edita y guarda. Nunca automático.</td></tr>
-<tr><td>Quién ve “Preguntas sin respuesta”</td><td>Solo el administrador del cliente (no el operador, por ahora).</td></tr>
-<tr><td>Aviso por mail de huecos nuevos</td><td>Sí, resumen semanal, con interruptor de encendido/apagado por tenant.</td></tr>
-<tr><td>Contenido creado en el panel</td><td>Origen “Panel” visible, exportable, en el backup, papelera de 30 días.</td></tr>
-<tr><td>Lectura de PDF complejo / escaneado</td><td>Modelo con visión por API. No modelos locales en el VPS.</td></tr>
-<tr><td>Formatos</td><td>Todos en la primera tanda: Excel/CSV, PDF con visión, PowerPoint, Markdown, URL.</td></tr>
-<tr><td>Lista inicial de la mutual</td><td>No se precarga con las 123 preguntas históricas (venían de un motor en construcción). Se define aparte cómo arranca.</td></tr>
-<tr><td>Indexación por preguntas</td><td>Diferida: se decide con la clasificación del punto 11.</td></tr>
-</table>
-
-<h2>6. Lo que NO hacemos, y por qué</h2>
+<h2>2. Alcance</h2>
+<table class="cols">
+<tr><th>Incluye</th><th>No incluye</th></tr>
+<tr><td>
 <ul>
-<li><strong>Agentes en el bot de consultas.</strong> La evidencia de 2026 es consistente: multiplican el costo 3–10× y llevan la latencia de 1–2 s a 4–15 s; solo se justifican en preguntas de varios saltos o dominios de alto riesgo. Para “¿cuál es el horario de pediatría?” es pagar de más para responder peor. Descartado.</li>
-<li><strong>Parches de prompt por caso.</strong> Seis arreglos al reescritor en agosto, cada uno por un caso. Probamos uno más para “planes” y lo descartamos: resolvía ese caso y dejaba el próximo. Solo cambios de arquitectura medidos contra toda la suite.</li>
-<li><strong>Cambiar el modelo de embeddings.</strong> Probado en staging con el corpus re-vectorizado: los casos objetivo dieron idéntico. Descartado con medición.</li>
-<li><strong>Cargar contenido en la base del cliente.</strong> Prohibido. Proponemos; ellos aprueban.</li>
-<li><strong>Construir la indexación por preguntas antes de medir cuánto arregla.</strong> Los cuatro casos investigados eran de contenido. Primero el número.</li>
+<li>Nueva sección <strong>Base de conocimiento</strong> en el panel del administrador del cliente, con cuatro pestañas: Documentos, Salud, Preguntas sin respuesta, Evaluar.</li>
+<li>Carga de archivos en formatos Excel, CSV, PDF (con texto, con tablas o escaneado), Word, PowerPoint, Markdown, texto plano y sitio web por URL, con vista previa antes de procesar.</li>
+<li>Registro y visualización de las preguntas que el asistente no pudo responder y de las conversaciones derivadas a operador.</li>
+<li>Creación de respuestas desde el panel con borrador propuesto por la plataforma y aprobación manual del administrador.</li>
+<li>Evaluación de la base con preguntas de prueba y puntaje.</li>
+<li>Descarga, exportación completa, papelera y resguardo de todo el contenido del cliente, incluido lo creado o corregido en el panel.</li>
+<li>Aviso semanal por correo de preguntas sin respuesta nuevas, configurable por cliente.</li>
+</ul>
+</td><td>
+<ul>
+<li>Cambios en el motor de respuesta (búsqueda, prompts, modelo).</li>
+<li>Indexación por preguntas generadas (se evalúa por separado con medición previa).</li>
+<li>Carga o edición de contenido por parte del equipo de Intellix en la base de un cliente.</li>
+<li>Vista de preguntas sin respuesta para el rol operador.</li>
+<li>Aprobación automática de borradores.</li>
+<li>Reducción de mensajes de sistema por WhatsApp (mejora aparte).</li>
+</ul>
+</td></tr>
+</table>
+
+<h2>3. Usuarios y roles</h2>
+<table class="cols">
+<tr><th>Rol</th><th>Qué puede hacer en esta sección</th></tr>
+<tr><td><strong>Administrador del cliente</strong></td><td>Todo: cargar, revisar, ver preguntas sin respuesta, crear y aprobar respuestas, evaluar, exportar, borrar y restaurar, configurar el aviso por correo.</td></tr>
+<tr><td><strong>Operador</strong></td><td>Sin acceso a esta sección. Sigue viendo su bandeja de conversaciones como hoy.</td></tr>
+<tr><td><strong>Super administrador (Intellix)</strong></td><td>Ve el estado de la base de cada cliente (cantidades y semáforo) para soporte. No carga, no edita, no aprueba contenido de clientes.</td></tr>
+</table>
+
+<h2>4. Reglas transversales</h2>
+<div class="rule"><span class="id">RT-1</span> <strong>El contenido es del cliente.</strong> Solo el administrador del cliente crea, edita, aprueba y borra contenido. La plataforma propone; nunca publica por su cuenta.</div>
+<div class="rule"><span class="id">RT-2</span> <strong>Aprobación manual siempre.</strong> Ningún borrador entra en la base sin que el administrador lo guarde explícitamente. No existe modo automático.</div>
+<div class="rule"><span class="id">RT-3</span> <strong>Nada se pierde.</strong> Toda descarga entrega la versión vigente con las correcciones manuales incluidas. Lo creado en el panel se resguarda igual que un archivo subido. Borrar es reversible durante 30 días.</div>
+<div class="rule"><span class="id">RT-4</span> <strong>Genérico y aislado por cliente.</strong> Ninguna regla, texto ni ejemplo específico de un rubro. Ningún dato de un cliente es visible ni utilizable por otro.</div>
+<div class="rule"><span class="id">RT-5</span> <strong>Todo procesamiento pesado es asincrónico.</strong> La carga, la lectura de PDF por visión, la generación de borradores y la evaluación corren en segundo plano y muestran su estado; nunca bloquean el panel ni afectan la velocidad del asistente.</div>
+<div class="rule"><span class="id">RT-6</span> <strong>Sin modelos locales en el servidor.</strong> La lectura de documentos complejos y la generación de borradores usan el modelo de IA por API que ya utiliza la plataforma.</div>
+
+<h2 class="pb">5. Descripción funcional</h2>
+
+<h3><span class="id">F-1</span> Pestaña Documentos — carga con vista previa</h3>
+<h4>Descripción</h4>
+<p>Evoluciona la pantalla de Documentos actual. El administrador arrastra o selecciona uno o varios archivos, o pega la URL de un sitio. Antes de procesar, la plataforma muestra cómo interpretó cada archivo y qué advertencias detectó. El administrador confirma o cancela.</p>
+<h4>Formatos admitidos y tratamiento</h4>
+<table class="cols">
+<tr><th>Formato</th><th>Cómo se interpreta</th><th>Observaciones</th></tr>
+<tr><td>Excel (.xlsx), CSV</td><td>Cada fila es un registro; cada registro conserva los encabezados de sus columnas. Cada hoja se trata como una sección con su nombre.</td><td>Ideal para nóminas, cartillas, listados, aranceles.</td></tr>
+<tr><td>PDF con texto</td><td>Extracción de texto respetando secciones. Las tablas se convierten en registros con encabezados.</td><td>Reemplaza la extracción plana actual, que desarma las tablas.</td></tr>
+<tr><td>PDF escaneado (imagen)</td><td>Cada página se lee con el modelo de IA con visión y se convierte a texto estructurado.</td><td>Hoy entra vacío.</td></tr>
+<tr><td>Word (.docx)</td><td>Texto y tablas, respetando títulos y secciones.</td><td>Ya soportado; se mejora el tratamiento de tablas.</td></tr>
+<tr><td>PowerPoint (.pptx)</td><td>Un fragmento por diapositiva, con su título; las notas del orador se incluyen.</td><td>Nuevo.</td></tr>
+<tr><td>Markdown, texto plano, HTML, JSON</td><td>Como hoy.</td><td>—</td></tr>
+<tr><td>Sitio web (URL)</td><td>Se recorren las páginas del mismo dominio hasta un límite configurable; cada sección de página es un fragmento. Se guarda la URL de origen de cada fragmento.</td><td>Nuevo. Se muestra el avance del recorrido.</td></tr>
+</table>
+<h4>Vista previa (antes de procesar)</h4>
+<ul>
+<li>Tipo detectado en lenguaje claro: “planilla de 120 filas”, “documento de preguntas y respuestas”, “reglamento con 14 artículos”, “presentación de 22 diapositivas”, “sitio con 30 páginas”.</li>
+<li>Cantidad estimada de fragmentos.</li>
+<li>Advertencias concretas, cada una con la parte del archivo a la que refiere:
+  <ul>
+  <li>“La tabla de la página N puede perder sus encabezados.”</li>
+  <li>“La sección X no tiene preguntas; el asistente la va a entender con menos precisión.”</li>
+  <li>“Las páginas N a M son imágenes y se leerán por visión.”</li>
+  <li>“Este archivo ya existe en la base (duplicado exacto).”</li>
+  <li>“Esta hoja de la planilla no tiene fila de encabezados.”</li>
+  </ul></li>
+<li>Acciones: <em>Procesar</em>, <em>Cancelar</em>. Con varios archivos, se puede procesar todos o quitar alguno.</li>
+</ul>
+<h4>Estados del documento</h4>
+<p>En vista previa → en cola → procesando → listo / listo con observaciones / error. Los estados “con observaciones” y “error” muestran el motivo y una acción sugerida.</p>
+<h4>Reglas</h4>
+<ul>
+<li>Tamaño máximo por archivo: el actual (200 MB). Límite de páginas por PDF escaneado y de páginas por sitio: configurables por plataforma.</li>
+<li>La vista previa no consume cuota del modelo de IA salvo para PDF escaneado, donde se muestra la primera página leída como muestra.</li>
+<li>El origen de cada documento queda registrado: <em>Archivo</em>, <em>Sitio web</em> o <em>Panel</em> (ver F-4).</li>
 </ul>
 
-<h2>7. Riesgos y cómo se contienen</h2>
-<table>
-<tr><th>Riesgo</th><th>Contención</th></tr>
-<tr><td>El borrador de la IA propone algo que el cliente aprueba sin leer</td><td>Aprobación manual con las fuentes citadas al lado; el re-test automático muestra si la respuesta quedó bien; origen “Panel” visible para auditar después.</td></tr>
-<tr><td>La lectura por visión de un PDF interpreta mal una tabla</td><td>La vista previa muestra el resultado antes de procesar; el control de calidad por IA que ya existe marca fragmentos dudosos; el cliente puede editar cualquier fragmento.</td></tr>
-<tr><td>Costo de API en la ingesta</td><td>Centavos por documento; se hace una vez. Un PDF de 30 páginas por visión ≈ 30 llamadas. Se registra el consumo por tenant (ya existe <code>usage_events</code>).</td></tr>
-<tr><td>Más complejidad en el motor</td><td>Los bloques 1–3 no tocan el motor de respuesta. El bloque 4 va detrás de flag y solo con medición.</td></tr>
-<tr><td>Pérdida de trabajo del cliente</td><td>Bloque 1, pieza 4: versión vigente en la descarga, backup, papelera, exportación.</td></tr>
+<h3><span class="id">F-2</span> Pestaña Salud — estado de la base</h3>
+<h4>Descripción</h4>
+<p>Vista única del estado de la base del cliente, en filas, sin tarjetas ni gráficos: cada indicador con su valor, su semáforo y un enlace a la lista correspondiente.</p>
+<table class="cols">
+<tr><th>Indicador</th><th>Semáforo</th><th>Enlace</th></tr>
+<tr><td>Documentos cargados / con observaciones / con error</td><td>Rojo si hay errores</td><td>Documentos, filtrado</td></tr>
+<tr><td>Fragmentos pendientes de revisión</td><td>Amarillo si hay pendientes</td><td>Cola de revisión (existente)</td></tr>
+<tr><td>Duplicados detectados sin resolver</td><td>Amarillo</td><td>Duplicados (existente)</td></tr>
+<tr><td>Contradicciones detectadas</td><td>Amarillo</td><td>Contradicciones (existente)</td></tr>
+<tr><td>Preguntas sin respuesta pendientes (últimos 30 días)</td><td>Rojo si supera un umbral configurable</td><td>Pestaña F-3</td></tr>
+<tr><td>Última evaluación: fecha y puntaje</td><td>Verde / amarillo / rojo según puntaje</td><td>Pestaña F-5</td></tr>
+<tr><td>Última exportación completa</td><td>Informativo</td><td>Exportar (F-6)</td></tr>
+</table>
+<p class="small">Todos los valores salen de datos que la plataforma ya calcula. No se agregan métricas nuevas en esta versión.</p>
+
+<h3><span class="id">F-3</span> Pestaña Preguntas sin respuesta</h3>
+<h4>Descripción</h4>
+<p>Lista de las preguntas reales de usuarios que el asistente no pudo responder, y de las conversaciones que terminaron derivadas a un operador. Es el punto de partida para completar la base.</p>
+<h4>Origen de los ítems</h4>
+<ul>
+<li>Consultas en las que el control de calidad determinó que no había información suficiente (señal ya registrada por consulta).</li>
+<li>Respuestas del asistente que declaran no tener la información.</li>
+<li>Conversaciones derivadas a operador, con el último mensaje del usuario antes de la derivación.</li>
+</ul>
+<h4>Agrupación</h4>
+<p>Los ítems se agrupan por tema con similitud semántica: variantes de la misma pregunta forman un solo grupo. Cada grupo muestra: título representativo, cantidad de veces, fecha de la última, canal (web / WhatsApp) y estado.</p>
+<h4>Estados</h4>
+<table class="cols">
+<tr><th>Estado</th><th>Significado</th><th>Cómo se llega</th></tr>
+<tr><td>Pendiente</td><td>Nadie lo trató.</td><td>Automático al detectarse.</td></tr>
+<tr><td>En curso</td><td>Se creó una respuesta pero la re-prueba no la validó, o el administrador lo marcó para trabajar.</td><td>Manual o automático tras F-4.</td></tr>
+<tr><td>Resuelto</td><td>La re-prueba automática confirmó que el asistente ahora responde.</td><td>Automático tras F-4.</td></tr>
+<tr><td>Descartado</td><td>El administrador decidió que no corresponde responderlo (fuera de alcance, consulta personal, etc.).</td><td>Manual, con motivo opcional.</td></tr>
+</table>
+<h4>Acciones por ítem</h4>
+<ul>
+<li><strong>Ver conversación</strong>: abre la conversación completa en el visor existente, posicionada en el momento de la falla.</li>
+<li><strong>Documento relacionado</strong>: muestra el documento y la sección donde la plataforma estima que debería estar la respuesta, con el fragmento más cercano.</li>
+<li><strong>Crear respuesta</strong>: abre el flujo F-4.</li>
+<li><strong>Descartar</strong> / <strong>Reabrir</strong>.</li>
+</ul>
+<h4>Filtros y orden</h4>
+<p>Por estado, canal y período. Orden por frecuencia (predeterminado) o por fecha. El orden no cambia al seleccionar un ítem.</p>
+<h4>Reglas</h4>
+<ul>
+<li>Un grupo nuevo que coincide semánticamente con uno resuelto lo reabre como “en curso” y lo señala.</li>
+<li>Las preguntas con datos personales del usuario se muestran tal cual al administrador (es su cliente); no se usan para nada fuera de esta pantalla.</li>
+<li>La lista arranca vacía al activar la funcionalidad; no se precargan registros históricos. La carga de históricos se decide por cliente.</li>
+</ul>
+
+<h3><span class="id">F-4</span> Crear respuesta con borrador asistido</h3>
+<h4>Descripción</h4>
+<p>Desde un ítem de F-3, el administrador abre un editor con un borrador de respuesta propuesto por la plataforma, lo revisa y lo guarda como contenido propio.</p>
+<h4>Flujo</h4>
+<ol>
+<li>El administrador pulsa <em>Crear respuesta</em>. Se abre un panel lateral con: la pregunta (editable), el borrador y las fuentes.</li>
+<li>La plataforma genera el borrador <strong>exclusivamente a partir de los documentos del propio cliente</strong>. Cada afirmación del borrador lleva la referencia al documento y fragmento del que salió. Si no hay material suficiente, el borrador queda vacío y se indica: “No encontré información en tus documentos para responder esto; escribila vos.”</li>
+<li>El administrador edita libremente la pregunta y la respuesta. Puede agregar preguntas alternativas (formas distintas de preguntar lo mismo).</li>
+<li>Pulsa <em>Guardar</em>. La respuesta se crea como un documento de origen <em>Panel</em>, dentro de un documento contenedor “Respuestas del panel” que agrupa todas las creadas así, y entra por la ingesta normal (fragmentación, control de calidad, duplicados).</li>
+<li>Al terminar la ingesta, la plataforma <strong>vuelve a formular la pregunta original</strong> al asistente. Si la respuesta obtenida coincide con lo guardado, el ítem pasa a <em>Resuelto</em> y muestra la respuesta obtenida; si no, pasa a <em>En curso</em> con la respuesta obtenida para que el administrador ajuste.</li>
+</ol>
+<h4>Reglas</h4>
+<ul>
+<li>El borrador es una sugerencia: no se guarda hasta que el administrador pulse <em>Guardar</em> (RT-2).</li>
+<li>El borrador no puede contener datos que no estén en los documentos del cliente. Cada frase sin fuente se marca visualmente como “sin respaldo en tus documentos”.</li>
+<li>Lo guardado queda con autor, fecha y el ítem de origen, y es editable después desde Documentos como cualquier fragmento.</li>
+<li>La re-prueba se hace sin caché, para medir el motor y no una respuesta guardada.</li>
+</ul>
+
+<h3><span class="id">F-5</span> Pestaña Evaluar — evaluación de la base</h3>
+<h4>Descripción</h4>
+<p>El administrador pulsa <em>Evaluar mi base</em>. La plataforma formula un conjunto de preguntas de prueba y devuelve un puntaje y el detalle.</p>
+<h4>Funcionamiento</h4>
+<ul>
+<li>Las preguntas de prueba se generan a partir de la descripción del negocio del cliente (la misma que configura al asistente) y de los títulos de sus documentos: 20 preguntas típicas, sin repetir las de evaluaciones anteriores. Nunca vienen de una lista fija de un rubro (RT-4).</li>
+<li>Para cada pregunta se registra: respondida / sin información / fuera de alcance, y la respuesta obtenida.</li>
+<li>Puntaje: porcentaje de preguntas respondidas. Se guarda el historial de evaluaciones con fecha.</li>
+<li>Las preguntas “sin información” se crean como ítems en F-3 con origen <em>Evaluación</em>.</li>
+</ul>
+<h4>Reglas</h4>
+<ul>
+<li>Corre en segundo plano con indicador de avance; duración objetivo menor a dos minutos.</li>
+<li>Se ejecuta sin caché.</li>
+<li>Se ofrece automáticamente al terminar la primera carga de documentos de un cliente nuevo (“Tu base está lista. ¿Querés evaluarla?”).</li>
+</ul>
+
+<h3><span class="id">F-6</span> Propiedad del contenido: descarga, exportación, papelera</h3>
+<table class="cols">
+<tr><th>Función</th><th>Comportamiento</th></tr>
+<tr><td>Descargar documento</td><td>Entrega siempre la versión vigente, con las correcciones manuales aplicadas. La opción de descargar el archivo original se mantiene como secundaria y se llama explícitamente “archivo original subido”.</td></tr>
+<tr><td>Exportar toda mi base</td><td>Genera un archivo comprimido con todos los documentos vigentes (incluidos los de origen Panel) en texto plano y en su formato de origen cuando exista, más un índice. Se descarga desde el panel y se registra la fecha en Salud.</td></tr>
+<tr><td>Borrar documento o respuesta</td><td>Pide confirmación con el nombre del elemento. Pasa a la papelera; deja de usarse para responder de inmediato.</td></tr>
+<tr><td>Papelera</td><td>Lista de elementos borrados con fecha y quién lo borró. Restaurar reintegra el elemento tal como estaba. Eliminación definitiva automática a los 30 días.</td></tr>
+<tr><td>Resguardo</td><td>Todo el contenido del cliente, incluido lo creado en el panel, forma parte del resguardo diario de la plataforma.</td></tr>
 </table>
 
-<h2>8. Calendario propuesto</h2>
-<table>
-<tr><th>Cuándo</th><th>Qué</th><th>Producción</th></tr>
-<tr><td>Semana del 22/09</td><td>Pruebas del cliente. Sin cambios. Clasificación de las 123 preguntas (solo lectura). Cerrar el aislamiento de red entre staging y producción.</td><td>No se toca</td></tr>
-<tr><td>Semanas del 29/09 y 6/10</td><td>Bloque 1 completo (pestañas Preguntas sin respuesta, Crear respuesta, Evaluar, Propiedad del contenido) en <code>dev-local</code>; medición en staging.</td><td>No se toca</td></tr>
-<tr><td>Semanas del 13/10 y 20/10</td><td>Bloque 2 (formatos) y Bloque 3 (vista previa, guía).</td><td>Pasaje del Bloque 1 con OK de ambos</td></tr>
-<tr><td>Semana del 27/10</td><td>Estabilización, suite completa, límites de consultas reactivados, token del widget renovado (vence 02/11), guardia definida.</td><td>Pasaje de Bloques 2–3 con OK de ambos</td></tr>
-<tr><td>1 de noviembre</td><td>Go-live con onboarding vendible.</td><td>—</td></tr>
-<tr><td>Noviembre</td><td>Bloque 4 según el número de la clasificación.</td><td>Solo con medición</td></tr>
+<h3><span class="id">F-7</span> Aviso por correo</h3>
+<ul>
+<li>Configuración por cliente, en la pestaña F-3: interruptor “Avisarme por correo las preguntas sin respuesta nuevas”, apagado de forma predeterminada, con destinatarios (por defecto, los administradores del cliente).</li>
+<li>Envío semanal, un día fijo, solo si hubo ítems nuevos. Contenido: cantidad, los cinco grupos más frecuentes y un enlace a la pestaña.</li>
+<li>Se usa el mismo servicio de correo que la plataforma ya utiliza.</li>
+</ul>
+
+<h2 class="pb">6. Flujos principales</h2>
+<h3>Alta de un cliente nuevo</h3>
+<ol>
+<li>El administrador entra por primera vez a Base de conocimiento y ve una guía breve de tres pasos: cargar, evaluar, completar.</li>
+<li>Carga sus archivos (F-1), revisa las vistas previas y procesa.</li>
+<li>Al terminar, la plataforma ofrece evaluar (F-5). El administrador ve el puntaje y las preguntas sin información, que ya están en F-3.</li>
+<li>Completa las que correspondan con F-4. Cada una resuelta actualiza el puntaje en Salud.</li>
+</ol>
+<h3>Operación diaria</h3>
+<ol>
+<li>Los usuarios consultan al asistente por web o WhatsApp.</li>
+<li>Las consultas sin respuesta y las derivaciones aparecen agrupadas en F-3.</li>
+<li>El administrador recibe el resumen semanal (si lo activó), entra, crea las respuestas que faltan y descarta lo que no corresponde.</li>
+<li>Periódicamente evalúa la base y exporta una copia.</li>
+</ol>
+
+<h2>7. Requisitos no funcionales</h2>
+<table class="cols">
+<tr><th>Aspecto</th><th>Requisito</th></tr>
+<tr><td>Velocidad del asistente</td><td>Ninguna funcionalidad de esta mejora agrega tiempo a la respuesta al usuario final. Todo corre en la carga o en segundo plano.</td></tr>
+<tr><td>Costo de IA</td><td>La lectura por visión y la generación de borradores se hacen una vez por documento o por ítem. El consumo se registra por cliente en el registro de uso existente.</td></tr>
+<tr><td>Aislamiento</td><td>Todas las consultas y escrituras van al esquema y colección del cliente; la prueba de aislamiento entre clientes de la suite es obligatoria.</td></tr>
+<tr><td>Resguardo</td><td>Lo creado en el panel se incluye en el resguardo diario y en la exportación.</td></tr>
+<tr><td>Interfaz</td><td>Reutiliza los componentes existentes del panel (lista con detalle, panel lateral de formulario, tablas). Orden estable en las listas. Ayudas en foco, no permanentes. Sin cajas anidadas.</td></tr>
+<tr><td>Idioma</td><td>Español en toda la interfaz. Los textos generados respetan el idioma del contenido del cliente.</td></tr>
+<tr><td>Activación</td><td>Toda la sección detrás de un flag de plataforma, activable por cliente.</td></tr>
 </table>
 
-<div class="box">
-<p><strong>Cómo sabremos que funcionó:</strong> el porcentaje de respuestas “no encontré” del cliente (hoy 15 %) baja mes a mes, y cada baja tiene un ítem “resuelto” en la pestaña de huecos que la explica. Un cliente nuevo carga su material sin hablar con nosotros, y el informe de <em>Evaluar mi base</em> le dice el día uno qué tiene y qué le falta.</p>
-</div>
+<h2>8. Criterios de aceptación</h2>
+<table class="cols">
+<tr><th>Ref.</th><th>Criterio</th></tr>
+<tr><td>F-1</td><td>Una planilla de 200 filas cargada como Excel responde “¿qué horario tiene X?” con la fila correcta en 5 de 5 pruebas. Un PDF escaneado de 10 páginas entra con texto legible. El caso de tabla con dato numérico (f_19 de la suite) pasa. Cada advertencia de la vista previa corresponde a una falla real conocida.</td></tr>
+<tr><td>F-2</td><td>Todos los indicadores coinciden con las listas a las que enlazan.</td></tr>
+<tr><td>F-3</td><td>Con tráfico real, un administrador identifica en menos de un minuto qué preguntas no se respondieron y cuántas veces. Dos variantes de la misma pregunta forman un solo grupo.</td></tr>
+<tr><td>F-4</td><td>El borrador no contiene afirmaciones sin fuente en los documentos del cliente. La re-prueba marca resuelto solo si el asistente responde la pregunta original. La respuesta guardada aparece en la descarga y en la exportación.</td></tr>
+<tr><td>F-5</td><td>La evaluación termina en menos de dos minutos, sin usar caché, y sus preguntas “sin información” aparecen en F-3.</td></tr>
+<tr><td>F-6</td><td>Un documento corregido a mano y borrado se restaura íntegro desde la papelera. La exportación incluye lo creado en el panel. La descarga predeterminada trae las correcciones.</td></tr>
+<tr><td>F-7</td><td>El correo se envía solo si hubo ítems nuevos y solo si el interruptor está activo.</td></tr>
+<tr><td>General</td><td>La suite de calidad completa (casos históricos) no empeora. La latencia del asistente se mantiene.</td></tr>
+</table>
 
-<p class="small">Fuentes de las afirmaciones externas: Intercom Fin (huecos de contenido como backlog desde conversaciones no resueltas); “Structure-Aware Chunking for Tabular Data in RAG” (2026) para la estrategia fila-como-registro; comparativas de agentic RAG vs. RAG tradicional (2026) para costo y latencia; benchmarks de parsers de PDF (Docling, Marker, LlamaParse) para la decisión de lectura por visión. Las mediciones internas están en <code>docs/LIMITES_CONOCIDOS.md</code> y en la suite <code>tests/quality/regresion_mutualyf.yaml</code>.</p>
+<h2>9. Decisiones registradas</h2>
+<table class="cols">
+<tr><th>Tema</th><th>Decisión</th></tr>
+<tr><td>Aprobación de borradores</td><td>Manual siempre. Sin modo automático.</td></tr>
+<tr><td>Acceso a Preguntas sin respuesta</td><td>Solo administrador del cliente.</td></tr>
+<tr><td>Aviso por correo</td><td>Semanal, con interruptor por cliente, apagado por defecto.</td></tr>
+<tr><td>Contenido creado en el panel</td><td>Origen “Panel” visible; exportable; en el resguardo; papelera de 30 días.</td></tr>
+<tr><td>Lectura de PDF complejo o escaneado</td><td>Modelo de IA con visión por API.</td></tr>
+<tr><td>Formatos</td><td>Todos en la primera versión: Excel/CSV, PDF, Word, PowerPoint, Markdown, texto, HTML, JSON, URL.</td></tr>
+<tr><td>Registros históricos del cliente actual</td><td>No se precargan. Se decide por cliente.</td></tr>
+<tr><td>Cambios en el motor</td><td>Fuera de esta mejora. Se evalúan aparte con medición.</td></tr>
+</table>
+
+<h2>10. Glosario</h2>
+<table class="cols">
+<tr><th>Término</th><th>Significado</th></tr>
+<tr><td>Fragmento</td><td>Porción autocontenida de un documento (una pregunta con su respuesta, un artículo, una fila) que el asistente puede encontrar y usar para responder.</td></tr>
+<tr><td>Ingesta</td><td>Proceso que convierte un archivo en fragmentos buscables.</td></tr>
+<tr><td>Control de calidad</td><td>Revisión automática de cada fragmento que lo marca como aprobado o pendiente de revisión.</td></tr>
+<tr><td>Re-prueba</td><td>Volver a formular al asistente la pregunta original para verificar que ahora responde.</td></tr>
+<tr><td>Origen</td><td>De dónde vino un contenido: Archivo, Sitio web, Panel o Evaluación.</td></tr>
+</table>
 
 </body>
 </html>
