@@ -33,7 +33,7 @@
 
 <h1>Conocimiento — Documento funcional</h1>
 <p class="sub">Mejora de la sección Conocimiento del panel de administración: carga de archivos en cualquier formato con vista previa, detección de preguntas sin respuesta, completado asistido del contenido por el cliente y evaluación de la base.</p>
-<div class="meta"><span>Intellix</span><span>Versión 1.1 · 22/09/2026</span><span>Autor: Alejo Maros</span><span>Estado: para revisión del equipo</span></div>
+<div class="meta"><span>Intellix</span><span>Versión 1.2 · 22/09/2026</span><span>Autor: Alejo Maros</span><span>Estado: para revisión del equipo</span></div>
 
 <h2>1. Objetivo</h2>
 <p>Que un cliente pueda dar de alta y mantener su base de conocimiento por sí mismo, desde su panel, sin intervención del equipo de Intellix: subir sus archivos tal como los tiene, ver qué preguntas de sus usuarios el asistente no pudo responder, y completar ese contenido con ayuda de la plataforma.</p>
@@ -79,99 +79,8 @@
 <div class="rule"><span class="id">RT-5</span> <strong>Todo procesamiento pesado es asincrónico.</strong> La carga, la lectura de PDF por visión, la generación de borradores y la evaluación corren en segundo plano y muestran su estado; nunca bloquean el panel ni afectan la velocidad del asistente.</div>
 <div class="rule"><span class="id">RT-6</span> <strong>Sin modelos locales en el servidor.</strong> La lectura de documentos complejos y la generación de borradores usan el modelo de IA por API que ya utiliza la plataforma.</div>
 
-<h2 class="pb">5. Navegación: cómo queda el menú del administrador</h2>
-<p>Solo cambia la sección <strong>Conocimiento</strong>. El resto del menú queda igual.</p>
-<pre style="background:#f9fafb;border:1px solid #e5e7eb;padding:10px 12px;font-size:9.2pt;line-height:1.45;border-radius:4px;break-inside:avoid;white-space:pre-wrap">
-Conversaciones
-  Conversaciones                 (existe, sin cambios)
-
-Conocimiento
-  Documentos                     (existe → MEJORADO: vista previa, formatos, indicadores, exportar, papelera)
-  Preguntas sin respuesta        (NUEVA)
-  Evaluar                        (NUEVA)
-  Duplicados                     (existe, sin cambios)
-
-Equipo · Informes · Sistema      (existen, sin cambios; en Configuración se suma el interruptor del aviso por correo)
-</pre>
-
-<h3>Bocetos de pantalla (en texto)</h3>
-<h4>Documentos (mejorado)</h4>
-<pre style="background:#f9fafb;border:1px solid #e5e7eb;padding:10px 12px;font-size:9.2pt;line-height:1.45;border-radius:4px;break-inside:avoid;white-space:pre-wrap">
-Conocimiento › Documentos
-──────────────────────────────────────────────────────────────────────────
- ● 18 documentos  ● 3 fragmentos a revisar  ● 2 duplicados  ● 0 contradicciones
- ● 7 preguntas sin respuesta  ● Última evaluación: 82 % (12/09)  ● Exportado: 01/09
-   (indicadores de salud, F-2; cada uno enlaza a su lista)
-
- [ Subir archivos ]  [ Cargar desde sitio web ]            [ Exportar toda mi base ]
- Filtro: Todos · Listos · Con observaciones · Con error · Papelera     Buscar: ______
-──────────────────────────────────────────────────────────────────────────
- Nombre                          Origen      Estado             Fragm.  Actualizado
- Afiliaciones - preguntas y…     Archivo     Listo              46      11/08
- Nómina de prestadores.xlsx      Archivo     Listo · 2 obs.     210     19/09
- Respuestas del panel            Panel       Listo              9       21/09
- Sitio institucional             Sitio web   Procesando 12/30   —       hoy
-──────────────────────────────────────────────────────────────────────────
- Detalle (panel derecho): descargar (versión vigente) · archivo original ·
- fragmentos (editar, aprobar/rechazar) · reprocesar · borrar (a papelera)
-
- Vista previa al subir (panel lateral, antes de procesar):
-   "Nómina de prestadores.xlsx" → Planilla de 210 filas en 2 hojas · ~210 fragmentos
-   ⚠ La hoja "Anexo" no tiene fila de encabezados.
-   [ Procesar ]  [ Cancelar ]
-</pre>
-
-<h4>Preguntas sin respuesta (nueva)</h4>
-<pre style="background:#f9fafb;border:1px solid #e5e7eb;padding:10px 12px;font-size:9.2pt;line-height:1.45;border-radius:4px;break-inside:avoid;white-space:pre-wrap">
-Conocimiento › Preguntas sin respuesta
-──────────────────────────────────────────────────────────────────────────
- Estado: Pendientes (7) · En curso (1) · Resueltas (12) · Descartadas (4)
- Canal: Todos · Web · WhatsApp     Período: 30 días ▾     Orden: Frecuencia ▾
-──────────────────────────────────────────┬───────────────────────────────
- Planes / modalidades de afiliación  4× 21/09 │ Planes / modalidades de afiliación
- Descuento de haberes                3× 18/09 │ Pendiente · WhatsApp · 4 veces
- Alta de afiliado por prestador      2× 15/09 │
- Consultar cartilla médica           2× 10/09 │ Preguntas reales:
- Sábados                             1× 09/09 │  · "qué planes existen en la mutual?"
- …                                            │  · "cuáles son las modalidades…"
-                                              │ Documento relacionado:
-                                              │  Afiliaciones – 1.7 (con aportes sin…)
-                                              │ [ Ver conversación ]  [ Descartar ]
-                                              │ [ Crear respuesta ]
-──────────────────────────────────────────┴───────────────────────────────
- Crear respuesta (panel lateral, F-4):
-   Pregunta:  ¿Qué modalidades de afiliación existen?             (editable)
-   Respuesta (borrador a partir de tus documentos):               (editable)
-     Las modalidades documentadas son: con convenio [1.1] y con aportes sin convenio [1.7] …
-   Preguntas alternativas: + agregar
-   Fuentes: Afiliaciones 1.1 · Afiliaciones 1.7
-   [ Guardar ]  [ Cancelar ]   → al guardar: ingesta → re-prueba → Resuelto ✓ / En curso
-</pre>
-
-<h4>Evaluar (nueva)</h4>
-<pre style="background:#f9fafb;border:1px solid #e5e7eb;padding:10px 12px;font-size:9.2pt;line-height:1.45;border-radius:4px;break-inside:avoid;white-space:pre-wrap">
-Conocimiento › Evaluar
-──────────────────────────────────────────────────────────────────────────
- Última evaluación: 82 % (16 de 20 respondidas) · 12/09/2026     [ Evaluar mi base ]
-──────────────────────────────────────────────────────────────────────────
- Historial
- 12/09   82 %   16 respondidas · 3 sin información · 1 fuera de alcance   Ver detalle
- 01/09   70 %   14 · 5 · 1                                                 Ver detalle
-──────────────────────────────────────────────────────────────────────────
- Detalle 12/09
- ✓ ¿Cómo saco un turno?                       respondida
- ✗ ¿Qué modalidades de afiliación existen?    sin información → en Preguntas sin respuesta
- …
-</pre>
-
-<h4>Configuración (existe) — aviso por correo</h4>
-<pre style="background:#f9fafb;border:1px solid #e5e7eb;padding:10px 12px;font-size:9.2pt;line-height:1.45;border-radius:4px;break-inside:avoid;white-space:pre-wrap">
-Sistema › Configuración › Conocimiento
- [●] Avisarme por correo las preguntas sin respuesta nuevas (resumen semanal)
-     Destinatarios: admin@cliente.com, +
-</pre>
-
-<h2>6. Descripción funcional</h2>
+<h2 class="pb">5. Descripción funcional</h2>
+<p class="small">Ubicación en el panel: sección <strong>Conocimiento</strong>. Documentos (existente, mejorado), Preguntas sin respuesta (nueva), Evaluar (nueva), Duplicados (sin cambios). El interruptor del aviso por correo va en Sistema › Configuración.</p>
 
 <h3><span class="id">F-1</span> Documentos — carga con vista previa</h3>
 <h4>Descripción</h4>
@@ -313,7 +222,7 @@ Sistema › Configuración › Conocimiento
 <li>Se usa el mismo servicio de correo que la plataforma ya utiliza.</li>
 </ul>
 
-<h2 class="pb">7. Flujos principales</h2>
+<h2 class="pb">6. Flujos principales</h2>
 <h3>Alta de un cliente nuevo</h3>
 <ol>
 <li>El administrador entra por primera vez a Conocimiento y ve una guía breve de tres pasos: cargar, evaluar, completar.</li>
@@ -329,7 +238,7 @@ Sistema › Configuración › Conocimiento
 <li>Periódicamente evalúa la base y exporta una copia.</li>
 </ol>
 
-<h2>8. Requisitos no funcionales</h2>
+<h2>7. Requisitos no funcionales</h2>
 <table class="cols">
 <tr><th>Aspecto</th><th>Requisito</th></tr>
 <tr><td>Velocidad del asistente</td><td>Ninguna funcionalidad de esta mejora agrega tiempo a la respuesta al usuario final. Todo corre en la carga o en segundo plano.</td></tr>
@@ -341,7 +250,7 @@ Sistema › Configuración › Conocimiento
 <tr><td>Activación</td><td>Toda la sección detrás de un flag de plataforma, activable por cliente.</td></tr>
 </table>
 
-<h2>9. Criterios de aceptación</h2>
+<h2>8. Criterios de aceptación</h2>
 <table class="cols">
 <tr><th>Ref.</th><th>Criterio</th></tr>
 <tr><td>F-1</td><td>Una planilla de 200 filas cargada como Excel responde “¿qué horario tiene X?” con la fila correcta en 5 de 5 pruebas. Un PDF escaneado de 10 páginas entra con texto legible. El caso de tabla con dato numérico (f_19 de la suite) pasa. Cada advertencia de la vista previa corresponde a una falla real conocida.</td></tr>
@@ -354,7 +263,7 @@ Sistema › Configuración › Conocimiento
 <tr><td>General</td><td>La suite de calidad completa (casos históricos) no empeora. La latencia del asistente se mantiene.</td></tr>
 </table>
 
-<h2>10. Decisiones registradas</h2>
+<h2>9. Decisiones registradas</h2>
 <table class="cols">
 <tr><th>Tema</th><th>Decisión</th></tr>
 <tr><td>Aprobación de borradores</td><td>Manual siempre. Sin modo automático.</td></tr>
@@ -367,7 +276,7 @@ Sistema › Configuración › Conocimiento
 <tr><td>Cambios en el motor</td><td>Fuera de esta mejora. Se evalúan aparte con medición.</td></tr>
 </table>
 
-<h2>11. Glosario</h2>
+<h2>10. Glosario</h2>
 <table class="cols">
 <tr><th>Término</th><th>Significado</th></tr>
 <tr><td>Fragmento</td><td>Porción autocontenida de un documento (una pregunta con su respuesta, un artículo, una fila) que el asistente puede encontrar y usar para responder.</td></tr>
