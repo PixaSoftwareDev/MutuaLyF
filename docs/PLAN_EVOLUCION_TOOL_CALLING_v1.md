@@ -1,7 +1,7 @@
 # Plan de Evolución — RAG + Tool Calling Multi-Rol
 
 **Versión 1.0 — 2026-07-11 · Rama base: `dev-local` (= prod `f562124`)**
-**Insumos:** `docs/referencia/Arquitectura_Chatbot_Mutual_LyF_v3.docx` (pedido del cliente, jun-2026) · `docs/referencia/Arquitectura_Conectores_Terceros_MultiTenant_v1.pdf` (nuestra contrapropuesta, jul-2026, decisiones D1-D6 cerradas) · Auditoría integral del sistema (jul-10: 4.400 consultas de prueba, 3 bugs eliminados, motor de intenciones activado en prod)
+**Insumos:** `docs/historico/Arquitectura_Chatbot_Mutual_LyF_v3.docx` (pedido del cliente, jun-2026) · `docs/historico/Arquitectura_Conectores_Terceros_MultiTenant_v1.pdf` (nuestra contrapropuesta, jul-2026, decisiones D1-D6 cerradas) · Auditoría integral del sistema (jul-10: 4.400 consultas de prueba, 3 bugs eliminados, motor de intenciones activado en prod)
 
 ---
 
@@ -96,7 +96,7 @@ La Mutual pide (doc v3) que el bot pase de RAG puro a **RAG + Tool Calling**: re
 | 0.3 SSRF | ✅ app / ⚠️ red prod | **Control SSRF real** = `core/egress_guard.py` (allowlist + anti-rebinding, 14 tests) — cumple el criterio de aceptación. **Segmentación de red** hecha y verificada en `docker-compose.local.yml` (red `data` `internal:true`; DBs sin egress, backend/worker en ambas). **Pendiente en compose base/prod**: requiere revisión por servicio (nginx edge; pgbackrest necesita egress a S3; celery_beat egress OpenAI; observability scraping) — no se aplicó a ciegas por riesgo de romper backups/scraping en el próximo deploy. |
 | 0.4 Reconciliador Celery | ✅ | `services/intent_reconcile.py` + beat `nightly-data-consistency` 4:00 |
 | 0.5 Label fresco en cache | ✅ | `_relog_semantic_hit` (re-clasifica hits semánticos en background) |
-| 0.6 Migración 031 diseñada | ✅ | `docs/MIGRACION_031_CONECTORES_DISENO.md` |
+| 0.6 Migración 031 diseñada | ✅ | `docs/historico/MIGRACION_031_CONECTORES_DISENO.md` |
 
 **Follow-up 0.3 (compose prod):** replicar la red `data internal:true` a `docker-compose.yml` mapeando cada servicio: DBs solo en `data`; backend/celery_worker/celery_beat en `data`+edge; nginx en edge; **pgbackrest en `data`+edge** (sube backups a S3); observability según qué scrapea. Validar con `docker compose config` + smoke test de backup antes de mergear.
 

@@ -142,7 +142,8 @@ backend/ground_truth.json
 
 # Datos del incidente 2026-08-10 y material sensible: NUNCA al repo
 # (dumps de la base con datos de afiliados, corpus del cliente, material comercial)
-docs/recuperacion_2026-08-10/
+docs/historico/recuperacion_2026-08-10/*
+!docs/historico/recuperacion_2026-08-10/LEEME.md
 docs/ediciones_perdidas_mutualyf.*
 docs/comercial/
 *.dump
