@@ -64,5 +64,5 @@ progress.json     Bitácora de avance y decisiones de diseño
 | `docs/design/` | Referencias visuales del rediseño del panel |
 | `docs/historico/` | Registro cerrado: pedido original del cliente, diseños ya construidos, auditorías e incidentes resueltos. No se edita. |
 
-Regla: en `docs/` se versionan solo fuentes (`.md`). Las exportaciones a PDF o
-HTML y el material comercial no van al repositorio.
+Regla: en `docs/` se versiona la fuente de cada documento. Las exportaciones
+sueltas y el material comercial no van al repositorio.
