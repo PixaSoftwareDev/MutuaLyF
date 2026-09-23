@@ -1,9 +1,10 @@
 # CLAUDE.md — Intellix · Plataforma de Conocimiento con IA
 
-> Fuente de verdad del proyecto, actualizada al **2026-08-17**. Si algo acá
+> Fuente de verdad del proyecto, actualizada al **2026-09-22**. Si algo acá
 > contradice al código, gana el código — y avisá para corregir este archivo.
-> La visión original del proyecto (2026) quedó como documento histórico en
-> `docs/PROMPT.md`; varias decisiones de ahí cambiaron en producción.
+> La visión original del proyecto (2026) se retiró del repo el 2026-09-22
+> (estaba en `docs/PROMPT.md`, recuperable desde git); varias decisiones de
+> ahí cambiaron en producción.
 
 ---
 
@@ -73,8 +74,20 @@ derivación, branding).
 |---|---|---|---|---|
 | **dev-local** | `localhost:3010` (front) / `:8010` (back) | `dev-local` | bind-mount, restart aplica | imagen o `next dev` |
 | **Staging** | `dev.intellix.com.ar` | `dev` | `/opt/mutualyf-staging`, bind-mount | horneado (rebuild) |
-| **Prod** | `intellix.com.ar` | `main` | `/opt/mutualyf`, bind-mount | horneado (rebuild) |
+| **Prod** | `app.intellix.com.ar` | `main` | `/opt/mutualyf`, bind-mount | horneado (rebuild) |
 
+- **Dominio de la app en prod: `app.intellix.com.ar`**. `intellix.com.ar`
+  quedó como landing y redirige (301 en nginx) `/login`, `/reset-password`,
+  `/forgot-password`, `/admin`, `/operator`, etc. al dominio nuevo — NO
+  quitar esos 301: los mails viejos de reset/invitación dependen de ellos.
+  `APP_BASE_URL` (arma los links de reset e invitación) apunta a
+  `https://app.intellix.com.ar` desde el 2026-09-16. `PUBLIC_BASE_URL`
+  sigue en `intellix.com.ar` a propósito: solo muestra en el panel la URL
+  del webhook de WhatsApp registrada en Meta (la API responde en ambos
+  dominios). `app.intellix.com` (sin `.ar`) NO existe.
+- Recrear el backend de prod: usar los MISMOS compose files con que se
+  levantó (label `com.docker.compose.project.config_files`; hoy incluye
+  dos de `_drift_20260830/`) + `--no-deps --no-build --force-recreate`.
 - SSH VPS: `ssh -i ~/.ssh/mutualyf_vps -p 2251 root@200.58.109.110`
 - **Staging tiene stack COMPLETO propio desde el 2026-08-20** (reorganización
   del VPS): `ia_postgres_staging`, `ia_qdrant_staging`, `ia_redis_staging`,
@@ -144,7 +157,7 @@ multi-turno, typos, derivación, preguntas trampa) y lo que empeora se
 revierte. ⚠️ La suite cuesta API real: verificar flags/entorno ANTES de
 medir, iterar con `--only-category`, y la corrida completa UNA sola vez
 como validación final. Frentes abiertos (detalle en
-`docs/AUDITORIA_2026-08-17.md`): multi-hop (s_10/s_12), dato numérico en
+`docs/historico/AUDITORIA_2026-08-17.md`): multi-hop (s_10/s_12), dato numérico en
 tabla (f_19 — la fila pierde su encabezado al chunkear), juez del trust
 gate que rechace menos lo parcialmente respondible (conv_02_t3/conv_08_t2),
 persistir la señal del gate en consultas_log (hoy solo en logs que rotan),
@@ -195,10 +208,18 @@ scripts/run_quality_suite.py  # LA suite — correr antes de tocar el motor
 | `PLAN_CALIDAD_MOTOR.md` | Plan vivo de mejoras del RAG (F0–F4) |
 | `KNOWLEDGE_BASE_GUIDE.md` | Formato de documentos para la base de conocimiento |
 | `OPERACION_OPENAI_KEYS_Y_SALDO.md` | Gestión de API keys y saldo del LLM |
-| `ESTRATEGIA_INTEGRACION.md`, `FSM_LOGIN_DISENO.md`, `MIGRACION_031_CONECTORES_DISENO.md`, `PANTALLA_CONECTORES_PLAN.md`, `PLAN_EVOLUCION_TOOL_CALLING_v1.md` | Diseño del framework de conectores (feature en validación) |
-| `STATUS_PAGE.md` | Guía opcional de status page (UptimeRobot) |
-| `PROMPT.md` | **Histórico** — visión original; no refleja el estado actual |
+| `PLAN_EVOLUCION_TOOL_CALLING_v1.md`, `ESTRATEGIA_INTEGRACION.md` | Plan y estrategia del framework de conectores (feature en validación) |
+| `DISENO_OAUTH2_CONECTORES.md`, `DISENO_TOOL_RETRIEVAL.md`, `PLAN_AMBIGUEDAD_RECONOCIMIENTO.md` | Diseños de conectores **pendientes de implementar** — trabajo futuro, no borrar |
+| `LIMITES_CONOCIDOS.md` | Qué sabemos que el bot NO responde bien + límites operativos medidos |
 | `design/referencia-text-app.md` | Referencia visual del rediseño |
+| `manual/` | Manual de usuario de la plataforma (HTML) |
+| `historico/` | Registro cerrado: pedido original del cliente y contrapropuesta de conectores (DOCX/PDF), diseños ya construidos (migración 031, FSM de login, pantalla de conectores), auditorías e incidentes resueltos, evaluación de junio. No se edita. |
+
+Limpieza del 2026-09-22: se retiraron del repo (recuperables desde git) la
+presentación comercial, los PDF "Cómo funciona el bot" y "Mejoras" de julio,
+el corpus de seed del tenant demo, las exportaciones PDF/HTML del plan de
+onboarding, `PROMPT.md` y `STATUS_PAGE.md`. Regla: en `docs/` solo fuentes
+(`.md`); las exportaciones no se versionan.
 
 `progress.json` (raíz): estado de avance y decisiones — actualizarlo al cerrar
 jornadas o tomar decisiones de diseño.

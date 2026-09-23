@@ -59,11 +59,10 @@ progress.json     Bitácora de avance y decisiones de diseño
 
 | Carpeta o archivo | Contenido |
 |---|---|
-| `docs/*.md` | Documentación viva: operación, diseño, planes y auditorías |
+| `docs/*.md` | Documentación viva: operación, planes y diseños pendientes |
 | `docs/manual/` | Manual de usuario de la plataforma (HTML) |
-| `docs/referencia/` | Material de arquitectura y presentaciones entregadas (PDF/DOCX) — histórico, no se actualiza |
-| `docs/evaluaciones/` | Resultados crudos de evaluaciones de calidad del bot |
-| `docs/seed-demo/` | Corpus sintético del tenant de demostración `intellix` |
-| `docs/generados/` | Exportaciones (PDF/HTML/TXT) de documentos cuya fuente vive en `docs/*.md` |
 | `docs/design/` | Referencias visuales del rediseño del panel |
-| `docs/PROMPT.md` | Visión original del proyecto — histórico, no refleja el estado actual |
+| `docs/historico/` | Registro cerrado: pedido original del cliente, diseños ya construidos, auditorías e incidentes resueltos. No se edita. |
+
+Regla: en `docs/` se versionan solo fuentes (`.md`). Las exportaciones a PDF o
+HTML y el material comercial no van al repositorio.
