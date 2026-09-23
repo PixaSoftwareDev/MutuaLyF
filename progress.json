@@ -393,7 +393,7 @@
         "core/egress_guard.py (anti-SSRF, 14 tests)",
         ".github/workflows/ci.yml",
         "services/intent_reconcile.py + beat nightly-data-consistency (4:00)",
-        "docs/MIGRACION_031_CONECTORES_DISENO.md",
+        "docs/historico/MIGRACION_031_CONECTORES_DISENO.md",
         "OPENAI_TEST_API_KEY + check_spend_alert + docs/OPERACION_OPENAI_KEYS_Y_SALDO.md",
         "_relog_semantic_hit (label fresco en semantic cache)",
         "docker-compose.local.yml: red data internal:true (DBs sin egress)"
