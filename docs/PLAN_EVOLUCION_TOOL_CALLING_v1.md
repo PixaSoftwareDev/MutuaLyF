@@ -1,7 +1,7 @@
 # Plan de Evolución — RAG + Tool Calling Multi-Rol
 
 **Versión 1.0 — 2026-07-11 · Rama base: `dev-local` (= prod `f562124`)**
-**Insumos:** `Arquitectura_Chatbot_Mutual_LyF_v3.docx` (pedido del cliente, jun-2026) · `Arquitectura_Conectores_Terceros_MultiTenant_v1.pdf` (nuestra contrapropuesta, jul-2026, decisiones D1-D6 cerradas) · Auditoría integral del sistema (jul-10: 4.400 consultas de prueba, 3 bugs eliminados, motor de intenciones activado en prod)
+**Insumos:** `docs/referencia/Arquitectura_Chatbot_Mutual_LyF_v3.docx` (pedido del cliente, jun-2026) · `docs/referencia/Arquitectura_Conectores_Terceros_MultiTenant_v1.pdf` (nuestra contrapropuesta, jul-2026, decisiones D1-D6 cerradas) · Auditoría integral del sistema (jul-10: 4.400 consultas de prueba, 3 bugs eliminados, motor de intenciones activado en prod)
 
 ---
 
