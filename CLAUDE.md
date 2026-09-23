@@ -211,15 +211,17 @@ scripts/run_quality_suite.py  # LA suite — correr antes de tocar el motor
 | `PLAN_EVOLUCION_TOOL_CALLING_v1.md`, `ESTRATEGIA_INTEGRACION.md` | Plan y estrategia del framework de conectores (feature en validación) |
 | `DISENO_OAUTH2_CONECTORES.md`, `DISENO_TOOL_RETRIEVAL.md`, `PLAN_AMBIGUEDAD_RECONOCIMIENTO.md` | Diseños de conectores **pendientes de implementar** — trabajo futuro, no borrar |
 | `LIMITES_CONOCIDOS.md` | Qué sabemos que el bot NO responde bien + límites operativos medidos |
+| `PLAN_ONBOARDING_BASE_CONOCIMIENTO.html` (+ `.pdf`), `MANUAL_ONBOARDING.txt` | Documento funcional de Onboarding y Base de Conocimiento — **en elaboración, sin implementar** (sep-2026). La fuente es el HTML; el PDF se regenera de ahí. |
 | `design/referencia-text-app.md` | Referencia visual del rediseño |
 | `manual/` | Manual de usuario de la plataforma (HTML) |
 | `historico/` | Registro cerrado: pedido original del cliente y contrapropuesta de conectores (DOCX/PDF), diseños ya construidos (migración 031, FSM de login, pantalla de conectores), auditorías e incidentes resueltos, evaluación de junio. No se edita. |
 
 Limpieza del 2026-09-22: se retiraron del repo (recuperables desde git) la
 presentación comercial, los PDF "Cómo funciona el bot" y "Mejoras" de julio,
-el corpus de seed del tenant demo, las exportaciones PDF/HTML del plan de
-onboarding, `PROMPT.md` y `STATUS_PAGE.md`. Regla: en `docs/` solo fuentes
-(`.md`); las exportaciones no se versionan.
+el corpus de seed del tenant demo, `PROMPT.md` y `STATUS_PAGE.md`. Regla: en
+`docs/` se versiona la fuente de cada documento (`.md`, o `.html` cuando el
+documento se redacta así); no se versionan exportaciones sueltas ni material
+comercial.
 
 `progress.json` (raíz): estado de avance y decisiones — actualizarlo al cerrar
 jornadas o tomar decisiones de diseño.

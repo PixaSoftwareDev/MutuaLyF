@@ -1,0 +1,286 @@
+══════════════════════════════════════════════════════════════════
+  MANUAL DE ONBOARDING — CÓMO CONFIGURAR EL ASISTENTE
+  Plataforma IA Inteligent
+══════════════════════════════════════════════════════════════════
+
+Este manual explica cómo responder cada pregunta del asistente de
+configuración y cómo preparar documentos para que el sistema los
+procese sin errores y con la mayor precisión posible.
+
+──────────────────────────────────────────────────────────────────
+PARTE 1 — CÓMO RESPONDER EL ONBOARDING
+──────────────────────────────────────────────────────────────────
+
+PASO 1: ORGANIZACIÓN
+═══════════════════
+
+1. Nombre de la organización
+   → Usá el nombre completo tal como aparece en documentos oficiales.
+   → Ej: "Mutual de Empleados del Estado de Córdoba" (no solo "Mutual").
+   → Por qué: el bot lo usa para identificarse y para filtrar información
+     cuando hay documentos de varias entidades.
+
+2. Tipo de organización
+   → Elegí el que mejor describe la naturaleza legal/operativa.
+   → Si ninguno encaja exactamente, elegí "Otra" y describí con precisión.
+   → Ej: "Asociación civil sin fines de lucro" en lugar de dejar "Otra" vacío.
+   → Por qué: el sistema ajusta el tono y las respuestas según el tipo.
+
+3. Tono del asistente
+   → FORMAL: para organismos públicos, entidades financieras, salud.
+   → AMIGABLE: para comercios, servicios al consumidor, cooperativas.
+   → TÉCNICO: para soporte IT, ingeniería, proveedores especializados.
+   → Elegí el que usa tu organización cuando responde consultas reales.
+   → Podés cambiar esto después desde Configuración → General.
+
+4. Nombre del asistente (opcional pero recomendado)
+   → Dale un nombre que suene natural para tu organización.
+   → Ej: "Muty", "Asistente MUTUAL", "Sofi".
+   → Evitá nombres genéricos como "Bot" o "Asistente".
+   → Por qué: los usuarios responden mejor cuando el bot tiene identidad.
+
+
+PASO 2: DOCUMENTOS
+══════════════════
+
+Este es el paso más importante. El bot responde SOLO con lo que
+está en los documentos que subís. Sin documentos, el bot no tiene
+información sobre tu organización.
+
+Qué subir en el onboarding (máx. 3 archivos):
+  → Los documentos que más consultan tus usuarios.
+  → Ejemplos ideales:
+      - Reglamento de servicios o beneficios
+      - Manual de procedimientos
+      - Preguntas frecuentes ya redactadas
+      - Estatuto o descripción de la organización
+      - Tarifario o listado de servicios con descripción
+
+Qué NO subir en el onboarding:
+  → Imágenes, fotos o PDFs escaneados sin texto seleccionable.
+  → Planillas Excel vacías o con solo números sin contexto.
+  → Documentos internos de uso administrativo (no responden consultas).
+
+Más documentos se pueden agregar después desde el panel → Documentos.
+
+
+PASO 3: PREGUNTAS DE CONFIGURACIÓN
+═══════════════════════════════════
+
+Pregunta 1: ¿Quiénes lo van a usar? (OBLIGATORIA)
+  → Describe el perfil real de quien va a consultar al bot.
+  → Respuestas que funcionan bien:
+      "Socios de la mutual que consultan sobre beneficios y trámites"
+      "Empleados de la empresa que buscan información de RRHH y nómina"
+      "Clientes que compran online y tienen dudas de envío y devoluciones"
+      "Vecinos del municipio que consultan trámites y horarios"
+  → No respondas solo "usuarios" o "clientes" — es demasiado vago.
+  → Por qué: el sistema ajusta el nivel de detalle y el vocabulario.
+
+Pregunta 2: ¿Qué le suelen preguntar? (opcional pero recomendada)
+  → Escribí 3 a 5 ejemplos reales de preguntas que reciben.
+  → Cada pregunta en una línea separada.
+  → Ejemplo:
+      ¿Cómo saco un turno médico?
+      ¿Cuál es el monto del subsidio por fallecimiento?
+      ¿Qué documentos necesito para darme de alta?
+      ¿Cómo recupero mi contraseña?
+  → Por qué: el sistema las usa para calibrar el clasificador de intenciones.
+
+Pregunta 3: ¿Algún tema que NO debe tocar? (opcional)
+  → Listá temas que el bot debe evitar, separados por comas.
+  → Ejemplo:
+      "precios de la competencia, asesoramiento legal, diagnósticos médicos"
+  → El bot responderá "no puedo ayudarte con eso" si le preguntan.
+  → Por qué: evita respuestas incorrectas en áreas sensibles.
+
+Pregunta 4: Si no sabe algo (obligatoria — elegís una opción)
+  → SUGERIR CONTACTO: ideal si tienen canales de atención claros.
+  → PEDIR CONTACTO: útil si quieren capturar leads o derivar a un agente.
+  → HORARIO DE ATENCIÓN: cuando hay atención presencial o telefónica.
+  → Podés cambiar esto después desde Configuración.
+
+Pregunta 5: ¿Algo más a tener en cuenta? (opcional)
+  → Instrucciones específicas que no encajan en las anteriores.
+  → Ejemplos útiles:
+      "Siempre mencionar que los socios deben presentar credencial"
+      "No dar información de afiliación, derivar siempre a administración"
+      "Responder siempre en vos (tuteo), no de usted"
+      "Si preguntan por turno, mencionar que se saca por la app"
+
+
+PREGUNTA EXTRA ADAPTATIVA
+  → Después de las 5 preguntas, la IA puede hacerte UNA pregunta adicional
+    si detecta que falta información clave.
+  → Respondela con detalle — es la que más impacta en la calidad final.
+  → Si no aplica a tu organización, podés saltearla.
+
+
+PASO 4: REVISIÓN Y PRUEBA
+═════════════════════════
+
+  → El sistema genera una descripción del bot basada en tus respuestas.
+  → EDITALA si algo no refleja bien a tu organización — esto es lo que
+    el bot "lee" para entender su rol. Es importante que sea precisa.
+  → Probá al menos 3 preguntas reales antes de activar.
+  → Si las respuestas no son correctas, hacé clic en "Regenerar" o
+    editá la descripción manualmente.
+
+
+──────────────────────────────────────────────────────────────────
+PARTE 2 — CÓMO PREPARAR DOCUMENTOS PARA MEJOR CHUNKING
+──────────────────────────────────────────────────────────────────
+
+El sistema divide los documentos en fragmentos (chunks) para buscar
+y responder. La calidad del chunking depende directamente de cómo
+está estructurado el documento.
+
+FORMATOS ACEPTADOS Y CUÁL ES MEJOR
+════════════════════════════════════
+
+  1. TXT — MEJOR OPCIÓN para docs simples (FAQs, listas, procedimientos).
+     → Sin formato, solo texto plano bien estructurado.
+     → El sistema lo procesa sin conversión, sin pérdida de información.
+
+  2. DOCX — MEJOR OPCIÓN para docs con estructura (reglamentos, estatutos).
+     → Usa Estilos de Word para los títulos (Heading 1, Heading 2).
+     → El sistema detecta los encabezados automáticamente.
+     → Las tablas se convierten a texto natural para mejor búsqueda.
+
+  3. PDF — BUENA OPCIÓN si el texto es seleccionable (no escaneado).
+     → Verificá que podés seleccionar texto en el PDF antes de subirlo.
+     → PDFs escaneados (imagen) no funcionan — el sistema no puede leerlos.
+     → PDFs con columnas o diseño complejo pueden perder orden de lectura.
+
+  4. HTML — OPCIÓN VÁLIDA para documentos web exportados.
+     → El sistema extrae solo el texto, ignora estilos y scripts.
+
+
+ESTRUCTURA IDEAL DE UN DOCUMENTO
+══════════════════════════════════
+
+El sistema reconoce estas estructuras para separar correctamente:
+
+  ✓ Títulos numerados:
+      1. Servicios de salud
+      1.1 Consultas médicas
+      1.2 Internación
+
+  ✓ Títulos con Markdown:
+      ## Servicios de salud
+      ### Consultas médicas
+
+  ✓ Separadores explícitos (para separar temas sin título):
+      ---CHUNK---
+
+  ✓ Palabras clave de sección en mayúsculas:
+      CAPÍTULO, SECCIÓN, ARTÍCULO, ANEXO, TÍTULO, PARTE
+
+  ✓ Líneas de separación:
+      ════════════════════ o --------------------
+
+EJEMPLO DE DOCUMENTO BIEN ESTRUCTURADO (TXT):
+
+  ════════════════════════════════
+  REGLAMENTO DE BENEFICIOS
+  Mutual de Empleados — 2024
+  ════════════════════════════════
+
+  1. SUBSIDIO POR FALLECIMIENTO
+
+  El subsidio por fallecimiento se otorga a los beneficiarios
+  declarados del socio activo que fallezca.
+
+  Monto: $500.000 pesos.
+  Documentación requerida: acta de defunción, DNI del solicitante,
+  credencial de socio vigente.
+
+  Para solicitarlo: presentarse en sede central de lunes a viernes
+  de 8 a 13 hs con la documentación completa.
+
+  ---CHUNK---
+
+  2. SUBSIDIO POR NACIMIENTO
+
+  Se otorga al socio activo o cónyuge declarado que tenga un hijo.
+  Monto: $150.000 pesos.
+  ...
+
+
+CÓMO ESCRIBIR PARA QUE EL BOT ENTIENDA BIEN
+════════════════════════════════════════════
+
+  ✓ Usá frases completas, no solo viñetas sueltas.
+      MAL:  "Turno médico: app"
+      BIEN: "Para sacar turno médico, el socio debe ingresar a la app
+             MutuaSalud y seleccionar la especialidad deseada."
+
+  ✓ Incluí las palabras que los usuarios usan para buscar.
+      Si preguntan "¿cómo me afilio?", el documento debe decir
+      "proceso de afiliación" o "cómo afiliarse", no solo "alta de socio".
+
+  ✓ Poné datos de contacto juntos, no dispersos.
+      El sistema detecta bloques de contacto automáticamente.
+      Si ponés teléfono, dirección y email en párrafos separados
+      y lejanos, el bot puede no encontrarlos juntos.
+
+  ✓ Para FAQs, usá el formato pregunta-respuesta explícito:
+      ¿Cómo recupero mi contraseña?
+      Para recuperar tu contraseña ingresá a la web, hacé clic en
+      "Olvidé mi contraseña" y seguí los pasos del email que te llegará.
+
+  ✓ Evitá abreviaciones internas sin contexto.
+      MAL:  "Ver RDRH-2023 art. 4.b"
+      BIEN: "Según el Reglamento de RRHH 2023, artículo 4, el empleado..."
+
+  ✓ Repetí información clave si aparece en varias secciones.
+      El bot busca por similitud semántica — si el horario de atención
+      solo está en la última página, puede no aparecer cuando alguien
+      pregunta en el contexto de una sección distinta.
+
+
+TABLAS
+══════
+
+  → Las tablas en DOCX se convierten automáticamente a texto natural.
+  → Usá siempre encabezados de columna descriptivos.
+
+  MAL (encabezados genéricos):
+    Producto | Valor | Código
+    Consulta | 5000  | MED01
+
+  BIEN (encabezados que se entienden solos):
+    Servicio médico       | Costo para socios | Código de prestación
+    Consulta médica gral  | $5.000            | MED01
+
+  → Evitá tablas con celdas combinadas o diseños visuales complejos.
+  → Si tenés tablas con datos numéricos sin descripción, agregá un
+    párrafo explicativo antes o después de la tabla.
+
+
+LÍMITES DE ARCHIVO
+══════════════════
+
+  Starter:      máx. 10 MB por archivo
+  Professional: máx. 50 MB por archivo
+  Enterprise:   máx. 200 MB por archivo
+
+  → Documentos muy grandes se procesan en background — podés seguir
+    usando el panel mientras se procesa.
+  → Si un PDF supera el límite, dividilo por capítulos o secciones.
+
+
+──────────────────────────────────────────────────────────────────
+RESUMEN RÁPIDO — CHECKLIST ANTES DE SUBIR UN DOCUMENTO
+──────────────────────────────────────────────────────────────────
+
+  □ El documento tiene títulos o secciones claras
+  □ Si es PDF, el texto es seleccionable (no es imagen escaneada)
+  □ Las tablas tienen encabezados descriptivos
+  □ Los datos de contacto (dirección, teléfono, email) están juntos
+  □ Las siglas y abreviaciones están explicadas
+  □ Las preguntas del FAQ usan ¿? al inicio o el formato "P: / R:"
+  □ El documento no tiene páginas en blanco o secciones vacías
+  □ El archivo pesa menos del límite de tu plan
+
+══════════════════════════════════════════════════════════════════
