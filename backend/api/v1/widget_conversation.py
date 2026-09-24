@@ -22,7 +22,7 @@ from sqlalchemy import text
 
 from core.database import get_pg_session
 from core.rate_limit import check_widget_rate_limit
-from core.security import CurrentUser, TokenScope, get_widget_or_chat_user
+from core.security import CurrentUser, get_widget_or_chat_user
 from core.tenant import get_tenant_id
 from services.handoff import (
     ConvStatus, HandoffTrigger, HandoffSignal,
@@ -44,6 +44,9 @@ class StartConversationRequest(BaseModel):
     sector_id: str | None = Field(default=None, max_length=64)
     afiliado_nombre: str | None = Field(default=None, max_length=200)
     afiliado_email: str | None = Field(default=None, max_length=320)
+    # Legacy: la marca de prueba ya NO se toma del body (cualquiera podía
+    # mandarla) sino del claim firmado del token del tester. Se acepta el campo
+    # para no romper clientes viejos, pero se ignora.
     is_test: bool = Field(default=False)
 
 
@@ -85,12 +88,14 @@ async def start_conversation(
 ):
     """Create a new conversation or resume existing active one for this session."""
     # Canal widget desactivado desde el panel (Configuración → Canales) → 403.
-    # "Probar chat" (is_test) sigue funcionando para que el admin pueda probar:
-    # el botón del panel abre /chat con un WIDGET token (admin-generado) + test=1.
-    # Un afiliado anónimo usa un PUBLIC_CHAT token (/public/chat-token) y NO puede
-    # saltear el flag seteando is_test=true → solo el scope WIDGET lo habilita.
+    # "Probar chat" sigue funcionando para que el admin pueda probar: el panel
+    # pide un token efímero con el claim firmado `test` (POST
+    # /tenants/{id}/chat-tester-token, requiere sesión de admin). Un afiliado
+    # anónimo con token público no puede saltear el flag: `is_test` sale del
+    # token, nunca del body.
     # try/except: tolera bases que aún no corrieron la migración 023.
-    if not (body.is_test and widget_user.scope == TokenScope.WIDGET):
+    is_test = widget_user.is_test
+    if not is_test:
         try:
             async with get_pg_session() as gsession:
                 row = (await gsession.execute(
@@ -196,7 +201,7 @@ async def start_conversation(
             "nombre": body.afiliado_nombre,
             "email": body.afiliado_email,
             "ip": afiliado_ip,
-            "is_test": body.is_test,
+            "is_test": is_test,
         })
 
         # Insert greeting as first bot message so it survives polling

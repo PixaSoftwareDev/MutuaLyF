@@ -480,14 +480,14 @@ function TypingIndicator() {
 
 /**
  * Traduce un fallo al iniciar/usar el chat a un mensaje que el usuario pueda
- * accionar. Nunca mostramos "HTTP 401" crudo: el caso más común es que el
- * token del tester fue revocado (cada "Probar chat" genera uno nuevo y mata
- * los anteriores) y eso tiene solución conocida — reabrir desde el panel.
+ * accionar. Nunca mostramos "HTTP 401" crudo. En modo prueba el token sale de
+ * la sesión del panel (pestaña del mismo origen): si no hay sesión o venció,
+ * la solución es volver a entrar al panel.
  */
 function friendlyChatError(status: number | null, isTest: boolean): string {
   if (status === 401 || status === 403) {
     return isTest
-      ? "Este link de prueba ya no es válido: cada vez que abrís «Probar chat» se genera un link nuevo y los anteriores se desactivan. Cerrá esta pestaña y volvé a abrirlo desde el panel."
+      ? "No se pudo abrir el chat de prueba: tu sesión del panel no está activa o venció. Iniciá sesión en el panel y volvé a tocar «Probar chat»."
       : "El chat no está disponible en este momento. Recargá la página para intentar de nuevo.";
   }
   if (status === 429) return "Se alcanzó el límite de consultas por ahora. Esperá unos minutos e intentá de nuevo.";
@@ -497,8 +497,10 @@ function friendlyChatError(status: number | null, isTest: boolean): string {
 
 function ChatInner() {
   const params   = useSearchParams();
-  const token    = params.get("token") || "";
   const tenantId = params.get("tenant") || "";
+  // Modo prueba del panel: la URL NO lleva token. La página pide un token
+  // efímero con la sesión del admin (mismo origen) → nada sensible en la URL
+  // y la pestaña sobrevive a un F5. Un ?token= viejo se ignora.
   const isTest   = params.get("test") === "1";
   // Flags de completitud que setea el panel admin al abrir "Probar chat":
   // el tester avisa qué falta (docs/sectores) para que una prueba "vacía"
@@ -526,7 +528,11 @@ function ChatInner() {
   const [status, setStatus]                 = useState("bot_active");
   const [operatorName, setOperatorName]     = useState<string | null>(null);
   const [error, setError]                   = useState<string | null>(null);
-  const [resolvedToken, setResolvedToken]   = useState(token);
+  const [resolvedToken, setResolvedToken]   = useState("");
+  // Copia del token para las funciones async (el state puede quedar viejo
+  // dentro de un closure de polling largo).
+  const tokenRef                            = useRef<string>("");
+  useEffect(() => { tokenRef.current = resolvedToken; }, [resolvedToken]);
   const [handoffConfirmed, setHandoffConfirmed] = useState(false);
   const [afiliadoIdentified, setAfiliadoIdentified] = useState(false);
   // Feedback al cierre (caritas 1-3). feedbackGiven viene del poll; dismissed
@@ -551,7 +557,9 @@ function ChatInner() {
   const pollVersionRef                      = useRef<number>(0);
 
   useEffect(() => {
-    const key = "ia_chat_session_" + (token || tenantId).slice(-8);
+    // Sesión separada para el tester: que las pruebas del admin no retomen
+    // (ni ensucien) una conversación real del mismo navegador.
+    const key = "ia_chat_session_" + tenantId.slice(-8) + (isTest ? "_test" : "");
     const stored = localStorage.getItem(key);
     if (stored) { sessionId.current = stored; }
     else {
@@ -559,23 +567,69 @@ function ChatInner() {
       localStorage.setItem(key, id);
       sessionId.current = id;
     }
-  }, [token, tenantId]);
+  }, [tenantId, isTest]);
+
+  // Obtiene un token efímero (2 h). Público: endpoint sin login que respeta el
+  // interruptor del canal. Prueba: endpoint de admin con la sesión del panel.
+  // Lanza { status } para que friendlyChatError explique qué pasó.
+  async function fetchToken(): Promise<string> {
+    if (isTest) {
+      try {
+        const d = await api.tenants.chatTesterToken(tenantId);
+        return d.widget_token;
+      } catch (e) {
+        const status = (e as { response?: { status?: number } })?.response?.status ?? null;
+        throw Object.assign(new Error("tester_token_failed"), { status });
+      }
+    }
+    const r = await fetch(`${API_BASE}/api/v1/public/chat-token`, { headers: { "X-Tenant-ID": tenantId } });
+    if (!r.ok) throw Object.assign(new Error("chat_token_failed"), { status: r.status });
+    return (await r.json()).widget_token as string;
+  }
+
+  // Renovación: el token dura 2 h y una charla puede durar más (pestaña
+  // abierta). Ante un 401, authFetch pide uno nuevo UNA vez y reintenta con la
+  // misma widget_session_id, así la conversación sigue sin pantalla de error.
+  // renewingRef evita que el poll y un envío simultáneos pidan dos tokens.
+  const renewingRef = useRef<Promise<string> | null>(null);
+  function renewToken(): Promise<string> {
+    if (!renewingRef.current) {
+      renewingRef.current = fetchToken()
+        .then(t => { tokenRef.current = t; setResolvedToken(t); return t; })
+        .finally(() => { renewingRef.current = null; });
+    }
+    return renewingRef.current;
+  }
+
+  async function authFetch(url: string, init: RequestInit = {}, json = true): Promise<Response> {
+    const build = (): Record<string, string> => ({
+      ...((init.headers as Record<string, string>) || {}),
+      ...(json ? { "Content-Type": "application/json" } : {}),
+      Authorization: `Bearer ${tokenRef.current}`,
+      "X-Tenant-ID": tenantId,
+    });
+    let r = await fetch(url, { ...init, headers: build() });
+    if (r.status === 401) {
+      try { await renewToken(); } catch { return r; }
+      r = await fetch(url, { ...init, headers: build() });
+    }
+    return r;
+  }
 
   useEffect(() => {
-    if (token) { setResolvedToken(token); return; }
     if (!tenantId) {
       setError("URL inválida. El chat requiere el parámetro ?tenant=TU_ORGANIZACION");
       setSectorsLoading(false);
       return;
     }
-    fetch(`${API_BASE}/api/v1/public/chat-token`, { headers: { "X-Tenant-ID": tenantId } })
-      .then(r => { if (!r.ok) throw Object.assign(new Error("chat_token_failed"), { status: r.status }); return r.json(); })
-      .then(data => setResolvedToken(data.widget_token))
+    fetchToken()
+      .then(t => { tokenRef.current = t; setResolvedToken(t); })
       .catch((e: { status?: number }) => {
         setError(friendlyChatError(e?.status ?? null, isTest));
         setSectorsLoading(false);
       });
-  }, [token, tenantId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tenantId, isTest]);
 
   // Load tenant branding (public endpoint) + apply CSS variables.
   // Si el cache sincronico ya nos dio un branding inicial, igual revalidamos
@@ -630,16 +684,12 @@ function ChatInner() {
     pollVersionRef.current++;  // invalida cualquier loop async pendiente
   }, []);
 
-  function getHeaders() {
-    return { "Content-Type": "application/json", Authorization: `Bearer ${resolvedToken}`, "X-Tenant-ID": tenantId };
-  }
-
   const pollMessages = useCallback(async (convId: string) => {
     try {
       const anchor = lastMessageIdRef.current;
       const url = `${API_BASE}/api/v1/widget/conversation/${convId}/poll?widget_session_id=${encodeURIComponent(sessionId.current)}`
         + (anchor ? `&last_message_id=${encodeURIComponent(anchor)}` : "");
-      const r = await fetch(url, { headers: getHeaders() });
+      const r = await authFetch(url);
       if (!r.ok) return;
       const data = await r.json();
       // El flag handoffOffer viene de la DB (is_handoff_offer) y se respeta
@@ -705,11 +755,12 @@ function ChatInner() {
     setHandoffConfirmed(false);
     setTimeout(() => inputRef.current?.focus(), 100);
     try {
-      const r = await fetch(`${API_BASE}/api/v1/widget/conversation/start`, {
-        method: "POST", headers: getHeaders(),
+      const r = await authFetch(`${API_BASE}/api/v1/widget/conversation/start`, {
+        method: "POST",
         // Sin sector: el backend usa el default del tenant. El área real se
-        // decide al derivar (confirm-handoff la re-etiqueta).
-        body: JSON.stringify({ widget_session_id: sessionId.current, sector_id: selectedSector?.id ?? null, is_test: isTest }),
+        // decide al derivar (confirm-handoff la re-etiqueta). La marca de
+        // prueba ya no viaja acá: va firmada dentro del token del tester.
+        body: JSON.stringify({ widget_session_id: sessionId.current, sector_id: selectedSector?.id ?? null }),
       });
       if (!r.ok) {
         // Pantalla completa con explicación accionable, no una burbuja "HTTP 401".
@@ -736,8 +787,8 @@ function ChatInner() {
     setSending(true);
     setMessages(prev => [...prev, { id: Date.now().toString(), role: "user", content: text }]);
     try {
-      const r = await fetch(`${API_BASE}/api/v1/widget/conversation/${convId}/message`, {
-        method: "POST", headers: getHeaders(),
+      const r = await authFetch(`${API_BASE}/api/v1/widget/conversation/${convId}/message`, {
+        method: "POST",
         body: JSON.stringify({ content: text, widget_session_id: sessionId.current }),
       });
       // 410 = conversacion cerrada por el operador. Arrancar una nueva
@@ -748,8 +799,8 @@ function ChatInner() {
         await startChat(text);
         return;
       }
-      // Token revocado a mitad de conversación (p.ej. se reabrió "Probar chat"
-      // en otra pestaña): explicar qué pasó en vez de un error de envío genérico.
+      // 401 que sobrevivió a la renovación automática, o 403 (canal apagado):
+      // explicar qué pasó en vez de un error de envío genérico.
       if (r.status === 401 || r.status === 403) {
         setError(friendlyChatError(r.status, isTest));
         return;
@@ -780,11 +831,10 @@ function ChatInner() {
     const cid = targetConvId ?? conversationId;
     if (!cid) return;
     try {
-      const r = await fetch(
+      const r = await authFetch(
         `${API_BASE}/api/v1/widget/conversation/${cid}/feedback?widget_session_id=${encodeURIComponent(sessionId.current)}`,
         {
           method: "POST",
-          headers: getHeaders(),
           body: JSON.stringify({ rating, ...(reason ? { reason } : {}) }),
         },
       );
@@ -815,12 +865,11 @@ function ChatInner() {
       const fd = new FormData();
       fd.append("widget_session_id", sessionId.current);
       fd.append("file", file);
-      const r = await fetch(`${API_BASE}/api/v1/widget/conversation/${conversationId}/attachment`, {
+      // Sin Content-Type (json=false): el browser arma el multipart boundary solo.
+      const r = await authFetch(`${API_BASE}/api/v1/widget/conversation/${conversationId}/attachment`, {
         method: "POST",
-        // Sin Content-Type: el browser arma el multipart boundary solo.
-        headers: { Authorization: `Bearer ${resolvedToken}`, "X-Tenant-ID": tenantId },
         body: fd,
-      });
+      }, false);
       const data = await r.json().catch(() => ({}));
       if (!r.ok) {
         const detail = typeof data?.detail === "string" ? data.detail : "No se pudo enviar el archivo. Probá de nuevo.";
@@ -839,21 +888,15 @@ function ChatInner() {
     if (!conversationId) return;
     setHandoffConfirmed(true);
     try {
-      const headers: Record<string, string> = { ...getHeaders() };
       // Siempre que haya sector elegido (form o chip), mandarlo: el backend
       // re-etiqueta la conversación para la cola de operadores correcta.
       const payload = { ...(identif || {}) };
       if (!payload.sector_id && selectedSector) payload.sector_id = selectedSector.id;
-      let body: string | undefined;
-      if (payload.afiliado_nombre || payload.afiliado_dni || payload.sector_id) {
-        headers["Content-Type"] = "application/json";
-        body = JSON.stringify(payload);
-      }
-      const r = await fetch(`${API_BASE}/api/v1/widget/conversation/${conversationId}/confirm-handoff?widget_session_id=${encodeURIComponent(sessionId.current)}`, {
+      const hasBody = Boolean(payload.afiliado_nombre || payload.afiliado_dni || payload.sector_id);
+      const r = await authFetch(`${API_BASE}/api/v1/widget/conversation/${conversationId}/confirm-handoff?widget_session_id=${encodeURIComponent(sessionId.current)}`, {
         method: "POST",
-        headers,
-        body,
-      });
+        body: hasBody ? JSON.stringify(payload) : undefined,
+      }, hasBody);
       const data = await r.json().catch(() => ({}));
       // ANTES: no se chequeaba r.ok → ante un 422/404/410 igual se ponía
       // "Esperando operador…" aunque el handoff nunca se creó (falla silenciosa,

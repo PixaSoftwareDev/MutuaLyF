@@ -300,7 +300,11 @@ export function Sidebar() {
     const win = window.open("", "_blank");
     if (win) { try { win.opener = null; } catch { /* cross-origin guard */ } }
     try {
-      const data = await api.tenants.generateWidgetToken(tenantId);
+      // El token NO va en la URL: /chat?test=1 lo pide sola a
+      // /tenants/{id}/chat-tester-token con la sesión del panel (mismo origen).
+      // Antes se llamaba a generateWidgetToken acá y cada apertura del tester
+      // REGENERABA el widget-token del tenant → el widget instalado en la web
+      // del cliente quedaba inválido (bug corregido 2026-09-24).
       // Chequeo de completitud (best-effort, no bloquea la apertura): el tester
       // muestra un aviso de lo que falta — sin docs ni sectores, una prueba
       // "vacía" parecería un bot roto. Si el chequeo falla, no marcamos nada.
@@ -312,12 +316,12 @@ export function Sidebar() {
         (docs !== null && docs.length === 0 ? "&kb=0" : "") +
         (sectors !== null && sectors.length === 0 ? "&sectors=0" : "");
       const brand = branding.primary_color ? `&brand=${encodeURIComponent(branding.primary_color)}` : "";
-      const url = `/chat?token=${encodeURIComponent(data.widget_token)}&tenant=${encodeURIComponent(tenantId)}&test=1${flags}${brand}`;
+      const url = `/chat?tenant=${encodeURIComponent(tenantId)}&test=1${flags}${brand}`;
       if (win && !win.closed) win.location.href = url;
       else window.location.href = url;
     } catch {
       if (win && !win.closed) win.close();
-      toast({ title: "No se pudo generar el link de prueba", variant: "destructive" });
+      toast({ title: "No se pudo abrir el chat de prueba", variant: "destructive" });
     }
   };
 

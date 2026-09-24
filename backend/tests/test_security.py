@@ -9,6 +9,8 @@ from core.security import (
     create_access_token,
     create_refresh_token,
     create_widget_token,
+    create_public_chat_token,
+    _get_current_user_from_token,
     decode_token,
     hash_password,
     verify_password,
@@ -60,6 +62,51 @@ class TestJWTCreation:
         iat = datetime.fromtimestamp(payload["iat"], tz=timezone.utc)
         diff_days = (exp - iat).days
         assert diff_days == settings.jwt_widget_expire_days
+
+
+class TestChatTesterToken:
+    """Token del tester del panel ("Probar chat", 2026-09-24).
+
+    La marca de prueba viaja FIRMADA en el JWT: un token público no puede
+    fabricarla, y un widget token ya no la habilita (antes bastaba mandar
+    is_test=true en el body con scope widget).
+    """
+
+    def test_public_chat_token_has_no_test_claim(self):
+        token = create_public_chat_token("acme")
+        payload = jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
+        assert payload["scope"] == TokenScope.PUBLIC_CHAT.value
+        assert "test" not in payload
+        assert _get_current_user_from_token(token).is_test is False
+
+    def test_tester_token_carries_signed_test_claim(self):
+        token = create_public_chat_token("acme", test=True)
+        payload = jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
+        assert payload["scope"] == TokenScope.PUBLIC_CHAT.value
+        assert payload["test"] is True
+        user = _get_current_user_from_token(token)
+        assert user.is_test is True
+        assert user.tenant_id == "acme"
+
+    def test_tester_token_is_short_lived(self):
+        from datetime import datetime, timezone
+        token = create_public_chat_token("acme", test=True)
+        payload = jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
+        exp = datetime.fromtimestamp(payload["exp"], tz=timezone.utc)
+        iat = datetime.fromtimestamp(payload["iat"], tz=timezone.utc)
+        assert (exp - iat).total_seconds() <= 2 * 3600
+
+    def test_test_claim_ignored_outside_public_chat_scope(self):
+        """Un widget token (semipúblico, va en el HTML del cliente) con un claim
+        `test` inyectado no debe convertirse en tester."""
+        from datetime import datetime, timedelta, timezone
+        now = datetime.now(timezone.utc)
+        forged = jwt.encode(
+            {"tenant_id": "acme", "scope": TokenScope.WIDGET.value, "test": True,
+             "iat": now, "exp": now + timedelta(hours=1)},
+            settings.jwt_secret_key, algorithm=settings.jwt_algorithm,
+        )
+        assert _get_current_user_from_token(forged).is_test is False
 
 
 class TestJWTValidation:

@@ -1,6 +1,6 @@
 {
   "version": "1.9",
-  "last_updated": "2026-09-05",
+  "last_updated": "2026-09-24",
   "current_stage": "etapa_3",
   "current_step": "Post-deploy a prod (2026-07-26/27): paquete completo en produccion; desarrollo continua en dev-local",
   "overall_status": "etapa_3_complete",
@@ -451,5 +451,18 @@
     "mediciones_prod": "intellix: declarativas 4,5->3,2-3,4s (skip), corta 2,7s. mutualyf: 3,0/3,9/3,7s (antes 5,0-8,1s).",
     "pendiente_finde": "typing WhatsApp, streaming widget, señal OOV-vs-corpus, timeout rewriter con datos, chunker FAQ (ferulas), modelo nano para rewriter/juez (evaluar).",
     "nota": "test_cross_tenant email domains 403 falla preexistente en dev-local (deuda rama conectores). Drift conocido en VPS prod: docker-compose.yml y nginx.prod.conf modificados localmente (previo a hoy)."
+  },
+  "session_2026_09_24_canal_link": {
+    "status": "in_progress",
+    "plan": "docs/PLAN_CANAL_LINK_Y_TOKENS.md",
+    "hallazgo": "'Probar chat' regenera el widget token del tenant en cada clic (rompe el widget instalado en la web del cliente); el link del tester lleva un token de 90 dias en la URL.",
+    "decisiones": [
+      "Canal nuevo 'Chat por link' (channel='link'), pagina /chat + ruta corta /c/{tenant}",
+      "Interruptor propio tenants.chat_link_enabled (migracion 056; down_revision 054 en dev-local, 055 en dev/main)",
+      "Tester usa token efimero 2h con claim test=true pedido con sesion admin; nunca mas rota el widget token",
+      "Widget embebido conserva su clave semipublica (hash revocable + rate limit); allowlist de dominios opcional",
+      "Token publico del link se renueva solo ante 401 manteniendo widget_session_id"
+    ],
+    "ambientes": "solo dev-local hasta pruebas de Alejo; staging y prod con acuerdo explicito"
   }
 }

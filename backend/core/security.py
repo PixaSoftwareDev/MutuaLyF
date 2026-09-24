@@ -94,15 +94,24 @@ def create_widget_token(tenant_id: str) -> str:
     return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
 
-def create_public_chat_token(tenant_id: str) -> str:
-    """Short-lived token for the public /chat page. No hash stored in DB — JWT-only validation."""
+def create_public_chat_token(tenant_id: str, *, test: bool = False) -> str:
+    """Short-lived token for the public /chat page. No hash stored in DB — JWT-only validation.
+
+    `test=True` marca el token del tester del panel ("Probar chat"): la marca
+    viaja FIRMADA dentro del JWT (no como parámetro de la URL), así un visitante
+    anónimo no puede fabricar una "prueba" para saltear el canal apagado. Antes
+    el tester usaba el token del widget (90 días, en la URL) y cada apertura lo
+    regeneraba, invalidando el widget instalado en la web del cliente (2026-09-24).
+    """
     now = datetime.now(timezone.utc)
-    payload = {
+    payload: dict[str, Any] = {
         "tenant_id": tenant_id,
         "scope": TokenScope.PUBLIC_CHAT.value,
         "iat": now,
         "exp": now + timedelta(hours=2),
     }
+    if test:
+        payload["test"] = True
     return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
 
@@ -134,12 +143,15 @@ def decode_token(token: str) -> dict[str, Any]:
 class CurrentUser:
     """Parsed identity from a validated JWT."""
 
-    def __init__(self, user_id: str, tenant_id: str, role: Role, scope: TokenScope, email: str | None = None) -> None:
+    def __init__(self, user_id: str, tenant_id: str, role: Role, scope: TokenScope, email: str | None = None,
+                 is_test: bool = False) -> None:
         self.user_id = user_id
         self.tenant_id = tenant_id
         self.role = role
         self.scope = scope
         self.email = email
+        # Token del tester del panel (claim firmado `test`): solo scope PUBLIC_CHAT.
+        self.is_test = is_test
 
 
 def _get_current_user_from_token(token: str) -> CurrentUser:
@@ -171,6 +183,7 @@ def _get_current_user_from_token(token: str) -> CurrentUser:
         role=role,
         scope=scope,
         email=email,
+        is_test=(scope == TokenScope.PUBLIC_CHAT and payload.get("test") is True),
     )
 
 

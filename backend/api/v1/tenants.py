@@ -15,7 +15,7 @@ import time
 from core.config import settings
 from core.database import get_pg_session, get_redis_cache
 from core.prometheus import get_system_metrics
-from core.security import CurrentUser, create_widget_token, require_super_admin, require_admin, require_admin_or_super
+from core.security import CurrentUser, create_widget_token, create_public_chat_token, require_super_admin, require_admin, require_admin_or_super
 from models.tenant import TenantCreate, TenantPlan, TenantStatus, WidgetTokenResponse
 
 logger = logging.getLogger(__name__)
@@ -1286,6 +1286,27 @@ async def generate_widget_token(
     logger.info("widget_token_generated tenant_id=%s by=%s", tenant_id, current_user.user_id)
     return WidgetTokenResponse(
         widget_token=token,
+        tenant_id=tenant_id,
+    )
+
+
+@router.post("/{tenant_id}/chat-tester-token", response_model=WidgetTokenResponse)
+async def chat_tester_token(
+    tenant_id: str,
+    current_user: CurrentUser = Depends(require_admin_or_super),
+):
+    """Token efímero (2 h) para "Probar chat" del panel.
+
+    Reemplaza al uso del widget-token en el tester (2026-09-24): cada apertura
+    del tester REGENERABA el widget-token del tenant y dejaba inválido el código
+    instalado en la web del cliente. Este token no toca la base, lleva el claim
+    firmado `test=true` (las conversaciones nacen con is_test y el canal apagado
+    no lo bloquea) y vence solo.
+    """
+    if current_user.role.value != "super_admin" and current_user.tenant_id != tenant_id:
+        raise HTTPException(status_code=403, detail="Cannot generate token for another tenant")
+    return WidgetTokenResponse(
+        widget_token=create_public_chat_token(tenant_id, test=True),
         tenant_id=tenant_id,
     )
 

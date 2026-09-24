@@ -1279,6 +1279,13 @@ export const api = {
       const { data } = await apiClient.post<WidgetTokenResponse>(`/tenants/${tenantId}/widget-token`);
       return data;
     },
+    // Token efímero (2 h, claim test firmado) para "Probar chat". NO toca el
+    // widget-token del tenant: antes el tester lo regeneraba en cada apertura
+    // e invalidaba el código instalado en la web del cliente.
+    chatTesterToken: async (tenantId: string): Promise<WidgetTokenResponse> => {
+      const { data } = await apiClient.post<WidgetTokenResponse>(`/tenants/${tenantId}/chat-tester-token`);
+      return data;
+    },
     // Token ACTUAL (descifrado) sin regenerar. 404 si fue generado antes de
     // guardarse cifrado (hay que regenerar una vez).
     getWidgetToken: async (tenantId: string): Promise<WidgetTokenResponse> => {
