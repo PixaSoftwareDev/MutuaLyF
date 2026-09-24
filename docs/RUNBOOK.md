@@ -390,6 +390,151 @@ curl -X POST https://intellix.com.ar/api/v1/tenants/$TID/activate \
 
 ---
 
+## 13. Crash-loop tras deploy (cadena de migraciones rota)
+
+El backend corre `alembic upgrade` **en el arranque**: una revisión cuyo
+`down_revision` no existe en esa rama = el contenedor no levanta = ambiente
+caído. El 2026-08-23 tumbó prod ~6 minutos.
+
+### Diagnóstico
+
+```bash
+docker logs --tail 50 ia_backend | grep -iE "KeyError|alembic|revision"
+# Un KeyError con un hash de revisión = cadena rota.
+
+# Revisión aplicada en la base vs. archivos de la rama:
+docker exec ia_postgres sh -c 'psql -U $POSTGRES_USER -d $POSTGRES_DB -tAc   "select version_num from alembic_version"'
+ls backend/db/migrations/versions/ | tail -5
+```
+
+### Fix
+
+1. **No reintentar el deploy**: vuelve a crashear igual.
+2. Volver al commit anterior (`git reset --hard <sha previo>`) y reiniciar. El
+   ambiente vuelve en el tiempo de un restart.
+3. Recién después, arreglar el `down_revision` de la migración nueva para que
+   encadene desde la última revisión **que existe en la rama destino**.
+
+### Por qué pasa
+
+Las cadenas divergen: las migraciones 052-054 (conectores) viven SOLO en
+`dev-local`. En `main`/`dev` la cadena va …→051→055. Una migración nueva debe
+encadenar desde el último común, y al pasarla de rama hay que verificar que su
+`down_revision` exista allá.
+
+---
+
+## 14. El sitio se cayó tras un `docker compose up` (segundo nginx)
+
+Prod se levanta con **cuatro** archivos de compose. Con menos, Docker levanta
+un **segundo nginx** que pelea por los puertos 80/443 con el que está sirviendo
+el sitio, arranca jaeger/pgadmin/portainer y el init que descarga ~2,5 GB de
+modelos ya eliminados, y pierde los techos de memoria.
+
+### Diagnóstico
+
+```bash
+docker ps -a | grep -iE "nginx|jaeger|pgadmin|portainer|tei"
+# Dos contenedores de nginx, o jaeger/pgadmin/portainer corriendo = es esto.
+```
+
+### Fix
+
+```bash
+cd /opt/mutualyf
+docker rm -f <el nginx nuevo> ia_jaeger ia_pgadmin ia_portainer ia_tei_model_init
+docker start ia_nginx     # si el original quedó detenido por el conflicto
+curl -s -o /dev/null -w '%{http_code}
+' https://app.intellix.com.ar/login
+```
+
+### Prevención (ya aplicada, 2026-09-18)
+
+El `.env` de prod define `COMPOSE_FILE` con los cuatro archivos: cualquier
+`docker compose` en ese directorio toma la configuración correcta. `deploy.sh`
+también los pasa. **No quitar esa línea del `.env`.**
+
+---
+
+## 15. El widget de un cliente devuelve 401
+
+Síntoma: el widget carga y muestra el branding, pero al abrir la conversación
+el backend responde 401 con `{"detail":"Widget token revocado o inválido"}`.
+El afiliado ve un widget que no arranca. Caso real: `galo` estuvo ~5 semanas
+así sin que nadie se enterara (2026-08-10 → 2026-09-17).
+
+### Diagnóstico
+
+```bash
+# 1. Hash que espera la base
+docker exec ia_postgres sh -c 'psql -U $POSTGRES_USER -d $POSTGRES_DB -tAc   "select left(widget_token_hash,16), widget_enabled from tenants where id='TENANT'"'
+
+# 2. Token que tiene puesto el sitio del cliente: buscar el JWT en el HTML o
+#    en el bundle JS, decodificar su payload (tenant_id, exp) y comparar su
+#    sha256 con el hash de arriba.
+```
+
+Dos causas posibles:
+- **Hashes distintos** → alguien regeneró el token en el panel y el sitio quedó
+  con el viejo. Al regenerar, el anterior deja de valer **al instante**.
+- **`exp` vencido** → los tokens emitidos ANTES del 2026-09-24 duraban
+  `JWT_WIDGET_EXPIRE_DAYS` (90 días) aunque el código los llamara "no
+  expirantes". Vencimientos de esa tanda: mutualyf 2026-11-02, galo
+  2026-11-08, intellix 2026-11-30 (salvo que se hayan regenerado después: hasta
+  el 2026-09-24 "Probar chat" TAMBIÉN regeneraba el token en cada clic).
+  Desde el 2026-09-24 la vida es fija en código: 10 años
+  (`WIDGET_TOKEN_LIFETIME_DAYS`), sin depender del `.env`.
+
+### Fix
+
+Copiar el token vigente desde el panel (ficha del tenant → widget) y
+actualizarlo en el sitio del cliente. **No regenerarlo**: eso invalida el que
+esté funcionando en cualquier otro lado.
+
+### Prevención
+
+Ya resuelto en código (2026-09-24): los tokens nuevos duran 10 años y la
+revocación sigue por hash, que es lo que realmente protege. Los tokens viejos
+no se pueden alargar (la fecha va firmada): hay que regenerar UNA vez desde
+Canales y reinstalar el código en el sitio del cliente, coordinado con él.
+"Probar chat" ya no regenera nada.
+
+---
+
+## 16. OpenAI rechaza (429 / sin cuota)
+
+El bot responde *"Lo siento, el servicio de IA no está disponible en este
+momento..."*. Es una degradación elegante: el usuario no ve un error crudo,
+pero no obtiene respuesta. Precedente real: 2026-07-10, una auditoría
+concurrente agotó la cuota y prod quedó degradado hasta recargar crédito.
+
+### Diagnóstico
+
+```bash
+docker logs --since 30m ia_backend | grep -iE "rate_limit|insufficient_quota|RateLimitError"
+
+# Límites y saldo restante de la cuenta (lee las cabeceras, no gasta casi nada):
+docker exec ia_backend python -c "
+import httpx; from core.config import settings as s
+r = httpx.post('https://api.openai.com/v1/chat/completions',
+    headers={'Authorization': 'Bearer ' + s.openai_api_key},
+    json={'model': s.openai_model, 'messages': [{'role':'user','content':'ok'}], 'max_tokens': 1}, timeout=30)
+print(r.status_code, {k: v for k, v in r.headers.items() if 'ratelimit' in k.lower()})"
+```
+
+Techo medido de la cuenta (2026-09-18): **10.000 pedidos/min y 200.000
+tokens/min**. Cada consulta usa entre 3.000 y 6.000 tokens → el límite real
+está cerca de **30-60 consultas por minuto**.
+
+### Fix
+
+1. Recargar crédito / subir el tier en la cuenta de OpenAI.
+2. Mientras tanto, no correr evaluaciones internas (`run_quality_suite.py`,
+   `run_regresion_corpus.py`, `rag_eval.py`): compiten por la misma cuota.
+
+
+---
+
 **Cuando termines un incidente:**
 1. Anotá en un log qué pasó, cómo lo solucionaste y cuánto tardó.
 2. Si la causa raíz es sistémica, abrí un task para el fix permanente.

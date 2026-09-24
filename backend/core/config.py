@@ -194,6 +194,9 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 60
     jwt_refresh_expire_days: int = 30
+    # Legacy (2026-09-24): ya NO gobierna la vida del widget-token, que es fija
+    # en core/security.py (WIDGET_TOKEN_LIFETIME_DAYS = 10 años). Se conserva
+    # para que un .env que aún la defina no rompa el arranque.
     jwt_widget_expire_days: int = 90
 
     # ── Login brute-force protection ──────────────────────────────────────────

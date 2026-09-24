@@ -54,14 +54,18 @@ class TestJWTCreation:
         assert payload["tenant_id"] == "acme"
         assert "sub" not in payload or payload.get("sub") is None or payload.get("sub") == ""
 
-    def test_widget_token_expires_in_90_days(self):
+    def test_widget_token_lives_ten_years_regardless_of_env(self):
+        """El código instalado en la web del cliente no puede morir solo: la vida
+        es fija (10 años) y NO depende de JWT_WIDGET_EXPIRE_DAYS (90 en los .env)."""
         from datetime import datetime, timezone
+        from core.security import WIDGET_TOKEN_LIFETIME_DAYS
         token = create_widget_token("acme")
         payload = jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
         exp = datetime.fromtimestamp(payload["exp"], tz=timezone.utc)
         iat = datetime.fromtimestamp(payload["iat"], tz=timezone.utc)
         diff_days = (exp - iat).days
-        assert diff_days == settings.jwt_widget_expire_days
+        assert diff_days == WIDGET_TOKEN_LIFETIME_DAYS >= 3650
+        assert diff_days > settings.jwt_widget_expire_days
 
 
 class TestChatTesterToken:

@@ -77,8 +77,16 @@ def create_refresh_token(user_id: str, tenant_id: str) -> str:
     )
 
 
+# Vida del token del widget embebido: 10 años = "sin vencimiento" en la práctica.
+# FIJA en código, a propósito: antes salía de JWT_WIDGET_EXPIRE_DAYS (90 días en
+# todos los .env) y el globo instalado en la web del cliente moría a los 90 días
+# sin aviso (detectado 2026-09-24). Un .env viejo ya no puede reintroducirlo.
+# La seguridad no depende de la fecha sino de la revocación por hash en DB.
+WIDGET_TOKEN_LIFETIME_DAYS = 3650
+
+
 def create_widget_token(tenant_id: str) -> str:
-    """Non-expiring read-only token for the embeddable widget.
+    """Token de larga vida para el widget embebible (ver WIDGET_TOKEN_LIFETIME_DAYS).
 
     El widget se embebe en sitios externos del cliente; renovarlo cada N días
     sería un dolor. La revocación se hace por hash en DB (widget_token_hash):
@@ -89,7 +97,7 @@ def create_widget_token(tenant_id: str) -> str:
         "tenant_id": tenant_id,
         "scope": TokenScope.WIDGET.value,
         "iat": now,
-        "exp": now + timedelta(days=settings.jwt_widget_expire_days),
+        "exp": now + timedelta(days=WIDGET_TOKEN_LIFETIME_DAYS),
     }
     return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
