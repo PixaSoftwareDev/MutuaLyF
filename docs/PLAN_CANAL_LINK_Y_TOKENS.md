@@ -54,11 +54,14 @@ devolver UNA cabeza. Alternativa sin migración: el link comparte
    página de prueba, canales apagados.
 4. Prod (`main`): solo con OK de ambos.
 
-## Verificación pendiente en prod (lectura)
+## Widget en la web del cliente
 
-Comparar el token del widget instalado en la web del cliente contra
-`widget_token_hash`. Si no coinciden, el widget ya está roto por P1 y hay
-que avisarles que reinstalen el código después del deploy.
+Confirmado por Alejo el 2026-09-24: la mutual **todavía no instaló** el
+widget en su web. No hay nada roto del lado del cliente; cuando lo instalen
+(después del deploy) el token que copien ya será de 10 años. Hallazgo
+adicional del mismo día: el widget-token vencía a los 90 días
+(`JWT_WIDGET_EXPIRE_DAYS`); ahora la vida es fija en código (commit
+`fix(widget)`).
 
 ## Lo que NO se toca
 

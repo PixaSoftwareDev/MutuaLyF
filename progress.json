@@ -469,12 +469,13 @@
       "P3: channel='link' persistido y etiquetado en bandeja/contexto/feedback/historial/metricas",
       "P4: migracion 056 chat_link_enabled + PUT /admin/channels/link + tarjeta 'Chat por link' + ruta corta /c/{tenant} (rewrite + middleware)",
       "P5: renovacion automatica del token publico ante 401",
-      "P6: rate limit por IP en GET /public/chat-token"
+      "P6: rate limit por IP en GET /public/chat-token",
+      "Widget-token: vida fija de 10 anios en codigo (antes 90 dias por .env)"
     ],
     "pendiente": [
       "P7 allowlist de dominios del widget (opcional)",
       "Pruebas de Alejo en dev-local",
-      "Verificar en prod si el widget instalado en la web del cliente coincide con widget_token_hash"
+      "Staging y prod con acuerdo; en prod regenerar el widget-token una vez antes de que la mutual instale el widget (aun no lo instalo, 2026-09-24)"
     ]
   }
 }
