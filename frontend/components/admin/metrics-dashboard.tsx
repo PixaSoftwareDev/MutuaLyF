@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { TrendingUp, TrendingDown, Globe, Smartphone } from "lucide-react";
+import { TrendingUp, TrendingDown, Globe, Smartphone, Link2 } from "lucide-react";
 import { api, type TenantMetrics } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { PageShell } from "@/components/layout/page-shell";
@@ -270,8 +270,9 @@ function Dashboard({ m, view, range, setRange }: { m: TenantMetrics; view: ViewK
               <SplitBar
                 label="Por dónde llegaron"
                 segments={[
-                  { label: "Widget",   value: m.conversations.widget,   color: "bg-info",    dot: "bg-info",    icon: Globe },
-                  { label: "WhatsApp", value: m.conversations.whatsapp, color: "bg-success", dot: "bg-success", icon: Smartphone },
+                  { label: "Widget",        value: m.conversations.widget,     color: "bg-info",    dot: "bg-info",    icon: Globe },
+                  { label: "Chat por link", value: m.conversations.link ?? 0,  color: "bg-primary", dot: "bg-primary", icon: Link2 },
+                  { label: "WhatsApp",      value: m.conversations.whatsapp,   color: "bg-success", dot: "bg-success", icon: Smartphone },
                 ]}
               />
             </>
@@ -405,6 +406,7 @@ function Dashboard({ m, view, range, setRange }: { m: TenantMetrics; view: ViewK
               label="Por dónde llegaron"
               segments={[
                 { label: "Widget", value: m.conversations.widget, color: "bg-info", dot: "bg-info", icon: Globe },
+                { label: "Chat por link", value: m.conversations.link ?? 0, color: "bg-primary", dot: "bg-primary", icon: Link2 },
                 { label: "WhatsApp", value: m.conversations.whatsapp, color: "bg-success", dot: "bg-success", icon: Smartphone },
               ]}
             />

@@ -293,7 +293,7 @@ export interface ConversationRow {
   // Momento en que entró a la cola de operador. El "tiempo esperando" se mide
   // desde acá (no desde last_message_at). null en conversaciones que nunca pidieron operador.
   handoff_requested_at: string | null;
-  channel?: string | null;      // 'widget' | 'whatsapp'
+  channel?: string | null;      // 'widget' | 'link' | 'whatsapp'
   external_id?: string | null;  // wa_id (teléfono) cuando channel='whatsapp'
 }
 
@@ -678,7 +678,7 @@ export interface TenantMetrics {
   docs: { total: number; ready: number; failed: number; processing: number; storage_bytes: number };
   quality: { passed: number; pending: number; skipped: number };
   conversations: {
-    total: number; widget: number; whatsapp: number;
+    total: number; widget: number; link?: number; whatsapp: number;
     handoffs: number; handoff_rate: number | null; bot_resolved_pct: number | null;
     avg_resolution_seconds: number | null;
     prev_total: number; avg_wait_seconds: number | null;
@@ -1583,6 +1583,9 @@ export const api = {
     toggleWidget: async (enabled: boolean): Promise<void> => {
       await apiClient.put("/admin/channels/widget", { enabled });
     },
+    toggleChatLink: async (enabled: boolean): Promise<void> => {
+      await apiClient.put("/admin/channels/link", { enabled });
+    },
     saveWhatsApp: async (payload: {
       phone_number_id: string;
       waba_id?: string | null;
@@ -1607,6 +1610,9 @@ export const api = {
 
 export interface ChannelsState {
   widget: { enabled: boolean; has_token: boolean };
+  // Canal "Chat por link" (/c/{tenant}). Opcional por compat con backends
+  // que aún no exponen el flag.
+  link?: { enabled: boolean };
   whatsapp: null | {
     configured: boolean;
     enabled: boolean;

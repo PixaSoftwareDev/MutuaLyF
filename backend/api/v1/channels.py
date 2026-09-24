@@ -136,7 +136,7 @@ async def get_channels(current_user: CurrentUser = Depends(require_admin_or_supe
     tenant_id = _own_tenant(current_user)
     async with get_pg_session() as session:
         tenant = (await session.execute(text(
-            "SELECT widget_enabled, widget_token_hash FROM public.tenants WHERE id = :tid"
+            "SELECT widget_enabled, widget_token_hash, chat_link_enabled FROM public.tenants WHERE id = :tid"
         ), {"tid": tenant_id})).mappings().fetchone()
         wa_row = (await session.execute(text("""
             SELECT phone_number_id, waba_id, display_phone, verify_token,
@@ -152,6 +152,12 @@ async def get_channels(current_user: CurrentUser = Depends(require_admin_or_supe
         "widget": {
             "enabled": bool(tenant["widget_enabled"]),
             "has_token": tenant["widget_token_hash"] is not None,
+        },
+        # Canal "Chat por link" (/c/{tenant}): interruptor propio (migración 056).
+        # NULL (base sin la columna seteada) se trata como habilitado, igual que
+        # el criterio fail-open del endpoint público de tokens.
+        "link": {
+            "enabled": tenant["chat_link_enabled"] is not False,
         },
         "whatsapp": None if not wa_row else {
             "configured": True,
@@ -187,6 +193,28 @@ async def toggle_widget(
         tenant_id=tenant_id, actor_id=current_user.user_id, actor_email=current_user.email,
         actor_role=current_user.role.value, action="config.channel_update",
         resource="widget", detail={"enabled": body.enabled}, request=request,
+    ))
+    return {"enabled": body.enabled}
+
+
+@router.put("/admin/channels/link")
+async def toggle_chat_link(
+    body: WidgetToggleRequest,
+    request: Request,
+    current_user: CurrentUser = Depends(require_admin_or_super),
+):
+    """Activa/pausa el canal "Chat por link" (/c/{tenant}). Con el canal pausado
+    el endpoint público deja de emitir tokens para ese canal y las conversaciones
+    nuevas por link reciben 403; las del widget embebido no se ven afectadas."""
+    tenant_id = _own_tenant(current_user)
+    async with get_pg_session() as session:
+        await session.execute(text(
+            "UPDATE public.tenants SET chat_link_enabled = :en WHERE id = :tid"
+        ), {"en": body.enabled, "tid": tenant_id})
+    fire_and_log(audit(
+        tenant_id=tenant_id, actor_id=current_user.user_id, actor_email=current_user.email,
+        actor_role=current_user.role.value, action="config.channel_update",
+        resource="chat_link", detail={"enabled": body.enabled}, request=request,
     ))
     return {"enabled": body.enabled}
 

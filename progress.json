@@ -453,7 +453,7 @@
     "nota": "test_cross_tenant email domains 403 falla preexistente en dev-local (deuda rama conectores). Drift conocido en VPS prod: docker-compose.yml y nginx.prod.conf modificados localmente (previo a hoy)."
   },
   "session_2026_09_24_canal_link": {
-    "status": "in_progress",
+    "status": "dev_local_listo_para_pruebas",
     "plan": "docs/PLAN_CANAL_LINK_Y_TOKENS.md",
     "hallazgo": "'Probar chat' regenera el widget token del tenant en cada clic (rompe el widget instalado en la web del cliente); el link del tester lleva un token de 90 dias en la URL.",
     "decisiones": [
@@ -463,6 +463,18 @@
       "Widget embebido conserva su clave semipublica (hash revocable + rate limit); allowlist de dominios opcional",
       "Token publico del link se renueva solo ante 401 manteniendo widget_session_id"
     ],
-    "ambientes": "solo dev-local hasta pruebas de Alejo; staging y prod con acuerdo explicito"
+    "ambientes": "solo dev-local hasta pruebas de Alejo; staging y prod con acuerdo explicito",
+    "hecho": [
+      "P1/P2: tester con token efimero (claim test firmado), sin token en URL, no rota widget-token",
+      "P3: channel='link' persistido y etiquetado en bandeja/contexto/feedback/historial/metricas",
+      "P4: migracion 056 chat_link_enabled + PUT /admin/channels/link + tarjeta 'Chat por link' + ruta corta /c/{tenant} (rewrite + middleware)",
+      "P5: renovacion automatica del token publico ante 401",
+      "P6: rate limit por IP en GET /public/chat-token"
+    ],
+    "pendiente": [
+      "P7 allowlist de dominios del widget (opcional)",
+      "Pruebas de Alejo en dev-local",
+      "Verificar en prod si el widget instalado en la web del cliente coincide con widget_token_hash"
+    ]
   }
 }

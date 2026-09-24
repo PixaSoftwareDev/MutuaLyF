@@ -16,6 +16,8 @@ Flow:
 import logging
 import uuid
 
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import text
@@ -48,6 +50,10 @@ class StartConversationRequest(BaseModel):
     # mandarla) sino del claim firmado del token del tester. Se acepta el campo
     # para no romper clientes viejos, pero se ignora.
     is_test: bool = Field(default=False)
+    # Por dónde entró: 'widget' (globo embebido, default y compat) o 'link'
+    # (página /chat compartida por URL). WhatsApp no pasa por acá. Solo valores
+    # conocidos: la columna es texto libre y no queremos basura en los filtros.
+    channel: Literal["widget", "link"] = Field(default="widget")
 
 
 class SendMessageRequest(BaseModel):
@@ -93,21 +99,11 @@ async def start_conversation(
     # /tenants/{id}/chat-tester-token, requiere sesión de admin). Un afiliado
     # anónimo con token público no puede saltear el flag: `is_test` sale del
     # token, nunca del body.
-    # try/except: tolera bases que aún no corrieron la migración 023.
+    # Cada canal tiene su interruptor (widget_enabled / chat_link_enabled).
     is_test = widget_user.is_test
     if not is_test:
-        try:
-            async with get_pg_session() as gsession:
-                row = (await gsession.execute(
-                    text("SELECT widget_enabled FROM public.tenants WHERE id = :tid"),
-                    {"tid": tenant_id},
-                )).fetchone()
-            if row is not None and row[0] is False:
-                raise HTTPException(status_code=403, detail="El canal de chat web está desactivado.")
-        except HTTPException:
-            raise
-        except Exception:
-            logger.warning("widget_enabled_check_failed tenant=%s (¿falta migración 023?)", tenant_id)
+        from api.v1.operator_panel import assert_chat_channel_enabled
+        await assert_chat_channel_enabled(tenant_id, body.channel)
 
     async with get_pg_session(tenant_id) as session:
         # Advisory lock por widget_session_id para serializar requests
@@ -192,8 +188,8 @@ async def start_conversation(
         afiliado_ip = forwarded.split(",")[0].strip() if forwarded else (request.client.host if request.client else None)
         await session.execute(text("""
             INSERT INTO conversaciones
-              (id, widget_session_id, sector_id, afiliado_nombre, afiliado_email, afiliado_ip, is_test)
-            VALUES (:id, :sid, :sector_id, :nombre, :email, :ip, :is_test)
+              (id, widget_session_id, sector_id, afiliado_nombre, afiliado_email, afiliado_ip, is_test, channel)
+            VALUES (:id, :sid, :sector_id, :nombre, :email, :ip, :is_test, :channel)
         """), {
             "id": conv_id,
             "sid": body.widget_session_id,
@@ -202,6 +198,7 @@ async def start_conversation(
             "email": body.afiliado_email,
             "ip": afiliado_ip,
             "is_test": is_test,
+            "channel": body.channel,
         })
 
         # Insert greeting as first bot message so it survives polling

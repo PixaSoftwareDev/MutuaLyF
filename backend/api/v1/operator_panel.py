@@ -7,12 +7,13 @@ Admins see all sectors and can transfer conversations between them.
 import logging
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, EmailStr, Field, field_validator
 from sqlalchemy import text
 
 from core.database import get_pg_session
+from core.rate_limit import check_widget_rate_limit
 from core.security import CurrentUser, Role, require_admin, require_operator, get_widget_or_chat_user, create_public_chat_token
 from core.tenant import get_tenant_id
 from services.handoff import ConvStatus, invalidate_config_cache
@@ -973,23 +974,54 @@ async def operator_presence(
 
 # ── Public chat endpoints (no auth required) ──────────────────────────────────
 
-@router.get("/public/chat-token")
-async def public_chat_token(tenant_id: str = Depends(get_tenant_id)):
-    """Issue a widget token for the public /chat page.
-    Only requires X-Tenant-ID header — no user login needed."""
+# Canales que abren conversación con token público/efímero y su interruptor
+# en public.tenants. 'link' = página /chat compartida por URL (/c/{tenant});
+# 'widget' = globo embebido (widget.js) y compat con clientes que no mandan canal.
+_CHAT_CHANNEL_FLAGS = {"widget": "widget_enabled", "link": "chat_link_enabled"}
+
+
+async def assert_chat_channel_enabled(tenant_id: str, channel: str) -> None:
+    """403 si el canal está pausado desde Configuración → Canales.
+
+    `is False` (no `== False`): un NULL —tenant sin la columna seteada— no es
+    False, así que se trata como habilitado (fail-open conservador). Tolera
+    bases que aún no corrieron la migración de la columna (warning, no 500).
+    """
+    flag = _CHAT_CHANNEL_FLAGS.get(channel, "widget_enabled")
+    try:
+        async with get_pg_session() as session:
+            row = (await session.execute(
+                text(f"SELECT {flag} FROM public.tenants WHERE id = :tid"),
+                {"tid": tenant_id},
+            )).fetchone()
+    except Exception:
+        logger.warning("chat_channel_flag_check_failed tenant=%s flag=%s (¿falta migración?)", tenant_id, flag)
+        return
+    if row is not None and row[0] is False:
+        raise HTTPException(
+            status_code=403,
+            detail="El chat por link está pausado." if channel == "link" else "El canal de chat web está desactivado.",
+        )
+
+
+@router.get("/public/chat-token", dependencies=[Depends(check_widget_rate_limit)])
+async def public_chat_token(
+    tenant_id: str = Depends(get_tenant_id),
+    channel: str = Query("widget", pattern="^(widget|link)$"),
+):
+    """Emite un token efímero (2 h) para la página pública /chat.
+    Solo requiere X-Tenant-ID — sin login. Rate limit por IP (mismo que los
+    mensajes del widget): es un endpoint abierto a internet.
+    `channel` decide qué interruptor se respeta: 'link' (/c/{tenant}) o
+    'widget' (default, compat con clientes viejos)."""
     async with get_pg_session() as session:
         row = await session.execute(
-            text("SELECT widget_enabled FROM tenants WHERE id = :tid AND status != 'suspended'"),
+            text("SELECT 1 FROM tenants WHERE id = :tid AND status != 'suspended'"),
             {"tid": tenant_id},
         )
-        found = row.fetchone()
-        if not found:
+        if not row.fetchone():
             raise HTTPException(status_code=404, detail="Tenant not found")
-        # Canal de chat web desactivado desde el panel → no emitir token público.
-        # `is False` (no `== False`): un NULL —tenant sin la columna seteada— no
-        # es False, así que se trata como habilitado (fail-open conservador).
-        if found[0] is False:
-            raise HTTPException(status_code=403, detail="El canal de chat web está desactivado.")
+    await assert_chat_channel_enabled(tenant_id, channel)
     return {"widget_token": create_public_chat_token(tenant_id), "tenant_id": tenant_id}
 
 

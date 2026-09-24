@@ -7,7 +7,7 @@ import {
   Inbox, FileText, Settings, LogOut,
   Home, Building2, GitMerge, Users, MessageSquareShare, ClipboardList, Bot, Cpu, Network, X, Layers, BarChart3,
   MessageSquare, Clock, UserCheck, Archive, UserRound, ChevronDown, Globe, Database, Grid3x3, Pin, PinOff, ShieldCheck, Smile,
-  Bug, HardDrive,
+  Bug, HardDrive, Link2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CONNECTORS_UI_ENABLED, FEEDBACK_UI_ENABLED } from "@/lib/features";
@@ -184,6 +184,7 @@ export function WhatsAppIcon({ className }: { className?: string }) {
 export const CANAL_LINKS = [
   { href: "/admin/settings/canales?canal=all",      label: "Todos",           icon: Grid3x3 },
   { href: "/admin/settings/canales?canal=widget",   label: "Widget web",      icon: Globe },
+  { href: "/admin/settings/canales?canal=link",     label: "Chat por link",   icon: Link2 },
   { href: "/admin/settings/canales?canal=whatsapp", label: "WhatsApp",        icon: WhatsAppIcon },
   // Oculto por flag de build cuando el ambiente aún no valida conectores
   ...(CONNECTORS_UI_ENABLED ? [
@@ -798,6 +799,7 @@ function SystemViews({ focusRing, activeHref, onOpenChatTester }: {
   const CANALES = CANAL_LINKS.map(c => {
     const linkCanal = c.href.includes("canal=all") ? "all"
       : c.href.includes("canal=whatsapp") ? "whatsapp"
+      : c.href.includes("canal=link") ? "link"
       : c.href.includes("canal=widget") ? "widget" : null;
     return {
       ...c,

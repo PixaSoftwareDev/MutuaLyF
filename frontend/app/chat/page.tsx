@@ -488,7 +488,9 @@ function friendlyChatError(status: number | null, isTest: boolean): string {
   if (status === 401 || status === 403) {
     return isTest
       ? "No se pudo abrir el chat de prueba: tu sesión del panel no está activa o venció. Iniciá sesión en el panel y volvé a tocar «Probar chat»."
-      : "El chat no está disponible en este momento. Recargá la página para intentar de nuevo.";
+      : status === 403
+        ? "Este chat no está disponible por el momento."
+        : "El chat no está disponible en este momento. Recargá la página para intentar de nuevo.";
   }
   if (status === 429) return "Se alcanzó el límite de consultas por ahora. Esperá unos minutos e intentá de nuevo.";
   if (status !== null && status >= 500) return "El servicio está teniendo un problema temporal. Intentá de nuevo en unos minutos.";
@@ -582,7 +584,9 @@ function ChatInner() {
         throw Object.assign(new Error("tester_token_failed"), { status });
       }
     }
-    const r = await fetch(`${API_BASE}/api/v1/public/chat-token`, { headers: { "X-Tenant-ID": tenantId } });
+    // channel=link: esta página compartida por URL es el canal "Chat por link",
+    // con su propio interruptor en Configuración → Canales.
+    const r = await fetch(`${API_BASE}/api/v1/public/chat-token?channel=link`, { headers: { "X-Tenant-ID": tenantId } });
     if (!r.ok) throw Object.assign(new Error("chat_token_failed"), { status: r.status });
     return (await r.json()).widget_token as string;
   }
@@ -760,7 +764,9 @@ function ChatInner() {
         // Sin sector: el backend usa el default del tenant. El área real se
         // decide al derivar (confirm-handoff la re-etiqueta). La marca de
         // prueba ya no viaja acá: va firmada dentro del token del tester.
-        body: JSON.stringify({ widget_session_id: sessionId.current, sector_id: selectedSector?.id ?? null }),
+        // Canal: 'link' para la página compartida; el tester del panel queda
+        // como 'widget' (prueba el mismo bot, no es un canal aparte).
+        body: JSON.stringify({ widget_session_id: sessionId.current, sector_id: selectedSector?.id ?? null, channel: isTest ? "widget" : "link" }),
       });
       if (!r.ok) {
         // Pantalla completa con explicación accionable, no una burbuja "HTTP 401".

@@ -160,7 +160,7 @@ async def get_metrics(
 
     # 4. Conversaciones — canal, derivaciones a humano, resolución (30 días) ──────
     conversations = {
-        "total": 0, "widget": 0, "whatsapp": 0,
+        "total": 0, "widget": 0, "link": 0, "whatsapp": 0,
         "handoffs": 0, "handoff_rate": None, "bot_resolved_pct": None,
         "avg_resolution_seconds": None,
         "prev_total": 0, "avg_wait_seconds": None,
@@ -175,6 +175,7 @@ async def get_metrics(
                 SELECT
                     COUNT(*)::int                                                   AS total,
                     COUNT(*) FILTER (WHERE channel='widget')::int                   AS widget,
+                    COUNT(*) FILTER (WHERE channel='link')::int                     AS link,
                     COUNT(*) FILTER (WHERE channel='whatsapp')::int                 AS whatsapp,
                     COUNT(*) FILTER (WHERE handoff_requested_at IS NOT NULL)::int    AS handoffs,
                     AVG(EXTRACT(EPOCH FROM (closed_at - created_at)))
@@ -189,6 +190,7 @@ async def get_metrics(
                 conversations.update({
                     "total": total,
                     "widget": int(conv_row["widget"]),
+                    "link": int(conv_row["link"]),
                     "whatsapp": int(conv_row["whatsapp"]),
                     "handoffs": handoffs,
                     "handoff_rate": round(handoffs / total, 3),

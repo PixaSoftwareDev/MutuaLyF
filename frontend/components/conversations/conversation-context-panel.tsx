@@ -96,7 +96,7 @@ export function ConversationContextPanel({ detail, loading, onCollapse }: {
       </PanelSection>
 
       <PanelSection title="Conversación">
-        <PanelRow label="Canal"    value={isWhatsApp ? "WhatsApp" : "Widget web"} />
+        <PanelRow label="Canal"    value={isWhatsApp ? "WhatsApp" : detail.channel === "link" ? "Chat por link" : "Widget web"} />
         <PanelRow label="Sector"   value={detail.sector_nombre} />
         <PanelRow label="Operador" value={detail.operator_name} />
         <PanelRow label="Iniciada" value={fmtWhen(detail.created_at)} />

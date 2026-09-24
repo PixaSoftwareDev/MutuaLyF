@@ -10,7 +10,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Loader2, Copy, Check, CheckCircle2, RefreshCw, Globe, MessageCircle,
   PlugZap, Pause, Play, Trash2, AlertTriangle, MoreVertical, Pencil, Eye, EyeOff, Lock,
-  Database, Code2, X,
+  Database, Code2, X, Link2, ExternalLink, Send,
 } from "lucide-react";
 import { api, type ChannelsState } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
@@ -175,7 +175,7 @@ function ChannelsSplit({ channels, refresh }: { channels: ChannelsState; refresh
     <div className="space-y-4">
       {/* Mobile: selector Widget/WhatsApp (desktop usa el panel del Sistema). */}
       <div className="flex rounded-lg bg-muted/60 p-0.5 lg:hidden">
-        {([["widget", "Widget web"], ["whatsapp", "WhatsApp"]] as const).map(([key, label]) => (
+        {([["widget", "Widget web"], ["link", "Chat por link"], ["whatsapp", "WhatsApp"]] as const).map(([key, label]) => (
           <Link
             key={key}
             href={canalHref(key)}
@@ -190,7 +190,9 @@ function ChannelsSplit({ channels, refresh }: { channels: ChannelsState; refresh
       </div>
       {canal === "widget"
         ? <WidgetSection channels={channels} refresh={refresh} />
-        : <WhatsAppCard channels={channels} onChanged={refresh} />}
+        : canal === "link"
+          ? <ChatLinkCard channels={channels} onChanged={refresh} />
+          : <WhatsAppCard channels={channels} onChanged={refresh} />}
     </div>
   );
 }
@@ -200,6 +202,7 @@ function ChannelsSplit({ channels, refresh }: { channels: ChannelsState; refresh
 function ChannelsOverview({ channels }: { channels: ChannelsState }) {
   const wa = channels.whatsapp;
   const widgetState = channels.widget.enabled ? { tone: "success" as const, label: "Activo" } : { tone: "muted" as const, label: "Desactivado" };
+  const linkState = channels.link?.enabled !== false ? { tone: "success" as const, label: "Activo" } : { tone: "muted" as const, label: "Pausado" };
   const waState = !wa ? { tone: "muted" as const, label: "Sin configurar" }
     : wa.enabled ? { tone: "success" as const, label: "Activo" }
     : { tone: "warning" as const, label: "Pendiente" };
@@ -257,6 +260,13 @@ function ChannelsOverview({ channels }: { channels: ChannelsState }) {
 
       {/* ── Otros canales ── */}
       <div className="grid gap-4 sm:grid-cols-2">
+        <ChannelMiniCard
+          icon={<span className="flex h-10 w-10 items-center justify-center rounded-xl bg-muted text-muted-foreground"><Link2 className="h-5 w-5" /></span>}
+          title="Chat por link"
+          desc="Un link que abre el asistente en una ventana. Compartilo por WhatsApp, mail o redes."
+          state={linkState}
+          href="/admin/settings/canales?canal=link"
+        />
         <ChannelMiniCard
           icon={<span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#25D366] text-white"><WhatsAppIcon className="h-5 w-5" /></span>}
           title="WhatsApp"
@@ -472,6 +482,99 @@ function WidgetCard({ channels, onChanged }: { channels: ChannelsState; onChange
       <p className="text-center text-xs text-muted-foreground">
         ¿No sabés dónde pegarlo? Pedile a quien administra tu sitio que lo agregue antes del cierre del <code className="rounded bg-muted px-1 font-mono">&lt;/body&gt;</code>.
       </p>
+    </div>
+  );
+}
+
+// ── Card: Chat por link (/c/{tenant}) ────────────────────────────────────────
+
+/** Canal "Chat por link": la misma página del asistente, compartida por URL.
+ *  No hay nada que instalar — la tarjeta es la URL, copiar/abrir y el
+ *  interruptor propio (independiente del widget embebido). */
+function ChatLinkCard({ channels, onChanged }: { channels: ChannelsState; onChanged: () => void }) {
+  const { tenantId } = useAuthStore();
+  const enabled = channels.link?.enabled !== false;
+  const [copied, setCopied] = useState(false);
+  // window no existe en SSR: el origen se resuelve al montar.
+  const [origin, setOrigin] = useState("");
+  useEffect(() => { setOrigin(window.location.origin); }, []);
+  const url = origin && tenantId ? `${origin}/c/${tenantId}` : "";
+
+  const toggleM = useMutation({
+    mutationFn: () => api.channels.toggleChatLink(!enabled),
+    onSuccess: () => {
+      onChanged();
+      toast({ title: !enabled ? "Chat por link activado" : "Chat por link pausado", variant: "success" });
+    },
+    onError: (err: unknown) => toast({ title: "Error al cambiar el estado", description: extractErrorMessage(err, "Intentá de nuevo."), variant: "destructive" }),
+  });
+
+  const copy = () => {
+    if (!url) return;
+    navigator.clipboard.writeText(url);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+    toast({ title: "Link copiado", variant: "success" });
+  };
+
+  return (
+    <div className="mx-auto w-full max-w-6xl space-y-5">
+      <Card className="overflow-hidden rounded-2xl">
+        <div className="p-6 xl:p-9">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="text-lg font-semibold tracking-tight text-foreground">Compartí el asistente con un link</h3>
+            <StatePill tone={enabled ? "success" : "muted"}>{enabled ? "Activo" : "Pausado"}</StatePill>
+          </div>
+          <p className="mt-1.5 max-w-lg text-sm leading-relaxed text-muted-foreground">
+            Quien abra este link habla con el mismo asistente y los mismos operadores, sin instalar nada.
+            Sirve para WhatsApp, mail, redes, un código QR o un botón en tu sitio.
+          </p>
+
+          <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:items-center">
+            <div className="flex min-w-0 flex-1 items-center gap-2 rounded-xl border bg-muted/40 px-3 py-2">
+              <Link2 className="h-4 w-4 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 flex-1 truncate font-mono text-sm text-foreground" title={url}>{url || "…"}</span>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <Button onClick={copy} disabled={!url}>
+                {copied ? <Check className="mr-1.5 h-4 w-4" /> : <Copy className="mr-1.5 h-4 w-4" />}
+                Copiar link
+              </Button>
+              <Button variant="outline" asChild disabled={!url}>
+                <a href={url || "#"} target="_blank" rel="noopener noreferrer">
+                  <ExternalLink className="mr-1.5 h-4 w-4" /> Abrir
+                </a>
+              </Button>
+              <Button variant="outline" onClick={() => toggleM.mutate()} disabled={toggleM.isPending}>
+                {toggleM.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                  : enabled ? <Pause className="mr-1.5 h-4 w-4" /> : <Play className="mr-1.5 h-4 w-4" />}
+                {enabled ? "Pausar" : "Activar"}
+              </Button>
+            </div>
+          </div>
+        </div>
+        <div className="border-t bg-muted/30 px-6 py-2.5 text-[11px] text-muted-foreground">
+          {enabled
+            ? "Las conversaciones que entran por el link aparecen en la bandeja con la etiqueta «Link». El widget embebido y WhatsApp no se ven afectados por este interruptor."
+            : "Con el canal pausado, el link muestra «Este chat no está disponible por el momento». El widget embebido y WhatsApp siguen funcionando."}
+        </div>
+      </Card>
+
+      <div className="grid gap-4 sm:grid-cols-3">
+        {[
+          { icon: Send, title: "Mandalo por WhatsApp o mail", desc: "Pegá el link en un mensaje. Se abre en el celular sin descargar nada." },
+          { icon: Globe, title: "Ponelo en tu sitio o redes", desc: "Como botón «Consultá al asistente» o en la bio de Instagram." },
+          { icon: Code2, title: "Imprimilo como QR", desc: "Generá un QR con este link para carteles, folletos o mostradores." },
+        ].map(({ icon: Icon, title, desc }) => (
+          <div key={title} className="flex gap-3">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground"><Icon className="h-4 w-4" /></span>
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-foreground">{title}</p>
+              <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{desc}</p>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

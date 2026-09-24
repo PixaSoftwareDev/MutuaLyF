@@ -6,7 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import {
   Search, ChevronLeft, ChevronRight, Loader2, MessageSquare,
-  X, UserCheck, MessageCircle, SlidersHorizontal, PanelRight,
+  X, UserCheck, MessageCircle, SlidersHorizontal, PanelRight, Link2,
 } from "lucide-react";
 import { api, type ConversationHistoryFilters } from "@/lib/api";
 import { WhatsAppIcon } from "@/components/ui/whatsapp-icon";
@@ -438,6 +438,7 @@ function HistoryCard({
           <p className="flex items-center gap-1.5 truncate text-sm font-medium leading-tight text-foreground">
             {row.is_test && <span className="shrink-0 rounded bg-action/10 px-1 py-0.5 text-[9px] font-bold uppercase tracking-wide text-action">TEST</span>}
             {row.channel === "whatsapp" && <span aria-label="WhatsApp" className="inline-flex shrink-0 items-center gap-0.5 rounded bg-success/10 px-1 py-0.5 text-[9px] font-semibold text-success"><WhatsAppIcon className="h-2.5 w-2.5" />WA</span>}
+            {row.channel === "link" && <span aria-label="Chat por link" className="inline-flex shrink-0 items-center gap-0.5 rounded bg-primary/10 px-1 py-0.5 text-[9px] font-semibold text-primary"><Link2 className="h-2.5 w-2.5" />Link</span>}
             {row.afiliado_nombre || (row.afiliado_ip ? `IP ${row.afiliado_ip}` : "Anónimo")}
           </p>
           <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{row.sector_nombre || "Sin sector"}</p>

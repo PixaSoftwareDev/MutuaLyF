@@ -68,4 +68,6 @@ respondiendo igual.
 
 ## Estado
 
-- [x] P1  - [x] P2  - [ ] P3  - [ ] P4  - [x] P5 (renovación ante 401, misma sesión)  - [ ] P6  - [ ] P7  - [ ] P8
+- [x] P1  - [x] P2  - [x] P3  - [x] P4  - [x] P5 (renovación ante 401, misma sesión)  - [x] P6  - [ ] P7 (opcional, no arrancado)  - [x] P8 (métricas cuentan `link` aparte)
+
+Hecho en dev-local el 2026-09-24 (commits `fix(chat)` y `feat(canales)`). Pendiente: pruebas de Alejo en dev-local → staging → prod.

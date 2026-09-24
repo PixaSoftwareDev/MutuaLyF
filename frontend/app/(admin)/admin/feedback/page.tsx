@@ -13,7 +13,7 @@ import { FEEDBACK_UI_ENABLED } from "@/lib/features";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Frown, Meh, Smile, Loader2, FileQuestion, FilePen, Bot, XCircle, Globe,
-  Smartphone, User as UserIcon, FlaskConical,
+  Smartphone, User as UserIcon, FlaskConical, Link2,
 } from "lucide-react";
 import { api, type FeedbackItem, type FeedbackAction } from "@/lib/api";
 import { MessageBubble } from "@/components/conversations/conversations-panel";
@@ -149,7 +149,9 @@ function FeedbackPageInner() {
                         </span>
                         {item.channel === "whatsapp"
                           ? <Smartphone className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                          : <Globe className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
+                          : item.channel === "link"
+                            ? <Link2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                            : <Globe className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
                         {item.atendida_por_humano && <UserIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-label="Atendida por operador" />}
                         {item.is_test && (
                           <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
@@ -236,7 +238,7 @@ function FeedbackDetail({ item, onCollapse, onResolved }: {
         </div>
         <p className="mt-1 text-xs text-muted-foreground">
           {item.atendida_por_humano ? "Atendida por un operador" : "Resuelta por el bot"}
-          {" · "}{item.channel === "whatsapp" ? "WhatsApp" : "Widget"}
+          {" · "}{item.channel === "whatsapp" ? "WhatsApp" : item.channel === "link" ? "Chat por link" : "Widget"}
           {item.is_test && " · conversación de prueba"}
         </p>
       </div>

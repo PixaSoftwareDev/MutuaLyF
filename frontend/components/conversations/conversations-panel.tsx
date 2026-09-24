@@ -7,7 +7,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   MessageSquare, Loader2, Send, UserCheck, UserMinus, XCircle, User, Bot,
   Info, ChevronLeft, Search, ArrowRightLeft, Eye,
-  RotateCcw, MoreVertical, Paperclip, X, Globe, PanelRight, Download,
+  RotateCcw, MoreVertical, Paperclip, X, Globe, PanelRight, Download, Link2,
 } from "lucide-react";
 import { api, type ConversationRow } from "@/lib/api";
 import { ConversationContextPanel } from "@/components/conversations/conversation-context-panel";
@@ -700,6 +700,7 @@ export function ConversationsPanel({ mode }: { mode: ConversationsPanelMode }) {
               <p className="min-w-0 flex-1 truncate text-sm font-semibold">{detail.afiliado_nombre || (detail.afiliado_ip ? `IP ${detail.afiliado_ip}` : "Afiliado anónimo")}</p>
               <StatusBadge status={detail.status} />
               {detail.channel === "whatsapp" && <span aria-label="WhatsApp" className="shrink-0 inline-flex items-center gap-1 text-[10px] font-semibold bg-green-600/10 text-green-700 rounded px-1.5 py-0.5"><WhatsAppIcon className="h-2.5 w-2.5" />WhatsApp</span>}
+              {detail.channel === "link" && <span aria-label="Chat por link" className="shrink-0 inline-flex items-center gap-1 text-[10px] font-semibold bg-primary/10 text-primary rounded px-1.5 py-0.5"><Link2 className="h-2.5 w-2.5" />Link</span>}
               <div className="flex items-center gap-2 shrink-0">
                 {!readOnly && detail.status === "human_attending" && (
                   <>
@@ -1173,9 +1174,11 @@ function ConvCard({ conv, now, selected, readOnly, onlineNames, onSelect, onAcce
             <span className="truncate min-w-0">{conv.afiliado_nombre || (conv.channel === "whatsapp" && conv.external_id ? formatWaNumber(conv.external_id) : (conv.afiliado_ip ? `IP ${conv.afiliado_ip}` : "Anónimo"))}</span>
             {conv.channel === "whatsapp"
               ? <span aria-label="WhatsApp" className="shrink-0 inline-flex items-center gap-0.5 text-[10px] font-semibold bg-green-600/10 text-green-700 rounded px-1.5 py-0.5"><WhatsAppIcon className="h-2.5 w-2.5" />WA</span>
-              : !conv.afiliado_nombre
-                ? <span aria-label="Web" className="shrink-0 inline-flex items-center gap-0.5 text-[10px] font-medium text-muted-foreground"><Globe className="h-2.5 w-2.5" />Web</span>
-                : null}
+              : conv.channel === "link"
+                ? <span aria-label="Chat por link" className="shrink-0 inline-flex items-center gap-0.5 text-[10px] font-semibold bg-primary/10 text-primary rounded px-1.5 py-0.5"><Link2 className="h-2.5 w-2.5" />Link</span>
+                : !conv.afiliado_nombre
+                  ? <span aria-label="Web" className="shrink-0 inline-flex items-center gap-0.5 text-[10px] font-medium text-muted-foreground"><Globe className="h-2.5 w-2.5" />Web</span>
+                  : null}
           </p>
           <p className="text-[11px] text-muted-foreground truncate mt-0.5">
             {conv.sector_nombre || "Sin sector"}
