@@ -571,22 +571,17 @@ function ChatLinkCard({ channels, onChanged }: { channels: ChannelsState; onChan
     return () => { alive = false; };
   }, [url]);
 
-  const downloadQr = async (format: "png" | "svg") => {
-    if (!url) return;
-    try {
-      const href = format === "png"
-        ? (qrPng ?? await QRCode.toDataURL(url, { width: 1024, margin: 2, errorCorrectionLevel: "M" }))
-        : "data:image/svg+xml;charset=utf-8," + encodeURIComponent(await QRCode.toString(url, { type: "svg", margin: 2, errorCorrectionLevel: "M" }));
-      const a = document.createElement("a");
-      a.href = href;
-      a.download = `qr-chat-${tenantId}.${format}`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      toast({ title: `QR descargado (${format.toUpperCase()})`, variant: "success" });
-    } catch {
-      toast({ title: "No se pudo generar el QR", variant: "destructive" });
-    }
+  // Una sola descarga (PNG 1024 px): alcanza para cartel, folleto e imprenta.
+  // El SVG se quitó a propósito: era una decisión de más para el usuario.
+  const downloadQr = () => {
+    if (!qrPng) return;
+    const a = document.createElement("a");
+    a.href = qrPng;
+    a.download = `qr-chat-${tenantId}.png`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    toast({ title: "QR descargado", variant: "success" });
   };
 
   const toggleM = useMutation({
@@ -620,15 +615,19 @@ function ChatLinkCard({ channels, onChanged }: { channels: ChannelsState; onChan
           </p>
 
           <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:items-center">
-            <div className="flex min-w-0 flex-1 items-center gap-2 rounded-xl border bg-muted/40 px-3 py-2">
+            {/* El link con su copiar adentro (patrón de los campos de solo lectura
+                del panel): un solo gesto, sin un botón grande al lado. */}
+            <div className="flex min-w-0 flex-1 items-center gap-2 rounded-xl border bg-muted/40 py-1 pl-3 pr-1">
               <Link2 className="h-4 w-4 shrink-0 text-muted-foreground" />
               <span className="min-w-0 flex-1 truncate font-mono text-sm text-foreground" title={url}>{url || "…"}</span>
+              <Button
+                size="icon" variant="ghost" className="h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
+                onClick={copy} disabled={!url} aria-label="Copiar link" title="Copiar link"
+              >
+                {copied ? <Check className="h-4 w-4 text-success" /> : <Copy className="h-4 w-4" />}
+              </Button>
             </div>
             <div className="flex shrink-0 items-center gap-2">
-              <Button onClick={copy} disabled={!url}>
-                {copied ? <Check className="mr-1.5 h-4 w-4" /> : <Copy className="mr-1.5 h-4 w-4" />}
-                Copiar link
-              </Button>
               <Button variant="outline" asChild disabled={!url}>
                 <a href={url || "#"} target="_blank" rel="noopener noreferrer">
                   <ExternalLink className="mr-1.5 h-4 w-4" /> Abrir
@@ -665,14 +664,11 @@ function ChatLinkCard({ channels, onChanged }: { channels: ChannelsState; onChan
             </h4>
             <p className="mt-1 max-w-md text-sm leading-relaxed text-muted-foreground">
               Apunta a la misma dirección de arriba, así que no vence ni hay que reimprimirlo.
-              PNG para carteles y folletos; SVG si lo va a usar un diseñador o imprenta.
+              Sale en alta resolución, listo para carteles, folletos o el mostrador.
             </p>
-            <div className="mt-4 flex flex-wrap items-center gap-2">
-              <Button onClick={() => downloadQr("png")} disabled={!qrPng}>
-                <Download className="mr-1.5 h-4 w-4" /> Descargar PNG
-              </Button>
-              <Button variant="outline" onClick={() => downloadQr("svg")} disabled={!url}>
-                <Download className="mr-1.5 h-4 w-4" /> Descargar SVG
+            <div className="mt-4">
+              <Button variant="outline" onClick={downloadQr} disabled={!qrPng}>
+                <Download className="mr-1.5 h-4 w-4" /> Descargar QR
               </Button>
             </div>
           </div>
