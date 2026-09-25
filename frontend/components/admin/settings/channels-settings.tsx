@@ -568,37 +568,31 @@ function WidgetCard({ channels, onChanged }: { channels: ChannelsState; onChange
         </Card>
       )}
 
-      {/* Regenerar: diálogo destructivo con confirmación escrita */}
+      {/* Regenerar: diálogo destructivo, corto, con la confirmación escrita
+          dentro del propio campo. Foco gris (no el anillo violeta de la app):
+          acá el único color es el rojo del botón. */}
       <Dialog open={regenOpen} onOpenChange={o => { setRegenOpen(o); if (!o) setRegenWord(""); }}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <div className="flex items-start gap-3 text-left">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-destructive/10">
-                <AlertTriangle className="h-5 w-5 text-destructive" />
-              </div>
-              <div className="min-w-0 space-y-1.5 pt-0.5">
-                <DialogTitle>Regenerar el código del widget</DialogTitle>
-                <DialogDescription>
-                  El código que hoy está instalado en tu sitio <span className="font-semibold text-foreground">deja de funcionar al instante</span> y
-                  el asistente desaparece de la web hasta que alguien pegue el código nuevo. Normalmente lo hace quien administra tu sitio.
-                </DialogDescription>
-              </div>
-            </div>
+        <DialogContent className="max-w-sm">
+          <DialogHeader className="space-y-2">
+            <DialogTitle>¿Regenerar el código?</DialogTitle>
+            <DialogDescription>
+              El código instalado en tu sitio deja de funcionar al instante y hay que pegar el nuevo.
+            </DialogDescription>
           </DialogHeader>
-          <div className="space-y-3">
-            <p className="text-xs text-muted-foreground">
-              Hacelo solo si el código se filtró o querés cortar un uso indebido. Para verlo o copiarlo no hace falta regenerar.
-            </p>
-            <div className="space-y-1.5">
-              <Label htmlFor="regen-word" className="text-xs">Escribí <span className="font-mono font-semibold">REGENERAR</span> para confirmar</Label>
-              <Input id="regen-word" value={regenWord} onChange={e => setRegenWord(e.target.value)} autoComplete="off" spellCheck={false} placeholder="REGENERAR" />
-            </div>
-          </div>
-          <DialogFooter className="mt-2">
+          <Input
+            value={regenWord}
+            onChange={e => setRegenWord(e.target.value)}
+            placeholder="Escribí REGENERAR para confirmar"
+            autoComplete="off"
+            spellCheck={false}
+            aria-label="Escribí REGENERAR para confirmar"
+            className="focus-visible:ring-1 focus-visible:ring-foreground/25 focus-visible:ring-offset-0"
+          />
+          <DialogFooter className="mt-1">
             <Button variant="outline" onClick={() => setRegenOpen(false)}>Cancelar</Button>
             <Button variant="destructive" onClick={() => tokenM.mutate()} disabled={regenWord.trim().toUpperCase() !== "REGENERAR" || tokenM.isPending}>
-              {tokenM.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-1.5 h-4 w-4" />}
-              Regenerar código
+              {tokenM.isPending && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+              Regenerar
             </Button>
           </DialogFooter>
         </DialogContent>
