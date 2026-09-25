@@ -681,12 +681,9 @@ function ChatLinkCard({ channels, onChanged }: { channels: ChannelsState; onChan
               Apunta a la misma dirección de arriba, así que no vence ni hay que reimprimirlo.
               Sale en alta resolución, listo para carteles, folletos o el mostrador.
             </p>
-            <div className="mt-4 flex flex-wrap items-center gap-2">
+            <div className="mt-4">
               <Button variant="outline" onClick={downloadQr} disabled={!qrPng}>
                 <Download className="mr-1.5 h-4 w-4" /> Descargar QR
-              </Button>
-              <Button variant="ghost" onClick={() => setQrOpen(true)} disabled={!qrPng} className="text-muted-foreground">
-                <Maximize2 className="mr-1.5 h-4 w-4" /> Ver grande
               </Button>
             </div>
           </div>
@@ -705,7 +702,8 @@ function ChatLinkCard({ channels, onChanged }: { channels: ChannelsState; onChan
           </div>
           <p className="truncate text-center font-mono text-xs text-muted-foreground" title={url}>{url}</p>
           <DialogFooter className="mt-1 sm:justify-center">
-            <Button variant="outline" onClick={downloadQr}>
+            {/* Acción principal del popup: degradé de Intellix (variant default). */}
+            <Button onClick={downloadQr}>
               <Download className="mr-1.5 h-4 w-4" /> Descargar QR
             </Button>
           </DialogFooter>
