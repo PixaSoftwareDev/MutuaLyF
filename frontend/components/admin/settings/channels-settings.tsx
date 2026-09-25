@@ -582,10 +582,10 @@ function WidgetCard({ channels, onChanged }: { channels: ChannelsState; onChange
           <Input
             value={regenWord}
             onChange={e => setRegenWord(e.target.value)}
-            placeholder="Escribí REGENERAR para confirmar"
+            placeholder="Escribí REGENERAR"
             autoComplete="off"
             spellCheck={false}
-            aria-label="Escribí REGENERAR para confirmar"
+            aria-label="Escribí REGENERAR"
             className="focus-visible:ring-1 focus-visible:ring-foreground/25 focus-visible:ring-offset-0"
           />
           <DialogFooter className="mt-1">
