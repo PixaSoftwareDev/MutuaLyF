@@ -1,6 +1,6 @@
 {
   "version": "1.9",
-  "last_updated": "2026-09-24",
+  "last_updated": "2026-09-25",
   "current_stage": "etapa_3",
   "current_step": "Post-deploy a prod (2026-07-26/27): paquete completo en produccion; desarrollo continua en dev-local",
   "overall_status": "etapa_3_complete",
@@ -476,6 +476,21 @@
       "P7 allowlist de dominios del widget (opcional)",
       "Pruebas de Alejo en dev-local",
       "Staging y prod con acuerdo; en prod regenerar el widget-token una vez antes de que la mutual instale el widget (aun no lo instalo, 2026-09-24)"
+    ]
+  },
+  "session_2026_09_25_chat_ux": {
+    "status": "en_staging_pendiente_pruebas",
+    "plan": "docs/PLAN_CHAT_UX_CONSOLIDADO.md (+ PLAN_CHAT_MOVIL.md)",
+    "hecho": [
+      "A/B backend: PATCH sector + nota anclada, mensajes.seq (migr 057), poll sin carrera (EventListener), last_seq/force, bot_typing, 404 en ids invalidos, fixes handoff.py",
+      "C/E: lib/chat-protocol.ts (sin React) + hook + chat-screen reconstruida (layout apilado, autoscroll inteligente, optimistas, errores con reintento, chips de sector, Nueva consulta)",
+      "D: widget compilado desde widget-src/widget.js con esbuild sobre el protocolo; fixes moviles del widget",
+      "Fix: nginx fija X-Tenant-ID por host (prod 'mutual' inexistente); token publico toma tenant por query"
+    ],
+    "pendiente": [
+      "Pruebas de Alejo en celular real: link, tester y widget en staging",
+      "Feedback (caritas) en el widget (paridad)",
+      "Pasaje a main con acuerdo; en prod regenerar widget-token una vez"
     ]
   }
 }
