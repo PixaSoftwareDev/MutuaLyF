@@ -12,6 +12,11 @@ const buttonVariants = cva(
       variant: {
         default: "bg-action-gradient text-white shadow-sm hover:shadow-md hover:brightness-[1.06] border-0",
         destructive: "bg-destructive text-destructive-foreground shadow-xs hover:bg-destructive/90",
+        // Acciones reversibles que igual merecen atención (pausar un canal):
+        // ámbar, distinto del rojo de "eliminar". `warning` para confirmar,
+        // `warning-outline` para el disparador en la pantalla.
+        warning: "bg-warning text-warning-foreground shadow-xs hover:bg-warning/90",
+        "warning-outline": "border border-warning/50 bg-warning/10 text-warning shadow-xs hover:bg-warning/20",
         outline: "border border-input bg-background shadow-xs hover:bg-accent hover:text-accent-foreground",
         secondary: "bg-secondary text-secondary-foreground shadow-xs hover:bg-secondary/80",
         ghost: "hover:bg-accent hover:text-accent-foreground",

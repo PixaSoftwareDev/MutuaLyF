@@ -122,6 +122,60 @@ function SecretField({ label, value }: { label: string; value: string }) {
 }
 
 // Badge para un secreto ya cargado: comunica "está guardado, oculto por seguridad".
+/** Botón de estado de un canal. Activar es directo (volver a lo normal no
+ *  perjudica a nadie) y lleno con el color de acción; Pausar es ámbar y pide
+ *  confirmación, porque afecta al instante a gente de afuera (visitantes del
+ *  sitio, quien abre el link o el QR). El mismo componente en las tres
+ *  tarjetas para que se comporten igual. */
+function ChannelToggleButton({ enabled, pending, onToggle, title, description, size, disabled, hint }: {
+  enabled: boolean;
+  pending: boolean;
+  onToggle: (enabled: boolean) => void;
+  title: string;          // título del diálogo de pausa
+  description: string;    // qué pasa al pausar (y qué NO pasa)
+  size?: "sm" | "default";
+  disabled?: boolean;
+  hint?: string;          // tooltip cuando está deshabilitado
+}) {
+  const [confirm, setConfirm] = useState(false);
+  return (
+    <>
+      <Button
+        size={size}
+        variant={enabled ? "warning-outline" : "default"}
+        onClick={() => (enabled ? setConfirm(true) : onToggle(true))}
+        disabled={pending || disabled}
+        title={hint}
+      >
+        {pending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+          : enabled ? <Pause className="mr-1.5 h-4 w-4" /> : <Play className="mr-1.5 h-4 w-4" />}
+        {enabled ? "Pausar" : "Activar"}
+      </Button>
+      <Dialog open={confirm} onOpenChange={setConfirm}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <div className="flex items-start gap-3 text-left">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-warning/15">
+                <Pause className="h-5 w-5 text-warning" />
+              </div>
+              <div className="min-w-0 space-y-1.5 pt-0.5">
+                <DialogTitle>{title}</DialogTitle>
+                <DialogDescription>{description}</DialogDescription>
+              </div>
+            </div>
+          </DialogHeader>
+          <DialogFooter className="mt-2">
+            <Button variant="outline" onClick={() => setConfirm(false)}>Cancelar</Button>
+            <Button variant="warning" onClick={() => { setConfirm(false); onToggle(false); }}>
+              <Pause className="mr-1.5 h-4 w-4" /> Sí, pausar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
 function SavedBadge({ children }: { children: React.ReactNode }) {
   return (
     <span className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/50 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
@@ -202,7 +256,7 @@ function ChannelsSplit({ channels, refresh }: { channels: ChannelsState; refresh
  *  principal arriba con ilustración, y los otros dos en cards chicas abajo. */
 function ChannelsOverview({ channels }: { channels: ChannelsState }) {
   const wa = channels.whatsapp;
-  const widgetState = channels.widget.enabled ? { tone: "success" as const, label: "Activo" } : { tone: "muted" as const, label: "Desactivado" };
+  const widgetState = channels.widget.enabled ? { tone: "success" as const, label: "Activo" } : { tone: "muted" as const, label: "Pausado" };
   const linkState = channels.link?.enabled !== false ? { tone: "success" as const, label: "Activo" } : { tone: "muted" as const, label: "Pausado" };
   const waState = !wa ? { tone: "muted" as const, label: "Sin configurar" }
     : wa.enabled ? { tone: "success" as const, label: "Activo" }
@@ -358,10 +412,10 @@ function WidgetCard({ channels, onChanged }: { channels: ChannelsState; onChange
   });
 
   const toggleM = useMutation({
-    mutationFn: () => api.channels.toggleWidget(!enabled),
-    onSuccess: () => {
+    mutationFn: (next: boolean) => api.channels.toggleWidget(next),
+    onSuccess: (_d, next) => {
       onChanged();
-      toast({ title: !enabled ? "Chat web activado" : "Chat web desactivado", variant: "success" });
+      toast({ title: next ? "Widget web activado" : "Widget web pausado", variant: "success" });
     },
     onError: (err: any) => toast({ title: "Error al cambiar el estado", description: extractErrorMessage(err, "Intentá de nuevo."), variant: "destructive" }),
   });
@@ -407,7 +461,7 @@ function WidgetCard({ channels, onChanged }: { channels: ChannelsState; onChange
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="text-lg font-semibold tracking-tight text-foreground">Conectá el asistente a tu sitio</h3>
-              <StatePill tone={enabled ? "success" : "muted"}>{enabled ? "Activo" : "Desactivado"}</StatePill>
+              <StatePill tone={enabled ? "success" : "muted"}>{enabled ? "Activo" : "Pausado"}</StatePill>
             </div>
             <p className="mt-1.5 max-w-md text-sm leading-relaxed text-muted-foreground">
               Copiá el código y pegalo en tu web. En minutos el asistente atiende a tus visitantes.
@@ -424,11 +478,13 @@ function WidgetCard({ channels, onChanged }: { channels: ChannelsState; onChange
                   Ver código de instalación
                 </Button>
               ) : null}
-              <Button variant="outline" onClick={() => toggleM.mutate()} disabled={toggleM.isPending}>
-                {toggleM.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-                  : enabled ? <Pause className="mr-1.5 h-4 w-4" /> : <Play className="mr-1.5 h-4 w-4" />}
-                {enabled ? "Desactivar" : "Activar"}
-              </Button>
+              <ChannelToggleButton
+                enabled={enabled}
+                pending={toggleM.isPending}
+                onToggle={next => toggleM.mutate(next)}
+                title="Pausar el widget web"
+                description="El globo instalado en tu sitio deja de atender hasta que lo reactives. El código instalado sigue siendo válido, no hay que volver a pegarlo. Las conversaciones que ya están abiertas no se cortan."
+              />
             </div>
           </div>
           <InstallMock />
@@ -533,10 +589,10 @@ function ChatLinkCard({ channels, onChanged }: { channels: ChannelsState; onChan
   };
 
   const toggleM = useMutation({
-    mutationFn: () => api.channels.toggleChatLink(!enabled),
-    onSuccess: () => {
+    mutationFn: (next: boolean) => api.channels.toggleChatLink(next),
+    onSuccess: (_d, next) => {
       onChanged();
-      toast({ title: !enabled ? "Chat por link activado" : "Chat por link pausado", variant: "success" });
+      toast({ title: next ? "Chat por link activado" : "Chat por link pausado", variant: "success" });
     },
     onError: (err: unknown) => toast({ title: "Error al cambiar el estado", description: extractErrorMessage(err, "Intentá de nuevo."), variant: "destructive" }),
   });
@@ -577,11 +633,13 @@ function ChatLinkCard({ channels, onChanged }: { channels: ChannelsState; onChan
                   <ExternalLink className="mr-1.5 h-4 w-4" /> Abrir
                 </a>
               </Button>
-              <Button variant="outline" onClick={() => toggleM.mutate()} disabled={toggleM.isPending}>
-                {toggleM.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-                  : enabled ? <Pause className="mr-1.5 h-4 w-4" /> : <Play className="mr-1.5 h-4 w-4" />}
-                {enabled ? "Pausar" : "Activar"}
-              </Button>
+              <ChannelToggleButton
+                enabled={enabled}
+                pending={toggleM.isPending}
+                onToggle={next => toggleM.mutate(next)}
+                title="Pausar el chat por link"
+                description="Quien abra el link o el QR va a ver que el chat no está disponible hasta que lo reactives. El link y el QR siguen siendo los mismos, no hay que reimprimir nada. Las conversaciones que ya están abiertas no se cortan."
+              />
             </div>
           </div>
         </div>
@@ -890,22 +948,20 @@ function WhatsAppCard({ channels, onChanged }: { channels: ChannelsState; onChan
                     Probar conexión
                   </Button>
                 )}
-                <Button
+                <ChannelToggleButton
                   size="sm"
-                  variant={wa.enabled ? "outline" : "default"}
-                  onClick={() => toggleM.mutate()}
-                  disabled={toggleM.isPending || (!wa.enabled && (wa.status !== "active" || !wa.has_app_secret))}
-                  title={
+                  enabled={wa.enabled}
+                  pending={toggleM.isPending}
+                  onToggle={() => toggleM.mutate()}
+                  disabled={!wa.enabled && (wa.status !== "active" || !wa.has_app_secret)}
+                  hint={
                     !wa.enabled && wa.status !== "active" ? "Probá la conexión antes de activar"
                     : !wa.enabled && !wa.has_app_secret ? "Configurá el App secret antes de activar (es obligatorio)"
                     : undefined
                   }
-                >
-                  {toggleM.isPending
-                    ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-                    : wa.enabled ? <Pause className="mr-1.5 h-4 w-4" /> : <Play className="mr-1.5 h-4 w-4" />}
-                  {wa.enabled ? "Pausar" : "Activar"}
-                </Button>
+                  title="Pausar WhatsApp"
+                  description="El número deja de responder mensajes hasta que lo reactives. Las credenciales y el webhook quedan configurados; no hay que volver a conectarlo."
+                />
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0" aria-label="Acciones del canal">
