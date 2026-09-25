@@ -1,6 +1,6 @@
 """Canal "Chat por link": interruptor propio en public.tenants.
 
-La página /chat (ruta corta /c/{tenant}) es un canal más, separado del widget
+La página /chat (ruta corta /chat/{tenant}) es un canal más, separado del widget
 embebido: el cliente comparte el link por WhatsApp/mail/redes y abre el bot en
 una ventana. Puede querer el link vivo y el globo apagado (o al revés), por eso
 el flag es propio y no reusa widget_enabled.

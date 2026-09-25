@@ -153,7 +153,7 @@ async def get_channels(current_user: CurrentUser = Depends(require_admin_or_supe
             "enabled": bool(tenant["widget_enabled"]),
             "has_token": tenant["widget_token_hash"] is not None,
         },
-        # Canal "Chat por link" (/c/{tenant}): interruptor propio (migración 056).
+        # Canal "Chat por link" (/chat/{tenant}): interruptor propio (migración 056).
         # NULL (base sin la columna seteada) se trata como habilitado, igual que
         # el criterio fail-open del endpoint público de tokens.
         "link": {
@@ -203,7 +203,7 @@ async def toggle_chat_link(
     request: Request,
     current_user: CurrentUser = Depends(require_admin_or_super),
 ):
-    """Activa/pausa el canal "Chat por link" (/c/{tenant}). Con el canal pausado
+    """Activa/pausa el canal "Chat por link" (/chat/{tenant}). Con el canal pausado
     el endpoint público deja de emitir tokens para ese canal y las conversaciones
     nuevas por link reciben 403; las del widget embebido no se ven afectadas."""
     tenant_id = _own_tenant(current_user)

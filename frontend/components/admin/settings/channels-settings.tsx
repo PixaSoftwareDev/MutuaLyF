@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import QRCode from "qrcode";
 import { useSearchParams } from "next/navigation";
 import { WhatsAppIcon } from "@/components/layout/sidebar";
 import { CONNECTORS_UI_ENABLED } from "@/lib/features";
@@ -10,7 +11,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Loader2, Copy, Check, CheckCircle2, RefreshCw, Globe, MessageCircle,
   PlugZap, Pause, Play, Trash2, AlertTriangle, MoreVertical, Pencil, Eye, EyeOff, Lock,
-  Database, Code2, X, Link2, ExternalLink, Send,
+  Database, Code2, X, Link2, ExternalLink, Send, Download, QrCode,
 } from "lucide-react";
 import { api, type ChannelsState } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
@@ -486,7 +487,7 @@ function WidgetCard({ channels, onChanged }: { channels: ChannelsState; onChange
   );
 }
 
-// ── Card: Chat por link (/c/{tenant}) ────────────────────────────────────────
+// ── Card: Chat por link (/chat/{tenant}) ─────────────────────────────────────
 
 /** Canal "Chat por link": la misma página del asistente, compartida por URL.
  *  No hay nada que instalar — la tarjeta es la URL, copiar/abrir y el
@@ -498,7 +499,38 @@ function ChatLinkCard({ channels, onChanged }: { channels: ChannelsState; onChan
   // window no existe en SSR: el origen se resuelve al montar.
   const [origin, setOrigin] = useState("");
   useEffect(() => { setOrigin(window.location.origin); }, []);
-  const url = origin && tenantId ? `${origin}/c/${tenantId}` : "";
+  const url = origin && tenantId ? `${origin}/chat/${tenantId}` : "";
+
+  // QR del link, generado en el navegador (sin llamadas externas). PNG grande
+  // para imprimir (1024 px) y SVG vectorial para imprenta/diseño. El preview
+  // usa el mismo PNG. Nivel de corrección M: alcanza para carteles y folletos.
+  const [qrPng, setQrPng] = useState<string | null>(null);
+  useEffect(() => {
+    if (!url) return;
+    let alive = true;
+    QRCode.toDataURL(url, { width: 1024, margin: 2, errorCorrectionLevel: "M", color: { dark: "#0f172a", light: "#ffffff" } })
+      .then(d => { if (alive) setQrPng(d); })
+      .catch(() => { if (alive) setQrPng(null); });
+    return () => { alive = false; };
+  }, [url]);
+
+  const downloadQr = async (format: "png" | "svg") => {
+    if (!url) return;
+    try {
+      const href = format === "png"
+        ? (qrPng ?? await QRCode.toDataURL(url, { width: 1024, margin: 2, errorCorrectionLevel: "M" }))
+        : "data:image/svg+xml;charset=utf-8," + encodeURIComponent(await QRCode.toString(url, { type: "svg", margin: 2, errorCorrectionLevel: "M" }));
+      const a = document.createElement("a");
+      a.href = href;
+      a.download = `qr-chat-${tenantId}.${format}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      toast({ title: `QR descargado (${format.toUpperCase()})`, variant: "success" });
+    } catch {
+      toast({ title: "No se pudo generar el QR", variant: "destructive" });
+    }
+  };
 
   const toggleM = useMutation({
     mutationFn: () => api.channels.toggleChatLink(!enabled),
@@ -560,11 +592,39 @@ function ChatLinkCard({ channels, onChanged }: { channels: ChannelsState; onChan
         </div>
       </Card>
 
+      {/* ── QR del link: para carteles, folletos, mostradores ── */}
+      <Card className="rounded-2xl">
+        <div className="flex flex-col gap-6 p-6 sm:flex-row sm:items-center">
+          <div className="flex h-40 w-40 shrink-0 items-center justify-center self-center rounded-xl border bg-white p-2 sm:self-auto">
+            {qrPng
+              ? <img src={qrPng} alt={`Código QR del chat de ${tenantId ?? ""}`} className="h-full w-full" />
+              : <QrCode className="h-10 w-10 text-muted-foreground/40" />}
+          </div>
+          <div className="min-w-0 flex-1">
+            <h4 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+              <QrCode className="h-4 w-4 text-muted-foreground" /> Código QR del link
+            </h4>
+            <p className="mt-1 max-w-md text-sm leading-relaxed text-muted-foreground">
+              Apunta a la misma dirección de arriba, así que no vence ni hay que reimprimirlo.
+              PNG para carteles y folletos; SVG si lo va a usar un diseñador o imprenta.
+            </p>
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              <Button onClick={() => downloadQr("png")} disabled={!qrPng}>
+                <Download className="mr-1.5 h-4 w-4" /> Descargar PNG
+              </Button>
+              <Button variant="outline" onClick={() => downloadQr("svg")} disabled={!url}>
+                <Download className="mr-1.5 h-4 w-4" /> Descargar SVG
+              </Button>
+            </div>
+          </div>
+        </div>
+      </Card>
+
       <div className="grid gap-4 sm:grid-cols-3">
         {[
           { icon: Send, title: "Mandalo por WhatsApp o mail", desc: "Pegá el link en un mensaje. Se abre en el celular sin descargar nada." },
           { icon: Globe, title: "Ponelo en tu sitio o redes", desc: "Como botón «Consultá al asistente» o en la bio de Instagram." },
-          { icon: Code2, title: "Imprimilo como QR", desc: "Generá un QR con este link para carteles, folletos o mostradores." },
+          { icon: QrCode, title: "Imprimilo con el QR", desc: "Descargá el QR de arriba para carteles, folletos o el mostrador de atención." },
         ].map(({ icon: Icon, title, desc }) => (
           <div key={title} className="flex gap-3">
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground"><Icon className="h-4 w-4" /></span>

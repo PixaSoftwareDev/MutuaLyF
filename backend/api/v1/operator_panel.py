@@ -975,7 +975,7 @@ async def operator_presence(
 # ── Public chat endpoints (no auth required) ──────────────────────────────────
 
 # Canales que abren conversación con token público/efímero y su interruptor
-# en public.tenants. 'link' = página /chat compartida por URL (/c/{tenant});
+# en public.tenants. 'link' = página /chat compartida por URL (/chat/{tenant});
 # 'widget' = globo embebido (widget.js) y compat con clientes que no mandan canal.
 _CHAT_CHANNEL_FLAGS = {"widget": "widget_enabled", "link": "chat_link_enabled"}
 
@@ -1012,7 +1012,7 @@ async def public_chat_token(
     """Emite un token efímero (2 h) para la página pública /chat.
     Solo requiere X-Tenant-ID — sin login. Rate limit por IP (mismo que los
     mensajes del widget): es un endpoint abierto a internet.
-    `channel` decide qué interruptor se respeta: 'link' (/c/{tenant}) o
+    `channel` decide qué interruptor se respeta: 'link' (/chat/{tenant}) o
     'widget' (default, compat con clientes viejos)."""
     async with get_pg_session() as session:
         row = await session.execute(

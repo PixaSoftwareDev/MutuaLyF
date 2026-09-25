@@ -21,12 +21,12 @@ interface Message {
 }
 
 /**
- * Pantalla del chat (la usan app/chat/page.tsx y app/c/[tenant]/page.tsx —
+ * Pantalla del chat (la usan app/chat/page.tsx y app/chat/[tenant]/page.tsx —
  * Next no permite exportar otra cosa que la página desde un page.tsx).
- * `tenant` viene por prop desde la ruta corta /c/[tenant]
+ * `tenant` viene por prop desde la ruta corta /chat/[tenant]
  * (el canal "Chat por link"); sin prop se lee ?tenant= de la URL (compat y
  * tester del panel). Un rewrite de Next NO servía: la URL del navegador queda
- * en /c/demo y useSearchParams no ve la query del destino.
+ * en /chat/demo y useSearchParams no ve la query del destino.
  */
 export function ChatScreen({ tenant }: { tenant?: string }) {
   return (
