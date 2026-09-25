@@ -13,17 +13,15 @@ const nextConfig = {
   env: {
     NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || "",
   },
-  async rewrites() {
-    return [
-      // Ruta corta del canal "Chat por link": app.intellix.com.ar/c/mutualyf
-      // abre la misma página /chat (la URL del navegador no cambia). El
-      // parámetro ?tenant= sigue funcionando por compatibilidad.
-      { source: "/c/:tenant", destination: "/chat?tenant=:tenant" },
-      ...(DEV_API_PROXY
-        ? [{ source: "/api/:path*", destination: `${DEV_API_PROXY}/api/:path*` }]
-        : []),
-    ];
-  },
+  ...(DEV_API_PROXY
+    ? {
+        async rewrites() {
+          return [
+            { source: "/api/:path*", destination: `${DEV_API_PROXY}/api/:path*` },
+          ];
+        },
+      }
+    : {}),
 };
 
 export default nextConfig;
