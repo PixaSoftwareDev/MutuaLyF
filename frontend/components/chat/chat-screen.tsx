@@ -343,7 +343,10 @@ function HandoffOfferBubble({
   const [dismissed, setDismissed] = useState(false);
   // El área solo se pregunta acá si NO se eligió antes (en la lista bajo el saludo).
   const askSector = sectors.length > 1 && !preselectedSectorId;
-  const inputCls = "w-full rounded-[10px] border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-brand focus:ring-[3px] focus:ring-brand/25";
+  // text-base (16 px): con menos, iOS Safari hace zoom al tocar el campo.
+  const inputCls = "w-full rounded-[10px] border border-slate-200 bg-white px-3 py-2.5 text-base text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-brand focus:ring-[3px] focus:ring-brand/25";
+  // Foco automático solo con mouse: en el celular levantaría el teclado solo.
+  const autoFocusDesktop = typeof window !== "undefined" && window.matchMedia("(hover: hover) and (pointer: fine)").matches;
 
   return (
     // Formato burbuja: avatar del bot + burbuja gris con la acción adentro.
@@ -391,8 +394,8 @@ function HandoffOfferBubble({
         ) : (
           <div className="flex flex-col gap-2.5 text-left">
             <p className="text-sm font-semibold text-slate-800">Antes de conectarte con un operador</p>
-            <input type="text" value={nombre} onChange={e => setNombre(e.target.value)} placeholder="Nombre y apellido" maxLength={200} autoFocus className={inputCls} />
-            <input type="text" inputMode="numeric" value={dni} onChange={e => setDni(e.target.value)} placeholder="DNI (sin puntos)" maxLength={20} className={inputCls} onKeyDown={e => { if (e.key === "Enter") submit(); }} />
+            <input type="text" value={nombre} onChange={e => setNombre(e.target.value)} placeholder="Nombre y apellido" maxLength={200} autoFocus={autoFocusDesktop} autoComplete="name" autoCapitalize="words" enterKeyHint="next" className={inputCls} />
+            <input type="text" inputMode="numeric" value={dni} onChange={e => setDni(e.target.value)} placeholder="DNI (sin puntos)" maxLength={20} autoComplete="off" enterKeyHint="done" className={inputCls} onKeyDown={e => { if (e.key === "Enter") submit(); }} />
             {askSector && (
               <>
                 <p className="text-xs text-slate-500">¿Con qué área querés hablar?</p>
@@ -554,7 +557,7 @@ function ChatInner({ tenantOverride }: { tenantOverride?: string }) {
   const [prevFeedbackConvId, setPrevFeedbackConvId] = useState<string | null>(null);
   const [uploadingFile, setUploadingFile]   = useState(false);
   const bottomRef                           = useRef<HTMLDivElement>(null);
-  const inputRef                            = useRef<HTMLInputElement>(null);
+  const inputRef                            = useRef<HTMLTextAreaElement>(null);
   const fileInputRef                        = useRef<HTMLInputElement>(null);
   const sessionId                           = useRef<string>("");
   const pollTimeoutRef                      = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -689,6 +692,72 @@ function ChatInner({ tenantOverride }: { tenantOverride?: string }) {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, sectorsLoading]);
 
+  // ── Móvil: alto REAL de la pantalla ────────────────────────────────────────
+  // 100vh miente en el celular (barras del navegador) y ningún alto CSS sigue
+  // al teclado en iOS. Medimos el visual viewport y lo aplicamos como alto del
+  // contenedor raíz (fixed): al abrir el teclado la pantalla se achica, la
+  // barra de escritura queda pegada al teclado y el último mensaje a la vista.
+  // Mientras esta pantalla vive, la página no scrollea (solo la lista): sin
+  // rebote ni "tirar para recargar".
+  const [appHeight, setAppHeight] = useState<number | null>(null);
+  const isDesktopRef = useRef(false);
+  useEffect(() => {
+    isDesktopRef.current = window.matchMedia("(hover: hover) and (pointer: fine)").matches;
+    const vv = window.visualViewport;
+    const update = () => {
+      setAppHeight(Math.round(vv ? vv.height : window.innerHeight));
+      // iOS desplaza la página entera al enfocar un campo: la devolvemos.
+      if (window.scrollY !== 0) window.scrollTo(0, 0);
+    };
+    update();
+    vv?.addEventListener("resize", update);
+    vv?.addEventListener("scroll", update);
+    window.addEventListener("resize", update);
+    window.addEventListener("orientationchange", update);
+    const html = document.documentElement, body = document.body;
+    const prev = [html.style.overscrollBehavior, body.style.overscrollBehavior, body.style.overflow];
+    html.style.overscrollBehavior = "none";
+    body.style.overscrollBehavior = "none";
+    body.style.overflow = "hidden";
+    return () => {
+      vv?.removeEventListener("resize", update);
+      vv?.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
+      window.removeEventListener("orientationchange", update);
+      [html.style.overscrollBehavior, body.style.overscrollBehavior, body.style.overflow] = prev;
+    };
+  }, []);
+  // Al cambiar el alto (teclado abre/cierra, giro), el último mensaje sigue a la vista.
+  useEffect(() => {
+    if (appHeight) bottomRef.current?.scrollIntoView({ block: "end" });
+  }, [appHeight]);
+
+  // ── Metadatos de app con el branding del tenant ────────────────────────────
+  // theme-color pinta la barra del navegador del color de la organización; el
+  // manifest dinámico y el apple-touch-icon hacen que "Agregar a inicio"
+  // instale el chat con su nombre e ícono (solo en el link público /chat/{t}).
+  useEffect(() => {
+    if (!branding?.primary_color) return;
+    const setMeta = (name: string, content: string) => {
+      let m = document.querySelector<HTMLMetaElement>(`meta[name="${name}"]`);
+      if (!m) { m = document.createElement("meta"); m.name = name; document.head.appendChild(m); }
+      m.content = content;
+    };
+    const setLink = (rel: string, href: string) => {
+      let l = document.querySelector<HTMLLinkElement>(`link[rel="${rel}"]`);
+      if (!l) { l = document.createElement("link"); l.rel = rel; document.head.appendChild(l); }
+      l.href = href;
+    };
+    setMeta("theme-color", branding.primary_color);
+    if (!tenantOverride) return;
+    const appName = branding.bot_name || branding.display_name;
+    const q = new URLSearchParams({ name: appName, color: branding.primary_color });
+    if (branding.logo_url) q.set("icon", branding.logo_url);
+    setLink("manifest", `/chat/${encodeURIComponent(tenantOverride)}/manifest.webmanifest?${q.toString()}`);
+    setLink("apple-touch-icon", branding.logo_url || "/Logo.png");
+    setMeta("apple-mobile-web-app-title", appName);
+  }, [branding, tenantOverride]);
+
   useEffect(() => () => {
     pollAliveRef.current = false;
     if (pollTimeoutRef.current) clearTimeout(pollTimeoutRef.current);
@@ -733,6 +802,15 @@ function ChatInner({ tenantOverride }: { tenantOverride?: string }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resolvedToken, tenantId]);
 
+  // Al volver a la pestaña/app (pantalla bloqueada, otra app), refrescar ya:
+  // el long-poll pudo quedar dormido y el operador haber respondido.
+  useEffect(() => {
+    const onVisible = () => { if (document.visibilityState === "visible" && conversationId) pollMessages(conversationId); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [conversationId, pollMessages]);
+
+
   // Long-polling loop: server holds the request up to ~25s and replies as soon
   // as there's news. We chain the next fetch right after each response so the
   // perceived latency is essentially network RTT.
@@ -765,7 +843,7 @@ function ChatInner({ tenantOverride }: { tenantOverride?: string }) {
 
     setMessages([]);
     setHandoffConfirmed(false);
-    setTimeout(() => inputRef.current?.focus(), 100);
+    if (isDesktopRef.current) setTimeout(() => inputRef.current?.focus(), 100);
     try {
       const r = await authFetch(`${API_BASE}/api/v1/widget/conversation/start`, {
         method: "POST",
@@ -835,6 +913,7 @@ function ChatInner({ tenantOverride }: { tenantOverride?: string }) {
     const text = input.trim();
     if (!text || !conversationId || sending) return;
     setInput("");
+    if (inputRef.current) inputRef.current.style.height = "auto";
     await sendMessageTo(conversationId, text);
   }
 
@@ -993,7 +1072,10 @@ function ChatInner({ tenantOverride }: { tenantOverride?: string }) {
   const orgName = branding?.display_name || "tu organización";
 
   return (
-    <div className="h-screen flex bg-slate-100 overflow-hidden">
+    <div
+      className="chat-app fixed inset-x-0 top-0 flex h-[100dvh] overflow-hidden bg-slate-100"
+      style={appHeight ? { height: `${appHeight}px` } : undefined}
+    >
 
       {/* ── Columna de bienvenida (solo desktop) ── */}
       <aside className="hidden lg:flex w-[340px] shrink-0 flex-col justify-between p-10">
@@ -1014,7 +1096,7 @@ function ChatInner({ tenantOverride }: { tenantOverride?: string }) {
       <div className="relative flex flex-1 flex-col overflow-hidden bg-white lg:my-3 lg:mr-3 lg:rounded-3xl lg:border lg:border-slate-200/70 lg:shadow-sm">
 
         {/* Card de identidad FLOTANTE — centrada arriba (como el widget) */}
-        <div className="pointer-events-none absolute inset-x-0 top-4 z-20 flex flex-col items-center px-4">
+        <div className="pointer-events-none absolute inset-x-0 top-[max(1rem,env(safe-area-inset-top))] z-20 flex flex-col items-center px-4">
           <div
             ref={idCardRef}
             className="pointer-events-auto flex items-center gap-3 overflow-hidden rounded-2xl border border-slate-200/80 bg-white px-4 py-2.5 shadow-[0_4px_12px_-3px_rgba(0,0,0,0.10),0_1px_4px_-1px_rgba(0,0,0,0.06)] transition-[width] duration-[380ms] ease-[cubic-bezier(0.34,1.4,0.5,1)]"
@@ -1033,8 +1115,8 @@ function ChatInner({ tenantOverride }: { tenantOverride?: string }) {
         </div>
 
         {/* ── Área de mensajes (con padding para no quedar bajo card/input) ── */}
-        <div className="flex-1 overflow-y-auto">
-          <div className="mx-auto flex min-h-full max-w-2xl flex-col px-4 pb-28 pt-24 sm:px-6">
+        <div className="flex-1 overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]">
+          <div className="mx-auto flex min-h-full max-w-2xl flex-col px-4 pb-32 pt-[calc(6rem+env(safe-area-inset-top))] sm:px-6">
             <div className="flex-1" />
             {/* Aviso de completitud en modo prueba: qué le falta al asistente
                 para que una respuesta "vacía" no se confunda con un error. */}
@@ -1120,8 +1202,8 @@ function ChatInner({ tenantOverride }: { tenantOverride?: string }) {
         </div>
 
         {/* ── Input FLOTANTE — pill blanca con sombra, con margen (como Text) ── */}
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 px-4 pb-4 sm:pb-5">
-          <div className="pointer-events-auto mx-auto flex max-w-2xl items-center gap-1 rounded-full border border-transparent bg-slate-100 py-1.5 pl-2 pr-1.5 shadow-sm transition-colors focus-within:border-transparent focus-within:bg-white focus-within:ring-2 focus-within:ring-brand/25">
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-4 sm:pb-5">
+          <div className="pointer-events-auto mx-auto flex max-w-2xl items-end gap-1 rounded-[26px] border border-transparent bg-slate-100 py-1 pl-1 pr-1 shadow-sm transition-colors focus-within:border-transparent focus-within:bg-white focus-within:ring-2 focus-within:ring-brand/25">
             {/* Adjuntar — solo con conversación activa */}
             {conversationId && (
               <>
@@ -1142,7 +1224,7 @@ function ChatInner({ tenantOverride }: { tenantOverride?: string }) {
                   disabled={uploadingFile}
                   aria-label="Adjuntar imagen o PDF"
                   title="Adjuntar imagen o PDF"
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50"
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50"
                 >
                   {uploadingFile
                     ? <Loader2 className="h-4 w-4 animate-spin" />
@@ -1150,13 +1232,26 @@ function ChatInner({ tenantOverride }: { tenantOverride?: string }) {
                 </button>
               </>
             )}
-            <input
+            {/* Área de texto que crece hasta ~5 líneas (como una app de mensajes).
+                16 px: sin zoom automático en iOS. Enter envía (la tecla del
+                teclado dice "Enviar"); Shift+Enter hace salto de línea. */}
+            <textarea
               ref={inputRef}
-              className="min-w-0 flex-1 bg-transparent px-2 text-sm text-slate-900 placeholder:text-slate-400 outline-none disabled:opacity-60"
+              rows={1}
+              // enterKeyHint no está en los tipos de <textarea> de esta versión de React
+              {...({ enterKeyHint: "send" } as Record<string, string>)}
+              autoComplete="off"
+              autoCapitalize="sentences"
+              className="max-h-32 min-h-[44px] min-w-0 flex-1 resize-none bg-transparent px-2 py-[10px] text-base leading-6 text-slate-900 placeholder:text-slate-400 outline-none disabled:opacity-60"
               placeholder={conversationId ? "Escribí un mensaje…" : "Conectando…"}
               disabled={!conversationId}
               value={input}
-              onChange={e => setInput(e.target.value)}
+              onChange={e => {
+                setInput(e.target.value);
+                const el = e.target;
+                el.style.height = "auto";
+                el.style.height = `${Math.min(el.scrollHeight, 128)}px`;
+              }}
               onKeyDown={e => {
                 if (e.key !== "Enter" || e.shiftKey) return;
                 e.preventDefault();
@@ -1167,7 +1262,7 @@ function ChatInner({ tenantOverride }: { tenantOverride?: string }) {
               onClick={sendMessage}
               disabled={!conversationId || !input.trim() || sending}
               aria-label="Enviar mensaje"
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand to-brand-dark text-brand-foreground shadow-sm transition-all hover:scale-105 active:scale-95 disabled:scale-100 disabled:opacity-40 disabled:shadow-none"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand to-brand-dark text-brand-foreground shadow-sm transition-all active:scale-95 disabled:scale-100 disabled:opacity-40 disabled:shadow-none"
             >
               {sending
                 ? <Loader2 className="h-4 w-4 animate-spin" />

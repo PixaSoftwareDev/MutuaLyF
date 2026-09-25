@@ -139,6 +139,24 @@
   }
 }
 
+/* ── Pantalla del chat (/chat): tacto de app nativa en el celular ──────────
+   - sin el flash gris de WebKit al tocar
+   - sin doble-toque-para-zoom ni retardo en botones y campos
+   - sin rebote ni "tirar para recargar" (la página no scrollea; solo la lista) */
+.chat-app,
+.chat-app * {
+  -webkit-tap-highlight-color: transparent;
+}
+.chat-app button,
+.chat-app a,
+.chat-app input,
+.chat-app textarea {
+  touch-action: manipulation;
+}
+.chat-app {
+  overscroll-behavior: none;
+}
+
 @layer utilities {
   .scrollbar-hide {
     -ms-overflow-style: none;
