@@ -1006,14 +1006,21 @@ async def assert_chat_channel_enabled(tenant_id: str, channel: str) -> None:
 
 @router.get("/public/chat-token", dependencies=[Depends(check_widget_rate_limit)])
 async def public_chat_token(
-    tenant_id: str = Depends(get_tenant_id),
+    header_tenant: str = Depends(get_tenant_id),
+    tenant_id: str | None = Query(None, max_length=64, pattern="^[a-zA-Z0-9_-]*$"),
     channel: str = Query("widget", pattern="^(widget|link)$"),
 ):
-    """Emite un token efímero (2 h) para la página pública /chat.
-    Solo requiere X-Tenant-ID — sin login. Rate limit por IP (mismo que los
-    mensajes del widget): es un endpoint abierto a internet.
-    `channel` decide qué interruptor se respeta: 'link' (/chat/{tenant}) o
-    'widget' (default, compat con clientes viejos)."""
+    """Emite un token efímero (2 h) para la página pública /chat. Sin login;
+    rate limit por IP (es un endpoint abierto a internet).
+
+    El tenant va por QUERY (`tenant_id`), igual que /public/tenant-branding:
+    nginx fija la cabecera X-Tenant-ID por host (prod → "mutual", staging →
+    "intellix") y la pisa para toda la API, así que un link /chat/{tenant}
+    con la cabecera sola terminaba en otro tenant (o en uno inexistente). Las
+    llamadas siguientes van con el JWT, cuyo claim tiene prioridad sobre la
+    cabecera en el middleware. Sin query → cabecera (compat).
+    `channel` decide qué interruptor se respeta: 'link' o 'widget'."""
+    tenant_id = (tenant_id or "").strip() or header_tenant
     async with get_pg_session() as session:
         row = await session.execute(
             text("SELECT 1 FROM tenants WHERE id = :tid AND status != 'suspended'"),

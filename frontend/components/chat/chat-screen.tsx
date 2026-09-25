@@ -554,7 +554,8 @@ function ChatInner({ tenantOverride }: { tenantOverride?: string }) {
         throw Object.assign(new Error("tester_token_failed"), { status });
       }
     }
-    const r = await fetch(`${API_BASE}/api/v1/public/chat-token?channel=link`, { headers: { "X-Tenant-ID": tenantId } });
+    // tenant_id por query: nginx pisa la cabecera X-Tenant-ID por host.
+    const r = await fetch(`${API_BASE}/api/v1/public/chat-token?channel=link&tenant_id=${encodeURIComponent(tenantId)}`, { headers: { "X-Tenant-ID": tenantId } });
     if (!r.ok) throw Object.assign(new Error("chat_token_failed"), { status: r.status });
     return (await r.json()).widget_token as string;
   }, [tenantId, isTest]);
