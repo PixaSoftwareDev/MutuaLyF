@@ -1,40 +1,32 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import { Suspense } from "react";
-import { Loader2, Send, Bot, UserCheck, AlertTriangle, Paperclip, Headphones, RotateCcw, Tag, Check } from "lucide-react";
+import { Loader2, Send, Bot, UserCheck, AlertTriangle, Paperclip, Headphones, RotateCcw, Tag, Check, ArrowDown, MessageSquarePlus } from "lucide-react";
 import { FEEDBACK_UI_ENABLED } from "@/lib/features";
 import { api, type TenantBranding } from "@/lib/api";
 import { applyBrandingVars, readCachedBranding, writeCachedBranding } from "@/lib/use-tenant-branding";
 import { renderWithLinks } from "@/lib/render-with-links";
+import { getOrCreateSessionId, type ChatMessage, type ChatSector, type ChatProtocol } from "@/lib/chat-protocol";
+import { useChatConversation } from "@/components/chat/use-chat-conversation";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
-
-interface Sector { id: string; nombre: string; descripcion: string | null; is_default: boolean; }
-interface Message {
-  id: string;
-  role: "user" | "bot" | "operator" | "system" | "error";
-  content: string;
-  handoffOffer?: boolean;
-  attachment?: { name: string; mime: string } | null;
-}
 
 /**
  * Pantalla del chat (la usan app/chat/page.tsx y app/chat/[tenant]/page.tsx —
  * Next no permite exportar otra cosa que la página desde un page.tsx).
- * `tenant` viene por prop desde la ruta corta /chat/[tenant]
- * (el canal "Chat por link"); sin prop se lee ?tenant= de la URL (compat y
- * tester del panel). Un rewrite de Next NO servía: la URL del navegador queda
- * en /chat/demo y useSearchParams no ve la query del destino.
+ * `tenant` viene por prop desde la ruta del canal "Chat por link"
+ * (/chat/[tenant]); sin prop se lee ?tenant= de la URL (compat y tester).
+ *
+ * Toda la lógica de conversación (token, start, poll, envío, adjuntos,
+ * sector, derivación, feedback) vive en lib/chat-protocol.ts, compartida con
+ * el widget embebido. Acá solo hay render y comportamiento de pantalla
+ * (teclado, scroll, metadatos de app).
  */
 export function ChatScreen({ tenant }: { tenant?: string }) {
   return (
     <Suspense fallback={
       <div className="h-screen flex items-center justify-center bg-muted/40">
-        {/* Spinner NEUTRO a propósito: el avatar con gradient de marca dependía del
-            branding (que aún no cargó) y el ícono parpadeaba violeta + trazo negro
-            antes de aplicar el color. Gris fijo = cero flash en el arranque. */}
         <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
       </div>
     }>
@@ -43,19 +35,39 @@ export function ChatScreen({ tenant }: { tenant?: string }) {
   );
 }
 
-// ── Bubble components ──────────────────────────────────────────────────────────
+// ── Burbujas ──────────────────────────────────────────────────────────────────
+// Texto 15 px (14 se lee chico a distancia de celular) y ancho hasta 85 %.
+// `showAvatar`: en una seguidilla del mismo remitente, el avatar va solo en la
+// última burbuja (agrupado, como en cualquier app de mensajes).
 
-function BotBubble({ content }: { content: string }) {
+function BotAvatar({ hidden }: { hidden?: boolean }) {
   return (
-    <div className="flex gap-3 items-end group animate-fade-in-up">
-      <div className="relative w-8 h-8 shrink-0">
-        <div className="w-full h-full rounded-full bg-gradient-to-br from-brand-light to-brand-dark flex items-center justify-center">
-          <Bot className="h-4 w-4 text-brand-foreground" />
-        </div>
-        <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-emerald-500 border-2 border-white" />
+    <div className={`relative h-8 w-8 shrink-0 ${hidden ? "invisible" : ""}`}>
+      <div className="flex h-full w-full items-center justify-center rounded-full bg-gradient-to-br from-brand-light to-brand-dark">
+        <Bot className="h-4 w-4 text-brand-foreground" />
       </div>
-      <div className="max-w-[78%] sm:max-w-[65%]">
-        <div className="bg-[#f4f5f7] text-slate-800 rounded-2xl rounded-bl-md px-4 py-3 text-sm leading-relaxed">
+      <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-white bg-emerald-500" />
+    </div>
+  );
+}
+
+function OperatorAvatar({ hidden }: { hidden?: boolean }) {
+  return (
+    <div className={`relative h-8 w-8 shrink-0 ${hidden ? "invisible" : ""}`}>
+      <div className="flex h-full w-full items-center justify-center rounded-full bg-gradient-to-br from-emerald-400 to-teal-600">
+        <UserCheck className="h-4 w-4 text-white" />
+      </div>
+      <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-white bg-emerald-500" />
+    </div>
+  );
+}
+
+function BotBubble({ content, showAvatar = true, animate = true }: { content: string; showAvatar?: boolean; animate?: boolean }) {
+  return (
+    <div className={`flex items-end gap-2.5 ${animate ? "animate-fade-in-up" : ""}`}>
+      <BotAvatar hidden={!showAvatar} />
+      <div className="max-w-[85%] sm:max-w-[70%]">
+        <div className="rounded-2xl rounded-bl-md bg-[#f4f5f7] px-4 py-2.5 text-[15px] leading-relaxed text-slate-800">
           {renderWithLinks(content)}
         </div>
       </div>
@@ -63,13 +75,86 @@ function BotBubble({ content }: { content: string }) {
   );
 }
 
-function UserBubble({ content }: { content: string }) {
+function UserBubble({ content, pending, animate = true }: { content: string; pending?: boolean; animate?: boolean }) {
   return (
-    <div className="flex justify-end animate-fade-in-up">
-      <div className="max-w-[78%] sm:max-w-[65%]">
-        <div className="bg-gradient-to-br from-brand to-brand-dark text-brand-foreground rounded-2xl rounded-br-md px-4 py-3 text-sm leading-relaxed shadow-sm">
+    <div className={`flex justify-end ${animate ? "animate-fade-in-up" : ""}`}>
+      <div className="max-w-[85%] sm:max-w-[70%]">
+        <div className={`rounded-2xl rounded-br-md bg-gradient-to-br from-brand to-brand-dark px-4 py-2.5 text-[15px] leading-relaxed text-brand-foreground shadow-sm ${pending ? "opacity-80" : ""}`}>
           {renderWithLinks(content)}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function OperatorBubble({ content, operatorName, showAvatar = true }: { content: string; operatorName?: string | null; showAvatar?: boolean }) {
+  return (
+    <div className="flex items-end gap-2.5 animate-fade-in-up">
+      <OperatorAvatar hidden={!showAvatar} />
+      <div className="max-w-[85%] sm:max-w-[70%]">
+        <div className="rounded-2xl rounded-bl-md border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-[15px] leading-relaxed text-slate-800">
+          {renderWithLinks(content)}
+        </div>
+        {showAvatar && <p className="ml-1 mt-1 text-xs font-medium text-emerald-600">{operatorName || "Operador"}</p>}
+      </div>
+    </div>
+  );
+}
+
+// Mensajes de sistema ("Listo, tu solicitud fue recibida…", avisos) salen
+// como burbuja del bot: todo sale como un mensaje de quien escribe.
+function SystemBubble({ content, showAvatar }: { content: string; showAvatar?: boolean }) {
+  return <BotBubble content={content} showAvatar={showAvatar} />;
+}
+
+/** "Consulta dirigida al área X": píldora anclada en su lugar de la cronología. */
+function SectorNotePill({ content }: { content: string }) {
+  return (
+    <div className="flex justify-center py-1 animate-fade-in-up">
+      <span className="inline-flex max-w-[90%] items-center gap-1.5 rounded-full bg-slate-100 px-3.5 py-1.5 text-xs text-slate-500">
+        <Tag className="h-3.5 w-3.5 shrink-0" />
+        <span>{content}</span>
+      </span>
+    </div>
+  );
+}
+
+/** Mismo avatar y misma burbuja gris que BotBubble: al reemplazarse por la
+ *  respuesta no "salta" de forma. */
+function TypingIndicator() {
+  return (
+    <div className="flex items-end gap-2.5 animate-fade-in-up">
+      <BotAvatar />
+      <div className="rounded-2xl rounded-bl-md bg-[#f4f5f7] px-4 py-3">
+        <div className="flex items-center gap-1.5">
+          <span className="h-2 w-2 rounded-full bg-slate-400 animate-bounce [animation-delay:0ms]" />
+          <span className="h-2 w-2 rounded-full bg-slate-400 animate-bounce [animation-delay:150ms]" />
+          <span className="h-2 w-2 rounded-full bg-slate-400 animate-bounce [animation-delay:300ms]" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Error como mini-card: círculo de ícono + texto. Opcional reintento.
+function ErrorBubble({ content, onRetry }: { content: string; onRetry?: () => void }) {
+  return (
+    <div className="flex justify-center py-1 animate-fade-in-up">
+      <div className="flex max-w-[92%] items-center gap-2.5 rounded-2xl bg-red-50 py-2 pl-2.5 pr-3.5">
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-red-100 text-red-600">
+          <AlertTriangle className="h-4 w-4" />
+        </span>
+        <span className="text-[13px] leading-snug text-red-800">{content}</span>
+        {onRetry && (
+          <button
+            type="button"
+            onClick={onRetry}
+            className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-white px-3 text-xs font-semibold text-red-600 shadow-sm transition-colors hover:bg-red-50 active:bg-red-100"
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+            Reintentar
+          </button>
+        )}
       </div>
     </div>
   );
@@ -77,14 +162,15 @@ function UserBubble({ content }: { content: string }) {
 
 /**
  * Adjunto dentro de la conversación (imagen inline o link de descarga).
- * Baja el archivo con fetch + headers de auth (un <img src> directo no puede
- * mandar el Bearer) y muestra "expiró" si la retención de 60 días ya lo borró.
+ * Baja el archivo con el fetch autenticado del protocolo (renueva el token si
+ * venció) y muestra "expiró" si la retención ya lo borró.
  */
-function AttachmentMessage({ msg, url, headers, operatorName }: {
-  msg: Message;
+function AttachmentMessage({ msg, url, fetcher, operatorName, showAvatar }: {
+  msg: ChatMessage;
   url: string;
-  headers: Record<string, string>;
+  fetcher: (url: string) => Promise<Response>;
   operatorName: string | null;
+  showAvatar: boolean;
 }) {
   const [src, setSrc] = useState<string | null>(null);
   const [err, setErr] = useState<"expired" | "failed" | null>(null);
@@ -94,7 +180,7 @@ function AttachmentMessage({ msg, url, headers, operatorName }: {
   useEffect(() => {
     let active = true;
     let created: string | null = null;
-    fetch(url, { headers })
+    fetcher(url)
       .then(r => {
         if (!r.ok) throw Object.assign(new Error("attachment_fetch_failed"), { status: r.status });
         return r.blob();
@@ -103,7 +189,7 @@ function AttachmentMessage({ msg, url, headers, operatorName }: {
         const u = URL.createObjectURL(b);
         if (active) { created = u; setSrc(u); } else URL.revokeObjectURL(u);
       })
-      .catch((e: any) => { if (active) setErr(e?.status === 410 ? "expired" : "failed"); });
+      .catch((e: { status?: number }) => { if (active) setErr(e?.status === 410 ? "expired" : "failed"); });
     return () => { active = false; if (created) URL.revokeObjectURL(created); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [url]);
@@ -126,21 +212,19 @@ function AttachmentMessage({ msg, url, headers, operatorName }: {
       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); window.open(src, "_blank"); } }}
       role="button"
       tabIndex={0}
-      className="max-w-[220px] max-h-[220px] rounded-xl cursor-pointer"
+      className="max-h-[240px] max-w-[240px] cursor-pointer rounded-xl"
     />
   ) : msg.attachment?.mime === "application/pdf" ? (
-    // Vista previa: el blob URL abre en el visor de PDF del navegador (en móvil,
-    // el visor nativo). La descarga queda disponible desde ese mismo visor.
     <button
       type="button"
       onClick={() => window.open(src, "_blank")}
-      className="inline-flex items-center gap-1.5 text-sm underline underline-offset-2 break-all text-left"
+      className="inline-flex items-center gap-1.5 break-all text-left text-[15px] underline underline-offset-2"
       title="Ver documento"
     >
       <Paperclip className="h-4 w-4 shrink-0" />{msg.attachment?.name}
     </button>
   ) : (
-    <a href={src} download={msg.attachment?.name} className="inline-flex items-center gap-1.5 text-sm underline underline-offset-2 break-all">
+    <a href={src} download={msg.attachment?.name} className="inline-flex items-center gap-1.5 break-all text-[15px] underline underline-offset-2">
       <Paperclip className="h-4 w-4 shrink-0" />{msg.attachment?.name}
     </a>
   );
@@ -148,8 +232,8 @@ function AttachmentMessage({ msg, url, headers, operatorName }: {
   if (fromUser) {
     return (
       <div className="flex justify-end animate-fade-in-up">
-        <div className="max-w-[78%] sm:max-w-[65%]">
-          <div className="bg-gradient-to-br from-brand to-brand-dark text-brand-foreground rounded-2xl rounded-br-md px-3 py-2.5 shadow-sm">
+        <div className="max-w-[85%] sm:max-w-[70%]">
+          <div className="rounded-2xl rounded-br-md bg-gradient-to-br from-brand to-brand-dark px-3 py-2.5 text-brand-foreground shadow-sm">
             {inner}
           </div>
         </div>
@@ -157,46 +241,19 @@ function AttachmentMessage({ msg, url, headers, operatorName }: {
     );
   }
   return (
-    <div className="flex gap-3 items-end animate-fade-in-up">
-      <div className="relative w-8 h-8 shrink-0">
-        <div className="w-full h-full rounded-full bg-gradient-to-br from-emerald-400 to-teal-600 flex items-center justify-center">
-          <UserCheck className="h-4 w-4 text-white" />
-        </div>
-        <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-emerald-500 border-2 border-white" />
-      </div>
-      <div className="max-w-[78%] sm:max-w-[65%]">
-        {operatorName && <p className="text-[11px] text-muted-foreground mb-1 ml-1">{operatorName}</p>}
-        <div className="bg-emerald-50 text-slate-800 rounded-2xl rounded-bl-md px-3 py-2.5 border border-emerald-200">
+    <div className="flex items-end gap-2.5 animate-fade-in-up">
+      <OperatorAvatar hidden={!showAvatar} />
+      <div className="max-w-[85%] sm:max-w-[70%]">
+        <div className="rounded-2xl rounded-bl-md border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-slate-800">
           {inner}
         </div>
-      </div>
-    </div>
-  );
-}
-
-function OperatorBubble({ content, operatorName }: { content: string; operatorName?: string | null }) {
-  return (
-    <div className="flex gap-3 items-end animate-fade-in-up">
-      <div className="relative w-8 h-8 shrink-0">
-        <div className="w-full h-full rounded-full bg-gradient-to-br from-emerald-400 to-teal-600 flex items-center justify-center">
-          <UserCheck className="h-4 w-4 text-white" />
-        </div>
-        <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-emerald-500 border-2 border-white" />
-      </div>
-      <div className="max-w-[78%] sm:max-w-[65%]">
-        <div className="bg-emerald-50 text-slate-800 rounded-2xl rounded-bl-md px-4 py-3 text-sm leading-relaxed border border-emerald-200">
-          {renderWithLinks(content)}
-        </div>
-        <p className="text-xs text-emerald-600 mt-1 ml-1 font-medium">{operatorName || "Operador"}</p>
+        {showAvatar && operatorName && <p className="ml-1 mt-1 text-xs font-medium text-emerald-600">{operatorName}</p>}
       </div>
     </div>
   );
 }
 
 // ── Feedback al cierre (caritas 1-3 + chips de causa) ────────────────────────
-// 😊 envía directo; 😞/😐 abren chips opcionales de causa (un tap) con la
-// opción de omitir. Descartable con la X — no perseguimos al que no quiere
-// opinar. Sin campos de texto: en el celular nadie tipea encuestas.
 function FeedbackCard({ onSubmit, onDismiss, title = "¿Cómo estuvo tu consulta?" }: {
   onSubmit: (rating: number, reason: string | null) => void;
   onDismiss: () => void;
@@ -220,11 +277,10 @@ function FeedbackCard({ onSubmit, onDismiss, title = "¿Cómo estuvo tu consulta
       <div className="relative w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-4 text-center shadow-sm">
         <button
           type="button" onClick={onDismiss} aria-label="Cerrar encuesta"
-          className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full text-slate-300 transition-colors hover:bg-slate-100 hover:text-slate-500"
+          className="absolute right-1 top-1 flex h-9 w-9 items-center justify-center rounded-full text-slate-300 transition-colors hover:bg-slate-100 hover:text-slate-500"
         >
           ✕
         </button>
-
         {pendingRating === null ? (
           <>
             <p className="text-sm font-medium text-slate-700">{title}</p>
@@ -233,7 +289,7 @@ function FeedbackCard({ onSubmit, onDismiss, title = "¿Cómo estuvo tu consulta
                 <button
                   key={f.v} type="button" onClick={() => pick(f.v)}
                   aria-label={f.label} title={f.label}
-                  className="flex h-12 w-12 items-center justify-center rounded-full text-2xl transition-transform hover:scale-110 hover:bg-slate-50 active:scale-95"
+                  className="flex h-12 w-12 items-center justify-center rounded-full text-2xl transition-transform active:scale-95"
                 >
                   {f.emoji}
                 </button>
@@ -248,14 +304,14 @@ function FeedbackCard({ onSubmit, onDismiss, title = "¿Cómo estuvo tu consulta
                 <button
                   key={c.key} type="button"
                   onClick={() => onSubmit(pendingRating, c.key)}
-                  className="rounded-xl border border-slate-200 px-3 py-2 text-[13px] text-slate-600 transition-colors hover:border-brand/40 hover:bg-brand/5 hover:text-slate-900"
+                  className="min-h-[44px] rounded-xl border border-slate-200 px-3 py-2 text-[14px] text-slate-600 transition-colors active:bg-brand/5"
                 >
                   {c.label}
                 </button>
               ))}
               <button
                 type="button" onClick={() => onSubmit(pendingRating, null)}
-                className="mt-0.5 text-xs text-slate-400 underline underline-offset-2 hover:text-slate-600"
+                className="mt-0.5 min-h-[40px] text-xs text-slate-400 underline underline-offset-2"
               >
                 Enviar sin detalle
               </button>
@@ -267,63 +323,29 @@ function FeedbackCard({ onSubmit, onDismiss, title = "¿Cómo estuvo tu consulta
   );
 }
 
-// Los mensajes de sistema ("Listo, tu solicitud fue recibida…", avisos de
-// operador, demoras) se muestran como burbuja normal del bot — igual que en
-// WhatsApp, todo sale como un mensaje de quien escribe, sin piezas especiales.
-function SystemBubble({ content }: { content: string }) {
-  return <BotBubble content={content} />;
-}
-
-// Error como mini-card (sin borde duro): círculo de ícono + texto. Opcional retry.
-function ErrorBubble({ content, onRetry }: { content: string; onRetry?: () => void }) {
-  return (
-    <div className="flex justify-center py-1 animate-fade-in-up">
-      <div className="flex max-w-[92%] items-center gap-2.5 rounded-2xl bg-red-50 py-2 pl-2.5 pr-3.5">
-        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-red-100 text-red-600">
-          <AlertTriangle className="h-4 w-4" />
-        </span>
-        <span className="text-[12.5px] leading-snug text-red-800">{content}</span>
-        {onRetry && (
-          <button
-            onClick={onRetry}
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-white px-2.5 py-1.5 text-xs font-semibold text-red-600 shadow-sm transition-colors hover:bg-red-50"
-          >
-            <RotateCcw className="h-3.5 w-3.5" />
-            Reintentar
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
 function HandoffOfferBubble({
-  content,
-  onConfirm,
-  confirmed,
-  resolved,
-  identified,
-  sectors,
-  preselectedSectorId,
+  content, onConfirm, confirmed, resolved, identified, sectors, preselectedSectorId, showAvatar,
 }: {
   content: string;
   onConfirm: (identif?: { afiliado_nombre?: string; afiliado_dni?: string; sector_id?: string }) => void;
   confirmed: boolean;
   resolved: boolean;
   identified: boolean;
-  sectors: Sector[];
+  sectors: ChatSector[];
   preselectedSectorId: string | null;
+  showAvatar: boolean;
 }) {
-  // 3 estados: "offer" (botón inicial) → "identify" (form) → confirmed (loader)
   const [phase, setPhase] = useState<"offer" | "identify">("offer");
   const [nombre, setNombre] = useState("");
   const [dni, setDni]       = useState("");
-  // El sector se decide acá — el momento en que importa de verdad (define la
-  // cola de operadores). Pre-seleccionado: el elegido antes por chip, o el default.
-  const [sectorId, setSectorId] = useState<string>(
-    preselectedSectorId || sectors.find(s => s.is_default)?.id || sectors[0]?.id || ""
-  );
+  const [sectorId, setSectorId] = useState<string>("");
+  // Los sectores pueden llegar después de montar la tarjeta: sincronizar.
+  useEffect(() => {
+    if (sectorId) return;
+    setSectorId(preselectedSectorId || sectors.find(s => s.is_default)?.id || sectors[0]?.id || "");
+  }, [sectors, preselectedSectorId, sectorId]);
   const [err, setErr]       = useState<string | null>(null);
+  const [dismissed, setDismissed] = useState(false);
 
   function submit() {
     setErr(null);
@@ -331,36 +353,18 @@ function HandoffOfferBubble({
     const d = dni.trim();
     if (!n) { setErr("Decinos tu nombre, por favor."); return; }
     if (!d) { setErr("Decinos tu DNI o número de documento, por favor."); return; }
-    // Sin mínimo de longitud: es un identificador para que el operador te reconozca,
-    // no una credencial. Documentos cortos, provisorios o extranjeros son válidos.
-    onConfirm({
-      afiliado_nombre: n,
-      afiliado_dni: d,
-      ...(sectors.length > 1 && sectorId ? { sector_id: sectorId } : {}),
-    });
+    onConfirm({ afiliado_nombre: n, afiliado_dni: d, ...(sectors.length > 1 && sectorId ? { sector_id: sectorId } : {}) });
   }
 
-  const [dismissed, setDismissed] = useState(false);
-  // El área solo se pregunta acá si NO se eligió antes (en la lista bajo el saludo).
   const askSector = sectors.length > 1 && !preselectedSectorId;
-  // text-base (16 px): con menos, iOS Safari hace zoom al tocar el campo.
   const inputCls = "w-full rounded-[10px] border border-slate-200 bg-white px-3 py-2.5 text-base text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-brand focus:ring-[3px] focus:ring-brand/25";
-  // Foco automático solo con mouse: en el celular levantaría el teclado solo.
   const autoFocusDesktop = typeof window !== "undefined" && window.matchMedia("(hover: hover) and (pointer: fine)").matches;
 
   return (
-    // Formato burbuja: avatar del bot + burbuja gris con la acción adentro.
-    <div className="flex items-end gap-3 animate-fade-in-up">
-      <div className="relative h-8 w-8 shrink-0">
-        <div className="flex h-full w-full items-center justify-center rounded-full bg-gradient-to-br from-brand-light to-brand-dark">
-          <Bot className="h-4 w-4 text-brand-foreground" />
-        </div>
-        <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-white bg-emerald-500" />
-      </div>
-      <div className="flex max-w-[85%] flex-col gap-3 rounded-2xl rounded-bl-md bg-[#f4f5f7] px-4 py-3">
-        <p className="text-sm leading-relaxed text-slate-800">{renderWithLinks(content)}</p>
-        {/* resolved: la conversación ya salió de bot_active (derivada/atendida/
-            cerrada) — la tarjeta queda como registro, sin botón ni spinner. */}
+    <div className="flex items-end gap-2.5 animate-fade-in-up">
+      <BotAvatar hidden={!showAvatar} />
+      <div className="flex max-w-[88%] flex-col gap-3 rounded-2xl rounded-bl-md bg-[#f4f5f7] px-4 py-3">
+        <p className="text-[15px] leading-relaxed text-slate-800">{renderWithLinks(content)}</p>
         {dismissed || resolved ? (
           resolved && !dismissed ? (
             <span className="inline-flex items-center gap-1.5 text-xs text-slate-400">
@@ -376,17 +380,19 @@ function HandoffOfferBubble({
         ) : phase === "offer" ? (
           <>
             <button
+              type="button"
               onClick={() => identified
                 ? onConfirm(preselectedSectorId ? { sector_id: preselectedSectorId } : undefined)
                 : setPhase("identify")}
-              className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-br from-brand to-brand-dark px-4 py-2.5 text-sm font-semibold text-brand-foreground shadow-sm transition-all hover:brightness-105 active:scale-95"
+              className="inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-br from-brand to-brand-dark px-4 py-2.5 text-sm font-semibold text-brand-foreground shadow-sm transition-all active:scale-[0.98]"
             >
               <Headphones className="h-4 w-4" />
               Conectarme con un operador
             </button>
             <button
+              type="button"
               onClick={() => setDismissed(true)}
-              className="self-center text-xs text-slate-400 transition-colors hover:text-slate-600"
+              className="min-h-[40px] self-center text-xs text-slate-400 transition-colors hover:text-slate-600"
             >
               Seguir con el asistente
             </button>
@@ -404,9 +410,9 @@ function HandoffOfferBubble({
                 </select>
               </>
             )}
-            {err && <p className="text-[11px] text-destructive">{err}</p>}
+            {err && <p className="text-[12px] text-destructive">{err}</p>}
             <div className="flex justify-end pt-0.5">
-              <button onClick={submit} className="rounded-xl bg-gradient-to-br from-brand to-brand-dark px-5 py-2 text-sm font-semibold text-brand-foreground shadow-sm transition-all hover:brightness-105 active:scale-95">
+              <button type="button" onClick={submit} className="min-h-[44px] rounded-xl bg-gradient-to-br from-brand to-brand-dark px-5 py-2 text-sm font-semibold text-brand-foreground shadow-sm transition-all active:scale-[0.98]">
                 Continuar
               </button>
             </div>
@@ -418,51 +424,36 @@ function HandoffOfferBubble({
 }
 
 /**
- * Elección de área OPCIONAL, dentro de la conversación (no como pantalla previa):
- * chip discreto → lista vertical → pill de confirmación. El sector no cambia lo
- * que responde el bot; solo define qué equipo atiende si se deriva a un humano.
+ * Elección de área OPCIONAL, como chips bajo el saludo (sin scroll anidado,
+ * con feedback táctil). La elección se persiste en el servidor y vuelve como
+ * píldora en la cronología (SectorNotePill). "No importa" la oculta.
  */
-function SectorChooser({ sectors, selected, onSelect }: {
-  sectors: Sector[];
-  selected: Sector | null;
-  onSelect: (s: Sector) => void;
-}) {
-  // Sin globito: la lista aparece directa. "No importa" descarta (queda en general).
+function SectorChips({ sectors, onSelect, busy }: { sectors: ChatSector[]; onSelect: (s: ChatSector) => void; busy: boolean }) {
   const [dismissed, setDismissed] = useState(false);
-
-  if (selected) {
-    return (
-      <div className="flex justify-center py-1 animate-fade-in-up">
-        <span className="inline-flex max-w-[90%] items-center gap-1.5 rounded-full bg-slate-100 px-3.5 py-1.5 text-xs text-slate-500">
-          <Tag className="h-3.5 w-3.5 shrink-0" />
-          <span>Consulta dirigida al área <span className="font-semibold text-slate-700">{selected.nombre}</span></span>
-        </span>
-      </div>
-    );
-  }
   if (dismissed) return null;
-
   return (
-    <div className="flex justify-center animate-fade-in-up">
-      <div className="w-full max-w-sm overflow-hidden rounded-2xl border bg-card shadow-md">
-        <p className="border-b bg-muted/40 px-4 py-2.5 text-xs font-semibold text-muted-foreground">
-          ¿Con qué área querés hablar?
-        </p>
-        <div className="max-h-64 overflow-y-auto">
+    <div className="flex items-end gap-2.5 animate-fade-in-up">
+      <BotAvatar hidden />
+      <div className="max-w-[92%]">
+        <p className="mb-2 text-xs font-medium text-slate-500">¿Con qué área querés hablar?</p>
+        <div className="flex flex-wrap gap-2">
           {sectors.map(s => (
             <button
               key={s.id}
+              type="button"
+              disabled={busy}
               onClick={() => onSelect(s)}
-              className="block w-full border-b px-4 py-2.5 text-left text-sm transition-colors hover:bg-brand/5 hover:text-brand"
+              className="min-h-[40px] rounded-full border border-slate-200 bg-white px-3.5 py-1.5 text-[14px] text-slate-700 shadow-sm transition-colors active:border-brand active:bg-brand/5 disabled:opacity-60"
             >
               {s.nombre}
             </button>
           ))}
           <button
+            type="button"
             onClick={() => setDismissed(true)}
-            className="block w-full px-4 py-2.5 text-left text-xs text-muted-foreground transition-colors hover:bg-muted/50"
+            className="min-h-[40px] rounded-full px-3 py-1.5 text-[13px] text-slate-400 transition-colors active:bg-slate-100"
           >
-            No importa, sigo con el asistente
+            No importa
           </button>
         </div>
       </div>
@@ -470,31 +461,8 @@ function SectorChooser({ sectors, selected, onSelect }: {
   );
 }
 
-function TypingIndicator() {
-  return (
-    <div className="flex gap-3 items-end animate-fade-in-up">
-      <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-brand-light to-brand-dark flex items-center justify-center shrink-0 shadow-md shadow-black/20">
-        <Bot className="h-4 w-4 text-brand-foreground" />
-      </div>
-      <div className="bg-white rounded-2xl rounded-bl-sm px-5 py-4 shadow-sm border border-slate-100">
-        <div className="flex gap-1.5 items-center">
-          <span className="w-2 h-2 rounded-full bg-brand-light animate-bounce [animation-delay:0ms]" />
-          <span className="w-2 h-2 rounded-full bg-brand-light animate-bounce [animation-delay:150ms]" />
-          <span className="w-2 h-2 rounded-full bg-brand-light animate-bounce [animation-delay:300ms]" />
-        </div>
-      </div>
-    </div>
-  );
-}
+// ── Textos de error fatal ─────────────────────────────────────────────────────
 
-// ── Main component ─────────────────────────────────────────────────────────────
-
-/**
- * Traduce un fallo al iniciar/usar el chat a un mensaje que el usuario pueda
- * accionar. Nunca mostramos "HTTP 401" crudo. En modo prueba el token sale de
- * la sesión del panel (pestaña del mismo origen): si no hay sesión o venció,
- * la solución es volver a entrar al panel.
- */
 function friendlyChatError(status: number | null, isTest: boolean): string {
   if (status === 401 || status === 403) {
     return isTest
@@ -508,210 +476,24 @@ function friendlyChatError(status: number | null, isTest: boolean): string {
   return "No pudimos conectar con el chat. Revisá tu conexión a internet e intentá de nuevo.";
 }
 
-function ChatInner({ tenantOverride }: { tenantOverride?: string }) {
-  const params   = useSearchParams();
-  const tenantId = tenantOverride || params.get("tenant") || "";
-  // Modo prueba del panel: la URL NO lleva token. La página pide un token
-  // efímero con la sesión del admin (mismo origen) → nada sensible en la URL
-  // y la pestaña sobrevive a un F5. Un ?token= viejo se ignora.
-  const isTest   = params.get("test") === "1";
-  // Flags de completitud que setea el panel admin al abrir "Probar chat":
-  // el tester avisa qué falta (docs/sectores) para que una prueba "vacía"
-  // no parezca un error del bot.
-  const missingKb      = isTest && params.get("kb") === "0";
-  const missingSectors = isTest && params.get("sectors") === "0";
-
-  const [sectors, setSectors]               = useState<Sector[]>([]);
-  // El branding arranca null y el cache se lee en useLayoutEffect (post-mount,
-  // pre-paint). Leerlo en el initializer del useState rompía la hidratación:
-  // el SSR no tiene localStorage y renderizaba "Asistente" mientras el cliente
-  // renderizaba el bot_name cacheado → "Text content does not match". Con el
-  // layout effect no hay flash visible (corre antes del primer paint) y el
-  // HTML del server y del cliente coinciden.
-  const [branding, setBranding]             = useState<TenantBranding | null>(null);
-  useLayoutEffect(() => {
-    if (tenantId) setBranding(prev => prev ?? readCachedBranding(tenantId));
-  }, [tenantId]);
-  const [sectorsLoading, setSectorsLoading] = useState(true);
-  const [selectedSector, setSelectedSector] = useState<Sector | null>(null);
-  const [conversationId, setConversationId] = useState<string | null>(null);
-  const [messages, setMessages]             = useState<Message[]>([]);
-  const [input, setInput]                   = useState("");
-  const [sending, setSending]               = useState(false);
-  const [status, setStatus]                 = useState("bot_active");
-  const [operatorName, setOperatorName]     = useState<string | null>(null);
-  const [error, setError]                   = useState<string | null>(null);
-  const [resolvedToken, setResolvedToken]   = useState("");
-  // Copia del token para las funciones async (el state puede quedar viejo
-  // dentro de un closure de polling largo).
-  const tokenRef                            = useRef<string>("");
-  useEffect(() => { tokenRef.current = resolvedToken; }, [resolvedToken]);
-  const [handoffConfirmed, setHandoffConfirmed] = useState(false);
-  const [afiliadoIdentified, setAfiliadoIdentified] = useState(false);
-  // Feedback al cierre (caritas 1-3). feedbackGiven viene del poll; dismissed
-  // es local (si lo cierra sin votar, no lo perseguimos en esta sesión).
-  const [feedbackGiven, setFeedbackGiven] = useState(false);
-  const [feedbackDismissed, setFeedbackDismissed] = useState(false);
-  const [feedbackThanks, setFeedbackThanks] = useState(false);
-  // Conversación ANTERIOR cerrada sin calificar (viene de /start) — reapertura
-  const [prevFeedbackConvId, setPrevFeedbackConvId] = useState<string | null>(null);
-  const [uploadingFile, setUploadingFile]   = useState(false);
-  const bottomRef                           = useRef<HTMLDivElement>(null);
-  const inputRef                            = useRef<HTMLTextAreaElement>(null);
-  const fileInputRef                        = useRef<HTMLInputElement>(null);
-  const sessionId                           = useRef<string>("");
-  const pollTimeoutRef                      = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pollAliveRef                        = useRef<boolean>(false);
-  const lastMessageIdRef                    = useRef<string | null>(null);
-  // Cada call a startPolling incrementa esta version. Si un loop viejo
-  // dispara su proximo tick despues de que arrancamos uno nuevo, lo detecta
-  // por version mismatch y termina sin hacer fetch. Sin esto, al renovar
-  // una conv cerrada podian quedar dos loops corriendo en paralelo.
-  const pollVersionRef                      = useRef<number>(0);
-
+// ── Alto real de la pantalla en el celular ────────────────────────────────────
+// 100vh miente (barras del navegador) y ningún alto CSS sigue al teclado en
+// iOS. Medimos el visual viewport y lo aplicamos al contenedor raíz (fixed):
+// al abrir el teclado la pantalla se achica y la barra de escritura queda
+// pegada a él. Mientras vive la pantalla, la página no scrollea (sin rebote
+// ni pull-to-refresh). Solo `resize`: escuchar `scroll` peleaba con iOS.
+function useMobileAppHeight(): { height: number | null; isDesktop: boolean } {
+  const [height, setHeight] = useState<number | null>(null);
+  const [isDesktop, setIsDesktop] = useState(false);
   useEffect(() => {
-    // Sesión separada para el tester: que las pruebas del admin no retomen
-    // (ni ensucien) una conversación real del mismo navegador.
-    const key = "ia_chat_session_" + tenantId.slice(-8) + (isTest ? "_test" : "");
-    const stored = localStorage.getItem(key);
-    if (stored) { sessionId.current = stored; }
-    else {
-      const id = "cs_" + Date.now() + "_" + Math.random().toString(36).slice(2, 9);
-      localStorage.setItem(key, id);
-      sessionId.current = id;
-    }
-  }, [tenantId, isTest]);
-
-  // Obtiene un token efímero (2 h). Público: endpoint sin login que respeta el
-  // interruptor del canal. Prueba: endpoint de admin con la sesión del panel.
-  // Lanza { status } para que friendlyChatError explique qué pasó.
-  async function fetchToken(): Promise<string> {
-    if (isTest) {
-      try {
-        const d = await api.tenants.chatTesterToken(tenantId);
-        return d.widget_token;
-      } catch (e) {
-        const status = (e as { response?: { status?: number } })?.response?.status ?? null;
-        throw Object.assign(new Error("tester_token_failed"), { status });
-      }
-    }
-    // channel=link: esta página compartida por URL es el canal "Chat por link",
-    // con su propio interruptor en Configuración → Canales.
-    const r = await fetch(`${API_BASE}/api/v1/public/chat-token?channel=link`, { headers: { "X-Tenant-ID": tenantId } });
-    if (!r.ok) throw Object.assign(new Error("chat_token_failed"), { status: r.status });
-    return (await r.json()).widget_token as string;
-  }
-
-  // Renovación: el token dura 2 h y una charla puede durar más (pestaña
-  // abierta). Ante un 401, authFetch pide uno nuevo UNA vez y reintenta con la
-  // misma widget_session_id, así la conversación sigue sin pantalla de error.
-  // renewingRef evita que el poll y un envío simultáneos pidan dos tokens.
-  const renewingRef = useRef<Promise<string> | null>(null);
-  function renewToken(): Promise<string> {
-    if (!renewingRef.current) {
-      renewingRef.current = fetchToken()
-        .then(t => { tokenRef.current = t; setResolvedToken(t); return t; })
-        .finally(() => { renewingRef.current = null; });
-    }
-    return renewingRef.current;
-  }
-
-  async function authFetch(url: string, init: RequestInit = {}, json = true): Promise<Response> {
-    const build = (): Record<string, string> => ({
-      ...((init.headers as Record<string, string>) || {}),
-      ...(json ? { "Content-Type": "application/json" } : {}),
-      Authorization: `Bearer ${tokenRef.current}`,
-      "X-Tenant-ID": tenantId,
-    });
-    let r = await fetch(url, { ...init, headers: build() });
-    if (r.status === 401) {
-      try { await renewToken(); } catch { return r; }
-      r = await fetch(url, { ...init, headers: build() });
-    }
-    return r;
-  }
-
-  useEffect(() => {
-    if (!tenantId) {
-      setError("URL inválida. El chat requiere el parámetro ?tenant=TU_ORGANIZACION");
-      setSectorsLoading(false);
-      return;
-    }
-    fetchToken()
-      .then(t => { tokenRef.current = t; setResolvedToken(t); })
-      .catch((e: { status?: number }) => {
-        setError(friendlyChatError(e?.status ?? null, isTest));
-        setSectorsLoading(false);
-      });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tenantId, isTest]);
-
-  // Load tenant branding (public endpoint) + apply CSS variables.
-  // Si el cache sincronico ya nos dio un branding inicial, igual revalidamos
-  // contra el server por si cambio (logo, color). Guardamos lo fresco al cache
-  // para el proximo refresh.
-  useEffect(() => {
-    if (!tenantId) return;
-    const cached = readCachedBranding(tenantId);
-    if (cached) applyBrandingVars(cached);
-    api.branding.get(tenantId)
-      .then(b => {
-        setBranding(b);
-        applyBrandingVars(b);
-        writeCachedBranding(tenantId, b);
-      })
-      .catch(() => { /* keep cached or generic defaults */ });
-  }, [tenantId]);
-
-  useEffect(() => {
-    if (!resolvedToken) return;
-    fetch(`${API_BASE}/api/v1/widget/sectors`, {
-      headers: { Authorization: `Bearer ${resolvedToken}`, "X-Tenant-ID": tenantId },
-    })
-      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
-      .then((data: { sectors: Sector[]; greeting_message: string | null }) => {
-        setSectors(data.sectors);
-        setSectorsLoading(false);
-      })
-      // Sectores son opcionales ahora (solo importan al derivar) — un fallo acá
-      // no bloquea el chat.
-      .catch(() => setSectorsLoading(false));
-  }, [resolvedToken, tenantId]);
-
-  // Arranque directo en conversación: sin pantalla de selección de área. El
-  // saludo llega como primer mensaje del bot (persistido en DB, viene por poll).
-  const startedRef = useRef(false);
-  useEffect(() => {
-    if (!resolvedToken || startedRef.current) return;
-    startedRef.current = true;
-    startChat();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resolvedToken]);
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, sectorsLoading]);
-
-  // ── Móvil: alto REAL de la pantalla ────────────────────────────────────────
-  // 100vh miente en el celular (barras del navegador) y ningún alto CSS sigue
-  // al teclado en iOS. Medimos el visual viewport y lo aplicamos como alto del
-  // contenedor raíz (fixed): al abrir el teclado la pantalla se achica, la
-  // barra de escritura queda pegada al teclado y el último mensaje a la vista.
-  // Mientras esta pantalla vive, la página no scrollea (solo la lista): sin
-  // rebote ni "tirar para recargar".
-  const [appHeight, setAppHeight] = useState<number | null>(null);
-  const isDesktopRef = useRef(false);
-  useEffect(() => {
-    isDesktopRef.current = window.matchMedia("(hover: hover) and (pointer: fine)").matches;
+    setIsDesktop(window.matchMedia("(hover: hover) and (pointer: fine)").matches);
     const vv = window.visualViewport;
     const update = () => {
-      setAppHeight(Math.round(vv ? vv.height : window.innerHeight));
-      // iOS desplaza la página entera al enfocar un campo: la devolvemos.
+      setHeight(Math.round(vv ? vv.height : window.innerHeight));
       if (window.scrollY !== 0) window.scrollTo(0, 0);
     };
     update();
     vv?.addEventListener("resize", update);
-    vv?.addEventListener("scroll", update);
     window.addEventListener("resize", update);
     window.addEventListener("orientationchange", update);
     const html = document.documentElement, body = document.body;
@@ -721,21 +503,79 @@ function ChatInner({ tenantOverride }: { tenantOverride?: string }) {
     body.style.overflow = "hidden";
     return () => {
       vv?.removeEventListener("resize", update);
-      vv?.removeEventListener("scroll", update);
       window.removeEventListener("resize", update);
       window.removeEventListener("orientationchange", update);
       [html.style.overscrollBehavior, body.style.overscrollBehavior, body.style.overflow] = prev;
     };
   }, []);
-  // Al cambiar el alto (teclado abre/cierra, giro), el último mensaje sigue a la vista.
-  useEffect(() => {
-    if (appHeight) bottomRef.current?.scrollIntoView({ block: "end" });
-  }, [appHeight]);
+  return { height, isDesktop };
+}
 
-  // ── Metadatos de app con el branding del tenant ────────────────────────────
-  // theme-color pinta la barra del navegador del color de la organización; el
-  // manifest dinámico y el apple-touch-icon hacen que "Agregar a inicio"
-  // instale el chat con su nombre e ícono (solo en el link público /chat/{t}).
+// ── Pantalla ──────────────────────────────────────────────────────────────────
+
+function ChatInner({ tenantOverride }: { tenantOverride?: string }) {
+  const params   = useSearchParams();
+  const tenantId = tenantOverride || params.get("tenant") || "";
+  // Modo prueba del panel: el token sale de la sesión del admin (mismo
+  // origen); nada sensible en la URL.
+  const isTest   = params.get("test") === "1";
+  const missingKb      = isTest && params.get("kb") === "0";
+  const missingSectors = isTest && params.get("sectors") === "0";
+
+  // Branding: cache sincrónico en layout effect (evita flash e hidratación rota).
+  const [branding, setBranding] = useState<TenantBranding | null>(null);
+  useLayoutEffect(() => {
+    if (tenantId) setBranding(prev => prev ?? readCachedBranding(tenantId));
+  }, [tenantId]);
+  useEffect(() => {
+    if (!tenantId) return;
+    const cached = readCachedBranding(tenantId);
+    if (cached) applyBrandingVars(cached);
+    api.branding.get(tenantId)
+      .then(b => { setBranding(b); applyBrandingVars(b); writeCachedBranding(tenantId, b); })
+      .catch(() => { /* cache o defaults */ });
+  }, [tenantId]);
+
+  // Sesión por navegador (separada para el tester).
+  const [sessionId, setSessionId] = useState("");
+  useEffect(() => {
+    if (!tenantId) return;
+    setSessionId(getOrCreateSessionId("ia_chat_session_" + tenantId.slice(-8) + (isTest ? "_test" : "")));
+  }, [tenantId, isTest]);
+
+  // Token: público del canal link (respeta el interruptor) o del tester (sesión admin).
+  const getToken = useCallback(async (): Promise<string> => {
+    if (isTest) {
+      try {
+        const d = await api.tenants.chatTesterToken(tenantId);
+        return d.widget_token;
+      } catch (e) {
+        const status = (e as { response?: { status?: number } })?.response?.status ?? null;
+        throw Object.assign(new Error("tester_token_failed"), { status });
+      }
+    }
+    const r = await fetch(`${API_BASE}/api/v1/public/chat-token?channel=link`, { headers: { "X-Tenant-ID": tenantId } });
+    if (!r.ok) throw Object.assign(new Error("chat_token_failed"), { status: r.status });
+    return (await r.json()).widget_token as string;
+  }, [tenantId, isTest]);
+
+  const protocolOpts = useMemo(
+    () => (tenantId && sessionId ? { apiBase: API_BASE, tenantId, sessionId, channel: (isTest ? "widget" : "link") as "widget" | "link", getToken } : null),
+    [tenantId, sessionId, isTest, getToken],
+  );
+  const { chat, state } = useChatConversation(protocolOpts);
+
+  const { height: appHeight, isDesktop } = useMobileAppHeight();
+
+  // Volver a la app (pantalla bloqueada, otra app): snapshot ya, sin long-poll paralelo.
+  useEffect(() => {
+    if (!chat) return;
+    const onVisible = () => { if (document.visibilityState === "visible") chat.refresh(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [chat]);
+
+  // Metadatos de app con el branding: theme-color + manifest/ícono (solo en el link público).
   useEffect(() => {
     if (!branding?.primary_color) return;
     const setMeta = (name: string, content: string) => {
@@ -758,327 +598,149 @@ function ChatInner({ tenantOverride }: { tenantOverride?: string }) {
     setMeta("apple-mobile-web-app-title", appName);
   }, [branding, tenantOverride]);
 
-  useEffect(() => () => {
-    pollAliveRef.current = false;
-    if (pollTimeoutRef.current) clearTimeout(pollTimeoutRef.current);
-    lastMessageIdRef.current = null;
-    pollVersionRef.current++;  // invalida cualquier loop async pendiente
-  }, []);
+  // ── Estado derivado ────────────────────────────────────────────────────────
+  const status = state?.status ?? "bot_active";
+  const operatorName = state?.operatorName ?? null;
+  const messages = state?.messages ?? [];
+  const sectors = state?.sectors ?? [];
+  const conversationId = state?.conversationId ?? null;
 
-  const pollMessages = useCallback(async (convId: string) => {
-    try {
-      const anchor = lastMessageIdRef.current;
-      const url = `${API_BASE}/api/v1/widget/conversation/${convId}/poll?widget_session_id=${encodeURIComponent(sessionId.current)}`
-        + (anchor ? `&last_message_id=${encodeURIComponent(anchor)}` : "");
-      const r = await authFetch(url);
-      if (!r.ok) return;
-      const data = await r.json();
-      // El flag handoffOffer viene de la DB (is_handoff_offer) y se respeta
-      // SIEMPRE: una oferta se dibuja como tarjeta toda su vida. Si la conv ya
-      // no esta en bot_active, la tarjeta se renderiza "resuelta" (sin boton) —
-      // degradarla a burbuja de texto hacia reaparecer la pregunta como si el
-      // bot mandara mensajes de mas (reporte 2026-07-27).
-      const msgs = (data.messages || []).map((m: { id: string; sender_type: string; content: string; is_handoff_offer?: boolean; attachment_name?: string | null; attachment_mime?: string | null }) => ({
-        id:   m.id,
-        role: m.sender_type as Message["role"],
-        content: m.content,
-        handoffOffer: Boolean(m.is_handoff_offer),
-        attachment: m.attachment_name ? { name: m.attachment_name, mime: m.attachment_mime || "" } : null,
-      }));
-      setMessages(msgs);
-      if (msgs.length > 0) lastMessageIdRef.current = msgs[msgs.length - 1].id;
-      setStatus(data.status);
-      setOperatorName(data.operator_name ?? null);
-      setAfiliadoIdentified(Boolean(data.afiliado_identified));
-      setFeedbackGiven(Boolean(data.feedback_given));
-      // Resetear handoffConfirmed cuando la conversacion vuelve a bot_active
-      // (operador la cerro / la devolvio al bot / acepto el handoff y termino).
-      // Sin esto, un cartel nuevo en un ciclo posterior aparece ya en modo
-      // "Buscando operador disponible..." sin boton.
-      if (data.status === "bot_active") {
-        setHandoffConfirmed(false);
-      }
-    } catch { /* ignore */ }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resolvedToken, tenantId]);
-
-  // Al volver a la pestaña/app (pantalla bloqueada, otra app), refrescar ya:
-  // el long-poll pudo quedar dormido y el operador haber respondido.
-  useEffect(() => {
-    const onVisible = () => { if (document.visibilityState === "visible" && conversationId) pollMessages(conversationId); };
-    document.addEventListener("visibilitychange", onVisible);
-    return () => document.removeEventListener("visibilitychange", onVisible);
-  }, [conversationId, pollMessages]);
-
-
-  // Long-polling loop: server holds the request up to ~25s and replies as soon
-  // as there's news. We chain the next fetch right after each response so the
-  // perceived latency is essentially network RTT.
-  //
-  // Version token: cada call genera una nueva version. Si un loop viejo despierta
-  // despues (porque su await /poll tardo y nosotros ya arrancamos otro), detecta
-  // el mismatch y termina. Sin esto, al renovar conv cerrada podian quedar dos
-  // loops paralelos.
-  const startPolling = useCallback((convId: string) => {
-    if (pollTimeoutRef.current) clearTimeout(pollTimeoutRef.current);
-    pollAliveRef.current = true;
-    const myVersion = ++pollVersionRef.current;
-    const loop = async () => {
-      if (!pollAliveRef.current || pollVersionRef.current !== myVersion) return;
-      await pollMessages(convId);
-      if (!pollAliveRef.current || pollVersionRef.current !== myVersion) return;
-      pollTimeoutRef.current = setTimeout(loop, 250);
-    };
-    loop();
-  }, [pollMessages]);
-
-  async function startChat(pendingMessage?: string) {
-    // Reset critico: matar polling viejo (si lo hay) y limpiar todos los refs
-    // que persisten entre ciclos. Sin esto, al renovar conv el cliente quedaba
-    // polleando con last_message_id de la conv vieja → backend hacia long-poll
-    // 25s buscando un mensaje que ya no existia → UX se sentia "rota".
-    pollAliveRef.current = false;
-    if (pollTimeoutRef.current) { clearTimeout(pollTimeoutRef.current); pollTimeoutRef.current = null; }
-    lastMessageIdRef.current = null;
-
-    setMessages([]);
-    setHandoffConfirmed(false);
-    if (isDesktopRef.current) setTimeout(() => inputRef.current?.focus(), 100);
-    try {
-      const r = await authFetch(`${API_BASE}/api/v1/widget/conversation/start`, {
-        method: "POST",
-        // Sin sector: el backend usa el default del tenant. El área real se
-        // decide al derivar (confirm-handoff la re-etiqueta). La marca de
-        // prueba ya no viaja acá: va firmada dentro del token del tester.
-        // Canal: 'link' para la página compartida; el tester del panel queda
-        // como 'widget' (prueba el mismo bot, no es un canal aparte).
-        body: JSON.stringify({ widget_session_id: sessionId.current, sector_id: selectedSector?.id ?? null, channel: isTest ? "widget" : "link" }),
-      });
-      if (!r.ok) {
-        // Pantalla completa con explicación accionable, no una burbuja "HTTP 401".
-        setError(friendlyChatError(r.status, isTest));
-        return;
-      }
-      const data = await r.json();
-      setConversationId(data.conversation_id);
-      setStatus(data.status);
-      // Reapertura: la conversación anterior quedó cerrada sin calificar →
-      // ofrecer las caritas UNA vez para esa conversación previa.
-      setPrevFeedbackConvId(data.prev_feedback_pending ?? null);
-      // Always poll: greeting is persisted in DB so it survives subsequent polls
-      await pollMessages(data.conversation_id);
-      startPolling(data.conversation_id);
-      if (pendingMessage) await sendMessageTo(data.conversation_id, pendingMessage);
-    } catch {
-      // fetch lanzó sin respuesta (red caída / backend inaccesible).
-      setError(friendlyChatError(null, isTest));
-    }
-  }
-
-  async function sendMessageTo(convId: string, text: string) {
-    setSending(true);
-    setMessages(prev => [...prev, { id: Date.now().toString(), role: "user", content: text }]);
-    try {
-      const r = await authFetch(`${API_BASE}/api/v1/widget/conversation/${convId}/message`, {
-        method: "POST",
-        body: JSON.stringify({ content: text, widget_session_id: sessionId.current }),
-      });
-      // 410 = conversacion cerrada por el operador. Arrancar una nueva
-      // automaticamente y reenviar el mensaje del usuario.
-      if (r.status === 410) {
-        // Limpiar el "user" optimista para que no quede duplicado en la nueva conv
-        setMessages(prev => prev.filter(m => m.content !== text || m.role !== "user"));
-        await startChat(text);
-        return;
-      }
-      // 401 que sobrevivió a la renovación automática, o 403 (canal apagado):
-      // explicar qué pasó en vez de un error de envío genérico.
-      if (r.status === 401 || r.status === 403) {
-        setError(friendlyChatError(r.status, isTest));
-        return;
-      }
-      const data = await r.json();
-      setStatus(data.status);
-      // Mensajes bot y handoff llegan via poll (publish en backend tras insert).
-      // Inserts optimistas quitados: causaban duplicados + parpadeo al ser
-      // reemplazados por el snapshot real del siguiente poll cycle.
-    } catch {
-      setMessages(prev => [...prev, { id: Date.now().toString() + "e", role: "error", content: "Error al enviar. Intentá de nuevo." }]);
-    } finally {
-      setSending(false);
-    }
-  }
-
-  async function sendMessage() {
-    const text = input.trim();
-    if (!text || !conversationId || sending) return;
-    setInput("");
-    if (inputRef.current) inputRef.current.style.height = "auto";
-    await sendMessageTo(conversationId, text);
-  }
-
-  // Feedback al cierre — un solo voto por conversación (el backend lo garantiza).
-  // Silencioso ante error: nunca molestar al afiliado por un voto que no entró.
-  // targetConvId permite calificar la conversación ANTERIOR (caso reapertura).
-  async function submitFeedback(rating: number, reason: string | null, targetConvId?: string) {
-    const cid = targetConvId ?? conversationId;
-    if (!cid) return;
-    try {
-      const r = await authFetch(
-        `${API_BASE}/api/v1/widget/conversation/${cid}/feedback?widget_session_id=${encodeURIComponent(sessionId.current)}`,
-        {
-          method: "POST",
-          body: JSON.stringify({ rating, ...(reason ? { reason } : {}) }),
-        },
-      );
-      if (r.ok || r.status === 409) {
-        if (targetConvId) setPrevFeedbackConvId(null);
-        else setFeedbackGiven(true);
-        setFeedbackThanks(true);
-        setTimeout(() => setFeedbackThanks(false), 4000);
-      }
-    } catch { /* silencioso */ }
-  }
-
-  // Mismos límites que el backend (attachments.py): imágenes/PDF, 10 MB.
-  const ALLOWED_ATTACH = ["image/png", "image/jpeg", "image/jpg", "image/webp", "application/pdf"];
-
-  async function uploadAttachment(file: File) {
-    if (!conversationId || uploadingFile) return;
-    if (!ALLOWED_ATTACH.includes(file.type)) {
-      setMessages(prev => [...prev, { id: Date.now() + "av", role: "error", content: "Solo se pueden enviar imágenes (PNG/JPG/WEBP) o PDF." }]);
-      return;
-    }
-    if (file.size > 10 * 1024 * 1024) {
-      setMessages(prev => [...prev, { id: Date.now() + "as", role: "error", content: "El archivo supera el máximo de 10 MB." }]);
-      return;
-    }
-    setUploadingFile(true);
-    try {
-      const fd = new FormData();
-      fd.append("widget_session_id", sessionId.current);
-      fd.append("file", file);
-      // Sin Content-Type (json=false): el browser arma el multipart boundary solo.
-      const r = await authFetch(`${API_BASE}/api/v1/widget/conversation/${conversationId}/attachment`, {
-        method: "POST",
-        body: fd,
-      }, false);
-      const data = await r.json().catch(() => ({}));
-      if (!r.ok) {
-        const detail = typeof data?.detail === "string" ? data.detail : "No se pudo enviar el archivo. Probá de nuevo.";
-        throw new Error(detail);
-      }
-      await pollMessages(conversationId);  // refleja el adjunto recién subido
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "No se pudo enviar el archivo. Probá de nuevo.";
-      setMessages(prev => [...prev, { id: Date.now() + "ae", role: "error", content: msg }]);
-    } finally {
-      setUploadingFile(false);
-    }
-  }
-
-  async function confirmHandoff(identif?: { afiliado_nombre?: string; afiliado_dni?: string; sector_id?: string }) {
-    if (!conversationId) return;
-    setHandoffConfirmed(true);
-    try {
-      // Siempre que haya sector elegido (form o chip), mandarlo: el backend
-      // re-etiqueta la conversación para la cola de operadores correcta.
-      const payload = { ...(identif || {}) };
-      if (!payload.sector_id && selectedSector) payload.sector_id = selectedSector.id;
-      const hasBody = Boolean(payload.afiliado_nombre || payload.afiliado_dni || payload.sector_id);
-      const r = await authFetch(`${API_BASE}/api/v1/widget/conversation/${conversationId}/confirm-handoff?widget_session_id=${encodeURIComponent(sessionId.current)}`, {
-        method: "POST",
-        body: hasBody ? JSON.stringify(payload) : undefined,
-      }, hasBody);
-      const data = await r.json().catch(() => ({}));
-      // ANTES: no se chequeaba r.ok → ante un 422/404/410 igual se ponía
-      // "Esperando operador…" aunque el handoff nunca se creó (falla silenciosa,
-      // el afiliado esperaba para siempre). Ahora un no-2xx revierte y avisa.
-      if (!r.ok) {
-        const detail =
-          typeof data?.detail === "string" ? data.detail :
-          Array.isArray(data?.detail)      ? (data.detail[0]?.msg ?? "") :
-          "";
-        throw new Error(detail || `No se pudo conectar con un operador (error ${r.status}). Probá de nuevo.`);
-      }
-      setStatus(data.status ?? "handoff_requested");
-      if (data.message)
-        setMessages(prev => [...prev, { id: Date.now().toString() + "c", role: "system", content: data.message }]);
-    } catch (e) {
-      // Revertir el estado "confirmado" para que el afiliado pueda reintentar,
-      // y mostrarle el motivo en vez de dejarlo esperando sin feedback.
-      setHandoffConfirmed(false);
-      const msg = e instanceof Error ? e.message : "No se pudo conectar con un operador. Probá de nuevo.";
-      setMessages(prev => [...prev, { id: Date.now().toString() + "he", role: "error", content: msg }]);
-    }
-  }
+  const [handoffConfirmed, setHandoffConfirmed] = useState(false);
+  const [feedbackDismissed, setFeedbackDismissed] = useState(false);
+  const [feedbackThanks, setFeedbackThanks] = useState(false);
+  const [sectorBusy, setSectorBusy] = useState(false);
+  // Estado local por conversación: al renovar (410 / nueva consulta) se limpia.
+  useEffect(() => { setHandoffConfirmed(false); setFeedbackDismissed(false); }, [conversationId]);
+  useEffect(() => { if (status === "bot_active") setHandoffConfirmed(false); }, [status]);
 
   const statusLabel =
     status === "human_attending"    ? (operatorName ? `Atendiéndote: ${operatorName}` : "Operador conectado") :
     status === "handoff_requested"  ? "Esperando operador…" :
+    status === "closed"             ? "Conversación finalizada" :
     "En línea";
-
   const statusDot =
     status === "human_attending"    ? "bg-success" :
     status === "handoff_requested"  ? "bg-warning animate-pulse" :
+    status === "closed"             ? "bg-slate-300" :
     "bg-success animate-pulse";
 
-  // Sin contador de operadores en el header: es un dato interno que no le
-  // aporta al afiliado (pedido 2026-07-27; la expectativa de espera va en el
-  // cartel de derivación, no acá).
-  const statusText = statusLabel;
-
-  // Efecto "Dynamic Island" (igual que el widget): la tarjeta de identidad crece
-  // o se achica con un spring suave cuando cambia el texto de estado, en vez de
-  // saltar. Mide el ancho natural nuevo, fija el viejo y transiciona al nuevo.
+  // Efecto "Dynamic Island" de la tarjeta de identidad al cambiar el estado.
   const idCardRef = useRef<HTMLDivElement>(null);
   const prevCardW = useRef<number | null>(null);
   useLayoutEffect(() => {
     const card = idCardRef.current;
     if (!card) return;
-    const w1 = card.offsetWidth;              // ancho natural con el texto ya actualizado
+    const w1 = card.offsetWidth;
     const w0 = prevCardW.current;
     if (w0 != null && w0 !== w1) {
       card.style.width = `${w0}px`;
-      void card.offsetWidth;                  // reflow para fijar el punto de partida
-      card.style.width = `${w1}px`;           // animar hacia el nuevo ancho
+      void card.offsetWidth;
+      card.style.width = `${w1}px`;
       const id = setTimeout(() => {
         if (idCardRef.current) { idCardRef.current.style.width = ""; prevCardW.current = idCardRef.current.offsetWidth; }
       }, 480);
       return () => clearTimeout(id);
     }
     prevCardW.current = w1;
-  }, [statusText]);
+  }, [statusLabel]);
 
-  // ── Error ────────────────────────────────────────────────────────────────────
-  if (error) {
-    return (
-      <div className="h-screen bg-muted/40 flex items-center justify-center p-4">
-        <div className="bg-card border rounded-xl p-8 max-w-sm w-full text-center space-y-3 shadow-sm">
-          <AlertTriangle className="h-10 w-10 text-destructive mx-auto" />
-          <h2 className="text-foreground font-semibold text-lg">No se pudo conectar</h2>
-          <p className="text-muted-foreground text-sm leading-relaxed">{error}</p>
-        </div>
-      </div>
-    );
+  // ── Lista: auto-scroll inteligente ─────────────────────────────────────────
+  // Solo seguimos al final si el usuario ya estaba ahí (o si el último mensaje
+  // es suyo). Si está leyendo arriba, no lo arrastramos: aparece "↓ nuevos".
+  const listRef = useRef<HTMLDivElement>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const atBottomRef = useRef(true);
+  const [unseen, setUnseen] = useState(false);
+  const lastKeyRef = useRef<string>("");
+  const onListScroll = () => {
+    const el = listRef.current;
+    if (!el) return;
+    const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
+    atBottomRef.current = dist < 120;
+    if (atBottomRef.current) setUnseen(false);
+  };
+  const scrollToBottom = (smooth = true) => {
+    bottomRef.current?.scrollIntoView({ block: "end", behavior: smooth ? "smooth" : "auto" });
+    atBottomRef.current = true;
+    setUnseen(false);
+  };
+  useEffect(() => {
+    const last = messages[messages.length - 1];
+    const key = last ? `${last.id}:${messages.length}:${state?.botTyping ? 1 : 0}` : "";
+    if (key === lastKeyRef.current) return;
+    lastKeyRef.current = key;
+    const mine = last?.role === "user" || last?.role === "error";
+    if (atBottomRef.current || mine) scrollToBottom(messages.length > 1);
+    else setUnseen(true);
+  }, [messages, state?.botTyping]);
+  // Teclado abre/cierra o giro: el último mensaje sigue a la vista.
+  useEffect(() => { if (appHeight && atBottomRef.current) scrollToBottom(false); }, [appHeight]);
+
+  // ── Barra de escritura ─────────────────────────────────────────────────────
+  const [input, setInput] = useState("");
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (isDesktop && conversationId) setTimeout(() => inputRef.current?.focus(), 100);
+  }, [isDesktop, conversationId]);
+  const sendMessage = () => {
+    const text = input.trim();
+    if (!text || !chat || !conversationId) return;
+    setInput("");
+    if (inputRef.current) inputRef.current.style.height = "auto";
+    chat.send(text);
+  };
+  // Al scrollear la lista con el dedo, el teclado se guarda (como en las apps).
+  const onListTouchMove = () => {
+    if (document.activeElement === inputRef.current) inputRef.current?.blur();
+  };
+
+  const submitFeedback = async (rating: number, reason: string | null, targetConvId?: string) => {
+    if (!chat) return;
+    const ok = await chat.submitFeedback(rating, reason, targetConvId);
+    if (ok) { setFeedbackThanks(true); setTimeout(() => setFeedbackThanks(false), 4000); }
+  };
+
+  const confirmHandoff = async (identif?: { afiliado_nombre?: string; afiliado_dni?: string; sector_id?: string }) => {
+    if (!chat) return;
+    setHandoffConfirmed(true);
+    const ok = await chat.confirmHandoff(identif);
+    if (!ok) setHandoffConfirmed(false);
+  };
+
+  const chooseSector = async (s: ChatSector) => {
+    if (!chat) return;
+    setSectorBusy(true);
+    await chat.setSector(s.id);
+    setSectorBusy(false);
+  };
+
+  // ── Error fatal ────────────────────────────────────────────────────────────
+  if (!tenantId) {
+    return <FatalScreen text="URL inválida. El chat requiere el parámetro ?tenant=TU_ORGANIZACION" />;
+  }
+  if (state?.fatal) {
+    return <FatalScreen text={friendlyChatError(state.fatal.status, isTest)} />;
   }
 
-  // ── Layout ───────────────────────────────────────────────────────────────────
-  // Patrón "Chat Page" (referencia Text): columna de bienvenida a la izquierda,
-  // conversación a la derecha con dos piezas FLOTANTES que le dan la misma
-  // identidad que el widget embebido — card de identidad arriba e input abajo.
-  // Esta pantalla vive siempre en claro (sin .dark), por eso los grises son fijos.
   const botName = branding?.bot_name || branding?.display_name || "Asistente";
   const orgName = branding?.display_name || "tu organización";
+  const showTyping = status === "bot_active" && (Boolean(state?.botTyping) || (state?.sending ?? 0) > 0)
+    && messages[messages.length - 1]?.role !== "bot";
+  const showSectorChips = Boolean(conversationId) && messages.length > 0 && status === "bot_active"
+    && Boolean(state?.sectorsLoaded) && sectors.length > 1 && !state?.sectorChosen;
+  const preselectedSectorId = state?.sectorChosen ? (state?.sectorId ?? null) : null;
 
+  // ── Layout: tres bloques apilados (cabecera, lista, barra) ─────────────────
+  // Nada flotante: al abrir el teclado la barra sube y la lista se achica de
+  // forma exacta, sin superposiciones ni rellenos calculados a ojo.
   return (
     <div
       className="chat-app fixed inset-x-0 top-0 flex h-[100dvh] overflow-hidden bg-slate-100"
       style={appHeight ? { height: `${appHeight}px` } : undefined}
     >
-
-      {/* ── Columna de bienvenida (solo desktop) ── */}
-      <aside className="hidden lg:flex w-[340px] shrink-0 flex-col justify-between p-10">
+      {/* Columna de bienvenida (solo desktop) */}
+      <aside className="hidden w-[340px] shrink-0 flex-col justify-between p-10 lg:flex">
         <div>
           <h1 className="text-4xl font-bold tracking-tight text-slate-900">¡Hola!</h1>
           <p className="mt-4 max-w-[250px] text-sm leading-relaxed text-slate-500">
@@ -1092,50 +754,45 @@ function ChatInner({ tenantOverride }: { tenantOverride?: string }) {
         </div>
       </aside>
 
-      {/* ── Conversación (contenedor blanco redondeado sobre el lienzo gris) ── */}
-      <div className="relative flex flex-1 flex-col overflow-hidden bg-white lg:my-3 lg:mr-3 lg:rounded-3xl lg:border lg:border-slate-200/70 lg:shadow-sm">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-white lg:my-3 lg:mr-3 lg:rounded-3xl lg:border lg:border-slate-200/70 lg:shadow-sm">
 
-        {/* Card de identidad FLOTANTE — centrada arriba (como el widget) */}
-        <div className="pointer-events-none absolute inset-x-0 top-[max(1rem,env(safe-area-inset-top))] z-20 flex flex-col items-center px-4">
-          <div
-            ref={idCardRef}
-            className="pointer-events-auto flex items-center gap-3 overflow-hidden rounded-2xl border border-slate-200/80 bg-white px-4 py-2.5 shadow-[0_4px_12px_-3px_rgba(0,0,0,0.10),0_1px_4px_-1px_rgba(0,0,0,0.06)] transition-[width] duration-[380ms] ease-[cubic-bezier(0.34,1.4,0.5,1)]"
-          >
-            <div className="relative shrink-0">
-              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-brand-light to-brand-dark shadow-sm">
-                <Bot className="h-[18px] w-[18px] text-brand-foreground" />
+        {/* Cabecera: barra de app en móvil (borde a borde, safe-area); tarjeta centrada en desktop */}
+        <header className="z-10 shrink-0 border-b border-slate-200/80 bg-white pt-[env(safe-area-inset-top)] lg:border-0 lg:bg-transparent lg:pt-4">
+          <div className="flex h-14 items-center px-3 lg:h-auto lg:justify-center lg:px-4">
+            <div
+              ref={idCardRef}
+              className="flex items-center gap-3 overflow-hidden lg:rounded-2xl lg:border lg:border-slate-200/80 lg:bg-white lg:px-4 lg:py-2.5 lg:shadow-[0_4px_12px_-3px_rgba(0,0,0,0.10),0_1px_4px_-1px_rgba(0,0,0,0.06)] lg:transition-[width] lg:duration-[380ms] lg:ease-[cubic-bezier(0.34,1.4,0.5,1)]"
+            >
+              <div className="relative shrink-0">
+                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-brand-light to-brand-dark shadow-sm">
+                  <Bot className="h-[18px] w-[18px] text-brand-foreground" />
+                </div>
+                <span className={`absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-white ${statusDot}`} />
               </div>
-              <span className={`absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-white ${statusDot}`} />
-            </div>
-            <div className="min-w-0 pr-1 leading-tight">
-              <p className="truncate text-sm font-semibold text-slate-900">{botName}</p>
-              <p key={statusText} className="animate-fade-in truncate text-xs text-slate-500">{statusText}</p>
+              <div className="min-w-0 pr-1 leading-tight">
+                <p className="truncate text-[15px] font-semibold text-slate-900">{botName}</p>
+                <p key={statusLabel} className="animate-fade-in truncate text-xs text-slate-500">{statusLabel}</p>
+              </div>
             </div>
           </div>
-        </div>
+        </header>
 
-        {/* ── Área de mensajes (con padding para no quedar bajo card/input) ── */}
-        <div className="flex-1 overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]">
-          <div className="mx-auto flex min-h-full max-w-2xl flex-col px-4 pb-32 pt-[calc(6rem+env(safe-area-inset-top))] sm:px-6">
+        {/* Lista de mensajes */}
+        <div
+          ref={listRef}
+          onScroll={onListScroll}
+          onTouchMove={onListTouchMove}
+          className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]"
+          aria-live="polite"
+        >
+          <div className="mx-auto flex min-h-full max-w-2xl flex-col px-3 pb-3 pt-3 sm:px-6 lg:pt-16">
             <div className="flex-1" />
-            {/* Aviso de completitud en modo prueba: qué le falta al asistente
-                para que una respuesta "vacía" no se confunda con un error. */}
             {(missingKb || missingSectors) && (
               <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] leading-relaxed text-amber-900">
                 <p className="mb-1 font-semibold">Modo prueba — a tu asistente todavía le falta configuración</p>
                 <ul className="list-disc space-y-0.5 pl-4">
-                  {missingKb && (
-                    <li>
-                      No hay documentos en la base de conocimiento: va a responder solo con la
-                      descripción general de tu organización. Cargalos desde <b>Documentos</b> en el panel.
-                    </li>
-                  )}
-                  {missingSectors && (
-                    <li>
-                      No hay sectores configurados: no va a poder derivar consultas a un operador.
-                      Crealos desde <b>Configuración</b> en el panel.
-                    </li>
-                  )}
+                  {missingKb && <li>No hay documentos en la base de conocimiento: va a responder solo con la descripción general de tu organización. Cargalos desde <b>Documentos</b> en el panel.</li>}
+                  {missingSectors && <li>No hay sectores configurados: no va a poder derivar consultas a un operador. Crealos desde <b>Configuración</b> en el panel.</li>}
                 </ul>
               </div>
             )}
@@ -1144,133 +801,169 @@ function ChatInner({ tenantOverride }: { tenantOverride?: string }) {
                 <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
               </div>
             )}
-            <div className="space-y-4">
-              {/* Reapertura: la charla anterior quedó sin calificar — una vez */}
-              {FEEDBACK_UI_ENABLED && prevFeedbackConvId && (
-                <FeedbackCard
-                  title="¿Cómo estuvo tu consulta anterior?"
-                  onSubmit={(rating, reason) => submitFeedback(rating, reason, prevFeedbackConvId)}
-                  onDismiss={() => setPrevFeedbackConvId(null)}
-                />
+            <div className="flex flex-col">
+              {FEEDBACK_UI_ENABLED && state?.prevFeedbackConvId && (
+                <div className="mb-4">
+                  <FeedbackCard
+                    title="¿Cómo estuvo tu consulta anterior?"
+                    onSubmit={(rating, reason) => submitFeedback(rating, reason, state.prevFeedbackConvId!)}
+                    onDismiss={() => chat?.clearPrevFeedback()}
+                  />
+                </div>
               )}
-              {messages.map(m => {
-                if (m.attachment && conversationId)
-                  return (
+              {messages.map((m, i) => {
+                const next = messages[i + 1];
+                const sameNext = Boolean(next) && next.role === m.role && !next.handoffOffer && !next.sectorNote && !m.handoffOffer && !m.sectorNote && !next.attachment;
+                const showAvatar = !sameNext;
+                const gap = i === 0 ? "" : (messages[i - 1].role === m.role && !m.sectorNote && !messages[i - 1].sectorNote ? "mt-1" : "mt-4");
+                let node: React.ReactNode;
+                if (m.attachment && conversationId && chat) {
+                  node = (
                     <AttachmentMessage
-                      key={m.id}
                       msg={m}
-                      url={`${API_BASE}/api/v1/widget/conversation/${conversationId}/attachment/${m.id}?widget_session_id=${encodeURIComponent(sessionId.current)}`}
-                      headers={{ Authorization: `Bearer ${resolvedToken}`, "X-Tenant-ID": tenantId }}
+                      url={chat.attachmentUrl(m.id) || ""}
+                      fetcher={(u) => chat.authFetch(u, {}, false)}
                       operatorName={operatorName}
+                      showAvatar={showAvatar}
                     />
                   );
-                if (m.role === "user")     return <UserBubble     key={m.id} content={m.content} />;
-                if (m.role === "operator") return <OperatorBubble key={m.id} content={m.content} operatorName={operatorName} />;
-                if (m.role === "system" && m.handoffOffer)
-                  return <HandoffOfferBubble key={m.id} content={m.content} onConfirm={confirmHandoff} confirmed={handoffConfirmed} resolved={status !== "bot_active"} identified={afiliadoIdentified} sectors={sectors} preselectedSectorId={selectedSector?.id ?? null} />;
-                if (m.role === "error")    return <ErrorBubble    key={m.id} content={m.content} />;
-                if (m.role === "system")   return <SystemBubble   key={m.id} content={m.content} />;
-                return                            <BotBubble      key={m.id} content={m.content} />;
+                } else if (m.role === "user") {
+                  node = <UserBubble content={m.content} pending={Boolean(m.local)} animate={Boolean(m.local)} />;
+                } else if (m.role === "operator") {
+                  node = <OperatorBubble content={m.content} operatorName={operatorName} showAvatar={showAvatar} />;
+                } else if (m.role === "error") {
+                  node = <ErrorBubble content={m.content} onRetry={m.retry ? () => { chat?.dismissLocal(m.id); m.retry?.(); } : undefined} />;
+                } else if (m.role === "system" && m.sectorNote) {
+                  node = <SectorNotePill content={m.content} />;
+                } else if (m.role === "system" && m.handoffOffer) {
+                  node = (
+                    <HandoffOfferBubble
+                      content={m.content}
+                      onConfirm={confirmHandoff}
+                      confirmed={handoffConfirmed}
+                      resolved={status !== "bot_active"}
+                      identified={Boolean(state?.afiliadoIdentified)}
+                      sectors={sectors}
+                      preselectedSectorId={preselectedSectorId}
+                      showAvatar={showAvatar}
+                    />
+                  );
+                } else if (m.role === "system") {
+                  node = <SystemBubble content={m.content} showAvatar={showAvatar} />;
+                } else {
+                  node = <BotBubble content={m.content} showAvatar={showAvatar} animate={i === messages.length - 1} />;
+                }
+                return <div key={m.id} className={gap}>{node}</div>;
               })}
-              {/* Elección de área opcional — visible mientras atiende el bot */}
-              {conversationId && messages.length > 0 && status === "bot_active" && !sectorsLoading && sectors.length > 1 && (
-                <SectorChooser
-                  sectors={sectors}
-                  selected={selectedSector}
-                  onSelect={s => setSelectedSector(s)}
-                />
+              {showSectorChips && (
+                <div className="mt-4"><SectorChips sectors={sectors} onSelect={chooseSector} busy={sectorBusy} /></div>
               )}
-              {sending && status === "bot_active" && <TypingIndicator />}
-              {/* Feedback al cierre: caritas 1-3 (+ chips de causa si 😞/😐).
-                  Aparece con la conversación cerrada y sin voto; descartable. */}
-              {FEEDBACK_UI_ENABLED && conversationId && status === "closed" && !feedbackGiven && !feedbackDismissed && (
-                <FeedbackCard
-                  onSubmit={submitFeedback}
-                  onDismiss={() => setFeedbackDismissed(true)}
-                />
+              {showTyping && <div className="mt-4"><TypingIndicator /></div>}
+              {FEEDBACK_UI_ENABLED && conversationId && status === "closed" && !state?.feedbackGiven && !feedbackDismissed && (
+                <div className="mt-4"><FeedbackCard onSubmit={submitFeedback} onDismiss={() => setFeedbackDismissed(true)} /></div>
               )}
               {feedbackThanks && (
-                <div className="flex justify-center animate-fade-in-up">
-                  <span className="rounded-full bg-slate-100 px-4 py-1.5 text-xs text-slate-500">
-                    ¡Gracias por tu opinión! Nos ayuda a mejorar.
-                  </span>
+                <div className="mt-4 flex justify-center animate-fade-in-up">
+                  <span className="rounded-full bg-slate-100 px-4 py-1.5 text-xs text-slate-500">¡Gracias por tu opinión! Nos ayuda a mejorar.</span>
                 </div>
               )}
             </div>
-            <div ref={bottomRef} />
+            <div ref={bottomRef} className="h-px" />
           </div>
+
+          {unseen && (
+            <button
+              type="button"
+              onClick={() => scrollToBottom(true)}
+              className="sticky bottom-3 left-1/2 z-10 -translate-x-1/2 inline-flex h-9 items-center gap-1.5 rounded-full bg-slate-900/85 px-3.5 text-xs font-medium text-white shadow-md backdrop-blur animate-fade-in-up"
+            >
+              <ArrowDown className="h-3.5 w-3.5" /> Mensajes nuevos
+            </button>
+          )}
         </div>
 
-        {/* ── Input FLOTANTE — pill blanca con sombra, con margen (como Text) ── */}
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-4 sm:pb-5">
-          <div className="pointer-events-auto mx-auto flex max-w-2xl items-end gap-1 rounded-[26px] border border-transparent bg-slate-100 py-1 pl-1 pr-1 shadow-sm transition-colors focus-within:border-transparent focus-within:bg-white focus-within:ring-2 focus-within:ring-brand/25">
-            {/* Adjuntar — solo con conversación activa */}
-            {conversationId && (
-              <>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/png,image/jpeg,image/jpg,image/webp,application/pdf"
-                  className="hidden"
-                  onChange={e => {
-                    const f = e.target.files?.[0];
-                    if (f) uploadAttachment(f);
-                    e.target.value = "";
-                  }}
-                />
+        {/* Barra de escritura: pegada al teclado en móvil (borde a borde), píldora en desktop */}
+        <div className="shrink-0 border-t border-slate-200/80 bg-white px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 lg:border-0 lg:bg-transparent lg:px-4 lg:pb-5 lg:pt-0">
+          {status === "closed" ? (
+            <div className="mx-auto flex max-w-2xl justify-center">
+              <button
+                type="button"
+                onClick={() => chat?.restart()}
+                className="inline-flex min-h-[44px] items-center gap-2 rounded-full bg-gradient-to-br from-brand to-brand-dark px-5 text-sm font-semibold text-brand-foreground shadow-sm active:scale-[0.98]"
+              >
+                <MessageSquarePlus className="h-4 w-4" /> Nueva consulta
+              </button>
+            </div>
+          ) : (
+            <div className="mx-auto flex max-w-2xl items-end gap-1 rounded-[24px] bg-slate-100 p-1 transition-colors focus-within:bg-slate-100 lg:border lg:border-transparent lg:bg-slate-100 lg:shadow-sm lg:focus-within:bg-white lg:focus-within:ring-2 lg:focus-within:ring-brand/25">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/jpg,image/webp,application/pdf"
+                className="hidden"
+                onChange={e => { const f = e.target.files?.[0]; if (f && chat) chat.uploadAttachment(f); e.target.value = ""; }}
+              />
+              {/* Con texto escrito, el clip cede el lugar al botón Enviar (patrón de mensajería). */}
+              {!input.trim() && (
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
-                  disabled={uploadingFile}
+                  disabled={!conversationId}
                   aria-label="Adjuntar imagen o PDF"
                   title="Adjuntar imagen o PDF"
-                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50"
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-slate-500 transition-colors active:bg-slate-200 disabled:opacity-50"
                 >
-                  {uploadingFile
-                    ? <Loader2 className="h-4 w-4 animate-spin" />
-                    : <Paperclip className="h-[18px] w-[18px]" />}
+                  <Paperclip className="h-[19px] w-[19px]" />
                 </button>
-              </>
-            )}
-            {/* Área de texto que crece hasta ~5 líneas (como una app de mensajes).
-                16 px: sin zoom automático en iOS. Enter envía (la tecla del
-                teclado dice "Enviar"); Shift+Enter hace salto de línea. */}
-            <textarea
-              ref={inputRef}
-              rows={1}
-              // enterKeyHint no está en los tipos de <textarea> de esta versión de React
-              {...({ enterKeyHint: "send" } as Record<string, string>)}
-              autoComplete="off"
-              autoCapitalize="sentences"
-              className="max-h-32 min-h-[44px] min-w-0 flex-1 resize-none bg-transparent px-2 py-[10px] text-base leading-6 text-slate-900 placeholder:text-slate-400 outline-none disabled:opacity-60"
-              placeholder={conversationId ? "Escribí un mensaje…" : "Conectando…"}
-              disabled={!conversationId}
-              value={input}
-              onChange={e => {
-                setInput(e.target.value);
-                const el = e.target;
-                el.style.height = "auto";
-                el.style.height = `${Math.min(el.scrollHeight, 128)}px`;
-              }}
-              onKeyDown={e => {
-                if (e.key !== "Enter" || e.shiftKey) return;
-                e.preventDefault();
-                sendMessage();
-              }}
-            />
-            <button
-              onClick={sendMessage}
-              disabled={!conversationId || !input.trim() || sending}
-              aria-label="Enviar mensaje"
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand to-brand-dark text-brand-foreground shadow-sm transition-all active:scale-95 disabled:scale-100 disabled:opacity-40 disabled:shadow-none"
-            >
-              {sending
-                ? <Loader2 className="h-4 w-4 animate-spin" />
-                : <Send className="h-4 w-4" />}
-            </button>
-          </div>
+              )}
+              <textarea
+                ref={inputRef}
+                rows={1}
+                {...({ enterKeyHint: "send" } as Record<string, string>)}
+                autoComplete="off"
+                autoCapitalize="sentences"
+                className="max-h-32 min-h-[44px] min-w-0 flex-1 resize-none bg-transparent px-2 py-[10px] text-base leading-6 text-slate-900 placeholder:text-slate-400 outline-none disabled:opacity-60"
+                placeholder={conversationId ? "Escribí un mensaje…" : "Conectando…"}
+                disabled={!conversationId}
+                value={input}
+                onChange={e => {
+                  setInput(e.target.value);
+                  const el = e.target;
+                  el.style.height = "auto";
+                  el.style.height = `${Math.min(el.scrollHeight, 128)}px`;
+                }}
+                onKeyDown={e => {
+                  if (e.key !== "Enter" || e.shiftKey) return;
+                  e.preventDefault();
+                  sendMessage();
+                }}
+              />
+              {input.trim() && (
+                <button
+                  type="button"
+                  onClick={sendMessage}
+                  disabled={!conversationId}
+                  aria-label="Enviar mensaje"
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand to-brand-dark text-brand-foreground shadow-sm transition-all active:scale-95 disabled:opacity-40 animate-fade-in"
+                >
+                  <Send className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+          )}
         </div>
+      </div>
+    </div>
+  );
+}
 
+function FatalScreen({ text }: { text: string }) {
+  return (
+    <div className="flex h-[100dvh] items-center justify-center bg-muted/40 p-4">
+      <div className="w-full max-w-sm space-y-3 rounded-xl border bg-card p-8 text-center shadow-sm">
+        <AlertTriangle className="mx-auto h-10 w-10 text-destructive" />
+        <h2 className="text-lg font-semibold text-foreground">No se pudo conectar</h2>
+        <p className="text-sm leading-relaxed text-muted-foreground">{text}</p>
       </div>
     </div>
   );
