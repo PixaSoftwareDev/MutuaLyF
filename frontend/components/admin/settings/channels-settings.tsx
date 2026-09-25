@@ -409,6 +409,10 @@ function WidgetCard({ channels, onChanged }: { channels: ChannelsState; onChange
   // menú ⋮, con diálogo destructivo y confirmación escrita.
   const [regenOpen, setRegenOpen] = useState(false);
   const [regenWord, setRegenWord] = useState("");
+  // Token de la versión anterior (no se guardó cifrado): no se puede mostrar,
+  // pero la tarjeta del código se abre igual para que el menú ⋮ (regenerar)
+  // esté disponible — antes no había forma de regenerar en este caso.
+  const [legacyToken, setLegacyToken] = useState(false);
 
   const { data: botConfig } = useQuery({
     queryKey: ["bot-config", tenantId],
@@ -430,6 +434,7 @@ function WidgetCard({ channels, onChanged }: { channels: ChannelsState; onChange
     mutationFn: () => api.tenants.generateWidgetToken(tenantId!),
     onSuccess: (data) => {
       setWidgetToken(data.widget_token);
+      setLegacyToken(false);
       setRegenOpen(false);
       setRegenWord("");
       toast({
@@ -444,16 +449,11 @@ function WidgetCard({ channels, onChanged }: { channels: ChannelsState; onChange
   // Mostrar el token ACTUAL (descifrado) sin regenerar — no invalida el instalado.
   const showM = useMutation({
     mutationFn: () => api.tenants.getWidgetToken(tenantId!),
-    onSuccess: (data) => { setWidgetToken(data.widget_token); },
+    onSuccess: (data) => { setWidgetToken(data.widget_token); setLegacyToken(false); },
     onError: (err: unknown) => {
       const status = (err as { response?: { status?: number } })?.response?.status;
-      toast({
-        title: status === 404 ? "Hace falta regenerar el código" : "No se pudo obtener el token",
-        description: status === 404
-          ? "Tu código es de una versión anterior y no puede mostrarse. Usá «Regenerar código» en el menú ⋮ — ojo: el código instalado en tu sitio deja de funcionar y hay que reemplazarlo."
-          : "Intentá de nuevo en unos segundos.",
-        variant: status === 404 ? "default" : "destructive",
-      });
+      if (status === 404) { setLegacyToken(true); return; }
+      toast({ title: "No se pudo obtener el código", description: "Intentá de nuevo en unos segundos.", variant: "destructive" });
     },
   });
 
@@ -484,7 +484,7 @@ function WidgetCard({ channels, onChanged }: { channels: ChannelsState; onChange
                   {tokenM.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Code2 className="mr-1.5 h-4 w-4" />}
                   Generar código
                 </Button>
-              ) : !widgetToken ? (
+              ) : !widgetToken && !legacyToken ? (
                 <Button variant="outline" onClick={() => showM.mutate()} disabled={showM.isPending}>
                   {showM.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Code2 className="mr-1.5 h-4 w-4" />}
                   Ver código de instalación
@@ -497,20 +497,6 @@ function WidgetCard({ channels, onChanged }: { channels: ChannelsState; onChange
                 title="Pausar el widget web"
                 description="El globo de tu sitio deja de atender hasta que lo reactives. El código instalado sigue siendo válido."
               />
-              {hasToken && (
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="icon" className="h-10 w-10 text-muted-foreground" aria-label="Más acciones">
-                      <MoreVertical className="h-4 w-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-60">
-                    <DropdownMenuItem onSelect={() => setRegenOpen(true)} className="text-destructive focus:text-destructive">
-                      <RefreshCw className="mr-2 h-4 w-4" /> Regenerar código…
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              )}
             </div>
           </div>
           <InstallMock />
@@ -521,7 +507,7 @@ function WidgetCard({ channels, onChanged }: { channels: ChannelsState; onChange
       </Card>
 
       {/* ── Código de instalación (cuando hay token descifrado) ── */}
-      {widgetToken && widgetScript && (
+      {((widgetToken && widgetScript) || legacyToken) && (
         <Card className="animate-fade-in-up rounded-2xl">
           <CardContent className="space-y-4 p-6">
             <div className="flex items-center justify-between gap-2">
@@ -529,12 +515,34 @@ function WidgetCard({ channels, onChanged }: { channels: ChannelsState; onChange
                 <Code2 className="h-4 w-4 text-muted-foreground" /> Código de instalación
               </h4>
               <div className="flex items-center gap-1">
-                <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground" onClick={() => setWidgetToken(null)} aria-label="Cerrar código" title="Ocultar código">
+                {/* Regenerar vive junto al código (es una acción sobre él) y detrás
+                    de un menú: hay que abrir el código para llegar. */}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground" aria-label="Más acciones">
+                      <MoreVertical className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-60">
+                    <DropdownMenuItem onSelect={() => setRegenOpen(true)} className="text-destructive focus:text-destructive">
+                      <RefreshCw className="mr-2 h-4 w-4" /> Regenerar código…
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground" onClick={() => { setWidgetToken(null); setLegacyToken(false); }} aria-label="Cerrar código" title="Ocultar código">
                   <X className="h-4 w-4" />
                 </Button>
               </div>
             </div>
 
+            {legacyToken && (
+              <div className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">
+                Este código es de una versión anterior y no puede mostrarse. Si ya está instalado en tu sitio, sigue funcionando.
+                Para volver a verlo hay que regenerarlo desde el menú ⋮ — ojo: el que está instalado deja de funcionar y hay que reemplazarlo.
+              </div>
+            )}
+
+            {widgetScript && (<>
             <ol className="space-y-1.5 text-xs text-muted-foreground">
               <li><span className="font-semibold text-foreground/80">1.</span> Copiá el código de abajo.</li>
               <li><span className="font-semibold text-foreground/80">2.</span> Pegalo antes de <code className="rounded bg-muted px-1 font-mono">&lt;/body&gt;</code> en todas las páginas de tu sitio.</li>
@@ -554,7 +562,8 @@ function WidgetCard({ channels, onChanged }: { channels: ChannelsState; onChange
                 {copied ? <Check className="h-3.5 w-3.5 text-success" /> : <Copy className="h-3.5 w-3.5" />}
               </Button>
             </div>
-            <p className="text-[11px] text-muted-foreground">Este código no vence. Solo deja de funcionar si alguien lo regenera desde el menú ⋮ de arriba.</p>
+            <p className="text-[11px] text-muted-foreground">Este código no vence. Solo deja de funcionar si alguien lo regenera desde el menú ⋮.</p>
+            </>)}
           </CardContent>
         </Card>
       )}
