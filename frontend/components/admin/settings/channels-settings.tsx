@@ -404,6 +404,11 @@ function WidgetCard({ channels, onChanged }: { channels: ChannelsState; onChange
   const enabled = channels.widget.enabled;
   const [widgetToken, setWidgetToken] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  // Regenerar es la única acción del panel que rompe algo AFUERA (el script
+  // instalado en la web del cliente deja de funcionar al instante). Va en un
+  // menú ⋮, con diálogo destructivo y confirmación escrita.
+  const [regenOpen, setRegenOpen] = useState(false);
+  const [regenWord, setRegenWord] = useState("");
 
   const { data: botConfig } = useQuery({
     queryKey: ["bot-config", tenantId],
@@ -425,7 +430,13 @@ function WidgetCard({ channels, onChanged }: { channels: ChannelsState; onChange
     mutationFn: () => api.tenants.generateWidgetToken(tenantId!),
     onSuccess: (data) => {
       setWidgetToken(data.widget_token);
-      toast({ title: "Token generado", variant: "success" });
+      setRegenOpen(false);
+      setRegenWord("");
+      toast({
+        title: hasToken ? "Código regenerado" : "Código generado",
+        description: hasToken ? "El código anterior ya no funciona. Pegá el nuevo en tu sitio." : undefined,
+        variant: "success",
+      });
     },
     onError: (err: any) => toast({ title: "No se pudo generar el token", description: extractErrorMessage(err, "Intentá de nuevo."), variant: "destructive" }),
   });
@@ -439,7 +450,7 @@ function WidgetCard({ channels, onChanged }: { channels: ChannelsState; onChange
       toast({
         title: status === 404 ? "Hace falta regenerar el código" : "No se pudo obtener el token",
         description: status === 404
-          ? "Tu token es de una versión anterior y no puede mostrarse. Tocá «Regenerar» — ojo: el código instalado en tu sitio deja de funcionar y hay que reemplazarlo."
+          ? "Tu código es de una versión anterior y no puede mostrarse. Usá «Regenerar código» en el menú ⋮ — ojo: el código instalado en tu sitio deja de funcionar y hay que reemplazarlo."
           : "Intentá de nuevo en unos segundos.",
         variant: status === 404 ? "default" : "destructive",
       });
@@ -474,7 +485,7 @@ function WidgetCard({ channels, onChanged }: { channels: ChannelsState; onChange
                   Generar código
                 </Button>
               ) : !widgetToken ? (
-                <Button onClick={() => showM.mutate()} disabled={showM.isPending}>
+                <Button variant="outline" onClick={() => showM.mutate()} disabled={showM.isPending}>
                   {showM.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Code2 className="mr-1.5 h-4 w-4" />}
                   Ver código de instalación
                 </Button>
@@ -486,6 +497,20 @@ function WidgetCard({ channels, onChanged }: { channels: ChannelsState; onChange
                 title="Pausar el widget web"
                 description="El globo de tu sitio deja de atender hasta que lo reactives. El código instalado sigue siendo válido."
               />
+              {hasToken && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon" className="h-10 w-10 text-muted-foreground" aria-label="Más acciones">
+                      <MoreVertical className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-60">
+                    <DropdownMenuItem onSelect={() => setRegenOpen(true)} className="text-destructive focus:text-destructive">
+                      <RefreshCw className="mr-2 h-4 w-4" /> Regenerar código…
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
             </div>
           </div>
           <InstallMock />
@@ -504,9 +529,6 @@ function WidgetCard({ channels, onChanged }: { channels: ChannelsState; onChange
                 <Code2 className="h-4 w-4 text-muted-foreground" /> Código de instalación
               </h4>
               <div className="flex items-center gap-1">
-                <Button variant="ghost" size="sm" className="h-8 gap-1.5 text-muted-foreground" onClick={() => tokenM.mutate()} disabled={tokenM.isPending}>
-                  <RefreshCw className={cn("h-3.5 w-3.5", tokenM.isPending && "animate-spin")} /> Regenerar
-                </Button>
                 <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground" onClick={() => setWidgetToken(null)} aria-label="Cerrar código" title="Ocultar código">
                   <X className="h-4 w-4" />
                 </Button>
@@ -532,10 +554,46 @@ function WidgetCard({ channels, onChanged }: { channels: ChannelsState; onChange
                 {copied ? <Check className="h-3.5 w-3.5 text-success" /> : <Copy className="h-3.5 w-3.5" />}
               </Button>
             </div>
-            <p className="text-[11px] text-warning">Al regenerar, el código anterior deja de funcionar.</p>
+            <p className="text-[11px] text-muted-foreground">Este código no vence. Solo deja de funcionar si alguien lo regenera desde el menú ⋮ de arriba.</p>
           </CardContent>
         </Card>
       )}
+
+      {/* Regenerar: diálogo destructivo con confirmación escrita */}
+      <Dialog open={regenOpen} onOpenChange={o => { setRegenOpen(o); if (!o) setRegenWord(""); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <div className="flex items-start gap-3 text-left">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-destructive/10">
+                <AlertTriangle className="h-5 w-5 text-destructive" />
+              </div>
+              <div className="min-w-0 space-y-1.5 pt-0.5">
+                <DialogTitle>Regenerar el código del widget</DialogTitle>
+                <DialogDescription>
+                  El código que hoy está instalado en tu sitio <span className="font-semibold text-foreground">deja de funcionar al instante</span> y
+                  el asistente desaparece de la web hasta que alguien pegue el código nuevo. Normalmente lo hace quien administra tu sitio.
+                </DialogDescription>
+              </div>
+            </div>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-xs text-muted-foreground">
+              Hacelo solo si el código se filtró o querés cortar un uso indebido. Para verlo o copiarlo no hace falta regenerar.
+            </p>
+            <div className="space-y-1.5">
+              <Label htmlFor="regen-word" className="text-xs">Escribí <span className="font-mono font-semibold">REGENERAR</span> para confirmar</Label>
+              <Input id="regen-word" value={regenWord} onChange={e => setRegenWord(e.target.value)} autoComplete="off" spellCheck={false} placeholder="REGENERAR" />
+            </div>
+          </div>
+          <DialogFooter className="mt-2">
+            <Button variant="outline" onClick={() => setRegenOpen(false)}>Cancelar</Button>
+            <Button variant="destructive" onClick={() => tokenM.mutate()} disabled={regenWord.trim().toUpperCase() !== "REGENERAR" || tokenM.isPending}>
+              {tokenM.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-1.5 h-4 w-4" />}
+              Regenerar código
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <p className="text-center text-xs text-muted-foreground">
         ¿No sabés dónde pegarlo? Pedile a quien administra tu sitio que lo agregue antes del cierre del <code className="rounded bg-muted px-1 font-mono">&lt;/body&gt;</code>.
