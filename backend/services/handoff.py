@@ -198,7 +198,9 @@ def match_keyword_trigger(user_message: str, groups: list) -> dict | None:
 async def _is_keyword_offered(conversation_id: str) -> bool:
     from core.database import get_redis_cache
     try:
-        redis = await get_redis_cache()
+        # get_redis_cache() es SÍNCRONA: el `await` de antes lanzaba TypeError,
+        # se tragaba en el except y la supresión de 1 h nunca se leía.
+        redis = get_redis_cache()
         return await redis.exists(f"{_KEYWORD_OFFERED_KEY}{conversation_id}") > 0
     except Exception:
         return False
@@ -208,7 +210,7 @@ async def mark_keyword_offered(conversation_id: str) -> None:
     """La marca el CALLER y solo si el cartel efectivamente se mostró."""
     from core.database import get_redis_cache
     try:
-        redis = await get_redis_cache()
+        redis = get_redis_cache()  # síncrona (ver _is_keyword_offered)
         await redis.set(f"{_KEYWORD_OFFERED_KEY}{conversation_id}", "1", ex=_KEYWORD_OFFERED_TTL)
     except Exception as exc:
         logger.warning("handoff_kw_mark_failed conversation_id=%s error=%s", conversation_id, exc)
@@ -336,7 +338,10 @@ async def evaluate_handoff(
             return HandoffSignal(
                 trigger=HandoffTrigger.INSUFFICIENT,
                 auto_activate=False,
-                offer_message=config["transition_messages"]["handoff_offer"],
+                # .get: un handoff_config sin esta clave no debe tirar el turno (500).
+                offer_message=config["transition_messages"].get(
+                    "handoff_offer", "¿Querés que te conecte con un operador?"
+                ),
             )
     elif _is_chitchat(user_message):
         # Charla/cortesía ("gracias", "ok", "listo"): turno NEUTRAL. No incrementa ni

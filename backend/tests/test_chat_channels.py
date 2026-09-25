@@ -40,3 +40,27 @@ class TestStartConversationChannel:
 class TestChannelFlags:
     def test_each_channel_has_its_own_switch(self):
         assert _CHAT_CHANNEL_FLAGS == {"widget": "widget_enabled", "link": "chat_link_enabled"}
+
+
+class TestConversationIdValidation:
+    def test_non_uuid_conversation_id_is_404_not_500(self):
+        from fastapi import HTTPException
+        from api.v1.widget_conversation import _assert_uuid
+        for bad in ("abc", "", "123", "null"):
+            with pytest.raises(HTTPException) as exc:
+                _assert_uuid(bad)
+            assert exc.value.status_code == 404
+
+    def test_valid_uuid_passes(self):
+        import uuid
+        from api.v1.widget_conversation import _assert_uuid
+        _assert_uuid(str(uuid.uuid4()))  # no lanza
+
+
+class TestSetSectorRequest:
+    def test_requires_session_and_sector(self):
+        from api.v1.widget_conversation import SetSectorRequest
+        with pytest.raises(ValidationError):
+            SetSectorRequest(widget_session_id="cs_1")
+        body = SetSectorRequest(widget_session_id="cs_1", sector_id="x")
+        assert body.sector_id == "x"

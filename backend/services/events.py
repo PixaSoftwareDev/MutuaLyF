@@ -74,6 +74,69 @@ async def get_online_operators(tenant_id: str) -> list[dict]:
         return []
 
 
+class EventListener:
+    """Suscripción al canal del tenant que se abre ANTES de leer el estado.
+
+    Para el long-poll: si el endpoint lee el snapshot y recién después se
+    suscribe, un evento publicado entre ambos (típico: la respuesta del bot)
+    se pierde y el cliente espera hasta el timeout (~25 s) para verla. Con el
+    listener abierto primero, ese evento queda en la cola del pubsub y `wait`
+    lo devuelve al instante.
+
+        listener = await EventListener.open(tenant_id)
+        try:
+            snapshot = ...            # leer estado
+            event = await listener.wait(predicate, timeout)
+        finally:
+            await listener.close()
+    """
+
+    def __init__(self, tenant_id: str, redis_conn, pubsub) -> None:
+        self._tenant_id = tenant_id
+        self._redis = redis_conn
+        self._pubsub = pubsub
+
+    @classmethod
+    async def open(cls, tenant_id: str) -> "EventListener":
+        from core.database import new_redis_pubsub_connection
+        redis_conn = new_redis_pubsub_connection()
+        pubsub = redis_conn.pubsub()
+        await pubsub.subscribe(_channel(tenant_id))
+        return cls(tenant_id, redis_conn, pubsub)
+
+    async def wait(self, predicate, timeout: float = 25.0) -> dict | None:
+        import asyncio
+        deadline = asyncio.get_event_loop().time() + timeout
+        while True:
+            remaining = deadline - asyncio.get_event_loop().time()
+            if remaining <= 0:
+                return None
+            try:
+                msg = await asyncio.wait_for(
+                    self._pubsub.get_message(ignore_subscribe_messages=True),
+                    timeout=remaining,
+                )
+            except asyncio.TimeoutError:
+                return None
+            if msg is None or msg.get("type") != "message":
+                await asyncio.sleep(0.05)
+                continue
+            try:
+                event = json.loads(msg["data"])
+            except Exception:
+                continue
+            if predicate(event):
+                return event
+
+    async def close(self) -> None:
+        try:
+            await self._pubsub.unsubscribe(_channel(self._tenant_id))
+            await self._pubsub.aclose()
+            await self._redis.aclose()
+        except Exception:
+            pass
+
+
 async def wait_for_event(tenant_id: str, predicate, timeout: float = 25.0) -> dict | None:
     """Subscribe to tenant channel and return the first event matching predicate.
 

@@ -180,9 +180,12 @@ CREATE TABLE IF NOT EXISTS mensajes (
     attachment_size  INTEGER,         -- bytes
     external_message_id VARCHAR(128), -- wamid de Meta (matchea webhooks de status)
     delivery_status  VARCHAR(20),     -- ticks WhatsApp: sent|delivered|read|failed
+    seq              BIGSERIAL,       -- orden estable (created_at empata); ancla del poll (migr. 057)
+    is_sector_note   BOOLEAN NOT NULL DEFAULT FALSE, -- "Consulta dirigida al área X" (píldora)
     created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS ix_mensajes_conversation ON mensajes (conversation_id, created_at);
+CREATE INDEX IF NOT EXISTS ix_mensajes_conversation_seq ON mensajes (conversation_id, seq);
 CREATE INDEX IF NOT EXISTS ix_mensajes_external_msg ON mensajes (external_message_id) WHERE external_message_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS handoff_config (

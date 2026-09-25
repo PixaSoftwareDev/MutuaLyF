@@ -29,6 +29,7 @@ from core.config import settings
 from core.database import get_minio_client, get_pg_session
 from core.rate_limit import check_widget_rate_limit
 from core.security import CurrentUser, get_widget_or_chat_user, require_operator
+from api.v1.widget_conversation import _assert_uuid
 from core.tenant import get_tenant_id
 from services.events import publish as _publish_event
 from services.handoff import ConvStatus
@@ -167,6 +168,7 @@ async def widget_upload_attachment(
     widget_user: CurrentUser = Depends(get_widget_or_chat_user),
     _rl: None = Depends(check_widget_rate_limit),
 ):
+    _assert_uuid(conversation_id)
     async with get_pg_session(tenant_id) as session:
         row = (await session.execute(
             text("SELECT status FROM conversaciones WHERE id = :id AND widget_session_id = :sid"),
@@ -191,6 +193,7 @@ async def widget_download_attachment(
     tenant_id: str = Depends(get_tenant_id),
     widget_user: CurrentUser = Depends(get_widget_or_chat_user),
 ):
+    _assert_uuid(conversation_id)
     async with get_pg_session(tenant_id) as session:
         row = (await session.execute(text("""
             SELECT m.attachment_key, m.attachment_mime, m.attachment_name
@@ -217,6 +220,7 @@ async def operator_upload_attachment(
     tenant_id: str = Depends(get_tenant_id),
     current_user: CurrentUser = Depends(require_operator),
 ):
+    _assert_uuid(conversation_id)
     scope_sql, scope_params = _operator_sector_scope(current_user, "c.sector_id")
     async with get_pg_session(tenant_id) as session:
         row = (await session.execute(
@@ -253,6 +257,7 @@ async def operator_download_attachment(
     tenant_id: str = Depends(get_tenant_id),
     current_user: CurrentUser = Depends(require_operator),
 ):
+    _assert_uuid(conversation_id)
     scope_sql, scope_params = _operator_sector_scope(current_user, "c.sector_id")
     async with get_pg_session(tenant_id) as session:
         row = (await session.execute(text(f"""

@@ -36,6 +36,45 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _assert_uuid(conversation_id: str) -> None:
+    """Un conversation_id que no es UUID hacía reventar el cast en PG (500).
+    Para el afiliado es lo mismo que "no existe": 404."""
+    try:
+        uuid.UUID(conversation_id)
+    except (ValueError, AttributeError, TypeError):
+        raise HTTPException(status_code=404, detail="No encontramos la conversación. Iniciá una nueva.")
+
+
+def _bot_typing_key(tenant_id: str, conversation_id: str) -> str:
+    return f"{tenant_id}:bot_typing:{conversation_id}"
+
+
+async def _set_bot_typing(tenant_id: str, conversation_id: str, on: bool) -> None:
+    """Señal "el asistente está escribiendo" para el poll (Redis, TTL corto:
+    si el proceso muere a mitad de respuesta, la señal se apaga sola)."""
+    try:
+        from core.database import get_redis_cache
+        redis = get_redis_cache()
+        key = _bot_typing_key(tenant_id, conversation_id)
+        if on:
+            await redis.setex(key, 45, "1")
+        else:
+            await redis.delete(key)
+    except Exception as exc:
+        logger.debug("bot_typing_flag_error error=%s", exc)
+
+
+async def _is_bot_typing(tenant_id: str, conversation_id: str) -> bool:
+    try:
+        from core.database import get_redis_cache
+        redis = get_redis_cache()
+        return bool(await redis.exists(_bot_typing_key(tenant_id, conversation_id)))
+    except Exception:
+        return False
+
+
 # ── Schemas ───────────────────────────────────────────────────────────────────
 
 _MAX_MESSAGE_CHARS = 2000  # caps user input to prevent oversized LLM contexts and DoS
@@ -235,6 +274,7 @@ async def send_message(
     widget_user: CurrentUser = Depends(get_widget_or_chat_user),
 ):
     """Send a user message. Routes to bot (RAG) or operator queue based on conversation status."""
+    _assert_uuid(conversation_id)
     async with get_pg_session(tenant_id) as session:
         result = await session.execute(
             text("SELECT status, sector_id FROM conversaciones WHERE id = :id AND widget_session_id = :sid"),
@@ -289,11 +329,16 @@ async def send_message(
                 WHERE conversation_id = :cid AND sender_type = 'system'
                 ORDER BY created_at DESC LIMIT 1
             """), {"cid": conversation_id})).fetchone()
+            inserted_queue_msg = False
             if not last_sys or last_sys[0] != queue_msg:
                 await session.execute(text("""
                     INSERT INTO mensajes (conversation_id, sender_type, content)
                     VALUES (:cid, 'system', :msg)
                 """), {"cid": conversation_id, "msg": queue_msg})
+                inserted_queue_msg = True
+        if inserted_queue_msg:
+            # Sin esto el cartel llegaba recién en el siguiente ciclo/timeout del poll.
+            await _publish_event(tenant_id, "new_message", {"conversation_id": conversation_id})
         return {"message_id": msg_id, "status": conv_status, "bot_response": None}
 
     # ── Pedido de humano por texto — determinístico, ANTES del LLM ────────────
@@ -433,6 +478,10 @@ async def send_message(
             except Exception as exc:
                 # Sin catálogo no hay tools este turno; el RAG sigue normal.
                 logger.warning("tool_catalog_failed tenant_id=%s error=%s", tenant_id, exc)
+        # "Escribiendo…" mientras el LLM responde: flag en Redis + evento para que
+        # el poll lo muestre al instante. Se apaga al persistir la respuesta.
+        await _set_bot_typing(tenant_id, conversation_id, True)
+        await _publish_event(tenant_id, "bot_typing", {"conversation_id": conversation_id})
         try:
             rag_result = await handle_query(
                 question=body.content,
@@ -474,6 +523,8 @@ async def send_message(
             logger.error("widget_rag_failed conversation_id=%s error=%s", conversation_id, exc)
             bot_answer = "Lo siento, ocurrió un error. Intentá de nuevo en un momento."
             sources = []
+        finally:
+            await _set_bot_typing(tenant_id, conversation_id, False)
 
     # Se evalúa el handoff ANTES de persistir la respuesta del bot: si se va a
     # mostrar la oferta de operador, el bot_answer genérico ("no pude / fuera de
@@ -571,7 +622,7 @@ async def _read_conversation_snapshot(tenant_id: str, conversation_id: str, widg
         conv_row = (await session.execute(
             text("""
                 SELECT c.status, c.assigned_operator_id, c.afiliado_nombre, c.afiliado_dni,
-                       c.feedback_rating, u.name AS operator_name
+                       c.feedback_rating, c.sector_id, u.name AS operator_name
                 FROM conversaciones c
                 LEFT JOIN usuarios u ON u.id = c.assigned_operator_id
                 WHERE c.id = :id AND c.widget_session_id = :sid
@@ -586,26 +637,33 @@ async def _read_conversation_snapshot(tenant_id: str, conversation_id: str, widg
         # widget se "congelaba" en los primeros 50 y los nuevos no aparecían (el polling
         # comparaba contra el mensaje #50, que nunca cambiaba). Tomamos los 50 recientes
         # con DESC y los reordenamos cronológicamente para renderizar.
+        # Orden estable: created_at empata (NOW() es el inicio de la transacción)
+        # y el id es uuid4 → desempata `seq` (migración 057), que además es el
+        # ancla monotónica del poll (`last_seq`).
         msg_rows = (await session.execute(text("""
-            SELECT id, sender_type, content, is_handoff_offer, created_at,
+            SELECT id, seq, sender_type, content, is_handoff_offer, is_sector_note, created_at,
                    attachment_key, attachment_name, attachment_mime, attachment_size
             FROM (
-                SELECT id, sender_type, content, is_handoff_offer, created_at,
+                SELECT id, seq, sender_type, content, is_handoff_offer, is_sector_note, created_at,
                        attachment_key, attachment_name, attachment_mime, attachment_size
                 FROM mensajes
                 WHERE conversation_id = :cid
-                ORDER BY created_at DESC
+                ORDER BY created_at DESC, seq DESC
                 LIMIT 50
             ) sub
-            ORDER BY created_at ASC
+            ORDER BY created_at ASC, seq ASC
         """), {"cid": conversation_id})).mappings().all()
 
         messages = [
             {
                 "id": str(r["id"]),
+                "seq": int(r["seq"]) if r["seq"] is not None else None,
                 "sender_type": r["sender_type"],
                 "content": r["content"],
                 "is_handoff_offer": bool(r["is_handoff_offer"]),
+                # Aviso "Consulta dirigida al área X": los clientes lo dibujan como
+                # píldora en su lugar de la cronología (no como burbuja).
+                "is_sector_note": bool(r["is_sector_note"]),
                 "created_at": r["created_at"].isoformat(),
                 # Adjunto (None si el mensaje es solo texto). El frontend usa
                 # attachment_name/mime para decidir si renderiza imagen o link.
@@ -628,6 +686,11 @@ async def _read_conversation_snapshot(tenant_id: str, conversation_id: str, widg
         "conversation_id": conversation_id,
         "status": conv_row["status"],
         "operator_name": conv_row["operator_name"],
+        # Sector vigente (elegido por el afiliado o default): el cliente lo usa
+        # para no volver a preguntar tras un F5/reapertura.
+        "sector_id": str(conv_row["sector_id"]) if conv_row["sector_id"] else None,
+        # "El asistente está escribiendo…" (Redis, TTL corto).
+        "bot_typing": await _is_bot_typing(tenant_id, conversation_id),
         # Si la conversación ya tiene nombre + DNI (el afiliado se identificó en un
         # handoff previo), el frontend NO vuelve a pedirlos: deriva directo. Genérico
         # y por-conversación — no depende del tenant ni de hardcodeos.
@@ -643,50 +706,124 @@ async def poll_messages(
     conversation_id: str,
     widget_session_id: str,
     last_message_id: str | None = None,
+    last_seq: int | None = None,
+    force: bool = False,
     tenant_id: str = Depends(get_tenant_id),
     widget_user: CurrentUser = Depends(get_widget_or_chat_user),
 ):
-    """Long-polling: returns immediately if the conversation has new messages
-    or status changes since `last_message_id`; otherwise holds the request
-    open up to ~25s waiting for a relevant pub/sub event. Falls back to a
-    final fresh read when timeout expires so the client always gets the
-    current snapshot.
+    """Long-polling: devuelve al instante si hay mensajes nuevos desde el ancla
+    o cambió el estado; si no, mantiene la request abierta hasta ~25 s
+    esperando un evento del pub/sub, y al vencer devuelve el snapshot actual.
 
-    No `last_message_id` → always returns the latest snapshot (used for the
-    first poll after starting a conversation). This preserves the existing
-    contract for the widget that does not track ids.
+    Ancla: `last_seq` (monotónica, preferida) o `last_message_id` (compat con
+    clientes viejos). Sin ancla o con `force=1` → snapshot inmediato (primer
+    poll, o "volví a la app y quiero refrescar ya" sin abrir otro long-poll).
+
+    Orden de operaciones: la suscripción al canal se abre ANTES de leer el
+    snapshot. Antes era al revés y un evento publicado en el medio (la
+    respuesta del bot, típicamente) se perdía → el cliente esperaba los 25 s.
     """
-    snapshot = await _read_conversation_snapshot(tenant_id, conversation_id, widget_session_id)
-    if snapshot is None:
-        raise HTTPException(status_code=404, detail="No encontramos la conversación. Iniciá una nueva.")
-
-    # First poll (no anchor) → snapshot immediately.
-    # Otherwise, if the latest message id differs from the anchor, the client
-    # is behind → return now. If they match, long-poll until something changes.
-    if last_message_id is None:
-        return snapshot
-    if snapshot["messages"] and snapshot["messages"][-1]["id"] != last_message_id:
-        return snapshot
-
-    # Hold the request until either:
-    #   - new_message arrives for this conversation
-    #   - conversation_updated (status change: handoff accepted, returned to bot, closed)
-    #   - timeout (~25s) — client retries naturally
-    from services.events import wait_for_event
+    _assert_uuid(conversation_id)
+    from services.events import EventListener
 
     def _relevant(event: dict) -> bool:
         if event.get("conversation_id") != conversation_id:
             return False
-        return event.get("type") in {"new_message", "conversation_updated"}
+        return event.get("type") in {"new_message", "conversation_updated", "bot_typing"}
 
-    event = await wait_for_event(tenant_id, _relevant, timeout=_LONG_POLL_TIMEOUT_S)
-    if event is None:
-        # Timeout: return whatever we have so the client stays in sync.
-        return snapshot
+    no_anchor = force or (last_seq is None and last_message_id is None)
+    listener = None if no_anchor else await EventListener.open(tenant_id)
+    try:
+        snapshot = await _read_conversation_snapshot(tenant_id, conversation_id, widget_session_id)
+        if snapshot is None:
+            raise HTTPException(status_code=404, detail="No encontramos la conversación. Iniciá una nueva.")
+        if no_anchor or listener is None:
+            return snapshot
 
-    # Re-read after the event to capture the new message + any concurrent updates.
-    fresh = await _read_conversation_snapshot(tenant_id, conversation_id, widget_session_id)
-    return fresh or snapshot
+        msgs = snapshot["messages"]
+        if last_seq is not None:
+            behind = bool(msgs) and any((m["seq"] or 0) > last_seq for m in msgs)
+        else:
+            behind = bool(msgs) and msgs[-1]["id"] != last_message_id
+        if behind:
+            return snapshot
+
+        event = await listener.wait(_relevant, timeout=_LONG_POLL_TIMEOUT_S)
+        if event is None:
+            return snapshot  # timeout: el cliente sigue sincronizado
+        fresh = await _read_conversation_snapshot(tenant_id, conversation_id, widget_session_id)
+        return fresh or snapshot
+    finally:
+        if listener is not None:
+            await listener.close()
+
+
+# ── Sector elegido por el afiliado ────────────────────────────────────────────
+
+class SetSectorRequest(BaseModel):
+    widget_session_id: str = Field(..., min_length=1, max_length=128)
+    sector_id: str = Field(..., min_length=1, max_length=64)
+
+
+@router.patch("/widget/conversation/{conversation_id}/sector")
+async def set_sector(
+    conversation_id: str,
+    body: SetSectorRequest,
+    tenant_id: str = Depends(get_tenant_id),
+    widget_user: CurrentUser = Depends(get_widget_or_chat_user),
+):
+    """Persiste el sector que eligió el afiliado (chip bajo el saludo) SIN derivar.
+
+    Antes la elección vivía solo en el cliente hasta confirm-handoff: con un F5
+    se perdía, y disponibilidad de operadores / Regla 5 se evaluaban con el
+    sector default. Inserta además el aviso "Consulta dirigida al área X" como
+    mensaje de sistema (is_sector_note) para que quede anclado en la
+    cronología, igual en los tres clientes. Idempotente: repetir el mismo
+    sector no duplica el aviso.
+    """
+    _assert_uuid(conversation_id)
+    sector_id = body.sector_id.strip()
+    try:
+        uuid.UUID(sector_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Sector inválido.")
+
+    async with get_pg_session(tenant_id) as session:
+        conv = (await session.execute(text(
+            "SELECT status, sector_id FROM conversaciones WHERE id = :id AND widget_session_id = :sid"
+        ), {"id": conversation_id, "sid": body.widget_session_id})).mappings().fetchone()
+        if not conv:
+            raise HTTPException(status_code=404, detail="No encontramos la conversación. Iniciá una nueva.")
+        if conv["status"] == ConvStatus.CLOSED:
+            raise HTTPException(status_code=410, detail="La conversación fue cerrada. Iniciá una nueva.")
+        sector = (await session.execute(text(
+            "SELECT nombre FROM sectores WHERE id = :id AND is_active = TRUE"
+        ), {"id": sector_id})).fetchone()
+        if not sector:
+            raise HTTPException(status_code=404, detail="El área no existe o está inactiva.")
+        sector_nombre = sector[0]
+
+        await session.execute(text(
+            "UPDATE conversaciones SET sector_id = :sid, updated_at = NOW() WHERE id = :cid"
+        ), {"sid": sector_id, "cid": conversation_id})
+
+        note = f"Consulta dirigida al área {sector_nombre}"
+        last_note = (await session.execute(text("""
+            SELECT content FROM mensajes
+            WHERE conversation_id = :cid AND is_sector_note = TRUE
+            ORDER BY created_at DESC, seq DESC LIMIT 1
+        """), {"cid": conversation_id})).fetchone()
+        inserted = False
+        if not last_note or last_note[0] != note:
+            await session.execute(text("""
+                INSERT INTO mensajes (conversation_id, sender_type, content, is_sector_note)
+                VALUES (:cid, 'system', :msg, TRUE)
+            """), {"cid": conversation_id, "msg": note})
+            inserted = True
+
+    if inserted:
+        await _publish_event(tenant_id, "new_message", {"conversation_id": conversation_id})
+    return {"sector_id": sector_id, "sector_nombre": sector_nombre, "note": note}
 
 
 # ── Confirm handoff offer ─────────────────────────────────────────────────────
@@ -705,6 +842,7 @@ async def confirm_handoff(
     Si llegan datos en el body, se persisten en `conversaciones` antes de
     disparar el handoff (sin esto el operador ve "Afiliado anónimo").
     """
+    _assert_uuid(conversation_id)
     # Anti-IDOR: la conversación debe pertenecer a este widget_session_id.
     # Anti-abuso: además exigimos que haya una oferta de derivación vigente
     # (is_handoff_offer=TRUE sin consumir). Sin esto, cualquiera con el
@@ -811,6 +949,7 @@ async def submit_feedback(
     - rating 1-2 → entra a la cola de revisión del admin (pending).
     Fuera del camino de la consulta: no toca el pipeline del bot.
     """
+    _assert_uuid(conversation_id)
     reason = body.reason if body.reason in VALID_FEEDBACK_REASONS else None
     review_status = "pending" if body.rating <= 2 else None
 
