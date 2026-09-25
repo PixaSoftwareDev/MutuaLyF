@@ -155,8 +155,9 @@ function ChannelToggleButton({ enabled, pending, onToggle, title, description, s
         <DialogContent className="max-w-md">
           <DialogHeader>
             <div className="flex items-start gap-3 text-left">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-warning/15">
-                <Pause className="h-5 w-5 text-warning" />
+              {/* Ícono neutro: el único acento de color del diálogo es el botón de confirmar. */}
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted">
+                <Pause className="h-5 w-5 text-muted-foreground" />
               </div>
               <div className="min-w-0 space-y-1.5 pt-0.5">
                 <DialogTitle>{title}</DialogTitle>
@@ -483,7 +484,7 @@ function WidgetCard({ channels, onChanged }: { channels: ChannelsState; onChange
                 pending={toggleM.isPending}
                 onToggle={next => toggleM.mutate(next)}
                 title="Pausar el widget web"
-                description="El globo instalado en tu sitio deja de atender hasta que lo reactives. El código instalado sigue siendo válido, no hay que volver a pegarlo. Las conversaciones que ya están abiertas no se cortan."
+                description="El globo de tu sitio deja de atender hasta que lo reactives. El código instalado sigue siendo válido."
               />
             </div>
           </div>
@@ -638,7 +639,7 @@ function ChatLinkCard({ channels, onChanged }: { channels: ChannelsState; onChan
                 pending={toggleM.isPending}
                 onToggle={next => toggleM.mutate(next)}
                 title="Pausar el chat por link"
-                description="Quien abra el link o el QR va a ver que el chat no está disponible hasta que lo reactives. El link y el QR siguen siendo los mismos, no hay que reimprimir nada. Las conversaciones que ya están abiertas no se cortan."
+                description="Quien abra el link o el QR verá que el chat no está disponible hasta que lo reactives. El link y el QR siguen siendo los mismos."
               />
             </div>
           </div>
@@ -960,7 +961,7 @@ function WhatsAppCard({ channels, onChanged }: { channels: ChannelsState; onChan
                     : undefined
                   }
                   title="Pausar WhatsApp"
-                  description="El número deja de responder mensajes hasta que lo reactives. Las credenciales y el webhook quedan configurados; no hay que volver a conectarlo."
+                  description="El número deja de responder hasta que lo reactives. La configuración se conserva."
                 />
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
