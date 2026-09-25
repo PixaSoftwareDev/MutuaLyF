@@ -11,7 +11,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Loader2, Copy, Check, CheckCircle2, RefreshCw, Globe, MessageCircle,
   PlugZap, Pause, Play, Trash2, AlertTriangle, MoreVertical, Pencil, Eye, EyeOff, Lock,
-  Database, Code2, X, Link2, ExternalLink, Send, Download, QrCode,
+  Database, Code2, X, Link2, ExternalLink, Send, Download, QrCode, Maximize2,
 } from "lucide-react";
 import { api, type ChannelsState } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
@@ -562,6 +562,9 @@ function ChatLinkCard({ channels, onChanged }: { channels: ChannelsState; onChan
   // para imprimir (1024 px) y SVG vectorial para imprenta/diseño. El preview
   // usa el mismo PNG. Nivel de corrección M: alcanza para carteles y folletos.
   const [qrPng, setQrPng] = useState<string | null>(null);
+  // Vista grande: para mostrar la pantalla en un mostrador y que lo escaneen
+  // directo, sin imprimir.
+  const [qrOpen, setQrOpen] = useState(false);
   useEffect(() => {
     if (!url) return;
     let alive = true;
@@ -653,11 +656,23 @@ function ChatLinkCard({ channels, onChanged }: { channels: ChannelsState; onChan
       {/* ── QR del link: para carteles, folletos, mostradores ── */}
       <Card className="rounded-2xl">
         <div className="flex flex-col gap-6 p-6 sm:flex-row sm:items-center">
-          <div className="flex h-40 w-40 shrink-0 items-center justify-center self-center rounded-xl border bg-white p-2 sm:self-auto">
+          <button
+            type="button"
+            onClick={() => qrPng && setQrOpen(true)}
+            disabled={!qrPng}
+            className="group relative flex h-40 w-40 shrink-0 items-center justify-center self-center rounded-xl border bg-white p-2 transition-colors hover:border-foreground/25 disabled:cursor-default sm:self-auto"
+            aria-label="Ver el QR en grande"
+            title="Ver en grande"
+          >
             {qrPng
               ? <img src={qrPng} alt={`Código QR del chat de ${tenantId ?? ""}`} className="h-full w-full" />
               : <QrCode className="h-10 w-10 text-muted-foreground/40" />}
-          </div>
+            {qrPng && (
+              <span className="absolute bottom-1.5 right-1.5 flex h-6 w-6 items-center justify-center rounded-md bg-white/90 text-muted-foreground opacity-0 shadow-sm transition-opacity group-hover:opacity-100">
+                <Maximize2 className="h-3.5 w-3.5" />
+              </span>
+            )}
+          </button>
           <div className="min-w-0 flex-1">
             <h4 className="flex items-center gap-2 text-sm font-semibold text-foreground">
               <QrCode className="h-4 w-4 text-muted-foreground" /> Código QR del link
@@ -666,14 +681,36 @@ function ChatLinkCard({ channels, onChanged }: { channels: ChannelsState; onChan
               Apunta a la misma dirección de arriba, así que no vence ni hay que reimprimirlo.
               Sale en alta resolución, listo para carteles, folletos o el mostrador.
             </p>
-            <div className="mt-4">
+            <div className="mt-4 flex flex-wrap items-center gap-2">
               <Button variant="outline" onClick={downloadQr} disabled={!qrPng}>
                 <Download className="mr-1.5 h-4 w-4" /> Descargar QR
+              </Button>
+              <Button variant="ghost" onClick={() => setQrOpen(true)} disabled={!qrPng} className="text-muted-foreground">
+                <Maximize2 className="mr-1.5 h-4 w-4" /> Ver grande
               </Button>
             </div>
           </div>
         </div>
       </Card>
+
+      {/* QR a pantalla: para escanear desde el monitor o un celular en mano. */}
+      <Dialog open={qrOpen} onOpenChange={setQrOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Escaneá para chatear con el asistente</DialogTitle>
+            <DialogDescription>Apuntá la cámara del celular al código. Abre el chat directo, sin instalar nada.</DialogDescription>
+          </DialogHeader>
+          <div className="mx-auto w-full max-w-[360px] rounded-2xl border bg-white p-4">
+            {qrPng && <img src={qrPng} alt="Código QR del chat" className="h-auto w-full" />}
+          </div>
+          <p className="truncate text-center font-mono text-xs text-muted-foreground" title={url}>{url}</p>
+          <DialogFooter className="mt-1 sm:justify-center">
+            <Button variant="outline" onClick={downloadQr}>
+              <Download className="mr-1.5 h-4 w-4" /> Descargar QR
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <div className="grid gap-4 sm:grid-cols-3">
         {[
