@@ -64,3 +64,11 @@ class TestSetSectorRequest:
             SetSectorRequest(widget_session_id="cs_1")
         body = SetSectorRequest(widget_session_id="cs_1", sector_id="x")
         assert body.sector_id == "x"
+
+
+class TestCancelHandoffRequest:
+    def test_requires_session(self):
+        from api.v1.widget_conversation import CancelHandoffRequest
+        with pytest.raises(ValidationError):
+            CancelHandoffRequest()
+        assert CancelHandoffRequest(widget_session_id="cs_1").widget_session_id == "cs_1"

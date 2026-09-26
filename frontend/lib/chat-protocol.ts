@@ -580,6 +580,32 @@ export class ChatProtocol {
   }
 
   clearPrevFeedback() { this.set({ prevFeedbackConvId: null }); }
+
+  /** El afiliado deja de esperar operador y vuelve al asistente. */
+  async cancelHandoff(): Promise<boolean> {
+    const cid = this.state.conversationId;
+    if (!cid) return false;
+    try {
+      const r = await this.authFetch(this.url(`/widget/conversation/${cid}/cancel-handoff`), {
+        method: "POST",
+        body: JSON.stringify({ widget_session_id: this.opts.sessionId }),
+      });
+      if (r.status === 410) { await this.start(); return false; }
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        // 409: un operador la tomó justo ahora → el poll trae el estado nuevo.
+        if (r.status !== 409) this.pushError(typeof data?.detail === "string" ? data.detail : this.texts.serverError);
+        await this.poll(cid, true);
+        return false;
+      }
+      if (typeof data.status === "string") this.set({ status: data.status as ChatStatus });
+      await this.poll(cid, true);
+      return true;
+    } catch {
+      this.pushError(this.texts.networkDown);
+      return false;
+    }
+  }
 }
 
 /** widget_session_id estable por navegador y por tenant (y por modo prueba). */

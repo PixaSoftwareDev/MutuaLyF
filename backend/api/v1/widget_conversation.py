@@ -940,6 +940,64 @@ class FeedbackRequest(BaseModel):
     reason: str | None = Field(None, max_length=40)
 
 
+# ── Cancelar la espera de operador (el afiliado vuelve al asistente) ──────────
+
+class CancelHandoffRequest(BaseModel):
+    widget_session_id: str = Field(..., min_length=1, max_length=128)
+
+
+@router.post("/widget/conversation/{conversation_id}/cancel-handoff")
+async def cancel_handoff(
+    conversation_id: str,
+    body: CancelHandoffRequest,
+    tenant_id: str = Depends(get_tenant_id),
+    widget_user: CurrentUser = Depends(get_widget_or_chat_user),
+):
+    """El afiliado deja de esperar operador y vuelve al asistente.
+
+    Antes, una vez en cola no había salida para el afiliado: el bot dejaba de
+    responder hasta que un operador la tomara o, a la hora, se cerraba sola.
+    Solo aplica mientras NADIE la tomó (handoff_requested); si ya la atiende
+    un operador → 409 (la charla sigue con esa persona). Misma transición que
+    return-to-bot del panel: bot_active + reseteo de señales de derivación.
+    `handoff_requested_at` se conserva: el pedido existió (métricas).
+    """
+    _assert_uuid(conversation_id)
+    async with get_pg_session(tenant_id) as session:
+        conv = (await session.execute(text(
+            "SELECT status FROM conversaciones WHERE id = :id AND widget_session_id = :sid"
+        ), {"id": conversation_id, "sid": body.widget_session_id})).mappings().fetchone()
+        if not conv:
+            raise HTTPException(status_code=404, detail="No encontramos la conversación. Iniciá una nueva.")
+        if conv["status"] == ConvStatus.HUMAN_ATTENDING:
+            raise HTTPException(status_code=409, detail="Ya te está atendiendo un operador.")
+        if conv["status"] == ConvStatus.CLOSED:
+            raise HTTPException(status_code=410, detail="La conversación fue cerrada. Iniciá una nueva.")
+        if conv["status"] != ConvStatus.HANDOFF_REQUESTED:
+            return {"status": conv["status"]}  # idempotente: ya estaba con el bot
+        updated = (await session.execute(text("""
+            UPDATE conversaciones SET status = 'bot_active', updated_at = NOW()
+            WHERE id = :id AND status = 'handoff_requested'
+            RETURNING id
+        """), {"id": conversation_id})).fetchone()
+        if not updated:
+            # Carrera: un operador la tomó justo ahora.
+            raise HTTPException(status_code=409, detail="Ya te está atendiendo un operador.")
+        await session.execute(text("""
+            INSERT INTO mensajes (conversation_id, sender_type, content)
+            VALUES (:cid, 'system', :msg)
+        """), {"cid": conversation_id, "msg": "Listo, cancelaste la espera. Seguís hablando con el asistente; si después necesitás un operador, pedímelo."})
+
+    from services.handoff import reset_handoff_signals
+    await reset_handoff_signals(conversation_id, tenant_id)
+    logger.info("handoff_cancelled_by_user conversation_id=%s tenant=%s", conversation_id, tenant_id)
+    await _publish_event(tenant_id, "conversation_updated", {
+        "conversation_id": conversation_id, "status": ConvStatus.BOT_ACTIVE,
+    })
+    await _publish_event(tenant_id, "new_message", {"conversation_id": conversation_id})
+    return {"status": ConvStatus.BOT_ACTIVE}
+
+
 @router.post("/widget/conversation/{conversation_id}/feedback")
 async def submit_feedback(
     conversation_id: str,

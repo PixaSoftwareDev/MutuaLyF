@@ -508,6 +508,17 @@ import { ChatProtocol } from "../lib/chat-protocol";
     "#ia-w-newconv{display:none;width:100%;align-items:center;justify-content:center;gap:8px;background:linear-gradient(135deg,var(--ia-brand),var(--ia-brand-dark));color:var(--ia-brand-fg);border:none;border-radius:9999px;min-height:44px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;box-shadow:0 3px 10px -3px var(--ia-brand-30);}",
     "#ia-w-newconv.on{display:inline-flex;}",
     "#ia-w-inputrow.off{display:none;}",
+    // Esperando operador: aviso con "Volver al asistente"
+    "#ia-w-waitbar{display:none;align-items:center;justify-content:space-between;gap:10px;background:#fffbeb;border-radius:16px;padding:6px 6px 6px 13px;margin-bottom:8px;}",
+    "#ia-w-waitbar.on{display:flex;animation:ia-msg-in .22s cubic-bezier(.16,1,.3,1);}",
+    "#ia-w-waitbar .t{display:flex;align-items:center;gap:8px;min-width:0;font-size:13px;color:#78350f;}",
+    "#ia-w-waitbar .t i{width:8px;height:8px;border-radius:50%;background:#f59e0b;flex-shrink:0;animation:ia-pulse-dot 1.4s infinite;}",
+    "@keyframes ia-pulse-dot{0%,100%{opacity:1;}50%{opacity:.35;}}",
+    "#ia-w-waitbar button{display:inline-flex;align-items:center;gap:6px;min-height:36px;background:#fff;color:#334155;border:none;border-radius:11px;padding:0 12px;font-size:13px;font-weight:500;font-family:inherit;cursor:pointer;box-shadow:0 1px 2px rgba(0,0,0,.08);flex-shrink:0;}",
+    "#ia-w-waitbar button:disabled{opacity:.6;cursor:default;}",
+    "#ia-w-panel.ia-dark #ia-w-waitbar{background:#2a2310;}",
+    "#ia-w-panel.ia-dark #ia-w-waitbar .t{color:#fcd34d;}",
+    "#ia-w-panel.ia-dark #ia-w-waitbar button{background:#1c2126;color:#e7e9ec;}",
     // Error fatal (token revocado, canal apagado)
     ".ia-w-fatal{align-self:center;text-align:center;padding:24px 12px;color:#64748b;font-size:14px;line-height:1.5;max-width:300px;}",
     ".ia-w-fatal b{display:block;color:#1e293b;font-size:15px;margin-bottom:6px;}",
@@ -524,6 +535,15 @@ import { ChatProtocol } from "../lib/chat-protocol";
   newConvBtn.id = "ia-w-newconv"; newConvBtn.type = "button";
   newConvBtn.innerHTML = ICON_BOT + "<span>Nueva consulta</span>";
   inputRow.parentNode.insertBefore(newConvBtn, inputRow.nextSibling);
+  var waitBar = document.createElement("div");
+  waitBar.id = "ia-w-waitbar";
+  waitBar.innerHTML = '<span class="t"><i></i><span>Esperando un operador…</span></span><button type="button">↩ Volver al asistente</button>';
+  inputRow.parentNode.insertBefore(waitBar, inputRow);
+  var waitBtn = waitBar.querySelector("button");
+  waitBtn.addEventListener("click", function () {
+    waitBtn.disabled = true;
+    chat.cancelHandoff().then(function () { waitBtn.disabled = false; });
+  });
   inputEl.setAttribute("enterkeyhint", "send");
   inputEl.setAttribute("autocapitalize", "sentences");
 
@@ -669,6 +689,7 @@ import { ChatProtocol } from "../lib/chat-protocol";
     _updateSendState();
     inputRow.classList.toggle("off", st.status === "closed");
     newConvBtn.classList.toggle("on", st.status === "closed");
+    waitBar.classList.toggle("on", st.status === "handoff_requested");
 
     // Mensajes nuevos del servidor → scroll (si estaba abajo) o aviso, y badge si el panel está cerrado.
     var serverCount = 0, lastServer = null;

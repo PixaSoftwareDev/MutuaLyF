@@ -2,7 +2,7 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import { Loader2, Send, Bot, UserCheck, AlertTriangle, Paperclip, Headphones, RotateCcw, Tag, Check, ArrowDown, MessageSquarePlus } from "lucide-react";
+import { Loader2, Send, Bot, UserCheck, AlertTriangle, Paperclip, Headphones, RotateCcw, Tag, Check, ArrowDown, MessageSquarePlus, Undo2 } from "lucide-react";
 import { FEEDBACK_UI_ENABLED } from "@/lib/features";
 import { api, type TenantBranding } from "@/lib/api";
 import { applyBrandingVars, readCachedBranding, writeCachedBranding } from "@/lib/use-tenant-branding";
@@ -716,6 +716,14 @@ function ChatInner({ tenantOverride }: { tenantOverride?: string }) {
     if (!ok) setHandoffConfirmed(false);
   };
 
+  const [cancelling, setCancelling] = useState(false);
+  const cancelHandoff = async () => {
+    if (!chat) return;
+    setCancelling(true);
+    await chat.cancelHandoff();
+    setCancelling(false);
+  };
+
   const chooseSector = async (s: ChatSector) => {
     if (!chat) return;
     setSectorBusy(true);
@@ -764,12 +772,14 @@ function ChatInner({ tenantOverride }: { tenantOverride?: string }) {
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-white lg:my-3 lg:mr-3 lg:rounded-3xl lg:border lg:border-slate-200/70 lg:shadow-sm">
 
-        {/* Cabecera: barra de app en móvil (borde a borde, safe-area); tarjeta centrada en desktop */}
-        <header className="z-10 shrink-0 border-b border-slate-200/80 bg-white pt-[env(safe-area-inset-top)] lg:border-0 lg:bg-transparent lg:pt-4">
-          <div className="flex h-14 items-center px-3 lg:h-auto lg:justify-center lg:px-4">
+        {/* Cabecera con el look del widget: tarjeta de identidad centrada, fondo
+            blanco. Va EN FLUJO (no flotante) para que el teclado no la
+            superponga con la lista; un degradé blanco suaviza el corte. */}
+        <header className="relative z-10 shrink-0 bg-white px-4 pb-2 pt-[max(0.75rem,env(safe-area-inset-top))] lg:bg-transparent lg:pt-4">
+          <div className="flex justify-center">
             <div
               ref={idCardRef}
-              className="flex items-center gap-3 overflow-hidden lg:rounded-2xl lg:border lg:border-slate-200/80 lg:bg-white lg:px-4 lg:py-2.5 lg:shadow-[0_4px_12px_-3px_rgba(0,0,0,0.10),0_1px_4px_-1px_rgba(0,0,0,0.06)] lg:transition-[width] lg:duration-[380ms] lg:ease-[cubic-bezier(0.34,1.4,0.5,1)]"
+              className={`flex max-w-full items-center gap-2.5 overflow-hidden rounded-2xl border bg-white py-2 pl-2 pr-4 shadow-[0_4px_12px_-3px_rgba(0,0,0,0.10),0_1px_4px_-1px_rgba(0,0,0,0.06)] transition-[width,border-color] duration-[380ms] ease-[cubic-bezier(0.34,1.4,0.5,1)] ${status === "handoff_requested" ? "border-amber-300" : status === "human_attending" ? "border-emerald-200" : "border-slate-200/80"}`}
             >
               <div className="relative shrink-0">
                 <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-brand-light to-brand-dark shadow-sm">
@@ -778,11 +788,12 @@ function ChatInner({ tenantOverride }: { tenantOverride?: string }) {
                 <span className={`absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-white ${statusDot}`} />
               </div>
               <div className="min-w-0 pr-1 leading-tight">
-                <p className="truncate text-[15px] font-semibold text-slate-900">{botName}</p>
+                <p className="truncate text-[14px] font-semibold text-slate-900">{botName}</p>
                 <p key={statusLabel} className="animate-fade-in truncate text-xs text-slate-500">{statusLabel}</p>
               </div>
             </div>
           </div>
+          <div className="pointer-events-none absolute inset-x-0 top-full h-4 bg-gradient-to-b from-white to-transparent lg:hidden" />
         </header>
 
         {/* Lista de mensajes */}
@@ -793,7 +804,7 @@ function ChatInner({ tenantOverride }: { tenantOverride?: string }) {
           className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]"
           aria-live="polite"
         >
-          <div className="mx-auto flex min-h-full max-w-2xl flex-col px-3 pb-3 pt-3 sm:px-6 lg:pt-16">
+          <div className="mx-auto flex min-h-full max-w-2xl flex-col px-4 pb-3 pt-3 sm:px-6 lg:pt-6">
             <div className="flex-1" />
             {(missingKb || missingSectors) && (
               <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] leading-relaxed text-amber-900">
@@ -890,8 +901,28 @@ function ChatInner({ tenantOverride }: { tenantOverride?: string }) {
           )}
         </div>
 
-        {/* Barra de escritura: pegada al teclado en móvil (borde a borde), píldora en desktop */}
-        <div className="shrink-0 border-t border-slate-200/80 bg-white px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 lg:border-0 lg:bg-transparent lg:px-4 lg:pb-5 lg:pt-0">
+        {/* Barra de escritura con el look del widget: píldora gris con margen
+            sobre fondo blanco, pegada al teclado (bloque en flujo, no flotante). */}
+        <div className="shrink-0 bg-white px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-1.5 lg:bg-transparent lg:px-4 lg:pb-5 lg:pt-0">
+          {/* Esperando operador: el afiliado puede volver al asistente (antes
+              quedaba hasta una hora sin poder usar el bot). */}
+          {status === "handoff_requested" && (
+            <div className="mx-auto mb-2 flex max-w-2xl items-center justify-between gap-3 rounded-2xl bg-amber-50 py-1.5 pl-3.5 pr-1.5 animate-fade-in-up">
+              <span className="flex min-w-0 items-center gap-2 text-[13px] text-amber-900">
+                <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-amber-500" />
+                <span className="truncate">Esperando un operador…</span>
+              </span>
+              <button
+                type="button"
+                onClick={cancelHandoff}
+                disabled={cancelling}
+                className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-xl bg-white px-3 text-[13px] font-medium text-slate-700 shadow-sm transition-colors active:bg-slate-50 disabled:opacity-60"
+              >
+                {cancelling ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Undo2 className="h-3.5 w-3.5" />}
+                Volver al asistente
+              </button>
+            </div>
+          )}
           {status === "closed" ? (
             <div className="mx-auto flex max-w-2xl justify-center">
               <button
@@ -903,7 +934,7 @@ function ChatInner({ tenantOverride }: { tenantOverride?: string }) {
               </button>
             </div>
           ) : (
-            <div className="mx-auto flex max-w-2xl items-end gap-1 rounded-[24px] bg-slate-100 p-1 transition-colors focus-within:bg-slate-100 lg:border lg:border-transparent lg:bg-slate-100 lg:shadow-sm lg:focus-within:bg-white lg:focus-within:ring-2 lg:focus-within:ring-brand/25">
+            <div className="mx-auto flex max-w-2xl items-end gap-1 rounded-[24px] bg-slate-100 p-1 transition-[background-color,box-shadow] focus-within:bg-white focus-within:ring-2 focus-within:ring-brand/25 lg:shadow-sm">
               <input
                 ref={fileInputRef}
                 type="file"
