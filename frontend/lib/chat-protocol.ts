@@ -581,6 +581,19 @@ export class ChatProtocol {
 
   clearPrevFeedback() { this.set({ prevFeedbackConvId: null }); }
 
+  /** "Seguir con el asistente": el afiliado rechaza la oferta. Libera el
+   *  cooldown de ofertas del servidor (antes era solo de interfaz). Silencioso. */
+  async dismissOffer(): Promise<void> {
+    const cid = this.state.conversationId;
+    if (!cid) return;
+    try {
+      await this.authFetch(this.url(`/widget/conversation/${cid}/dismiss-offer`), {
+        method: "POST",
+        body: JSON.stringify({ widget_session_id: this.opts.sessionId }),
+      });
+    } catch { /* silencioso: la tarjeta ya se ocultó en pantalla */ }
+  }
+
   /** El afiliado deja de esperar operador y vuelve al asistente. */
   async cancelHandoff(): Promise<boolean> {
     const cid = this.state.conversationId;

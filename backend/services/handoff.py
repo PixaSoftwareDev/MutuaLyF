@@ -216,6 +216,16 @@ async def mark_keyword_offered(conversation_id: str) -> None:
         logger.warning("handoff_kw_mark_failed conversation_id=%s error=%s", conversation_id, exc)
 
 
+async def clear_keyword_offered(conversation_id: str) -> None:
+    """Libera la supresión de 1 h de la Regla 5 (ver reset_handoff_signals)."""
+    from core.database import get_redis_cache
+    try:
+        redis = get_redis_cache()
+        await redis.delete(f"{_KEYWORD_OFFERED_KEY}{conversation_id}")
+    except Exception as exc:
+        logger.debug("handoff_kw_clear_failed conversation_id=%s error=%s", conversation_id, exc)
+
+
 async def _is_offer_pending(conversation_id: str) -> bool:
     """True si ya hay una oferta de handoff vigente para esta conversacion."""
     try:
@@ -273,6 +283,11 @@ async def reset_handoff_signals(conversation_id: str, tenant_id: str) -> None:
     await _reset_insufficient(conversation_id)
     await clear_offer_pending(conversation_id)
     await _consume_pending_offers(conversation_id, tenant_id)
+    # También la supresión de 1 h de la Regla 5: si el afiliado ya pidió
+    # operador y volvió al bot (o la conversación cambió de fase), nombrar otra
+    # vez el tema tiene que poder ofrecerlo. Antes sobrevivía a "Volver al
+    # asistente" y el bot "esquivaba" (bug 2026-09-26).
+    await clear_keyword_offered(conversation_id)
 
 
 # ── Main evaluation ───────────────────────────────────────────────────────────
@@ -555,20 +570,56 @@ _HUMAN_REQUEST_RE = re.compile(
 _BARE_AFFIRM_RE = re.compile(r"^\s*(si|sí|dale|ok|okey|bueno|obvio|claro|quiero)\s*[.!]*\s*$", re.IGNORECASE)
 
 
+# Destinatario humano (genérico, no atado a ningún vertical).
+_HUMANO = r"(operador(?:a|es|as)?|humano|persona|alguien|asesor(?:a|es|as)?|agente|representante)"
+# Verbos de contacto: "hablar con", "comunicame con", "me pasás con", "que me atienda"…
+_CONTACTO = (
+    r"(hablar|chatear|charlar|comunicar(?:me|nos)?|comunica(?:me|s)?|conecta(?:me|s)?|conectar(?:me)?|"
+    r"pasa(?:me|s)?|pasar(?:me)?|deriva(?:me|s)?|derivar(?:me)?|contactar(?:me)?|atienda|atenderme|atiendan)"
+)
+
+
+def _sin_tildes(s: str) -> str:
+    import unicodedata
+    return "".join(c for c in unicodedata.normalize("NFD", s) if unicodedata.category(c) != "Mn")
+
+
 def is_explicit_human_request(message: str) -> bool:
-    """El mensaje pide hablar con una persona (formas explícitas)."""
+    """El mensaje pide hablar con una persona (formas explícitas).
+
+    Determinístico y previo al LLM: si matchea, se ofrece el operador SIEMPRE
+    (sin cooldown ni supresión). Por eso tiene que reconocer las formas comunes
+    de pedirlo; antes solo aceptaba "quiero/necesito ... operador" y frases
+    como "hablar con una persona" o "pasame con alguien" iban al LLM, que
+    respondía otra cosa (bug 2026-09-26). Es genérico: las palabras de TEMAS
+    derivables son de cada tenant (Regla 5, panel Derivación), no van acá.
+
+    Guardas contra preguntas informativas ("¿el operador atiende los sábados?",
+    "¿a qué hora atienden los operadores?"): se exige intención en primera
+    persona, un verbo de contacto, o la palabra sola.
+    """
     if not message:
         return False
-    m = message.strip()
-    # Evitar falsos positivos de preguntas informativas ("¿el operador atiende
-    # los sábados?"): exigir intención en primera persona o la palabra sola.
-    if re.match(r"^\s*operador[a]?\s*[.!?]*\s*$", m, re.IGNORECASE):
+    m = _sin_tildes(message.strip().lower())
+    # 1) La palabra sola: "operador", "un asesor", "operador por favor".
+    if re.match(r"^\s*(un[ao]?\s+)?(operador[a]?|humano|asesor[a]?|agente)\s*(por\s*favor|porfa|porfis)?\s*[.!?]*\s*$", m):
         return True
+    # 2) Frases hechas.
+    if re.search(r"\b(atencion\s+(humana|personalizada)|persona\s+real|ser\s+humano)\b", m):
+        return True
+    # 3) Verbo de contacto + destinatario humano: "hablar con una persona",
+    #    "pasame con alguien", "me comunicás con un operador?".
+    if re.search(_CONTACTO + r"\b[^.?!]{0,20}?\bcon\s+(un[ao]?\s+|el\s+|la\s+|algun[ao]?\s+)?" + _HUMANO + r"\b", m):
+        return True
+    if re.search(r"\bque\s+me\s+(atienda|atiendan)\b[^.?!]{0,25}\b" + _HUMANO + r"\b", m):
+        return True
+    # 4) Intención en primera persona + destinatario: "quiero un humano",
+    #    "necesito un asesor", "podría hablar con…".
     return bool(re.search(
-        r"(quiero|necesito|me\s+gustar[ií]a|pod[ée]s|puedo|prefiero)\b[^.?!]{0,40}"
-        r"\b(operador[a]?|humano|persona|asesor[a]?|agente)\b",
-        m, re.IGNORECASE,
-    ))
+        r"\b(quiero|quisiera|queria|necesito|me\s+gustaria|podes|podrias|podria|puedo|prefiero)\b[^.?!]{0,40}"
+        r"\b" + _HUMANO + r"\b",
+        m,
+    )) and not re.search(r"\b(saber|preguntar|consultar)\s+(si|cuando|donde|a\s+que)\b", m)
 
 
 def is_bare_affirmation(message: str) -> bool:

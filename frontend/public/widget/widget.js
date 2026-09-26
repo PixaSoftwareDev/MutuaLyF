@@ -505,6 +505,19 @@
     clearPrevFeedback() {
       this.set({ prevFeedbackConvId: null });
     }
+    /** "Seguir con el asistente": el afiliado rechaza la oferta. Libera el
+     *  cooldown de ofertas del servidor (antes era solo de interfaz). Silencioso. */
+    async dismissOffer() {
+      const cid = this.state.conversationId;
+      if (!cid) return;
+      try {
+        await this.authFetch(this.url("/widget/conversation/".concat(cid, "/dismiss-offer")), {
+          method: "POST",
+          body: JSON.stringify({ widget_session_id: this.opts.sessionId })
+        });
+      } catch (e) {
+      }
+    }
     /** El afiliado deja de esperar operador y vuelve al asistente. */
     async cancelHandoff() {
       const cid = this.state.conversationId;
@@ -1416,6 +1429,7 @@
       if (keepBtn) keepBtn.addEventListener("click", function() {
         ui.phase = "dismissed";
         _syncOffer(row, m, chat.getState());
+        chat.dismissOffer();
       });
       var submitBtn = row.querySelector(".hf-submit");
       if (submitBtn) {

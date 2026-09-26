@@ -881,7 +881,7 @@ import { ChatProtocol } from "../lib/chat-protocol";
       else { ui.phase = "form"; _syncOffer(row, m, chat.getState()); if (!_isMobile()) { var n = row.querySelector(".hf-nombre"); if (n) n.focus(); } }
     });
     var keepBtn = row.querySelector(".hf-keep");
-    if (keepBtn) keepBtn.addEventListener("click", function () { ui.phase = "dismissed"; _syncOffer(row, m, chat.getState()); });
+    if (keepBtn) keepBtn.addEventListener("click", function () { ui.phase = "dismissed"; _syncOffer(row, m, chat.getState()); chat.dismissOffer(); });
     var submitBtn = row.querySelector(".hf-submit");
     if (submitBtn) {
       var doSubmit = function () {

@@ -324,10 +324,11 @@ function FeedbackCard({ onSubmit, onDismiss, title = "¿Cómo estuvo tu consulta
 }
 
 function HandoffOfferBubble({
-  content, onConfirm, confirmed, resolved, identified, sectors, preselectedSectorId, showAvatar,
+  content, onConfirm, onDismiss, confirmed, resolved, identified, sectors, preselectedSectorId, showAvatar,
 }: {
   content: string;
   onConfirm: (identif?: { afiliado_nombre?: string; afiliado_dni?: string; sector_id?: string }) => void;
+  onDismiss: () => void;
   confirmed: boolean;
   resolved: boolean;
   identified: boolean;
@@ -398,7 +399,7 @@ function HandoffOfferBubble({
             </button>
             <button
               type="button"
-              onClick={() => setDismissed(true)}
+              onClick={() => { setDismissed(true); onDismiss(); }}
               className="min-h-[40px] self-center text-xs text-slate-400 transition-colors hover:text-slate-600"
             >
               Seguir con el asistente
@@ -859,6 +860,7 @@ function ChatInner({ tenantOverride }: { tenantOverride?: string }) {
                     <HandoffOfferBubble
                       content={m.content}
                       onConfirm={confirmHandoff}
+                      onDismiss={() => chat?.dismissOffer()}
                       confirmed={handoffConfirmed}
                       resolved={status !== "bot_active"}
                       identified={Boolean(state?.afiliadoIdentified)}

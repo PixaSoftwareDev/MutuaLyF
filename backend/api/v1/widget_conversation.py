@@ -940,11 +940,45 @@ class FeedbackRequest(BaseModel):
     reason: str | None = Field(None, max_length=40)
 
 
-# ── Cancelar la espera de operador (el afiliado vuelve al asistente) ──────────
+# ── Descartar la oferta ("Seguir con el asistente") ───────────────────────────
 
 class CancelHandoffRequest(BaseModel):
     widget_session_id: str = Field(..., min_length=1, max_length=128)
 
+
+
+@router.post("/widget/conversation/{conversation_id}/dismiss-offer")
+async def dismiss_offer(
+    conversation_id: str,
+    body: CancelHandoffRequest,
+    tenant_id: str = Depends(get_tenant_id),
+    widget_user: CurrentUser = Depends(get_widget_or_chat_user),
+):
+    """El afiliado rechaza la oferta de operador y sigue con el bot.
+
+    Antes era solo de interfaz: el servidor seguía con el cooldown de 90 s de
+    la oferta y cualquier nueva oferta automática quedaba bloqueada. Ahora se
+    libera ese cooldown y se consume la oferta. La supresión de 1 h de la
+    Regla 5 se MANTIENE a propósito (dijo que no: el bot no insiste con la
+    tarjeta cada vez que nombre el tema); un pedido explícito ("quiero hablar
+    con una persona") sigue funcionando siempre.
+    """
+    _assert_uuid(conversation_id)
+    async with get_pg_session(tenant_id) as session:
+        conv = (await session.execute(text(
+            "SELECT status FROM conversaciones WHERE id = :id AND widget_session_id = :sid"
+        ), {"id": conversation_id, "sid": body.widget_session_id})).mappings().fetchone()
+    if not conv:
+        raise HTTPException(status_code=404, detail="No encontramos la conversación. Iniciá una nueva.")
+    if conv["status"] != ConvStatus.BOT_ACTIVE:
+        return {"status": conv["status"]}
+    from services.handoff import clear_offer_pending, _consume_pending_offers
+    await clear_offer_pending(conversation_id)
+    await _consume_pending_offers(conversation_id, tenant_id)
+    return {"status": conv["status"]}
+
+
+# ── Cancelar la espera de operador (el afiliado vuelve al asistente) ──────────
 
 @router.post("/widget/conversation/{conversation_id}/cancel-handoff")
 async def cancel_handoff(
