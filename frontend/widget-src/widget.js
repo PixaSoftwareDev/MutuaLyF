@@ -663,9 +663,9 @@ import { ChatProtocol } from "../lib/chat-protocol";
   function _render(st) {
     _updateHeader(st);
     _renderFatal(st);
-    _renderMessages(st);
-    _renderChips(st);
-    _renderTyping(st);
+    var lastRow = _renderMessages(st);
+    _renderChips(st, lastRow);
+    _renderTyping(st, chipsEl || lastRow);
     _updateSendState();
     inputRow.classList.toggle("off", st.status === "closed");
     newConvBtn.classList.toggle("on", st.status === "closed");
@@ -702,14 +702,14 @@ import { ChatProtocol } from "../lib/chat-protocol";
   function _renderMessages(st) {
     var msgs = st.messages;
     var ids = new Set();
-    var recycled = {};  // contenido → fila optimista que acaba de irse (se reusa: sin parpadeo)
+    var recycled = {};  // id del optimista → su fila (se reusa al confirmarse: sin parpadeo)
     // 1) quitar filas que ya no están
     rows.forEach(function (el, id) {
       var still = false;
       for (var i = 0; i < msgs.length; i++) if (msgs[i].id === id) { still = true; break; }
       if (!still) {
         rows.delete(id);
-        if (id.indexOf("local-user") === 0 && el.__content) recycled[el.__content] = el; else el.remove();
+        if (id.indexOf("local-user") === 0) recycled[id] = el; else _disposeRow(el);
       }
     });
     // 2) crear/reordenar
@@ -718,8 +718,9 @@ import { ChatProtocol } from "../lib/chat-protocol";
       var m = msgs[i]; ids.add(m.id);
       var el = rows.get(m.id);
       if (!el) {
-        if (m.role === "user" && !m.local && recycled[m.content]) {
-          el = recycled[m.content]; delete recycled[m.content];
+        var fromLocal = m.role === "user" && !m.local ? chat.confirmedLocal.get(m.id) : null;
+        if (fromLocal && recycled[fromLocal]) {
+          el = recycled[fromLocal]; delete recycled[fromLocal];
           var ub = el.querySelector(".ia-w-bubble"); if (ub) ub.classList.remove("ia-pending");
         } else {
           el = _buildRow(m, st);
@@ -739,7 +740,22 @@ import { ChatProtocol } from "../lib/chat-protocol";
       if (ref !== el) bodyInner.insertBefore(el, ref);
       prev = el;
     }
-    Object.keys(recycled).forEach(function (k) { recycled[k].remove(); });
+    Object.keys(recycled).forEach(function (k) { _disposeRow(recycled[k]); });
+    return prev;
+  }
+
+  // Saca una fila del DOM y libera las imágenes/PDF que había bajado.
+  function _disposeRow(el) {
+    var blobs = el.querySelectorAll ? el.querySelectorAll("[data-blob]") : [];
+    for (var i = 0; i < blobs.length; i++) { try { URL.revokeObjectURL(blobs[i].getAttribute("data-blob")); } catch (_e) {} }
+    el.remove();
+  }
+
+  // Ubica `el` justo después de `anchor` SOLO si no está ya ahí: mover un nodo
+  // reinicia su animación CSS (el "escribiendo" parpadeaba en cada render).
+  function _placeAfter(el, anchor) {
+    var target = anchor ? anchor.nextSibling : bodyInner.firstChild;
+    if (target !== el) bodyInner.insertBefore(el, target);
   }
 
   function _avatarHTML(kind) {
@@ -803,6 +819,12 @@ import { ChatProtocol } from "../lib/chat-protocol";
     var resolved = st.status !== "bot_active";
     var sig = (resolved ? "resolved" : ui.phase) + "|" + st.afiliadoIdentified + "|" + st.sectors.length + "|" + (st.sectorChosen ? st.sectorId : "");
     if (sig === ui.sig) return;
+    // Formulario ya abierto y la conversación sigue con el bot: no se redibuja
+    // (antes llegaban los sectores o la píldora y se borraba el nombre/DNI tipeado).
+    if (!resolved && ui.phase === "form" && ui.sig.indexOf("form|") === 0 && row.querySelector(".hf-nombre")) {
+      ui.sig = sig; offerUI.set(m.id, ui);
+      return;
+    }
     ui.sig = sig; offerUI.set(m.id, ui);
 
     var inner;
@@ -834,7 +856,7 @@ import { ChatProtocol } from "../lib/chat-protocol";
 
     var offerBtn = row.querySelector(".hf-offer");
     if (offerBtn) offerBtn.addEventListener("click", function () {
-      if (st.afiliadoIdentified) _confirm(m.id, null);
+      if (chat.getState().afiliadoIdentified) _confirm(m.id, null);
       else { ui.phase = "form"; _syncOffer(row, m, chat.getState()); if (!_isMobile()) { var n = row.querySelector(".hf-nombre"); if (n) n.focus(); } }
     });
     var keepBtn = row.querySelector(".hf-keep");
@@ -864,7 +886,7 @@ import { ChatProtocol } from "../lib/chat-protocol";
   }
 
   // ── Chips de área (bajo el saludo) ──────────────────────────────────────────
-  function _renderChips(st) {
+  function _renderChips(st, anchor) {
     var show = !!st.conversationId && st.messages.length > 0 && st.status === "bot_active"
       && st.sectorsLoaded && st.sectors.length > 1 && !st.sectorChosen && !chipsDismissed && !st.fatal;
     if (!show) { if (chipsEl) { chipsEl.remove(); chipsEl = null; } return; }
@@ -882,15 +904,15 @@ import { ChatProtocol } from "../lib/chat-protocol";
         rowEl.appendChild(b);
       });
       var skip = document.createElement("button"); skip.type = "button"; skip.className = "ia-w-chip muted"; skip.textContent = "No importa";
-      skip.addEventListener("click", function () { chipsDismissed = true; _renderChips(chat.getState()); });
+      skip.addEventListener("click", function () { chipsDismissed = true; _render(chat.getState()); });
       rowEl.appendChild(skip);
       chipsEl.appendChild(hd); chipsEl.appendChild(rowEl);
     }
-    bodyInner.appendChild(chipsEl);  // siempre al final (después de los mensajes)
+    _placeAfter(chipsEl, anchor);  // después del último mensaje
   }
 
   // ── "Escribiendo…" (señal del servidor o envío en vuelo) ────────────────────
-  function _renderTyping(st) {
+  function _renderTyping(st, anchor) {
     var last = st.messages[st.messages.length - 1];
     var show = st.status === "bot_active" && (st.botTyping || st.sending > 0) && !(last && last.role === "bot");
     if (!show) { if (typingEl) { typingEl.remove(); typingEl = null; } return; }
@@ -899,8 +921,9 @@ import { ChatProtocol } from "../lib/chat-protocol";
       typingEl.className = "ia-w-row";
       typingEl.innerHTML = _avatarHTML("bot") + '<div class="ia-w-typing"><span></span><span></span><span></span></div>';
     }
-    bodyInner.appendChild(typingEl);
-    if (atBottom) _scrollBottom();
+    var wasPlaced = typingEl.parentNode === bodyInner;
+    _placeAfter(typingEl, anchor);
+    if (!wasPlaced && atBottom) _scrollBottom();
   }
 
   // ── Adjuntos (fetch autenticado del protocolo + object URL) ─────────────────
@@ -917,6 +940,7 @@ import { ChatProtocol } from "../lib/chat-protocol";
       .then(function (blob) {
         if (!blob) return;
         var burl = URL.createObjectURL(blob);
+        el.setAttribute("data-blob", burl);
         if (isImg) { el.src = burl; el.addEventListener("click", function () { window.open(burl, "_blank"); }); }
         else if (attach.mime === "application/pdf") { el.href = burl; el.setAttribute("target", "_blank"); el.setAttribute("rel", "noopener"); }
         else { el.href = burl; el.setAttribute("download", attach.name); }

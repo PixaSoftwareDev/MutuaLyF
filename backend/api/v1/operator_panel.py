@@ -13,7 +13,7 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 from sqlalchemy import text
 
 from core.database import get_pg_session
-from core.rate_limit import check_widget_rate_limit
+from core.rate_limit import check_public_ip_rate_limit
 from core.security import CurrentUser, Role, require_admin, require_operator, get_widget_or_chat_user, create_public_chat_token
 from core.tenant import get_tenant_id
 from services.handoff import ConvStatus, invalidate_config_cache
@@ -1004,9 +1004,9 @@ async def assert_chat_channel_enabled(tenant_id: str, channel: str) -> None:
         )
 
 
-@router.get("/public/chat-token", dependencies=[Depends(check_widget_rate_limit)])
+@router.get("/public/chat-token", dependencies=[Depends(check_public_ip_rate_limit)])
 async def public_chat_token(
-    header_tenant: str = Depends(get_tenant_id),
+    request: Request,
     tenant_id: str | None = Query(None, max_length=64, pattern="^[a-zA-Z0-9_-]*$"),
     channel: str = Query("widget", pattern="^(widget|link)$"),
 ):
@@ -1020,14 +1020,18 @@ async def public_chat_token(
     llamadas siguientes van con el JWT, cuyo claim tiene prioridad sobre la
     cabecera en el middleware. Sin query → cabecera (compat).
     `channel` decide qué interruptor se respeta: 'link' o 'widget'."""
-    tenant_id = (tenant_id or "").strip() or header_tenant
+    # La cabecera es solo respaldo (compat): no se exige, porque el tenant
+    # viene por query y un proxy sin X-Tenant-ID no debe romper el link.
+    tenant_id = (tenant_id or "").strip() or getattr(request.state, "tenant_id", None)
+    if not tenant_id:
+        raise HTTPException(status_code=400, detail="Falta indicar la organización.")
     async with get_pg_session() as session:
         row = await session.execute(
             text("SELECT 1 FROM tenants WHERE id = :tid AND status != 'suspended'"),
             {"tid": tenant_id},
         )
         if not row.fetchone():
-            raise HTTPException(status_code=404, detail="Tenant not found")
+            raise HTTPException(status_code=404, detail="No encontramos esta organización.")
     await assert_chat_channel_enabled(tenant_id, channel)
     return {"widget_token": create_public_chat_token(tenant_id), "tenant_id": tenant_id}
 

@@ -46,6 +46,8 @@
       this.localMessages = [];
       this.lastSeq = null;
       this.lastMessageId = null;
+      /** id del servidor → id del optimista que confirmó (los clientes reusan la fila). */
+      this.confirmedLocal = /* @__PURE__ */ new Map();
       // Long-poll: una versión por loop para que un loop viejo (conversación
       // renovada) muera al despertar en vez de correr en paralelo.
       this.pollVersion = 0;
@@ -53,6 +55,11 @@
       this.pollTimer = null;
       this.pollErrors = 0;
       this.starting = null;
+      // Generación de vida: stop() la incrementa y un _start en curso, al despertar
+      // de cada await, ve que quedó viejo y no arranca el poll (antes el long-poll
+      // seguía vivo si la pantalla se cerraba durante el arranque).
+      this.lifeGen = 0;
+      this.startingGen = -1;
       this.state = {
         conversationId: null,
         status: "bot_active",
@@ -146,14 +153,21 @@
     // ── Conversación ───────────────────────────────────────────────────────────
     /** Arranca (o reanuda) la conversación. Si ya hay un arranque en curso, lo reusa. */
     start(pendingMessage) {
-      if (this.starting) return this.starting;
-      this.starting = this._start(pendingMessage).finally(() => {
-        this.starting = null;
+      if (this.starting && this.startingGen === this.lifeGen) {
+        const running = this.starting;
+        return pendingMessage ? running.then(() => this.send(pendingMessage)) : running;
+      }
+      const gen = this.lifeGen;
+      this.startingGen = gen;
+      const p = this._start(pendingMessage, gen).finally(() => {
+        if (this.starting === p) this.starting = null;
       });
-      return this.starting;
+      this.starting = p;
+      return p;
     }
-    async _start(pendingMessage) {
+    async _start(pendingMessage, gen) {
       var _a, _b;
+      const alive = () => gen === this.lifeGen;
       this.stopPolling();
       this.serverMessages = [];
       this.localMessages = [];
@@ -174,29 +188,33 @@
       try {
         await this.ensureToken();
       } catch (e) {
-        this.set({ fatal: { status: (_a = e == null ? void 0 : e.status) != null ? _a : null } });
+        if (alive()) this.set({ fatal: { status: (_a = e == null ? void 0 : e.status) != null ? _a : null } });
         return;
       }
+      if (!alive()) return;
       try {
         const r = await this.authFetch(this.url("/widget/conversation/start"), {
           method: "POST",
           body: JSON.stringify({ widget_session_id: this.opts.sessionId, channel: this.opts.channel })
         });
+        if (!alive()) return;
         if (!r.ok) {
           this.set({ fatal: { status: r.status } });
           return;
         }
         const data = await r.json();
+        if (!alive()) return;
         this.set({
           conversationId: data.conversation_id,
           status: data.status || "bot_active",
           prevFeedbackConvId: (_b = data.prev_feedback_pending) != null ? _b : null
         });
         await this.poll(data.conversation_id, true);
+        if (!alive()) return;
         this.startPolling(data.conversation_id);
         if (pendingMessage) await this.send(pendingMessage);
       } catch (e) {
-        this.set({ fatal: { status: null } });
+        if (alive()) this.set({ fatal: { status: null } });
       }
     }
     /** Nueva conversación explícita (botón "Nueva consulta" tras un cierre). */
@@ -204,6 +222,7 @@
       await this.start();
     }
     stop() {
+      this.lifeGen++;
       this.stopPolling();
       this.pollVersion++;
     }
@@ -223,7 +242,8 @@
         if (!this.pollAlive || this.pollVersion !== myVersion) return;
         const ok = await this.poll(convId);
         if (!this.pollAlive || this.pollVersion !== myVersion) return;
-        const delay = ok ? 250 : Math.min(3e4, 1e3 * 2 ** Math.min(this.pollErrors, 5));
+        const hidden = typeof document !== "undefined" && document.visibilityState === "hidden";
+        const delay = !ok ? Math.min(3e4, 1e3 * 2 ** Math.min(this.pollErrors, 5)) : hidden ? 15e3 : 250;
         this.pollTimer = setTimeout(loop, delay);
       };
       loop();
@@ -234,6 +254,7 @@
         const qs = new URLSearchParams({ widget_session_id: this.opts.sessionId });
         if (force) qs.set("force", "1");
         else if (this.lastSeq !== null) qs.set("last_seq", String(this.lastSeq));
+        if (!force) qs.set("last_status", this.state.status);
         else if (this.lastMessageId) qs.set("last_message_id", this.lastMessageId);
         const r = await this.authFetch(this.url("/widget/conversation/".concat(convId, "/poll?").concat(qs.toString())));
         if (!r.ok) {
@@ -277,13 +298,19 @@
         const maxSeq = msgs.reduce((acc, m) => m.seq !== null && m.seq > acc ? m.seq : acc, -1);
         this.lastSeq = maxSeq >= 0 ? maxSeq : null;
       }
+      const used = /* @__PURE__ */ new Set();
       this.localMessages = this.localMessages.filter((l) => {
         if (l.role !== "user") return true;
-        const confirmed = msgs.some((m) => {
+        const match = msgs.find((m) => {
           var _a2;
-          return m.role === "user" && m.content === l.content && (l.seq === null || ((_a2 = m.seq) != null ? _a2 : 0) > l.seq);
+          return !used.has(m.id) && m.role === "user" && m.content === l.content && (l.seq === null || ((_a2 = m.seq) != null ? _a2 : 0) > l.seq);
         });
-        return !confirmed;
+        if (match) {
+          used.add(match.id);
+          this.confirmedLocal.set(match.id, l.id);
+          return false;
+        }
+        return true;
       });
       const status = data.status || this.state.status;
       this.set({
@@ -329,12 +356,21 @@
     // ── Enviar ─────────────────────────────────────────────────────────────────
     async send(text) {
       const content = text.trim();
-      const cid = this.state.conversationId;
-      if (!content || !cid) return;
+      if (!content) return;
       const optimisticId = localId("user");
       this.pushLocal({ id: optimisticId, role: "user", content });
       this.set({ sending: this.state.sending + 1 });
       try {
+        let cid = this.state.conversationId;
+        if (!cid && this.starting) {
+          await this.starting;
+          cid = this.state.conversationId;
+        }
+        if (!cid) {
+          this.removeLocal(optimisticId);
+          this.pushError(this.texts.networkDown, () => this.send(content));
+          return;
+        }
         const r = await this.authFetch(this.url("/widget/conversation/".concat(cid, "/message")), {
           method: "POST",
           body: JSON.stringify({ content, widget_session_id: this.opts.sessionId })
@@ -1103,9 +1139,9 @@
     function _render(st) {
       _updateHeader(st);
       _renderFatal(st);
-      _renderMessages(st);
-      _renderChips(st);
-      _renderTyping(st);
+      var lastRow = _renderMessages(st);
+      _renderChips(st, lastRow);
+      _renderTyping(st, chipsEl || lastRow);
       _updateSendState();
       inputRow.classList.toggle("off", st.status === "closed");
       newConvBtn.classList.toggle("on", st.status === "closed");
@@ -1158,8 +1194,8 @@
         }
         if (!still) {
           rows.delete(id);
-          if (id.indexOf("local-user") === 0 && el2.__content) recycled[el2.__content] = el2;
-          else el2.remove();
+          if (id.indexOf("local-user") === 0) recycled[id] = el2;
+          else _disposeRow(el2);
         }
       });
       var prev = null;
@@ -1168,9 +1204,10 @@
         ids.add(m.id);
         var el = rows.get(m.id);
         if (!el) {
-          if (m.role === "user" && !m.local && recycled[m.content]) {
-            el = recycled[m.content];
-            delete recycled[m.content];
+          var fromLocal = m.role === "user" && !m.local ? chat.confirmedLocal.get(m.id) : null;
+          if (fromLocal && recycled[fromLocal]) {
+            el = recycled[fromLocal];
+            delete recycled[fromLocal];
             var ub = el.querySelector(".ia-w-bubble");
             if (ub) ub.classList.remove("ia-pending");
           } else {
@@ -1192,8 +1229,23 @@
         prev = el;
       }
       Object.keys(recycled).forEach(function(k) {
-        recycled[k].remove();
+        _disposeRow(recycled[k]);
       });
+      return prev;
+    }
+    function _disposeRow(el) {
+      var blobs = el.querySelectorAll ? el.querySelectorAll("[data-blob]") : [];
+      for (var i = 0; i < blobs.length; i++) {
+        try {
+          URL.revokeObjectURL(blobs[i].getAttribute("data-blob"));
+        } catch (_e) {
+        }
+      }
+      el.remove();
+    }
+    function _placeAfter(el, anchor) {
+      var target = anchor ? anchor.nextSibling : bodyInner.firstChild;
+      if (target !== el) bodyInner.insertBefore(el, target);
     }
     function _avatarHTML(kind) {
       if (kind === "op") return '<div class="ia-w-bavatar op">' + ICON_USERCHECK + "</div>";
@@ -1268,6 +1320,11 @@
       var resolved = st.status !== "bot_active";
       var sig = (resolved ? "resolved" : ui.phase) + "|" + st.afiliadoIdentified + "|" + st.sectors.length + "|" + (st.sectorChosen ? st.sectorId : "");
       if (sig === ui.sig) return;
+      if (!resolved && ui.phase === "form" && ui.sig.indexOf("form|") === 0 && row.querySelector(".hf-nombre")) {
+        ui.sig = sig;
+        offerUI.set(m.id, ui);
+        return;
+      }
       ui.sig = sig;
       offerUI.set(m.id, ui);
       var inner;
@@ -1295,7 +1352,7 @@
       _renderTextWithLinks(m.content, row.querySelector(".ia-w-hf-txt"));
       var offerBtn = row.querySelector(".hf-offer");
       if (offerBtn) offerBtn.addEventListener("click", function() {
-        if (st.afiliadoIdentified) _confirm(m.id, null);
+        if (chat.getState().afiliadoIdentified) _confirm(m.id, null);
         else {
           ui.phase = "form";
           _syncOffer(row, m, chat.getState());
@@ -1352,7 +1409,7 @@
         }
       });
     }
-    function _renderChips(st) {
+    function _renderChips(st, anchor) {
       var show = !!st.conversationId && st.messages.length > 0 && st.status === "bot_active" && st.sectorsLoaded && st.sectors.length > 1 && !st.sectorChosen && !chipsDismissed && !st.fatal;
       if (!show) {
         if (chipsEl) {
@@ -1389,15 +1446,15 @@
         skip.textContent = "No importa";
         skip.addEventListener("click", function() {
           chipsDismissed = true;
-          _renderChips(chat.getState());
+          _render(chat.getState());
         });
         rowEl.appendChild(skip);
         chipsEl.appendChild(hd);
         chipsEl.appendChild(rowEl);
       }
-      bodyInner.appendChild(chipsEl);
+      _placeAfter(chipsEl, anchor);
     }
-    function _renderTyping(st) {
+    function _renderTyping(st, anchor) {
       var last = st.messages[st.messages.length - 1];
       var show = st.status === "bot_active" && (st.botTyping || st.sending > 0) && !(last && last.role === "bot");
       if (!show) {
@@ -1412,8 +1469,9 @@
         typingEl.className = "ia-w-row";
         typingEl.innerHTML = _avatarHTML("bot") + '<div class="ia-w-typing"><span></span><span></span><span></span></div>';
       }
-      bodyInner.appendChild(typingEl);
-      if (atBottom) _scrollBottom();
+      var wasPlaced = typingEl.parentNode === bodyInner;
+      _placeAfter(typingEl, anchor);
+      if (!wasPlaced && atBottom) _scrollBottom();
     }
     function _renderAttachment(m, parentEl) {
       var attach = m.attachment;
@@ -1439,6 +1497,7 @@
       }).then(function(blob) {
         if (!blob) return;
         var burl = URL.createObjectURL(blob);
+        el.setAttribute("data-blob", burl);
         if (isImg) {
           el.src = burl;
           el.addEventListener("click", function() {

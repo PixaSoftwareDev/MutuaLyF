@@ -109,6 +109,8 @@ export class ChatProtocol {
   private localMessages: ChatMessage[] = [];
   private lastSeq: number | null = null;
   private lastMessageId: string | null = null;
+  /** id del servidor → id del optimista que confirmó (los clientes reusan la fila). */
+  readonly confirmedLocal = new Map<string, string>();
 
   // Long-poll: una versión por loop para que un loop viejo (conversación
   // renovada) muera al despertar en vez de correr en paralelo.
@@ -117,6 +119,11 @@ export class ChatProtocol {
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
   private pollErrors = 0;
   private starting: Promise<void> | null = null;
+  // Generación de vida: stop() la incrementa y un _start en curso, al despertar
+  // de cada await, ve que quedó viejo y no arranca el poll (antes el long-poll
+  // seguía vivo si la pantalla se cerraba durante el arranque).
+  private lifeGen = 0;
+  private startingGen = -1;
 
   private state: ChatState = {
     conversationId: null,
@@ -218,12 +225,23 @@ export class ChatProtocol {
 
   /** Arranca (o reanuda) la conversación. Si ya hay un arranque en curso, lo reusa. */
   start(pendingMessage?: string): Promise<void> {
-    if (this.starting) return this.starting;
-    this.starting = this._start(pendingMessage).finally(() => { this.starting = null; });
-    return this.starting;
+    if (this.starting && this.startingGen === this.lifeGen) {
+      // Ya hay un arranque de esta vida: se reusa, y el mensaje pendiente se
+      // envía cuando termine (antes se descartaba en silencio).
+      const running = this.starting;
+      return pendingMessage ? running.then(() => this.send(pendingMessage)) : running;
+    }
+    const gen = this.lifeGen;
+    this.startingGen = gen;
+    const p: Promise<void> = this._start(pendingMessage, gen).finally(() => {
+      if (this.starting === p) this.starting = null;
+    });
+    this.starting = p;
+    return p;
   }
 
-  private async _start(pendingMessage?: string): Promise<void> {
+  private async _start(pendingMessage: string | undefined, gen: number): Promise<void> {
+    const alive = () => gen === this.lifeGen;
     this.stopPolling();
     this.serverMessages = [];
     this.localMessages = [];
@@ -237,26 +255,30 @@ export class ChatProtocol {
     try {
       await this.ensureToken();
     } catch (e) {
-      this.set({ fatal: { status: (e as { status?: number })?.status ?? null } });
+      if (alive()) this.set({ fatal: { status: (e as { status?: number })?.status ?? null } });
       return;
     }
+    if (!alive()) return;
     try {
       const r = await this.authFetch(this.url("/widget/conversation/start"), {
         method: "POST",
         body: JSON.stringify({ widget_session_id: this.opts.sessionId, channel: this.opts.channel }),
       });
+      if (!alive()) return;
       if (!r.ok) { this.set({ fatal: { status: r.status } }); return; }
       const data = await r.json();
+      if (!alive()) return;
       this.set({
         conversationId: data.conversation_id,
         status: (data.status || "bot_active") as ChatStatus,
         prevFeedbackConvId: data.prev_feedback_pending ?? null,
       });
       await this.poll(data.conversation_id, true);
+      if (!alive()) return;
       this.startPolling(data.conversation_id);
       if (pendingMessage) await this.send(pendingMessage);
     } catch {
-      this.set({ fatal: { status: null } });
+      if (alive()) this.set({ fatal: { status: null } });
     }
   }
 
@@ -266,6 +288,7 @@ export class ChatProtocol {
   }
 
   stop(): void {
+    this.lifeGen++;
     this.stopPolling();
     this.pollVersion++;
   }
@@ -285,7 +308,11 @@ export class ChatProtocol {
       const ok = await this.poll(convId);
       if (!this.pollAlive || this.pollVersion !== myVersion) return;
       // Backoff ante errores (red caída, 5xx): 1 s, 2 s, 4 s… hasta 30 s.
-      const delay = ok ? 250 : Math.min(30000, 1000 * 2 ** Math.min(this.pollErrors, 5));
+      // Backoff ante errores (red caída, 5xx): 1 s, 2 s, 4 s… hasta 30 s. Con la
+      // pestaña/app oculta el poll se espacia (15 s); al volver, los clientes
+      // llaman refresh() y el loop retoma el ritmo normal.
+      const hidden = typeof document !== "undefined" && document.visibilityState === "hidden";
+      const delay = !ok ? Math.min(30000, 1000 * 2 ** Math.min(this.pollErrors, 5)) : hidden ? 15000 : 250;
       this.pollTimer = setTimeout(loop, delay);
     };
     loop();
@@ -297,6 +324,9 @@ export class ChatProtocol {
       const qs = new URLSearchParams({ widget_session_id: this.opts.sessionId });
       if (force) qs.set("force", "1");
       else if (this.lastSeq !== null) qs.set("last_seq", String(this.lastSeq));
+      // El servidor también responde ya si el estado cambió (operador tomó la
+      // charla entre dos polls): sin esto el cambio esperaba el próximo evento.
+      if (!force) qs.set("last_status", this.state.status);
       else if (this.lastMessageId) qs.set("last_message_id", this.lastMessageId);
       const r = await this.authFetch(this.url(`/widget/conversation/${convId}/poll?${qs.toString()}`));
       if (!r.ok) {
@@ -342,11 +372,17 @@ export class ChatProtocol {
       this.lastSeq = maxSeq >= 0 ? maxSeq : null;
     }
     // Los optimistas se retiran cuando el servidor ya trae ese mensaje del
-    // usuario (mismo contenido, posterior a cuando se envió).
+    // usuario (mismo contenido, posterior a cuando se envió). Cada mensaje del
+    // servidor confirma A LO SUMO un optimista: con "hola" dos veces seguidas,
+    // el primero confirmado ya no se lleva también al segundo.
+    const used = new Set<string>();
     this.localMessages = this.localMessages.filter(l => {
       if (l.role !== "user") return true;
-      const confirmed = msgs.some(m => m.role === "user" && m.content === l.content && (l.seq === null || (m.seq ?? 0) > l.seq));
-      return !confirmed;
+      const match = msgs.find(m =>
+        !used.has(m.id) && m.role === "user" && m.content === l.content
+        && (l.seq === null || (m.seq ?? 0) > l.seq));
+      if (match) { used.add(match.id); this.confirmedLocal.set(match.id, l.id); return false; }
+      return true;
     });
     const status = (data.status || this.state.status) as ChatStatus;
     this.set({
@@ -394,12 +430,23 @@ export class ChatProtocol {
 
   async send(text: string): Promise<void> {
     const content = text.trim();
-    const cid = this.state.conversationId;
-    if (!content || !cid) return;
+    if (!content) return;
     const optimisticId = localId("user");
     this.pushLocal({ id: optimisticId, role: "user", content });
     this.set({ sending: this.state.sending + 1 });
     try {
+      // Enviado mientras la conversación arranca (o se reinicia tras un 410):
+      // se espera el arranque en vez de descartar el texto en silencio.
+      let cid = this.state.conversationId;
+      if (!cid && this.starting) {
+        await this.starting;
+        cid = this.state.conversationId;
+      }
+      if (!cid) {
+        this.removeLocal(optimisticId);
+        this.pushError(this.texts.networkDown, () => this.send(content));
+        return;
+      }
       const r = await this.authFetch(this.url(`/widget/conversation/${cid}/message`), {
         method: "POST",
         body: JSON.stringify({ content, widget_session_id: this.opts.sessionId }),

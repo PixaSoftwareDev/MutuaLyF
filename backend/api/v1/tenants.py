@@ -1304,7 +1304,7 @@ async def chat_tester_token(
     no lo bloquea) y vence solo.
     """
     if current_user.role.value != "super_admin" and current_user.tenant_id != tenant_id:
-        raise HTTPException(status_code=403, detail="Cannot generate token for another tenant")
+        raise HTTPException(status_code=403, detail="No podés abrir el chat de prueba de otra organización.")
     return WidgetTokenResponse(
         widget_token=create_public_chat_token(tenant_id, test=True),
         tenant_id=tenant_id,

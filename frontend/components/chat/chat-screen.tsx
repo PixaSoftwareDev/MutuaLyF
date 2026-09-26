@@ -344,6 +344,11 @@ function HandoffOfferBubble({
     if (sectorId) return;
     setSectorId(preselectedSectorId || sectors.find(s => s.is_default)?.id || sectors[0]?.id || "");
   }, [sectors, preselectedSectorId, sectorId]);
+  // Si el afiliado elige área por chip DESPUÉS de que apareció la tarjeta, esa
+  // elección manda (antes quedaba fijado el default y derivaba a otra cola).
+  useEffect(() => {
+    if (preselectedSectorId) setSectorId(preselectedSectorId);
+  }, [preselectedSectorId]);
   const [err, setErr]       = useState<string | null>(null);
   const [dismissed, setDismissed] = useState(false);
 
@@ -353,7 +358,9 @@ function HandoffOfferBubble({
     const d = dni.trim();
     if (!n) { setErr("Decinos tu nombre, por favor."); return; }
     if (!d) { setErr("Decinos tu DNI o número de documento, por favor."); return; }
-    onConfirm({ afiliado_nombre: n, afiliado_dni: d, ...(sectors.length > 1 && sectorId ? { sector_id: sectorId } : {}) });
+    // El sector solo viaja si se eligió en ESTE formulario (select visible). Si
+    // ya se eligió por chip, lo completa el protocolo con el del servidor.
+    onConfirm({ afiliado_nombre: n, afiliado_dni: d, ...(askSector && sectorId ? { sector_id: sectorId } : {}) });
   }
 
   const askSector = sectors.length > 1 && !preselectedSectorId;

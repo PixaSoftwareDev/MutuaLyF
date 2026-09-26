@@ -71,6 +71,18 @@ async def check_widget_rate_limit(
 ) -> None:
     """FastAPI dependency para el endpoint de mensajes del widget. Limita por IP
     del solicitante (X-Forwarded-For de Nginx → fallback al peer). Raises 429."""
+    await _check_ip_rate_limit(request, tenant_id)
+
+
+async def check_public_ip_rate_limit(request: Request) -> None:
+    """Mismo límite por IP para endpoints públicos que NO requieren tenant
+    resuelto (el token del chat por link recibe el tenant por query). La clave
+    usa el tenant de la query si viene, o "public"."""
+    tenant = (request.query_params.get("tenant_id") or "").strip() or getattr(request.state, "tenant_id", None) or "public"
+    await _check_ip_rate_limit(request, tenant)
+
+
+async def _check_ip_rate_limit(request: Request, tenant_id: str) -> None:
     limit = settings.widget_rate_limit_per_minute
     if limit <= 0:
         return  # DESACTIVADO (ej. pruebas de concurrencia)

@@ -18,7 +18,7 @@ import uuid
 
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 
@@ -707,13 +707,15 @@ async def poll_messages(
     widget_session_id: str,
     last_message_id: str | None = None,
     last_seq: int | None = None,
+    last_status: str | None = Query(None, max_length=32),
     force: bool = False,
     tenant_id: str = Depends(get_tenant_id),
     widget_user: CurrentUser = Depends(get_widget_or_chat_user),
 ):
     """Long-polling: devuelve al instante si hay mensajes nuevos desde el ancla
-    o cambió el estado; si no, mantiene la request abierta hasta ~25 s
-    esperando un evento del pub/sub, y al vencer devuelve el snapshot actual.
+    o si el estado difiere del que tiene el cliente (`last_status`); si no,
+    mantiene la request abierta hasta ~25 s esperando un evento del pub/sub, y
+    al vencer devuelve el snapshot actual.
 
     Ancla: `last_seq` (monotónica, preferida) o `last_message_id` (compat con
     clientes viejos). Sin ancla o con `force=1` → snapshot inmediato (primer
@@ -745,6 +747,10 @@ async def poll_messages(
             behind = bool(msgs) and any((m["seq"] or 0) > last_seq for m in msgs)
         else:
             behind = bool(msgs) and msgs[-1]["id"] != last_message_id
+        # Estado cambiado entre dos polls (operador tomó/cerró la charla): el
+        # evento ya pasó, así que se responde ya en vez de esperar al próximo.
+        if last_status is not None and snapshot["status"] != last_status:
+            behind = True
         if behind:
             return snapshot
 
